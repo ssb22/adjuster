@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.543 (c) 2012-13 Silas S. Brown"
+program_name = "Annotator Generator v0.546 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -173,12 +173,16 @@ parser.add_option("--warn-yarowsky",
 parser.add_option("--yarowsky-all",
                   action="store_true",default=False,
                   help="Accept Yarowsky seed collocations even from input characters that never occur in annotated words (this might include punctuation and example-separation markup)")
+parser.add_option("--yarowsky-debug",default=1,
+                  help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
 
 parser.add_option("--single-words",
                   action="store_true",default=False,
                   help="Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.")
 parser.add_option("--max-words",default=0,
                   help="Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one.")
+
+# TODO: optionally (especially if NOT using Yarowsky) do an additional pass (after discovering all other rules) and turn whole phrases that are not completely covered by other rules into whole-phrase rules, if it doesn't conflict 1 phrase w. anothr of equal priority; shld be ok if no overlap, overlaps wld *sometimes* be ok suggest a len threshold
 
 parser.add_option("--checkpoint",help="Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.")
 # (Condor can checkpoint an application on Win/Mac/Linux but is awkward to set up.  Various Linux and BSD application checkpoint approaches also exist; another option is virtualisation.)
@@ -202,6 +206,8 @@ if primitive and ybytes: sys.stderr.write("Warning: primitive will override ybyt
 if ybytes: ybytes=int(ybytes)
 if ybytes_max: ybytes_max=int(ybytes_max)
 else: ybytes_max = ybytes
+if yarowsky_debug: yarowsky_debug=int(yarowsky_debug)
+else: yarowsky_debug = 0
 ybytes_step = int(ybytes_step)
 maxrefs = int(maxrefs)
 ymax_threshold = int(ymax_threshold)
@@ -324,7 +330,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
                 ret.append((action+" return;").strip())
                 ret.append("}")
             else:
-                if default_action: sys.stderr.write("WARNING! More than one default action in "+repr(byteSeq_to_action_dict[""])+" - earlier one discarded!\n(This might indicate invalid markup in the corpus)\n") # see TODO in yarowsky_indicators
+                if default_action: sys.stderr.write("WARNING! More than one default action in "+repr(byteSeq_to_action_dict[""])+" - earlier one discarded!\n(This might indicate invalid markup in the corpus)\n") # see TODO in yarowsky_indicators. (TODO: we sometimes also get this if an incremental run has updated the annotation; why doesn't remove_old_rules prevent this? see also the TODO there re yBytesRet)
                 default_action = action
         if default_action or not byteSeq_to_action_dict[""]: ret.append((default_action+" return;").strip()) # (return only if there was a default action, OR if an empty "" was in the dict with NO conditional actions (e.g. from the common-case optimisation above).  Otherwise, if there were conditional actions but no default, we didn't "match" anything if none of the conditions were satisfied.)
     return ret # caller does '\n'.join
@@ -1151,10 +1157,11 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
         # if not re.search(re.escape(mdStart)+reduce(lambda x,y:re.escape(y)+"("+x+")?",reversed(list(nonAnnot[:-1])))+re.escape(mdEnd),corpus_unistr): return True
         # Might also have an exception if there is no possibility of a rule BC, i.e. no word in corpus_unistr whose marked-down version starts with any of the strings nonAnnot[1:] [2:] ... [-1:]
         # if not re.search(re.escape(mdStart)+reduce(lambda x,y:"("+x+")?"+re.escape(y),list(nonAnnot[1:])),corpus_unistr): return True
-        # + might have an exception if can confirm from all badStarts that the marked-down version of the rule applied (if one starts at that badStart) is at least as long as nonAnnot
+        # + might have an exception if can confirm from all badStarts that the marked-down version of the rule applied (if one starts at that badStart) is at least as long as nonAnnot.  A special case of this (which should be easier to check) is if all badStarts begin with a single word that starts with nonAnnot, in which case they ought to be able to find collocations:
+        # if all(b in c2m_inverse and corpus_unistr[c2m_inverse[b]:c2m_inverse[b]+len(mdStart)+len(nonAnnot)]==mdStart+nonAnnot for b in badStarts): return True
         # Or just directly check for "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
         llen = len(mdStart)+len(nonAnnot)
-        if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+(re.escape(mdEnd)+".*?"+re.escape(mdStart)).join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
+        if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+("("+re.escape(mdEnd)+"((?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?").join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
           if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case rule after checking for dangerous overlaps etc\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
           return True
         # (This exception might under-match if there's the appearance of a split rule but it actually has extra non-marked-up text in between.  But it shouldn't over-match.)
@@ -1162,14 +1169,14 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     if ybytes_max > ybytes and (not ymax_threshold or len(nonAnnot) <= ymax_threshold):
       retList = [] ; append=retList.append
       for nbytes in range(ybytes,ybytes_max+1,ybytes_step):
-        ret,covered,toCover = tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts)
+        ret,covered,toCover = tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr)
         if covered==toCover and len(ret)==1: return (ret,nbytes) # a single indicator that covers everything will be better than anything else we'll find
         append((-covered,len(ret),nbytes,toCover,ret)) # (1st 3 of these are the sort keys: maximum coverage, THEN minimum num indicators for the same coverage, THEN minimum nbytes (TODO: problems of very large nbytes might outweigh having more indicators; break if found 100% coverage by N?)  toCover should always ==len(okStarts).)
         # TODO: try finding an OR-combination of indicators at *different* proximity lengths ?
       retList.sort() ; ret = retList[0][-1]
       distance = retList[0][2]
     else:
-      ret = tryNBytes(ybytes_max,markedDown,nonAnnot,badStarts,okStarts)[0]
+      ret = tryNBytes(ybytes_max,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr)[0]
       if ybytes < ybytes_max: distance = ybytes_max
       else: distance = None # all the same anyway
     if not ret and warn_yarowsky: sys.stderr.write("Couldn't find ANY Yarowsky-like indicators for %s   \n" % (withAnnot_unistr.encode(terminal_charset,'replace')))
@@ -1199,7 +1206,7 @@ def getReallyBadStarts(badStarts,nonAnnot):
       if e-s > nonAnnotLen: continue # this word is too long, should be matched by a longer rule 1st
       append(b) # to reallyBadStarts
     return reallyBadStarts
-def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts):
+def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr):
     def bytesAround(start): return within_Nbytes(markedDown,start+len(nonAnnot),nbytes)
     omitStr = unichr(1).join(bytesAround(s) for s in badStarts)
     okStrs=[bytesAround(s) for s in okStarts]
@@ -1214,23 +1221,31 @@ def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts):
     if nonAnnot==diagnose:
       if ret: indicators = "indicators "+'/'.join(ret)
       else: indicators = "no indicators"
+      if len(omitStr) > 200: omitStr = omitStr[:200]+"..."
       sys.stderr.write(("Diagnose: tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts\n" % (nbytes,withAnnot_unistr,indicators,omitStr.replace(unichr(1),'/'),sum(1 for x in covered if x),len(covered))).encode(terminal_charset,'replace'))
     return ret,sum(1 for x in covered if x),len(covered)
 
 def badInfo(badStarts,nonAnnot,markedDown):
-  if not len(badStarts)==1: return "%d false positives" % len(badStarts)
-  # 1 badStart: might want to look at this
-  i = list(badStarts)[0] ; i1 = i + len(nonAnnot)
-  i0 = max(0,i-5) ; i2 = i1 + 5
-  toRead = markedDown
-  if i in c2m_inverse and i1 in c2m_inverse:
-    i00,i22 = i0,i2
-    while i00 not in c2m_inverse and 0<i00<i0-5: i00-=1
-    while i22 not in c2m_inverse and i22<i2+5: i22+=1
-    if i00 in c2m_inverse and i22 in c2m_inverse:
-      toRead = corpus_unistr
-      i0,i,i1,i2 = i00,c2m_inverse[i],c2m_inverse[i1],i22
-  return (u"1 false positive (%s **%s** %s)" % (toRead[i0:i],toRead[i:i1],toRead[i1:i2])).encode(terminal_charset,'replace')
+  ret = "%d false positive" % len(badStarts)
+  if not len(badStarts)==1: ret += "s"
+  if len(badStarts) > yarowsky_debug: return ret
+  for wordStart in badStarts:
+   wordEnd = wordStart + len(nonAnnot)
+   contextStart,contextEnd=max(0,wordStart-5),wordEnd+5
+   toRead = markedDown
+   # but can we report it from the original corpus_unistr?
+   if wordStart in c2m_inverse and wordEnd in c2m_inverse:
+    toRead = corpus_unistr
+    wordStart,wordEnd = c2m_inverse[wordStart],c2m_inverse[wordEnd]
+    newCStart,newCEnd = contextStart,contextEnd
+    while newCStart not in c2m_inverse and newCStart >= contextStart-5: newCStart-=1
+    while newCEnd not in c2m_inverse and newCEnd<contextEnd+5: newCEnd+=1
+    if newCStart in c2m_inverse: contextStart = c2m_inverse[newCStart]
+    else: contextStart = max(0,wordStart - 15) # This might cut across markup, but better that than failing to report the original corpus and making it look like the words might not have "lined up" when actually they did.  Might also just cut into surrounding non-markup text (if the above loop simply couldn't find anything near enough because such text was in the way).
+    if newCEnd in c2m_inverse: contextEnd = c2m_inverse[newCEnd]
+    else: contextEnd = wordEnd + 15 # ditto
+   ret += (u" (%s%s%s%s%s)" % (toRead[contextStart:wordStart],reverse_on,toRead[wordStart:wordEnd],reverse_off,toRead[wordEnd:contextEnd])).encode(terminal_charset,'replace')
+  return ret
 
 def unique_substrings(texts,allowedChars,omitFunc,valueFunc):
     # yield unique substrings of texts, in increasing length, with equal lengths sorted by highest score returned by valueFunc, and omitting any where omitFunc is true, or that uses any character not in allowedChars (allowedChars==None means all allowed)
@@ -1385,7 +1400,7 @@ class RulesAccumulator:
     sys.stderr.write("done\n")
     self.amend_rules = True
     self.newRules = set()
-  def remove_old_rules(self,words): # for incremental runs
+  def remove_old_rules(self,words,markedUp,markedDown): # for incremental runs
     for w in set(words):
       rulesAsWordlists = self.rulesAsWordlists_By1stWord.get(w,[])
       i=0
@@ -1395,7 +1410,8 @@ class RulesAccumulator:
         rule = " ".join(rulesAsWordlists[i])
         if rule in self.newRules:
           i += 1 ; continue # we've discovered this one on THIS run, don't re-remove it
-        if checkCoverage(rulesAsWordlists[i],words,[False]*len(words)):
+        if checkCoverage(rulesAsWordlists[i],words,[False]*len(words)) and (not test_rule(rule,markedUp,markedDown,[]) or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i],markedDown)): # rule would apply to the new phrase, and re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So re-test before removal (TODO: do something with the yBytesRet parameter to test_rule?)
+          self.rejectedRules.add(rule)
           if not ybytes:
             try: self.rulesAsWordlists.remove(rulesAsWordlists[i])
             except: pass
@@ -1413,7 +1429,7 @@ class RulesAccumulator:
     # first see how much is covered by existing rules
     # (don't have to worry about the order, as we've been
     # careful about overlaps)
-    if self.amend_rules: self.remove_old_rules(words)
+    if self.amend_rules: self.remove_old_rules(words,markedUp,markedDown)
     for w in set(words):
      for rulesAsWordlists in self.rulesAsWordlists_By1stWord.get(w,[]):
       for ruleAsWordlist in rulesAsWordlists:
@@ -1681,21 +1697,31 @@ def outputRulesSummary(rules):
     if summary_omit: omit=set(openfile(summary_omit).read().split("\n"))
     else: omit=[]
     if reference_sep and not norefs and not no_input:
-        references = corpus_unistr.split(reference_sep)
         def refs(r):
-            ret = []
-            for ref in references:
-                if r in ref and ref_name_end in ref:
-                    app = ref[:ref.index(ref_name_end)]
-                    if not app in ret: ret.append(app)
-                    if len(ret)==maxrefs: break
-            if ret: return "\t"+"; ".join(ret)
-            else: return ""
+          ret = [] ; s = 0
+          while len(ret) < maxrefs and s>=0:
+            i = corpus_unistr.find(r,s)
+            if i<0: break
+            rS = corpus_unistr.rfind(reference_sep,s,i)
+            if rS >= 0:
+              rS += len(reference_sep)
+              rE = corpus_unistr.find(ref_name_end,rS,i)
+              if rE >= 0:
+                app = corpus_unistr[rS:rE]
+                if not app in ret: ret.append(app)
+            s = corpus_unistr.find(reference_sep,i)
+          if ret: return "\t"+"; ".join(ret)
+          else: return ""
     else:
         def refs(r): return ""
     if type(rules)==type([]): annotOrigRuleCondList = [(annotationOnly(r),markDown(r),r,[]) for r in rules]
     else: annotOrigRuleCondList = [(annotationOnly(k),markDown(k),k,v) for k,v in rules.iteritems()]
+    count = 1 ; t = time.time()
     for annot,orig,rule,conditions in sorted(annotOrigRuleCondList):
+        if time.time() >= t + 2:
+          sys.stderr.write(("(%d of %d)" % (count,len(annotOrigRuleCondList)))+clear_eol)
+          t = time.time()
+        count += 1
         toPrn = orig.encode(outcode)+"\t"+annot.encode(outcode)
         if not type(rules)==type([]):
             toPrn += "\t"
@@ -1703,6 +1729,7 @@ def outputRulesSummary(rules):
                 if type(conditions)==tuple: toPrn += "if within "+str(conditions[1])+" bytes of "+" or ".join(conditions[0]).encode(outcode)
                 else: toPrn += "if near "+" or ".join(conditions).encode(outcode)
         if not toPrn in omit: print (toPrn+refs(rule).encode(outcode)).replace('/*','').replace('*/','')
+    sys.stderr.write("\n")
 
 def isatty(f): return hasattr(f,"isatty") and f.isatty()
     
@@ -1726,13 +1753,14 @@ def set_title(t):
   if t: atexit.register(set_title,"")
   term = os.environ.get("TERM","")
   is_xterm = "xterm" in term
-  global clear_eol # by the way:
-  if is_xterm or term in ["screen","linux"]: clear_eol="\x1b[K\r" # use ANSI escape instead of overwriting with spaces
+  global clear_eol,reverse_on,reverse_off # by the way:
+  if is_xterm or term in ["screen","linux"]: clear_eol,reverse_on,reverse_off="\x1b[K\r","\x1b[7m","\x1b[0m" # use ANSI escapes instead of overwriting with spaces or using **'s (use reverse rather than bold etc, as reverse is more widely supported)
   is_screen = (term=="screen" and os.environ.get("STY",""))
   is_tmux = (term=="screen" and os.environ.get("TMUX",""))
   if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
 clear_eol = "  \r" # hope 2 spaces enough to overwrite old (don't want to risk going onto next line)
+reverse_on,reverse_off = " **","** "
 
 if checkpoint:
   try: os.mkdir(checkpoint)
