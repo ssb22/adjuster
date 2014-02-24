@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.371 (c) 2012 Silas S. Brown"
+program_name = "Annotator Generator v0.411 (c) 2012 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,9 +16,14 @@ program_name = "Annotator Generator v0.371 (c) 2012 Silas S. Brown"
 
 from optparse import OptionParser
 parser = OptionParser()
-import sys,os,tempfile,time,re
+import sys,os,os.path,tempfile,time,re
 if not "mac" in sys.platform and not "darwin" in sys.platform and ("win" in sys.platform or "mingw32" in sys.platform): exe=".exe" # Windows, Cygwin, etc
 else: exe=""
+
+try: import cPickle as pickle
+except:
+  try: import pickle
+  except: pickle = None
 
 #  =========== INPUT OPTIONS ==============
 
@@ -68,13 +73,28 @@ parser.add_option("-c", "--capitalisation",
                   help="Don't try to normalise capitalisation in the input.  Normally, to simplify the rules, the analyser will try to remove start-of-sentence capitals in annotations, so that the only remaining words with capital letters are the ones that are ALWAYS capitalised such as names.  (That's not perfect: it's possible that some words will always be capitalised just because they happen to never occur mid-sentence in the examples.)  If this option is used, the analyser will instead try to \"learn\" how to predict the capitalisation of ALL words (including start of sentence words) from their contexts.") # TODO: make the C program put the sentence capitals back
 
 parser.add_option("--glossfile",
-                  help="Filename of a text file (or a compressed .gz or .bz2 file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
+                  help="Filename of an optional text file (or compressed .gz or .bz2 file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 
 #  =========== OUTPUT OPTIONS ==============
 
+parser.add_option("--rulesFile",help="Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz or .bz2 for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will first of all be read from it before generating any new rules. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.") # You may however change whether or not a --single-words option applies to the new examples (but hopefully shouldn't have to)
+
+parser.add_option("--no-input",
+                  action="store_true",default=False,
+                  help="Don't actually read the input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options.")
+
 parser.add_option("--c-filename",default=tempfile.gettempdir()+os.sep+"annotator.c",help="Where to write the C program if standard output is not connected to a pipe. Defaults to annotator.c in the system temporary directory (the program might be large, especially if Yarowsky indicators are not used, so it's best not to use a server home directory where you might have limited quota). If standard output is connected to a pipe, then this option is ignored and C code is written to the pipe instead.")
 
-parser.add_option("--c-compiler",default="gcc -o annotator"+exe,help="The C compiler to run if standard output is not connected to a pipe. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. Default: %default") # -Os can take a lot longer; on 64-bit distros -m32 won't always work (and won't necessarily give a smaller program)
+parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if standard output is not connected to a pipe. If compiling an experimental annotator quickly, you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. Default: %default")
+# In large rulesets with --max-or-length=0 and --nested-switch, gcc takes time and gcc -Os can take a LOT longer, and CINT, Ch and picoc run out of memory (TODO: test these without --max-or-length=0 and --nested-switch)
+# clang with --max-or-length=100 and --nested-switch=False is not slowed much by -Os (slowed considerably by -O3). -Os and -Oz gave same size in my tests.
+# on 64-bit distros -m32 won't always work and won't necessarily give a smaller program
+
+parser.add_option("--max-or-length",default=100,help="The maximum number of items allowed in an OR-expression in the C code (used when ybytes is in effect). When an OR-expression becomes larger than this limit, it will be made into a function. 0 means unlimited, which works for tcc and gcc; many other compilers have limits. Default: %default")
+
+parser.add_option("--nested-switch",
+                  action="store_true",default=False,
+                  help="Allow C switch() constructs to be nested to arbitrary depth. This can result in a smaller executable, but it does slow down most C compilers.") # tcc is still fast (although that doesn't generate the smallest executables anyway)
 
 parser.add_option("--outcode",default="utf-8",
                   help="Character encoding to use in the generated parser and rules summary (default %default, must be ASCII-compatible i.e. not utf-16)")
@@ -88,6 +108,10 @@ parser.add_option("-O", "--summary-omit",
 
 parser.add_option("--maxrefs",default=3,
                   help="The maximum number of example references to record in each summary line, if references are being recorded.  Default is %default; 0 means unlimited.")
+
+parser.add_option("--norefs",
+                  action="store_true",default=False,
+                  help="Don't write references in the rules summary.  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (omitting references makes summary generation faster).")
 
 #  =========== ANALYSIS OPTIONS ==============
 
@@ -118,6 +142,10 @@ parser.add_option("--single-words",
                   action="store_true",default=False,
                   help="Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.")
 
+parser.add_option("-d","--diagnose",help="Output some diagnostics for the specified word. Use this option to help answer \"why doesn't it have a rule for...?\" issues. This option expects the word to be UTF-8 coded, without markup, and diagnostics are written to standard error in UTF-8.")
+
+parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: %default")
+
 sys.stderr.write(program_name+"\n") # not sys.stdout, because may or may not be showing --help (and anyway might want to process the help text for website etc)
 options, args = parser.parse_args()
 globals().update(options.__dict__)
@@ -129,6 +157,25 @@ else: ybytes_max = ybytes
 ybytes_step = int(ybytes_step)
 maxrefs = int(maxrefs)
 ymax_threshold = int(ymax_threshold)
+if ref_pri and not (reference_sep and ref_name_end): assert 0, "ref-pri option requires reference-sep and ref-name-end to be set"
+if diagnose: diagnose=diagnose.decode('utf-8')
+diagnose_limit = int(diagnose_limit)
+
+def nearCall(conds,subFuncs,subFuncL):
+  # returns what to put in the if() for ybytes near() lists
+  if not max_or_length or len(conds) <= max_or_length:
+    return " || ".join("near(\""+c_escape(c)+"\")" for c in conds)
+  return subFuncCall("static int NewFunc() {\n"+"\n".join("if("+nearCall(conds[i:j],subFuncs,subFuncL)+") return 1;" for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+"\nreturn 0;}",subFuncs,subFuncL)
+
+def subFuncCall(newFunc,subFuncs,subFuncL):
+  if newFunc in subFuncs:
+    # we generated an identical one before
+    subFuncName=subFuncs[newFunc]
+  else:
+    subFuncName="match%d" % len(subFuncs)
+    subFuncs[newFunc]=subFuncName
+    subFuncL.append(newFunc.replace("NewFunc",subFuncName,1))
+  return subFuncName+"()" # the call (without a semicolon)
 
 def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFuncs={},inTopFunc=True): # ("topLevelMatch" is also mentioned in the C code)
     # make a function to switch on a large number of variable-length string cases without repeated lookahead for each case
@@ -138,8 +185,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
     allBytes = set(b[0] for b in byteSeq_to_action_dict.iterkeys() if b)
     ret = []
     if funcName:
-        if inTopFunc: ret.append("static void %s(int ns /* needSpace */) {" % funcName)
-        else: ret.append("static void %s() {" % funcName)
+        ret.append("static void %s() {" % funcName)
         savePos = len(ret)
         ret.append("{ SAVEPOS;")
     elif "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1:
@@ -147,30 +193,22 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         savePos = len(ret)
         ret.append("{ SAVEPOS;")
     else: savePos = None
+    called_subswitch = False
     if "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[""])==1 and not byteSeq_to_action_dict[""][0][1] and all((len(a)==1 and a[0][0].startswith(byteSeq_to_action_dict[""][0][0]) and not a[0][1]) for a in byteSeq_to_action_dict.itervalues()):
         # there's an action in common for this and all subsequent matches, and no Yarowsky-like indicators, so we can do the common action up-front
-        if inTopFunc: ret.append("s(ns);")
-        # else this will already have been done when the caller reached this part of the code
         ret.append(byteSeq_to_action_dict[""][0][0])
         l = len(byteSeq_to_action_dict[""][0][0])
         byteSeq_to_action_dict = dict((x,[(y[l:],z)]) for x,[(y,z)] in byteSeq_to_action_dict.iteritems())
         # and, since we'll be returning no matter what,
         # we can put the inner switch in a new function
-        # (even if not re-used, this helps gcc speed)
+        # (even if not re-used, this helps compiler speed)
         # + DON'T save/restore pos around it (it itself
         # will do any necessary save/restore pos)
         del ret[savePos] ; savePos = None
         del byteSeq_to_action_dict[""]
         newFunc = "\n".join(stringSwitch(byteSeq_to_action_dict,subFuncL,"NewFunc",subFuncs,False))
         byteSeq_to_action_dict[""] = [("",[])] # for the end of this func
-        if newFunc in subFuncs:
-            # we generated an identical one before
-            subFuncName=subFuncs[newFunc]
-        else:
-            subFuncName="match%d" % len(subFuncs)
-            subFuncs[newFunc]=subFuncName
-            subFuncL.append(newFunc.replace("NewFunc",subFuncName,1))
-        ret.append(subFuncName+"();") # the call
+        ret.append(subFuncCall(newFunc,subFuncs,subFuncL)+"; return;")
     elif allBytes:
       # deal with all actions except "" first
       use_if = (len(allBytes)==1)
@@ -180,11 +218,23 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         else: cstr=ord(case)
         if use_if: ret.append("if(NEXTBYTE==%s) {" % cstr)
         else: ret.append("case %s:" % cstr)
-        ret += ["  "+x for x in stringSwitch(dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case]),subFuncL,None,subFuncs,inTopFunc)]
-        if not use_if and not "return;" in ret[-1]: ret.append("  break;")
+        inner = stringSwitch(dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case]),subFuncL,None,subFuncs,inTopFunc)
+        need_break = not (use_if or inner[-1].endswith("return;"))
+        if nested_switch or not inner[0].startswith("switch"): ret += ["  "+x for x in inner]
+        else:
+          # Put the inner switch into a different function
+          # which returns 1 if we should return.
+          # (TODO: this won't catch cases where there's a SAVEPOS before the inner switch; will still nest in that case.  But it shouldn't lead to big nesting in practice.)
+          myFunc=["static int NewFunc() {"]
+          for x in inner:
+            if x.endswith("return;"): x=x[:-len("return;")]+"return 1;"
+            myFunc.append("  "+x)
+          ret.append("  if("+subFuncCall("\n".join(myFunc)+"  return 0;\n}",subFuncs,subFuncL)+") return;")
+          called_subswitch=True # as it'll include more NEXTBYTE calls which are invisible to the code below
+        if need_break: ret.append("  break;")
       ret.append("}") # end of switch or if
     if not savePos==None:
-        if len(' '.join(ret).split('NEXTBYTE'))==2:
+        if len(' '.join(ret).split('NEXTBYTE'))==2 and not called_subswitch:
             # only 1 NEXTBYTE after the SAVEPOS - just
             # do a PREVBYTE instead
             # (note however that splitting on NEXTBYTE
@@ -207,14 +257,12 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
                 if type(conds)==tuple:
                     conds,nbytes = conds
                     ret.append("setnear(%d);" % nbytes)
-                ret.append("if ("+" || ".join("near(\""+c_escape(c)+"\")" for c in conds)+") {")
-                if inTopFunc: ret.append("s(ns);")
+                ret.append("if ("+nearCall(conds,subFuncs,subFuncL)+") {")
                 ret.append((action+" return;").strip())
                 ret.append("}")
             else:
                 assert not default_action, "More than one default action in "+repr(byteSeq_to_action_dict[""]) # This might indicate invalid markup in the corpus - see TODO in yarowsky_indicators
                 default_action = action
-        if inTopFunc and default_action: ret.append("s(ns);")
         if default_action or not byteSeq_to_action_dict[""]: ret.append((default_action+" return;").strip()) # (return only if there was a default action, OR if an empty "" was in the dict with NO conditional actions (e.g. from the common-case optimisation above).  Otherwise, if there were conditional actions but no default, we didn't "match" anything if none of the conditions were satisfied.)
     return ret # caller does '\n'.join
 
@@ -247,14 +295,15 @@ static int near(char* string) {
   /* for Yarowsky-like matching */
   size_t offset = filePtr-bufStart, l=strlen(string),
          maxPos = bufLen;
-  if (maxPos >= l) maxPos -= l; else return 0;
-  if (offset+nearbytes>l && maxPos > offset+nearbytes-l)
-    maxPos = offset+nearbytes-l;
-  else maxPos = 0; // (don't let it go below 0, as size_t is usually unsigned)
+  if (maxPos >= l) maxPos -= l; else return 0; // can't possibly start after maxPos-l
+  if (offset+nearbytes>l) {
+    if (maxPos > offset+nearbytes-l)
+      maxPos = offset+nearbytes-l;
+  } else maxPos = 0; // (don't let it go below 0, as size_t is usually unsigned)
   if (offset>nearbytes) offset-=nearbytes; else offset = 0;
   // can use strnstr(haystack,needle,n) if on a BSD system
   while (offset <= maxPos) {
-    if(!strncmp(lookahead+offset,string,l)) return 1;
+    if(!strncmp((char*)lookahead+offset,string,l)) return 1;
     offset++;
   }
   return 0;
@@ -290,7 +339,14 @@ enum {
   ruby_markup,
   brace_notation} annotation_mode = Default_Annotation_Mode;
 
+static int needSpace=0;
+static void s() {
+  if (needSpace) OutWriteByte(' ');
+  else needSpace=1; /* for after the word we're about to write (if no intervening bytes cause needSpace=0) */
+}
+
 static void o(const char *word,const char *annot) {
+  s();
   switch (annotation_mode) {
   case annotations_only: OutWriteStr(annot); break;
   case ruby_markup: OutWrite("<ruby><rb>%s</rb><rt>%s</rt></ruby>",word,annot); break;
@@ -298,26 +354,24 @@ static void o(const char *word,const char *annot) {
   }
 }
 static void o2(const char *word,const char *annot,const char *title) {
-  if (annotation_mode == ruby_markup)
+  if (annotation_mode == ruby_markup) {
+    s();
     OutWrite3("<ruby title=\"%s\"><rb>%s</rb><rt>%s</rt></ruby>",title,word,annot);
-  else o(word,annot);
+  } else o(word,annot);
 }
-static void s(int needed) { if(needed) OutWriteByte(' '); }
 """
 
 c_end = """
 void matchAll() {
-  int needSpace=0;
   while(!FINISHED) {
     POSTYPE oldPos=THEPOS;
-    topLevelMatch(needSpace);
+    topLevelMatch();
     if (oldPos==THEPOS) { needSpace=0; BOGUS_BYTE; }
-    else needSpace=1;
   }
 }
 
 #ifndef Omit_main
-main(int argc,char*argv[]) {
+int main(int argc,char*argv[]) {
   int i; for(i=1; i<argc; i++) {
     if(!strcmp(argv[i],"--help")) {
       puts("Use --ruby to output ruby markup (default)");
@@ -385,7 +439,7 @@ def markDown(text):
     return text
 
 def normalise_capitalisation():
-    sys.stderr.write("Normalising capitalisation... ")
+    sys.stderr.write("Normalising capitalisation...")
     # (as long as it's all Unicode strings, .lower() and .upper() work with accents etc)
     allWords = set() ; found = False
     for phrase in splitWords(corpus_unistr,phrases=True):
@@ -404,9 +458,13 @@ def normalise_capitalisation():
             if len(replaceDic)==2000: # limit the size of each batch - needed on some Pythons (e.g. Mac)
                 replaceBatch(replaceDic)
                 replaceDic = {}
+                sys.stderr.write(".")
     replaceBatch(replaceDic)
-    sys.stderr.write("done\n")
+    sys.stderr.write(" done\n")
 
+if mreverse: mdStart,mdEnd,mdSearchBack = markupMid,markupEnd,markupStart
+else: mdStart,mdEnd,mdSearchBack = markupStart,markupMid,None
+    
 def yarowsky_indicators(withAnnot_unistr,markedDown):
     # returns True if rule always works (or in majority of cases with ymajority), or lists enough indicators to cover example instances and returns (list, nbytes), or just list if empty.
     # (If too few indicators can be found, will list the ones it can, or empty if no clearly-distinguishable indicators can be found within ybytes of end of match.)
@@ -414,19 +472,24 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     if nonAnnot in yPriorityDic: # TODO: enforce len==1 ?
         if yPriorityDic[nonAnnot] == withAnnot_unistr:
             # we want this case to be the default
+            if nonAnnot==diagnose: sys.stderr.write(("Diagnose: yPriorityDic forces %s\n" % (withAnnot_unistr,)).encode('utf-8'))
             return True
-        else: can_be_default = False # another is default, don't make this one default even if it occurs more
+        else:
+          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: yPriorityDic forbids default %s\n" % (withAnnot_unistr,)).encode('utf-8'))
+          can_be_default = False # another is default, don't make this one default even if it occurs more
     else: can_be_default = True
     # First, find positions in markedDown which match withAnnot_unistr in corpus_unistr (not markedUp as that's harder to sync with markedDown, since markedUp contains /-separated annotated phrases whereas markedDown also contains the in-between bytes)
     if withAnnot_unistr in precalc_sets: okStarts=precalc_sets[withAnnot_unistr]
     else: okStarts=set(corpus_to_markedDown_map[s.start()] for s in re.finditer(re.escape(withAnnot_unistr), corpus_unistr))
     # now check for markedDown matches that *don't* have withAnnot_unistr
     badStarts=set(x.start() for x in re.finditer(re.escape(nonAnnot),markedDown) if not x.start() in okStarts)
-    if not badStarts: return True # rule always works, no Yarowsky indicators needed
-    if can_be_default and len(okStarts) > len(badStarts) and len(nonAnnot)==1: return True # duplicate of code below (can test for this case early before reducing-down badStarts)
+    if not badStarts:
+      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s always works\n" % (withAnnot_unistr,)).encode('utf-8'))
+      return True # rule always works, no Yarowsky indicators needed
+    if can_be_default and len(okStarts) > len(badStarts) and len(nonAnnot)==1:
+      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case len-1 rule\n" % (withAnnot_unistr,)).encode('utf-8'))
+      return True # duplicate of code below (can test for this case early before reducing-down badStarts)
     # Some of the badStarts can be ignored on the grounds that they should be picked up by other rules first: any where the nonAnnot match does not start at the start of a word (the rule matching the word starting earlier should get there first), and any where it starts at the start of a word that is longer than itself (the longest-first ordering should take care of this).  So keep only the ones where it starts at the start of a word and that word is no longer than len(nonAnnot).
-    if mreverse: mdStart,mdEnd,mdSearchBack = markupMid,markupEnd,markupStart
-    else: mdStart,mdEnd,mdSearchBack = markupStart,markupMid,None
     reallyBadStarts = []
     for s in re.finditer(re.escape(mdStart+nonAnnot[0])+".*?"+re.escape(mdEnd), corpus_unistr):
         s,e = s.start(),s.end()
@@ -450,11 +513,15 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
         s = corpus_to_markedDown_map[s] # if KeyError, see comment above
         if s in badStarts: reallyBadStarts.append(s)
     badStarts = reallyBadStarts
-    if not badStarts: return True
+    if not badStarts:
+      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s always works if we ignore probably-irrelevant badStarts\n" % (withAnnot_unistr,)).encode('utf-8'))
+      return True
     # Now, if it's right more often than not:
     if can_be_default and len(okStarts) > len(badStarts):
         # could we have this as a "default" rule, with the other cases as exceptions that will be found first?
-        if len(nonAnnot)==1: return True # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
+        if len(nonAnnot)==1:
+          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case len-1 rule after removing irrelevant badStarts\n" % (withAnnot_unistr,)).encode('utf-8'))
+          return True # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
         # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default unless can be sure about it
         # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without positive indicators it should do so
         # Might get an exception if there is no possibility of a rule A in the examples, i.e. no markup of a word of length < nonAnnot whose marked-down version matches the start of nonAnnot in corpus_unistr:
@@ -463,12 +530,14 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
         # if not re.search(re.escape(mdStart)+reduce(lambda x,y:"("+x+")?"+re.escape(y),list(nonAnnot[1:])),corpus_unistr): return True
         # + might have an exception if can confirm from all badStarts that the marked-down version of the rule applied (if one starts at that badStart) is at least as long as nonAnnot
         # Or just directly check for "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
-        if all(x.end()-x.start()==len(mdStart)+len(nonAnnot) for x in re.finditer(re.escape(mdStart)+(re.escape(mdEnd)+".*?"+re.escape(mdStart)).join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)): return True
+        if all(x.end()-x.start()==len(mdStart)+len(nonAnnot) for x in re.finditer(re.escape(mdStart)+(re.escape(mdEnd)+".*?"+re.escape(mdStart)).join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
+          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case rule after checking for dangerous overlaps etc\n" % (withAnnot_unistr,)).encode('utf-8'))
+          return True
         # (This exception might under-match if there's the appearance of a split rule but it actually has extra non-marked-up text in between.  But it shouldn't over-match.)
     if len(okStarts) > 1000: sys.stderr.write("\nLarge collocation check (rule has %d matches + %d false positives), could take some time....  \n" % (len(okStarts),len(badStarts)))
     def tryNBytes(nbytes):
       def bytesAround(start): return within_Nbytes(markedDown,start+len(nonAnnot),nbytes)
-      omitStr = chr(1).join(bytesAround(s) for s in badStarts)
+      omitStr = unichr(1).join(bytesAround(s) for s in badStarts)
       okStrs=[bytesAround(s) for s in okStarts]
       covered=[False]*len(okStrs)
       ret = []
@@ -478,6 +547,10 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
               if not covered[i] and indicatorStr in okStrs[i]: covered[i]=cChanged=True
           if cChanged: ret.append(indicatorStr)
           if all(covered): break
+      if nonAnnot==diagnose:
+        if ret: indicators = "indicators "+'/'.join(ret)
+        else: indicators = "no indicators"
+        sys.stderr.write(("Diagnose: tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts\n" % (nbytes,withAnnot_unistr,indicators,omitStr.replace(unichr(1),'/'),sum(1 for x in covered if x),len(covered))).encode('utf-8'))
       return ret,sum(1 for x in covered if x),len(covered)
 
     if ybytes_max > ybytes and (not ymax_threshold or len(nonAnnot) <= ymax_threshold):
@@ -488,12 +561,16 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
         retList.append((-covered,len(ret),nbytes,toCover,ret)) # (1st 3 of these are the sort keys: maximum coverage, THEN minimum num indicators for the same coverage, THEN minimum nbytes (TODO: problems of very large nbytes might outweigh having more indicators; break if found 100% coverage by N?)  toCover should always ==len(okStarts).)
         # TODO: try finding an OR-combination of indicators at *different* proximity lengths ?
       retList.sort() ; ret = retList[0][-1]
-    else: ret,retList = tryNBytes(ybytes_max)[0],None
+      distance = retList[0][2]
+    else:
+      ret = tryNBytes(ybytes_max)[0]
+      if ybytes < ybytes_max: distance = ybytes_max
+      else: distance = None # all the same anyway
     if not ret and warn_yarowsky: sys.stderr.write("Couldn't find ANY Yarowsky-like indicators for %s   \n" % (withAnnot_unistr.encode('utf-8')))
     # elif ybytes_max > ybytes: sys.stderr.write("Debugger: %s best coverage=%d/%d by %d indicators at nbytes=%d   \n" % (withAnnot_unistr.encode('utf-8'),-retList[0][0],retList[0][3],retList[0][1],retList[0][2]))
     # TODO: if partially but not completely covered, shouldn't entirely count the word as 'covered' in analyse()
-    if not ret or not retList: return ret
-    else: return ret,retList[0][2]
+    if not ret or not distance: return ret
+    else: return ret,distance
 
 def unique_substrings(texts,allowedChars,omitFunc,valueFunc):
     # yield unique substrings of texts, in increasing length, with equal lengths sorted by highest score returned by valueFunc, and omitting any where omitFunc is true, or that uses any character not in allowedChars (allowedChars==None means all allowed)
@@ -543,7 +620,11 @@ def test_rule(withAnnot_unistr,markedUp,markedDown,yBytesRet):
         yBytesRet.append(ybr) # (list of indicators, nbytes)
         return True
     def occurrences(haystack,needle): return len(haystack.split(needle))-1 # assumes haystack has non-needle terminators - have put these in with unichr(1)s below
-    return occurrences(markedDown,markDown(withAnnot_unistr)) == occurrences(markedUp,withAnnot_unistr)
+    phrase = markDown(withAnnot_unistr)
+    ret = occurrences(markedDown,phrase) == occurrences(markedUp,withAnnot_unistr)
+    if diagnose and diagnose==phrase:
+      sys.stderr.write(("Diagnose: occurrences(%s)==occurrences(%s) = %s\n" % (phrase,withAnnot_unistr,ret)).encode('utf-8'))
+    return ret
 
 def all_possible_rules(words):
     if single_words: # (only consider 1-word rules)
@@ -560,18 +641,18 @@ def all_possible_rules(words):
             # caller should do " ".join() before putting
             # it into rules dict
 
-def checkCoverage(ruleAsWords,words,coveredFlags):
+def checkCoverage(ruleAsWordlist,words,coveredFlags):
     # Updates coveredFlags and returns True if any changes
     # (if False, the new rule is redundant).
     # Don't worry about ybytes - assume the Yarowsky-like
     # indicators have been calculated correctly across the
     # whole text so we don't need to re-check them now.
-    try: start = words.index(ruleAsWords[0])
+    try: start = words.index(ruleAsWordlist[0])
     except ValueError: return False
-    ln = len(ruleAsWords)
+    ln = len(ruleAsWordlist)
     changedFlags = False
     while start <= len(words)-ln:
-        if words[start:start+ln] == ruleAsWords:
+        if words[start:start+ln] == ruleAsWordlist:
             if not all(coveredFlags[start:start+ln]):
                 for i in range(start,start+ln):
                     coveredFlags[i] = True
@@ -579,11 +660,11 @@ def checkCoverage(ruleAsWords,words,coveredFlags):
             start += ln
         else:
             try:
-                start = words.index(ruleAsWords[0],start+1)
+                start = words.index(ruleAsWordlist[0],start+1)
             except ValueError: break
     return changedFlags
 
-def potentially_bad_overlap(rulesAsWordsL,newRuleAsWords,markedDown):
+def potentially_bad_overlap(rulesAsWordlists,newRuleAsWords,markedDown):
     # Allow overlaps only if rule(s) being overlapped are
     # entirely included within newRule.  Otherwise could
     # get problems generating closures of overlaps.
@@ -591,15 +672,15 @@ def potentially_bad_overlap(rulesAsWordsL,newRuleAsWords,markedDown):
     # Additionally, if allow_overlaps, allow ANY overlap as
     # long as it's not found in the marked-down text.
     if len(newRuleAsWords)==1 or primitive or ybytes: return False
-    for ruleAsWords in rulesAsWordsL:
-        if len(ruleAsWords)==1: continue
-        if not len(ruleAsWords)==len(newRuleAsWords) and longerStartsOrEndsWithTheShorter(ruleAsWords,newRuleAsWords): continue
-        for overlapSize in range(1,min(len(x) for x in [newRuleAsWords,ruleAsWords])):
-            if not (ruleAsWords[-overlapSize:] == newRuleAsWords[:overlapSize] or newRuleAsWords[-overlapSize:] == ruleAsWords[:overlapSize]): continue
+    for ruleAsWordlist in rulesAsWordlists:
+        if len(ruleAsWordlist)==1: continue
+        if not len(ruleAsWordlist)==len(newRuleAsWords) and longerStartsOrEndsWithTheShorter(ruleAsWordlist,newRuleAsWords): continue
+        for overlapSize in range(1,min(len(x) for x in [newRuleAsWords,ruleAsWordlist])):
+            if not (ruleAsWordlist[-overlapSize:] == newRuleAsWords[:overlapSize] or newRuleAsWords[-overlapSize:] == ruleAsWordlist[:overlapSize]): continue
             if not allow_overlaps: return True
             # Test to see if the examples "allow" this potentially-bad overlap
             def overlapOK(rAW): return not markDown(" ".join(rAW)) in markedDown
-            if (ruleAsWords[-overlapSize:] == newRuleAsWords[:overlapSize] and not overlapOK(ruleAsWords[:-overlapSize]+newRuleAsWords)) or (newRuleAsWords[-overlapSize:] == ruleAsWords[:overlapSize] and not overlapOK(newRuleAsWords[:-overlapSize]+ruleAsWords)): return True
+            if (ruleAsWordlist[-overlapSize:] == newRuleAsWords[:overlapSize] and not overlapOK(ruleAsWordlist[:-overlapSize]+newRuleAsWords)) or (newRuleAsWords[-overlapSize:] == ruleAsWordlist[:overlapSize] and not overlapOK(newRuleAsWords[:-overlapSize]+ruleAsWordlist)): return True
 
 def longerStartsOrEndsWithTheShorter(l1,l2):
     if len(l1) > len(l2): l1,l2 = l2,l1
@@ -608,10 +689,50 @@ def longerStartsOrEndsWithTheShorter(l1,l2):
 class RulesAccumulator:
   def __init__(self):
     self.rules = {}
-    self.rulesAsWords_By1stWord = {} # starting word -> list of possible rules (as wordlists) that might apply
-    self.rulesAsWordsL = [] # all rules as words (used if not ybytes, TODO: integrate with rulesAsWords_By1stWord?)
+    self.rulesAsWordlists_By1stWord = {} # starting word -> list of possible rules (as wordlists) that might apply
+    self.rulesAsWordlists = list() # all rules as words (list of lists) (used if not ybytes, TODO: integrate with rulesAsWordlists_By1stWord?)
     self.rejectedRules = set()
+    self.seenPhrases = set() # de-duplicate, might speed up
+    self.amend_rules = False
+    if rulesFile: self.load()
+  def save(self):
+    sys.stderr.write("Pickling rules to %s... " % rulesFile)
+    f = openfile(rulesFile,'wb')
+    pickle.Pickler(f,-1).dump((self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists,self.seenPhrases))
+    # (don't save self.rejectedRules, there might be better clues next time)
+    f.close() ; sys.stderr.write("done\n")
+  def load(self):
+    if not os.path.isfile(rulesFile):
+      sys.stderr.write("%s does not exist, starting with blank rules\n" % rulesFile)
+      return
+    sys.stderr.write("Unpickling rules from %s... " % rulesFile)
+    f = openfile(rulesFile,'rb')
+    self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists,self.seenPhrases = pickle.Unpickler(f).load()
+    sys.stderr.write("done\n")
+    self.amend_rules = True
+    self.newRules = set()
+  def remove_old_rules(self,words): # for incremental runs
+    for w in set(words):
+      rulesAsWordlists = self.rulesAsWordlists_By1stWord.get(w,[])
+      i=0
+      while i<len(rulesAsWordlists):
+        if single_words and len(rulesAsWordlists[i])>1:
+          i += 1 ; continue # better leave that one alone if we're not reconsidering multi-word rules
+        rule = " ".join(rulesAsWordlists[i])
+        if rule in self.newRules:
+          i += 1 ; continue # we've discovered this one on THIS run, don't re-remove it
+        if checkCoverage(rulesAsWordlists[i],words,[False]*len(words)):
+          if not ybytes:
+            try: self.rulesAsWordlists.remove(rulesAsWordlists[i])
+            except: pass
+          del rulesAsWordlists[i] ; del self.rules[rule]
+        else: i += 1
   def addRulesForPhrase(self,phrase,markedUp,markedDown):
+    global diagnose, diagnose_limit
+    if phrase in self.seenPhrases:
+      if diagnose and self.amend_rules and mdStart+diagnose+mdEnd in phrase: pass # look at it again for diagnostics (TODO: accept a diagnose that spans multiple words?)
+      else: return 0,0
+    self.seenPhrases.add(phrase)
     words = splitWords(phrase)
     words = filter(lambda x:markDown(x).strip(),words) # filter out any that don't have base text (these will be input glitches, TODO: verify the annotation text is also just whitespace, warn if not)
     if not words: return 0,0
@@ -619,26 +740,33 @@ class RulesAccumulator:
     # first see how much is covered by existing rules
     # (don't have to worry about the order, as we've been
     # careful about overlaps)
+    if self.amend_rules: self.remove_old_rules(words)
     for w in set(words):
-     for ruleList in self.rulesAsWords_By1stWord.get(w,[]):
-      for r in ruleList:
-        checkCoverage(r,words,covered)
+     for rulesAsWordlists in self.rulesAsWordlists_By1stWord.get(w,[]):
+      for ruleAsWordlist in rulesAsWordlists:
+        checkCoverage(ruleAsWordlist,words,covered)
         if all(covered): return len(covered),len(covered) # no new rules needed
-    for ruleAsWords in all_possible_rules(words):
-        rule = " ".join(ruleAsWords) ; yBytesRet = []
+    for ruleAsWordlist in all_possible_rules(words):
+        rule = " ".join(ruleAsWordlist) ; yBytesRet = []
         if rule in self.rules or rule in self.rejectedRules: continue
-        if not test_rule(rule,markedUp,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordsL,ruleAsWords,markedDown):
+        if not test_rule(rule,markedUp,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordlists,ruleAsWordlist,markedDown):
             self.rejectedRules.add(rule) # so we don't waste time evaluating it again (TODO: make sure rejectedRules doesn't get too big?)
             continue
-        if not checkCoverage(ruleAsWords,words,covered): continue # (checkCoverage must be last as it changes the coverage state)
+        if not checkCoverage(ruleAsWordlist,words,covered): continue # (checkCoverage must be last as it changes the coverage state)
         if len(yBytesRet): self.rules[rule] = yBytesRet[0]
         else: self.rules[rule] = [] # unconditional
-        self.rulesAsWordsL.append(ruleAsWords)
-        if not ruleAsWords[0] in self.rulesAsWords_By1stWord: self.rulesAsWords_By1stWord[ruleAsWords[0]] = []
-        self.rulesAsWords_By1stWord[ruleAsWords[0]].append(ruleAsWords)
+        if not ybytes: self.rulesAsWordlists.append(ruleAsWordlist)
+        if not ruleAsWordlist[0] in self.rulesAsWordlists_By1stWord: self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]] = []
+        self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]].append(ruleAsWordlist)
+        if self.amend_rules: self.newRules.add(rule)
+        if diagnose and diagnose_limit and diagnose==markDown(rule):
+          diagnose_limit -= 1
+          if not diagnose_limit:
+            diagnose = False
+            sys.stderr.write("diagnose-limit reached, suppressing further diagnostics\n")
         if all(covered): return len(covered),len(covered)
     # If get here, failed to completely cover the phrase.
-    # ruleAsWords should be set to the whole-phrase rule.
+    # ruleAsWordlist should be set to the whole-phrase rule.
     return sum(1 for x in covered if x),len(covered)
 
 def analyse():
@@ -695,20 +823,22 @@ def analyse():
         else: markedUp_unichars = set(list((u"".join(markDown(p) for p in phrases))))
     accum = RulesAccumulator()
     phraseNo=phraseLastUpdate=0 ; lastUpdate = time.time()
-    covered = toCover = 0 ; duplicates = {}
+    covered = toCover = 0
     for phraseNo in xrange(len(phrases)):
-        phrase = phrases[phraseNo]
-        if phrase in duplicates: continue # (not necessary but might speed things up a bit)
-        if time.time() >= lastUpdate + 2:
-            progress = "%.1f phrase/sec (%d%%/#w=%d) rules=%d cover=%d%%" % ((phraseNo-phraseLastUpdate)*1.0/(time.time()-lastUpdate),int(100.0*phraseNo/len(phrases)),len(splitWords(phrases[phraseNo])),len(accum.rules),int(100.0*covered/toCover))
+        if toCover and time.time() >= lastUpdate + 2:
+            phraseSec = (phraseNo-phraseLastUpdate)*1.0/(time.time()-lastUpdate)
+            if phraseSec < 100:
+              phraseSec = "%.1f" % phraseSec
+            else: phraseSec = "%d" % int(phraseSec)
+            progress = "%s phrase/sec (%d%%/#w=%d) rules=%d cover=%d%%" % (phraseSec,int(100.0*phraseNo/len(phrases)),len(splitWords(phrases[phraseNo])),len(accum.rules),int(100.0*covered/toCover))
             if warn_yarowsky: progress += (" rej=%d" % len(accum.rejectedRules))
             sys.stderr.write(progress+" \r")
             lastUpdate = time.time()
             phraseLastUpdate = phraseNo
-        duplicates[phrase]=1
-        coveredA,toCoverA = accum.addRulesForPhrase(phrase,markedUp,markedDown)
+        coveredA,toCoverA = accum.addRulesForPhrase(phrases[phraseNo],markedUp,markedDown)
         covered += coveredA ; toCover += toCoverA
     sys.stderr.write("\n")
+    if rulesFile: accum.save()
     if ybytes: return accum.rules
     else: return accum.rules.keys()
 
@@ -721,7 +851,7 @@ def outputParser(rules):
     sys.stderr.write("Generating byte cases...\n")
     glossDic = {}
     if glossfile:
-        for l in opentxt(glossfile).xreadlines():
+        for l in openfile(glossfile).xreadlines():
             if not l.strip(): continue
             l=l.decode(incode) # TODO: glosscode ?
             try: word,annot,gloss = l.split("\t",3)
@@ -737,7 +867,7 @@ def outputParser(rules):
         byteSeq = markDown(rule).encode(outcode)
         action = []
         words = splitWords(rule)
-        doneWord = gotAnnot = False
+        gotAnnot = False
         for w in words:
             wStart = w.index(markupStart)+len(markupStart)
             wEnd = w.index(markupMid,wStart)
@@ -746,8 +876,6 @@ def outputParser(rules):
             annotation_unistr = w[mStart:w.index(markupEnd,mStart)]
             if mreverse: text_unistr,annotation_unistr = annotation_unistr,text_unistr
             gloss = glossDic.get((text_unistr,annotation_unistr),glossDic.get(text_unistr,None))
-            if doneWord: action.append("s(1);")
-            doneWord = True
             if gloss: action.append('o2("%s","%s","%s");' % (c_escape(text_unistr),c_escape(annotation_unistr),c_escape(gloss.replace('&','&amp;').replace('"','&quot;'))))
             else: action.append('o("%s","%s");' % (c_escape(text_unistr),c_escape(annotation_unistr)))
             if annotation_unistr or gloss: gotAnnot = True
@@ -755,8 +883,8 @@ def outputParser(rules):
         if not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
         byteSeq_to_action_dict[byteSeq].append((' '.join(action),conds))
     longest_rule_len = max(len(b) for b in byteSeq_to_action_dict.iterkeys())
-    longest_rule_len = max(ybytes*2, longest_rule_len) # make sure the half-bufsize is at least ybytes*2, so that a read-ahead when pos is ybytes from the end, resulting in a shift back to the 1st half of the buffer, will still leave ybytes from the beginning, so yar() can look ybytes-wide in both directions
-    print c_start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes))
+    longest_rule_len = max(ybytes_max*2, longest_rule_len) # make sure the half-bufsize is at least ybytes_max*2, so that a read-ahead when pos is ybytes_max from the end, resulting in a shift back to the 1st half of the buffer, will still leave ybytes_max from the beginning, so yar() can look ybytes_max-wide in both directions
+    print c_start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max))
     subFuncL = []
     ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
     print "\n".join(subFuncL + ret)
@@ -772,9 +900,9 @@ def outputRulesSummary(rules):
     # of the annotation goes with which part of the text, plus
     # we remove /* and */ so it can be placed into a C comment)
     sys.stderr.write("Writing rules summary...\n")
-    if summary_omit: omit=set(opentxt(summary_omit).read().split("\n"))
+    if summary_omit: omit=set(openfile(summary_omit).read().split("\n"))
     else: omit=[]
-    if reference_sep:
+    if reference_sep and not norefs:
         references = corpus_unistr.split(reference_sep)
         def refs(r):
             ret = []
@@ -804,23 +932,30 @@ if isatty(sys.stdout):
     if summary_only:
         sys.stderr.write("WARNING: Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'\n")
         c_filename = None
-    else:
-        sys.stdout = open(c_filename,"w")
-        sys.stderr.write("stdout is not piped, so writing to "+c_filename+"\n")
+    else: sys.stderr.write("stdout is not piped, so writing to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 else: c_filename = None
-def opentxt(fname):
+
+def openfile(fname,mode='r'):
     if fname.endswith(".gz"):
-        import gzip ; return gzip.open(fname)
+        import gzip ; return gzip.open(fname,mode)
     elif fname.endswith(".bz2"):
-        import bz2 ; return bz2.BZ2File(fname)
-    else: return open(fname)
-if infile: infile=opentxt(infile)
+        import bz2 ; return bz2.BZ2File(fname,mode)
+    else: return open(fname,mode)
+
+if no_input:
+  rules = RulesAccumulator() # should load rulesFile
+  if ybytes: rules = rules.rules
+  else: rules = rules.rules.keys()
 else:
+  if infile: infile=openfile(infile)
+  else:
     infile = sys.stdin
     if isatty(infile):
         sys.stderr.write("Reading from standard input\n(If that's not what you wanted, press Ctrl-C and run again with --help)\n")
-corpus_unistr = infile.read().decode(incode)
-rules = analyse() # dict if ybytes, otherwise list
+  corpus_unistr = infile.read().decode(incode)
+  rules = analyse() # dict if ybytes, otherwise list
+
+if c_filename: sys.stdout = open(c_filename,"w")
 if summary_only: outputRulesSummary(rules)
 else: outputParser(rules)
 del rules
