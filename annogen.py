@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.53 (c) 2012-13 Silas S. Brown"
+program_name = "Annotator Generator v0.543 (c) 2012-13 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -75,7 +75,7 @@ parser.add_option("-c", "--capitalisation",
 parser.add_option("-w", "--annot-whitespace",
                   action="store_true",
                   default=False,
-                  help="Don't try to normalise the use of whitespace in the example annotations.  Normally the analyser will try to treat annotations which differ only in their use of whitespace as equivalent, to reduce the risk of missing a possible rule if there are too many whitespace differences.") # TODO: can this be extended to the point where the words 'try to' can be deleted ?  see comments
+                  help="Don't try to normalise the use of whitespace and hyphenation in the example annotations.  Normally the analyser will try to do this, to reduce the risk of missing possible rules due to minor typographical variations.") # TODO: can this be extended to the point where the words 'try to' can be deleted ?  see comments
 
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz or .bz2 file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
@@ -141,6 +141,10 @@ parser.add_option("--javascript",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
 
+parser.add_option("--python",
+                  action="store_true",default=False,
+                  help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code.")
+
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  (If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text.)  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
 # (Could just get the reannotator to post-process the 1st annotator's output, but that might be slower than generating an altered annotator with it)
@@ -179,7 +183,7 @@ parser.add_option("--max-words",default=0,
 parser.add_option("--checkpoint",help="Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.")
 # (Condor can checkpoint an application on Win/Mac/Linux but is awkward to set up.  Various Linux and BSD application checkpoint approaches also exist; another option is virtualisation.)
 
-parser.add_option("-d","--diagnose",help="Output some diagnostics for the specified word. Use this option to help answer \"why doesn't it have a rule for...?\" issues. This option expects the word to be UTF-8 coded, without markup, and diagnostics are written to standard error in UTF-8.")
+parser.add_option("-d","--diagnose",help="Output some diagnostics for the specified word. Use this option to help answer \"why doesn't it have a rule for...?\" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).")
 
 parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: %default")
 
@@ -204,11 +208,18 @@ ymax_threshold = int(ymax_threshold)
 def errExit(msg):
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
-if javascript:
-    if not outcode=="utf-8": errExit("outcode must be utf-8 when using Javascript")
-    if obfuscate: errExit("obfuscate not yet implemented for the Javascript version") # (and it would probably slow down the JS far too much if it were)
-    if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".js"
-if diagnose: diagnose=diagnose.decode('utf-8')
+if javascript or python:
+    if javascript and python: errExit("Outputting both Javascript and Python on the same run is not yet implemented")
+    if not outcode=="utf-8": errExit("outcode must be utf-8 when using Javascript or Python")
+    if obfuscate: errExit("obfuscate not yet implemented for the Javascript or Python version") # (and it would probably slow down the JS far too much if it were)
+    if c_filename.endswith(".c"):
+      if javascript: c_filename = c_filename[:-2]+".js"
+      else: c_filename = c_filename[:-2]+".py"
+try:
+  import locale
+  terminal_charset = locale.getdefaultlocale()[1]
+except: terminal_charset = "utf-8"
+if diagnose: diagnose=diagnose.decode(terminal_charset)
 diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
@@ -478,7 +489,7 @@ int main(int argc,char*argv[]) {
 """
 
 class BytecodeAssembler:
-  # Bytecode for a virtual machine run by the Javascript version (TODO other languages also?)
+  # Bytecode for a virtual machine run by the Javascript version etc
   def __init__(self):
     self.l = []
     self.d2l = {}
@@ -807,6 +818,122 @@ if (typeof require != "undefined" && typeof module != "undefined" && require.mai
 }
 """
 
+py_start = r"""# Python generated by """+program_name[:program_name.index("(c)")].strip()+r"""
+
+# You can import this module and call annotate(utf8 bytes)
+# (from multiple threads if desired),
+# or you can run from the command line on standard input.
+
+# annotate has an optional second argument, which can be
+# 'ruby' (default), 'raw' (annotation only) or 'braces'.
+
+"""
+py_end = r"""
+class Annotator:
+ def __call__(self,inStr,aType):
+  if aType=="ruby": self.startA,self.midA,self.endA = "<ruby><rb>","</rb><rt>","</rt></ruby>"
+  elif aType=="raw": self.startA=self.midA=self.endA = ""
+  elif aType=="braces": self.startA,self.midA,self.endA = "{","|","}"
+  else: raise Exception("Unrecognised annotation type "+repr(aType))
+  assert type(inStr)==str
+  self.inStr = inStr
+  self.addrLen = ord(data[0])
+  self.inputLength = len(inStr)
+  self.p = 0 # read-ahead pointer
+  self.copyP = 0 # copy pointer
+  self.output = []
+  self.needSpace = 0 ; out = self.output
+  while self.p < self.inputLength:
+    oldPos = self.p
+    self.dPtr = 1 ; self.readData()
+    if oldPos == self.p:
+      self.needSpace=0
+      out.append(inStr[self.p])
+      self.p += 1 ; self.copyP += 1
+  return "".join(self.output)
+ def readAddr(self):
+  addr = 0
+  for i in range(self.addrLen):
+    addr=(addr << 8) | ord(data[self.dPtr])
+    self.dPtr += 1
+  return addr
+ def readRefStr(self):
+  a = self.readAddr(); l=ord(data[a])
+  if l: return data[a+1:a+l+1]
+  else: return data[a+1:data.index('\x00',a+1)]
+ def s(self):
+  if self.needSpace: self.output.append(" ")
+  else: self.needSpace=1
+ def readData(self):
+  sPos = [] ; out = self.output
+  while True:
+    d = ord(data[self.dPtr]) ; self.dPtr += 1
+    if d==50: self.dPtr = self.readAddr()
+    elif d==51:
+      func = self.readAddr() ; dO = self.dPtr
+      self.dPtr = func ; self.readData() ; self.dPtr = dO
+    elif d==52: return
+    elif d==60:
+      nBytes = ord(data[self.dPtr])+1 ; self.dPtr += 1
+      i = data[self.dPtr:self.dPtr+nBytes].find(self.inStr[self.p]) ; self.p += 1
+      if i==-1: i = nBytes
+      self.dPtr += (nBytes + i * self.addrLen)
+      self.dPtr = self.readAddr()
+    elif d==71:
+      numBytes = ord(data[self.dPtr]) ; self.dPtr += 1
+      out.append(self.inStr[self.copyP:self.copyP+numBytes])
+      self.copyP += numBytes
+    elif d==72:
+      numBytes = ord(data[self.dPtr]) ; self.dPtr += 1
+      annot = self.readRefStr()
+      self.s()
+      if self.startA:
+        out.append(self.startA)
+        out.append(self.inStr[self.copyP:self.copyP+numBytes])
+      self.copyP += numBytes
+      out.append(self.midA) ; out.append(annot)
+      out.append(self.endA)
+    elif d==73:
+      numBytes = ord(data[self.dPtr]) ; self.dPtr += 1
+      annot = self.readRefStr()
+      title = self.readRefStr()
+      self.s()
+      if self.startA=="{": # omit title in braces mode
+        out.append(self.startA)
+        out.append(self.inStr[self.copyP:self.copyP+numBytes])
+      elif self.startA:
+        out.append("<ruby title=\"");out.append(title)
+        out.append("\"><rb>");
+        out.append(self.inStr[self.copyP:self.copyP+numBytes])
+      self.copyP += numBytes
+      out.append(self.midA) ; out.append(annot)
+      out.append(self.endA)
+    elif d==80: sPos.append(self.p)
+    elif d==81: self.p = sPos.pop()
+    elif d==90:
+      tPtr = self.readAddr()
+      fPtr = self.readAddr()
+      nearbytes = ord(data[self.dPtr]) ; self.dPtr += 1
+      o = max(self.p-nearbytes,0)
+      maxx = min(self.p+nearbytes,self.inputLength)
+      tStr = self.inStr[o:maxx]
+      found = 0
+      while self.dPtr < tPtr:
+        if self.readRefStr() in tStr:
+          found = 1 ; break
+      if found: self.dPtr = tPtr
+      else: self.dPtr = fPtr
+    else: raise Exception("corrupt data table at "+str(self.dPtr-1)+" ("+str(ord(data[self.dPtr-1]))+")")
+
+def annotate(inStr,p="ruby"): return Annotator()(inStr,p)
+def main():
+  import sys
+  if sys.argv[-1].startswith("--"): param=sys.argv[-1][2:]
+  else: param = "ruby"
+  sys.stdout.write(annotate(sys.stdin.read(),param))
+if __name__=="__main__": main()
+"""
+
 def splitWords(text,phrases=False):
     # split text into words, ignoring anything between markupStart and markupEnd
     # if phrases = True, instead of words, split on any non-whitespace char outside markupStart..markupEnd
@@ -877,33 +1004,58 @@ def normalise():
         return
       except: pass
     sys.stderr.write("Normalising...")
-    allWords = set() ; found = False
-    for phrase in splitWords(corpus_unistr,phrases=True):
+    def getAllWords():
+     allWords = set()
+     for phrase in splitWords(corpus_unistr,phrases=True):
         allWords.update(splitWords(phrase))
-    def replaceBatch(r):
-        global corpus_unistr
-        if r: corpus_unistr = re.sub('|'.join(re.escape(k) for k in r.iterkeys()),lambda k:r[k.group(0)],corpus_unistr) # (stackoverflow suggestion)
+     return allWords
+    allWords = getAllWords()
+    if removeSpace and not annot_whitespace:
+      # normalise trailing hyphens e.g. from OCR'd scans:
+      cu0 = corpus_unistr ; ff = 0
+      for hTry in [1,2]:
+        for w in allWords:
+          if '-'+aoEnd in w:
+            idx = w.index('-'+aoEnd)
+            if w[:idx].endswith(aoStart) or w[:idx].endswith("-"): continue # ignore this one (a mess of some kind)
+            if hTry==2: # ouch, this doesn't look good
+              sys.stderr.write(" (can't normalise hyphens) ")
+              corpus_unistr = cu0 ; break
+            if mreverse: grp,mdG=r"-\1",r"\2"
+            else: grp,mdG=r"-\2",r"\1"
+            # TODO: batch up the following replacements by using something similar to Replacer but with a common destination regexp that takes groups from the 'w' entries as well.  (Low priority because don't typically get TOO many of these dangling hyphens in most corpuses.)
+            corpus_unistr = re.sub(re.escape(w)+r"\s*"+re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),re.escape(w).replace(re.escape('-'+aoEnd),grp+re.escape(aoEnd)).replace(re.escape(mdEnd),mdG+re.escape(mdEnd)),corpus_unistr)
+            ff = 1
+        if ff: allWords = getAllWords() # re-generate
+      del cu0
     class Replacer:
       def __init__(self): self.dic = {}
       def add(self,x,y):
         self.dic[x] = y
         if len(self.dic)==2000: # limit the size of each batch - needed on some Pythons (e.g. Mac)
-          replaceBatch(self.dic)
-          sys.stderr.write(".")
-          self.dic = {}
+          self.flush()
+      def flush(self):
+        if not self.dic: return
+        global corpus_unistr
+        corpus_unistr = re.sub('|'.join(re.escape(k) for k in self.dic.iterkeys()),lambda k:self.dic[k.group(0)],corpus_unistr) # (stackoverflow suggestion)
+        sys.stderr.write(".")
+        self.dic = {}
     rpl = Replacer() ; rpl.cu_nosp = None
     def normWord(w):
+      if '-' in w: hTry=set([w.replace('-','')]) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
+      else: hTry=None
       if not capitalisation:
         wl = w.lower() # (as long as it's all Unicode strings, .lower() and .upper() work with accents etc)
         if not w==wl and wl in allWords:
             # This word is NOT always capitalised, just
             # sometimes at the start of a sentence.
             # To simplify rules, make it always lower.
-            return rpl.add(w,wl)
-      if annot_whitespace: return
+            w = wl
+            if hTry: hTry.add(w.replace('-',''))
+      if annot_whitespace: return w,None
       nowsp = "".join(w.split())
-      if w == nowsp: return # there wasn't any whitespace
-      if nowsp in allWords: return rpl.add(w,nowsp) # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set the relative authority of the reference (TODO)
+      if w == nowsp: return w,hTry # no whitespace in w
+      if nowsp in allWords: return nowsp,hTry # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set the relative authority of the reference (TODO)
       ao,md = annotationOnly(w),markDown(w)
       aoS = ao.split()
       if len(md.split())==1 and len(md) <= 5 and len(aoS) <= len(md): # TODO: 5 configurable?  don't want different_ways_of_splitting to take too long
@@ -916,19 +1068,39 @@ def normalise():
         # be convertible into the latter to simplify rules
         if rpl.cu_nosp == None: rpl.cu_nosp = re.sub(whitespacePattern,"",corpus_unistr)
         for charBunches in different_ways_of_splitting(md,len(aoS)):
-          multiword = "".join(markUp(c,w) for c,w in zip(charBunches,aoS))
-          if multiword in rpl.cu_nosp:
-            return rpl.add(w,multiword)
+          aoS_try = [aoS]
+          if not capitalisation: # we have to account for the case where the above 'wl in allWords' did not happen but WOULD have happened if this substitution had been made
+            aoS_try.append([w.lower() for w in aoS])
+            if aoS_try[0]==aoS_try[1]: del aoS_try[1]
+          for aoS2 in aoS_try:
+            mw = [markUp(c,w) for c,w in zip(charBunches,aoS2)]
+            multiword = "".join(mw)
+            if multiword in rpl.cu_nosp:
+              # we're about to return a split version of the words, but we now have to pretend it went through the initial capitalisation logic that way (otherwise could get unnecessarily large collocation checks)
+              if not capitalisation:
+                for i in range(len(mw)):
+                  w = mw[i]
+                  wl = w.lower()
+                  if not w==wl and wl in allWords:
+                    mw[i] = wl
+              return "".join(mw),hTry
           # TODO: is there ANY time where we want multiword to take priority over the nowsp (no-whitespace) version above?  or even REPLACE multiword occurrences in the corpus with the 1-word nowsp version?? (must be VERY CAREFUL doing that)
       # TODO: anything else?
-    for w in allWords: normWord(w)
-    replaceBatch(rpl.dic)
+      return w,hTry
+    for w in allWords:
+      w2,hTry = normWord(w)
+      if hTry:
+        hTry.add(w2.replace('-','')) # in case not already there
+        for h in hTry:
+          if h in allWords: rpl.add(h,w2)
+      if not w==w2: rpl.add(w,w2)
+    rpl.flush()
     sys.stderr.write(" done\n")
     if checkpoint: open(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8'))
     checkpoint_exit()
 
-if mreverse: mdStart,mdEnd = markupMid,markupEnd
-else: mdStart,mdEnd = markupStart,markupMid
+if mreverse: mdStart,mdEnd,aoStart,aoEnd = markupMid,markupEnd,markupStart,markupMid
+else: mdStart,mdEnd,aoStart,aoEnd = markupStart,markupMid,markupMid,markupEnd
 
 def different_ways_of_splitting(chars,splitPoints):
   if splitPoints > len(chars): return
@@ -947,10 +1119,10 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     if nonAnnot in yPriorityDic: # TODO: enforce len==1 ?
         if yPriorityDic[nonAnnot] == withAnnot_unistr:
             # we want this case to be the default
-            if nonAnnot==diagnose: sys.stderr.write(("Diagnose: yPriorityDic forces %s\n" % (withAnnot_unistr,)).encode('utf-8'))
+            if nonAnnot==diagnose: sys.stderr.write(("Diagnose: yPriorityDic forces %s\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
             return True
         else:
-          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: yPriorityDic forbids default %s\n" % (withAnnot_unistr,)).encode('utf-8'))
+          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: yPriorityDic forbids default %s\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
           can_be_default = False # another is default, don't make this one default even if it occurs more
     else: can_be_default = True
     # First, find positions in markedDown which match withAnnot_unistr in corpus_unistr (not markedUp as that's harder to sync with markedDown, since markedUp contains /-separated annotated phrases whereas markedDown also contains the in-between bytes)
@@ -958,20 +1130,20 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     # now check for markedDown matches that *don't* have withAnnot_unistr
     badStarts = getBadStarts(nonAnnot,markedDown,okStarts)
     if not badStarts:
-      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s always works\n" % (withAnnot_unistr,)).encode('utf-8'))
+      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s always works\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
       return True # rule always works, no Yarowsky indicators needed
     if can_be_default and len(okStarts) > len(badStarts) and len(nonAnnot)==1:
-      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case len-1 rule\n" % (withAnnot_unistr,)).encode('utf-8'))
+      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case len-1 rule\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
       return True # duplicate of code below (can test for this case early before reducing-down badStarts)
     badStarts = getReallyBadStarts(badStarts,nonAnnot) # see its comments (ignore some badStarts)
     if not badStarts:
-      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s always works if we ignore probably-irrelevant badStarts\n" % (withAnnot_unistr,)).encode('utf-8'))
+      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s always works if we ignore probably-irrelevant badStarts\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
       return True
     # Now, if it's right more often than not:
     if can_be_default and len(okStarts) > len(badStarts):
         # could we have this as a "default" rule, with the other cases as exceptions that will be found first?
         if len(nonAnnot)==1:
-          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case len-1 rule after removing irrelevant badStarts\n" % (withAnnot_unistr,)).encode('utf-8'))
+          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case len-1 rule after removing irrelevant badStarts\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
           return True # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
         # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default unless can be sure about it
         # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without positive indicators it should do so
@@ -983,10 +1155,10 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
         # Or just directly check for "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
         llen = len(mdStart)+len(nonAnnot)
         if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+(re.escape(mdEnd)+".*?"+re.escape(mdStart)).join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
-          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case rule after checking for dangerous overlaps etc\n" % (withAnnot_unistr,)).encode('utf-8'))
+          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case rule after checking for dangerous overlaps etc\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
           return True
         # (This exception might under-match if there's the appearance of a split rule but it actually has extra non-marked-up text in between.  But it shouldn't over-match.)
-    if len(okStarts) > 1000: sys.stderr.write("\nLarge collocation check (rule has %d matches + %d false positives), could take some time....  \n" % (len(okStarts),len(badStarts)))
+    if len(okStarts) > 1000: sys.stderr.write("\nLarge collocation check (%s has %d matches + %s), could take some time....  \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),len(okStarts),badInfo(badStarts,nonAnnot,markedDown)))
     if ybytes_max > ybytes and (not ymax_threshold or len(nonAnnot) <= ymax_threshold):
       retList = [] ; append=retList.append
       for nbytes in range(ybytes,ybytes_max+1,ybytes_step):
@@ -1000,8 +1172,8 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
       ret = tryNBytes(ybytes_max,markedDown,nonAnnot,badStarts,okStarts)[0]
       if ybytes < ybytes_max: distance = ybytes_max
       else: distance = None # all the same anyway
-    if not ret and warn_yarowsky: sys.stderr.write("Couldn't find ANY Yarowsky-like indicators for %s   \n" % (withAnnot_unistr.encode('utf-8')))
-    # elif ybytes_max > ybytes: sys.stderr.write("Debugger: %s best coverage=%d/%d by %d indicators at nbytes=%d   \n" % (withAnnot_unistr.encode('utf-8'),-retList[0][0],retList[0][3],retList[0][1],retList[0][2]))
+    if not ret and warn_yarowsky: sys.stderr.write("Couldn't find ANY Yarowsky-like indicators for %s   \n" % (withAnnot_unistr.encode(terminal_charset,'replace')))
+    # elif ybytes_max > ybytes: sys.stderr.write("Debugger: %s best coverage=%d/%d by %d indicators at nbytes=%d   \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),-retList[0][0],retList[0][3],retList[0][1],retList[0][2]))
     # TODO: if partially but not completely covered, shouldn't entirely count the word as 'covered' in analyse()
     if not ret or not distance: return ret
     else: return ret,distance
@@ -1042,8 +1214,23 @@ def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts):
     if nonAnnot==diagnose:
       if ret: indicators = "indicators "+'/'.join(ret)
       else: indicators = "no indicators"
-      sys.stderr.write(("Diagnose: tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts\n" % (nbytes,withAnnot_unistr,indicators,omitStr.replace(unichr(1),'/'),sum(1 for x in covered if x),len(covered))).encode('utf-8'))
+      sys.stderr.write(("Diagnose: tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts\n" % (nbytes,withAnnot_unistr,indicators,omitStr.replace(unichr(1),'/'),sum(1 for x in covered if x),len(covered))).encode(terminal_charset,'replace'))
     return ret,sum(1 for x in covered if x),len(covered)
+
+def badInfo(badStarts,nonAnnot,markedDown):
+  if not len(badStarts)==1: return "%d false positives" % len(badStarts)
+  # 1 badStart: might want to look at this
+  i = list(badStarts)[0] ; i1 = i + len(nonAnnot)
+  i0 = max(0,i-5) ; i2 = i1 + 5
+  toRead = markedDown
+  if i in c2m_inverse and i1 in c2m_inverse:
+    i00,i22 = i0,i2
+    while i00 not in c2m_inverse and 0<i00<i0-5: i00-=1
+    while i22 not in c2m_inverse and i22<i2+5: i22+=1
+    if i00 in c2m_inverse and i22 in c2m_inverse:
+      toRead = corpus_unistr
+      i0,i,i1,i2 = i00,c2m_inverse[i],c2m_inverse[i1],i22
+  return (u"1 false positive (%s **%s** %s)" % (toRead[i0:i],toRead[i:i1],toRead[i1:i2])).encode(terminal_charset,'replace')
 
 def unique_substrings(texts,allowedChars,omitFunc,valueFunc):
     # yield unique substrings of texts, in increasing length, with equal lengths sorted by highest score returned by valueFunc, and omitting any where omitFunc is true, or that uses any character not in allowedChars (allowedChars==None means all allowed)
@@ -1096,7 +1283,7 @@ def test_rule(withAnnot_unistr,markedUp,markedDown,yBytesRet):
     phrase = markDown(withAnnot_unistr)
     ret = occurrences(markedDown,phrase) == occurrences(markedUp,withAnnot_unistr)
     if diagnose and diagnose==phrase:
-      sys.stderr.write(("Diagnose: occurrences(%s)==occurrences(%s) = %s\n" % (phrase,withAnnot_unistr,ret)).encode('utf-8'))
+      sys.stderr.write(("Diagnose: occurrences(%s)==occurrences(%s) = %s\n" % (phrase,withAnnot_unistr,ret)).encode(terminal_charset,'replace'))
     return ret
 
 def all_possible_rules(words):
@@ -1391,10 +1578,10 @@ def matchingAction(rule,glossDic):
       if toAdd in reannotateDict: annotation_unistr = reannotateDict[toAdd]
       else: toReannotateSet.add(toAdd)
     if gloss:
-        if javascript: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.replace('&','&amp;').replace('"','&quot;').encode(outcode)))
+        if javascript or python: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.replace('&','&amp;').replace('"','&quot;').encode(outcode)))
         else: action.append('o2(%d,"%s","%s");' % (c_length(text_unistr),c_escape(annotation_unistr),c_escape(gloss.replace('&','&amp;').replace('"','&quot;'))))
     else:
-        if javascript: action.append((c_length(text_unistr),annotation_unistr.encode(outcode)))
+        if javascript or python: action.append((c_length(text_unistr),annotation_unistr.encode(outcode)))
         else: action.append('o(%d,"%s");' % (c_length(text_unistr),c_escape(annotation_unistr)))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
@@ -1415,7 +1602,7 @@ def outputParser(rules):
             else: glossDic[word] = gloss
     byteSeq_to_action_dict = {}
     if ignoreNewlines:
-        if javascript: newline_action = [(1,)]
+        if javascript or python: newline_action = [(1,)]
         else: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;"
         byteSeq_to_action_dict['\n'] = [(newline_action,[])]
     if type(rules)==type([]): rulesAndConds = [(x,[]) for x in rules]
@@ -1425,7 +1612,7 @@ def outputParser(rules):
         action,gotAnnot = matchingAction(rule,glossDic)
         if not gotAnnot: return # probably some spurious o("{","") rule that got in due to markup corruption
         if manualOverride or not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
-        if not javascript: action = ' '.join(action)
+        if not (javascript or python): action = ' '.join(action)
         byteSeq_to_action_dict[byteSeq].append((action,conds))
     if reannotator:
       # dry run to get the words to reannotate
@@ -1462,6 +1649,13 @@ def outputParser(rules):
       b.addActionDictSwitch(byteSeq_to_action_dict,False)
       print "data:",repr(b.link())+"," ; del b
       print js_end
+      return
+    if python:
+      print py_start
+      b = BytecodeAssembler()
+      b.addActionDictSwitch(byteSeq_to_action_dict,False)
+      print "data=",repr(b.link()) ; del b
+      print py_end
       return
     print c_start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max))
     subFuncL = []
@@ -1563,8 +1757,8 @@ if summary_only: outputRulesSummary(rules)
 else: outputParser(rules)
 del rules
 sys.stderr.write("Done\n")
-if c_filename and not javascript:
+if c_filename and not (javascript or python):
     sys.stdout.close()
     cmd = c_compiler+" \""+c_filename+"\"" # (the -o option is part of c_compiler)
     sys.stderr.write(cmd+"\n")
-    os.system(cmd)
+    sys.exit(os.system(cmd))
