@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.186 (c) 2012-13 Silas S. Brown"
+program_name = "Web Adjuster v0.191 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -36,7 +36,6 @@ if '--html-options' in sys.argv: # for updating the website
         help = amp(help)
         for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]: help=help.replace(ttify,"<nobr><tt>"+ttify+"</tt></nobr>")
         print "<dt><tt>--"+name+"</tt>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>"
-    def getfqdn(): return "is the machine's domain name" # default is ...
 else:
     import tornado
     from tornado.httpclient import AsyncHTTPClient,HTTPClient,HTTPError
@@ -45,8 +44,8 @@ else:
     from tornado.web import Application, RequestHandler, asynchronous
     import tornado.options, tornado.iostream
     from tornado.options import define,options
-    from socket import getfqdn
     def heading(h): pass
+getfqdn_default = "is the machine's domain name" # default is ... (avoid calling getfqdn unnecessarily, as the server might be offline/experimental and we don't want to block on an nslookup with every adjuster start)
 
 heading("General options")
 define("config",help="Name of the configuration file to read, if any. The process's working directory will be set to that of the configuration file so that relative pathnames can be used inside it. Any option that would otherwise have to be set on the command line may be placed in this file as an option=\"value\" or option='value' line (without any double-hyphen prefix). Multi-line values are possible if you quote them in \"\"\"...\"\"\", and you can use standard \\ escapes. You can also set config= in the configuration file itself to import another configuration file (for example if you have per-machine settings and global settings). If you want there to be a default configuration file without having to set it on the command line every time, an alternative option is to set the ADJUSTER_CFG environment variable.")
@@ -70,7 +69,7 @@ define("upstream_proxy",help="address:port of a proxy to send our requests throu
 define("ip_messages",help="Messages or blocks for specific IP address ranges (IPv4 only).  Format is ranges|message|ranges|message etc, where ranges are separated by commas; can be individual IPs, or ranges in either 'network/mask' or 'min-max' format; the first matching range-set is selected.  If a message starts with * then its ranges are blocked completely (rest of message, if any, is sent as the only reply to any request), otherwise message is shown on a 'click-through' page (requires Javascript and cookies).  If the message starts with a hyphen (-) then it is considered a minor edit of earlier messages and is not shown to people who selected `do not show again' even if they did this on a different version of the message.  Messages may include HTML.")
 
 heading("DNS and website settings")
-define("host_suffix",default=getfqdn(),help="The last part of the domain name. For example, if the user wishes to change www.example.com and should do so by visiting www.example.com.adjuster.example.org, then host_suffix is adjuster.example.org. If you do not have a wildcard domain then you can still adjust one site by setting wildcard_dns to False, host_suffix to your non-wildcard domain, and default_site to the site you wish to adjust. If you have more than one non-wildcard domain, you can set wildcard_dns to False, host_suffix to all your domains separated by slash (/), and default_site to the sites these correspond to, again separated by slash (/); if two or more domains share the same default_site then the first is preferred in links and the others are assumed to be for backward compatibility. If wildcard_dns is False and default_site is empty (or if it's a /-separated list and one of its items is empty), then the corresponding host_suffix gives a URL box and sets its domain in a cookie (and adds a link at the bottom of pages to clear this and return to the URL box), but this should be done only as a last resort: you can browse only one domain at a time at that host_suffix (links and HTTP redirects to other domains will leave the adjuster), and the sites you visit at that host_suffix might be able to see some of each other's cookies etc (leaking privacy) although the URL box page will try to clear site cookies.")
+define("host_suffix",default=getfqdn_default,help="The last part of the domain name. For example, if the user wishes to change www.example.com and should do so by visiting www.example.com.adjuster.example.org, then host_suffix is adjuster.example.org. If you do not have a wildcard domain then you can still adjust one site by setting wildcard_dns to False, host_suffix to your non-wildcard domain, and default_site to the site you wish to adjust. If you have more than one non-wildcard domain, you can set wildcard_dns to False, host_suffix to all your domains separated by slash (/), and default_site to the sites these correspond to, again separated by slash (/); if two or more domains share the same default_site then the first is preferred in links and the others are assumed to be for backward compatibility. If wildcard_dns is False and default_site is empty (or if it's a /-separated list and one of its items is empty), then the corresponding host_suffix gives a URL box and sets its domain in a cookie (and adds a link at the bottom of pages to clear this and return to the URL box), but this should be done only as a last resort: you can browse only one domain at a time at that host_suffix (links and HTTP redirects to other domains will leave the adjuster), and the sites you visit at that host_suffix might be able to see some of each other's cookies etc (leaking privacy) although the URL box page will try to clear site cookies.")
 # ("preferred" / "backward compatibility" thing: can be useful if old domain has become unreliable, or if "preferred" domain is actually a URL-path-forwarding service with a memorable name which redirects browsers to an actual domain that's less memorable, and you want the memorable domain to be used in links etc, although in this case you might still get the less-memorable domain in the address bar)
 # TODO: (two or more domains pointing to the same default_site) "preferred" / "backward compatibility" thing above: or, add an option to periodically check which of our domains are actually 'up' and move them to the front of the host_suffix / default_site list; that way we don't have to guess ahead of time which one is more reliable and should be preferred.
 # Could also do 'use the currently-requested host if it's appropriate', but what if there's a *set* of sites we adjust and we need to try to rewrite cross-site links to be in the same set of domains as the one the browser is requesting - maybe it's best to leave the "preferred" DNS to the config or the periodic check.
@@ -149,6 +148,9 @@ define("leaveTags",multiple=True,default="script,style,title,textarea,option",he
 define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names which should be deleted if they occur in any section of running text. For example, \"wbr\" (word-break opportunity) tags (listed by default) might cause problems with phrase-based annotators.")
 
 define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.") # (see comments in serve_submitPage)
+define("submitBookmarklet",default=True,help="If submitPath is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly.")
+define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",help="A Javascript expression that evaluates true if a DOM text node 'c' should be processed by the 'bookmarklet' Javascript when submitPath and submitBookmarklet are set. To process ALL text, simply set this option to 'true', but if your htmlFilter will not change certain kinds of text then you can make the Javascript run more efficiently by not processing these (quote the expression carefully). The default setting will not process text that is all ASCII.") # + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8
+define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate number of characters at a time that the 'bookmarklet' Javascript will send to the server if submitPath and submitBookmarklet are set. Setting this too high could impair browser responsiveness, but too low will be inefficient with bandwidth and pages will take longer to finish.")
 
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
@@ -366,6 +368,7 @@ def readOptions():
     parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files)
 
 def preprocessOptions():
+    if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
     if type(options.mailtoSMS)==type(""): options.mailtoSMS=options.mailtoSMS.split(',')
     if type(options.leaveTags)==type(""): options.leaveTags=options.leaveTags.split(',')
     if type(options.stripTags)==type(""): options.stripTags=options.stripTags.split(',')
@@ -430,6 +433,9 @@ def preprocessOptions():
         submitPathIgnorePassword = True
         options.submitPath = options.submitPath[1:]
     else: submitPathIgnorePassword = False
+    if options.submitPath and not options.htmlText: errExit("submitPath only really makes sense if htmlText is set (or do you want users to submit actual HTML?)") # TODO: allow this? also with submitBookmarklet ??
+    if not options.submitPath: options.submitBookmarklet = False
+    if options.submitBookmarklet and '_IHQ_' in options.submitPath: errExit("For implementation reasons, you cannot have the string _IHQ_ in submitPath when submitBookmarklet is on.") # Sorry.  See TODO in 'def bookmarklet'
     global upstreamGuard, cRecogniseAny, cRecognise1
     upstreamGuard = set() ; cRecogniseAny = set() ; cRecognise1 = set() # cRecognise = cookies to NOT clear at url box when serving via adjust_domain_cookieName; upstreamGuard = cookies to not pass to upstream (and possibly rename if upstream sets them)
     if options.password:
@@ -557,12 +563,11 @@ def main():
         else: sys.stderr.write("\nKeyboard interrupt\n")
     # gets here after stopServer (e.g. got SIGTERM from a --stop, or options.browser and the browser finished)
     if options.background: logging.info("Server shutdown")
+    else: sys.stderr.write("Adjuster shutdown\n")
     if options.watchdog:
         options.watchdog = 0 # tell any separate_thread() to stop (that thread is not counted in helper_thread_count)
         watchdog.write('V') # this MIGHT be clean exit, IF the watchdog supports it (not all of them do, so it might not be advisable to use the watchdog option if you plan to stop the server without restarting it)
         watchdog.close()
-    if not options.background:
-        sys.stderr.write("Adjuster shutdown\n")
     if helper_thread_count:
         msg = "Terminating %d runaway helper threads" % (helper_thread_count,)
         # in case someone needs our port quickly.
@@ -814,7 +819,7 @@ def httpfetch(url,**kwargs):
 
 class RequestForwarder(RequestHandler):
     
-    def get_error_html(self,status,**kwargs): return "<html><body>"+options.errorHTML+"</body></html>"
+    def get_error_html(self,status,**kwargs): return htmlhead("Web Adjuster error")+options.errorHTML+"</body></html>"
 
     def cookie_host(self,checkReal=True,checkURL=True):
         # for cookies telling us what host the user wants
@@ -1230,8 +1235,34 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         self.doResponse2(('%s<h3>mailto: link</h3>This link is meant to open an email client.<br>%s<br><a href=\"mailto:%s\">Open in email client</a> (if set up)%s%s<hr>This is %s</body></html>' % (htmlhead("mailto: link - Web Adjuster"),"<br>".join(r),uri,smsLink,backScript,serverName_html)),True,False)
 
     def serve_submitPage(self):
+        self.request.suppress_logger_host_convert = True
         if len(self.request.uri) > len(options.submitPath):
-            txt = zlib.decompressobj().decompress(base64.b64decode(self.request.uri[len(options.submitPath):]),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
+            txt = self.request.uri[len(options.submitPath):]
+            if len(txt)==2 and options.submitBookmarklet:
+                filterNo = ord(txt[1])-ord('A')
+                if txt[0]=='b': return self.serve_bookmarklet_code(txt[1])
+                elif txt[0]=='j': return self.serve_bookmarklet_json(filterNo)
+                elif txt[0]=='i' or txt[0]=='a':
+                    # Android or iOS instructions
+                    # (Similar technique does NOT work in Opera Mini 5.1.21594 or Opera Mobile 10.00 (both 2010) on Windows Mobile 6.1: can end up with a javascript: bookmark but it has no effect when selected)
+                    if txt[0]=='i': theSys = 'iOS'
+                    else: theSys = 'Android'
+                    title = None
+                    if '#' in options.htmlFilter:
+                        fNames=options.htmlFilterName.split('#')
+                        if filterNo+1 < len(fNames):
+                            title=fNames[filterNo+1]
+                    elif options.htmlFilterName:
+                        title=options.htmlFilter
+                    if title: title += " on current page" # because page won't be visible while choosing bookmarks, unlike on desktops
+                    else: title=theSys+" bookmarklet - Web Adjuster" # will be the default name of the bookmark
+                    # TODO: we say txt[0]+'z' in the instructions to display on another device below, but if there are enough filters to get up to 'z' then the title on the other device will be whatever THAT filter is; might be better to just use txt in that situation
+                    i0 = "<h3>%s bookmarklet</h3>To install this bookmarklet on %s, follow the instructions below. You might want to take some notes first, because this page will <em>not</em> be displayed throughout the process! If you have another device, you can show another copy of these instructions on it by going to <tt>http://%sz</tt><h4>Instructions</h4><ol><li>" % (theSys, theSys, self.request.host+options.submitPath+txt[0])
+                    sharp = "<li>You should see a sharp sign (#). If you don't, you might have to scroll a little to the right to get it into view. When you see the sharp sign, press immediately to the right of it. (This can be difficult, depending on your eyesight and the size of your fingers. You must put the text cursor <em>immediately</em> to the right of that sharp. Keep trying until you get it in <em>exactly</em> the right place.)<li>Use the backspace key to delete everything up to and including the sharp. The code should now start with the word <tt>javascript</tt>.<li>"
+                    if txt[0]=='i': i0 += "Press Menu (centre square button below) and Bookmark, to bookmark <b>this</b> page<li>Change the name if you want, and press Done<li>Press Bookmarks (one to the right of menu)<li>Press Edit (bottom left)<li>Find the bookmark you made and press it<li>Long-press the <em>second</em> line to get the selection menu on it<li>Press Select<li>Gently drag the left-most marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"Done\" three times to come back here."
+                    else: i0 += "Press Menu and Save to Bookmarks, to bookmark <b>this</b> page<li>Change the label if you want, but <b>do not</b> press OK<li>Long-press the <em>second</em> line to get the selection on it<li>Gently drag the marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"OK\" to come back here."
+                    return self.doResponse2(htmlhead(title)+i0+"<li>The bookmarklet is now ready for use. Go to whatever page you want to use it on, and select it from the bookmarks to use it.</ol></body></html>",False,False) # DON'T do_html_process if it puts filter selectors up - that could be confusing on a screen that's associated with a particular filter
+            txt = zlib.decompressobj().decompress(base64.b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
             self.request.uri = "%s (input not logged, len=%d)" % (options.submitPath,len(txt))
         else: txt = self.request.arguments.get("i",None)
         if not txt:
@@ -1241,11 +1272,9 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
 document.write(' (Ctrl-Enter) | <a href="javascript:history.go(-1)">Back</a>')
 //--></script></span><br><textarea name="i" style="width:100%%;clear:both;height:60%%" rows="5" cols="20" placeholder="Type or paste your text here"
 onKeyDown="if((event.ctrlKey||event.metaKey) && (event.keyCode==13 || event.which==13)) document.forms[0].submit(); else return true;">
-</textarea>
-</form>
-<script><!--
+</textarea></form>%s<script><!--
 document.forms[0].i.focus()
-//--></script></body></html>""" % (htmlhead("Upload Text - Web Adjuster").replace("<body>",""),options.submitPath)),True,False)
+//--></script></body></html>""" % (htmlhead("Upload Text - Web Adjuster").replace("<body>",""),options.submitPath,bookmarklet("http://"+self.request.host+options.submitPath))),True,False)
         if type(txt) == list: # came from the POST form
             txt = txt[0].strip()
             # On at least some browsers (e.g. some Safari versions), clicking one of our JS reload links after the POST text has been shown will reload the form (instead of re-submitting the POST text) and can scroll to an awkward position whether the code below calls focus() or not.  Could at least translate to GET if it's short enough (don't want to start storing things on the adjuster machine - that would require a shared database if load-balancing)
@@ -1266,6 +1295,35 @@ document.forms[0].i.focus()
             headers = H()
         r=R() ; r.body="""%s<h3>Your text</h3>%s<hr>This is %s. %s</body></html>""" % (htmlhead("Uploaded Text - Web Adjuster"),txt2html(txt),serverName_html,backScriptNoBr) # backScriptNoBr AFTER the server notice to save vertical space
         self.doResponse(r,[False]*4,False,False)
+    def serve_bookmarklet_code(self,xtra):
+        self.add_header("Content-Type","application/javascript")
+        self.add_header("Access-Control-Allow-Origin","*")
+        self.write(bookmarkletMainScript("http://"+self.request.host+options.submitPath+'j'+xtra))
+        self.myfinish()
+    def serve_err(self,err):
+        self.set_status(500)
+        self.add_header("Content-Type","text/plain")
+        # logging.error(err+' '+repr(self.request.body))
+        self.write(err) ; self.myfinish()
+    def serve_bookmarklet_json(self,filterNo):
+        self.add_header("Access-Control-Allow-Origin","*")
+        self.add_header("Access-Control-Allow-Headers","Content-Type")
+        if not self.request.body:
+            self.add_header("Content-Type","text/plain")
+            self.add_header("Allow","POST") # some browsers send OPTIONS first before POSTing via XMLHttpRequest (TODO: check if OPTIONS really is the request method before sending this?)
+            self.write("OK") ; return self.myfinish()
+        try: l = json.loads(self.request.body)
+        except: return self.serve_err("Bad JSON")
+        if not (type(l)==list and all((type(i)==type(u"") and not chr(0) in i) for i in l)): return self.serve_err("Wrong data structure")
+        codeTextList = []
+        for i in l:
+            codeTextList.append(chr(0))
+            codeTextList.append(i.encode('utf-8'))
+        def callback(out,err):
+            self.add_header("Content-Type","application/json")
+            self.write(json.dumps([i.decode('utf-8') for i in out[1:].split(chr(0))]))
+            self.finish()
+        runFilterOnText(self.getHtmlFilter(filterNo),codeTextList,callback)
 
     def checkTextCache(self,newext):
         # check for PDF/EPUB conversion on other threads or cached
@@ -1676,17 +1734,7 @@ document.forms[0].i.focus()
             else: adjustList.append(transform_in_selected_tag("style",lambda s:re.sub(important,"",s))) # (do_html_process must be True here)
         if adjustList: body = HTML_adjust_svc(body,adjustList)
         callback = lambda out,err:self.doResponse2(out,do_html_process,do_json_process)
-        htmlFilter = None
-        if options.htmlFilterName:
-            anf = self.getCookie("adjustNoFilter")
-            if not anf: anf = "0"
-            elif '-' in anf: anf = anf[anf.rindex("-")+1:]
-            if anf=="1": pass
-            elif '#' in options.htmlFilter:
-                htmlFilter = options.htmlFilter.split('#')
-                if anf=="0": htmlFilter = htmlFilter[0]
-                else: htmlFilter = htmlFilter[int(anf)-1]
-            else: htmlFilter = options.htmlFilter
+        htmlFilter = self.getHtmlFilter()
         if do_html_process and htmlFilter:
             if options.htmlText: runFilterOnText(htmlFilter,find_text_in_HTML(body),callback)
             else: runFilter(htmlFilter,body,callback)
@@ -1697,6 +1745,19 @@ document.forms[0].i.focus()
         elif do_mp3 and options.bitrate:
             runFilter("lame --quiet --mp3input -m m --abr %d - -o -" % options.bitrate,body,callback,False) # -m m = mono (TODO: optional?)
         else: callback(body,"")
+    def getHtmlFilter(self,filterNo=None):
+        if not options.htmlFilterName: return None
+        if filterNo and '#' in options.htmlFilter:
+            return options.htmlFilter.split('#')[filterNo]
+        anf = self.getCookie("adjustNoFilter")
+        if not anf: anf = "0"
+        elif '-' in anf: anf = anf[anf.rindex("-")+1:]
+        if anf=="1": return None
+        elif '#' in options.htmlFilter:
+            htmlFilter = options.htmlFilter.split('#')
+            if anf=="0": return htmlFilter[0]
+            else: return htmlFilter[int(anf)-1]
+        else: return options.htmlFilter
     def doResponse2(self,body,do_html_process,do_json_process):
         debuglog("doResponse2 "+self.request.uri)
         # 2nd stage (domain change and external filter
@@ -1821,13 +1882,119 @@ rubyScript = '<script><!--\nif(document.readyState!="complete"){var s="'+rubyCss
 # And the following hack is to stop the styles in the 'noscript' and the variable (and any others) from being interpreted if an HTML document with this processing is accidentally referenced as a CSS source (which can mess up ruby):
 rubyScript = "<!-- { } @media(none) { -->" + rubyScript
 # By the way, also try to specify some nice fonts (but IE doesn't like this) :
-rubyScript += '<!--[if !IE]>--><style>rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style><!--<![endif]-->'
+rubyScript_fonts = '<!--[if !IE]>--><style>rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style><!--<![endif]-->'
+rubyScript += rubyScript_fonts
 # and this goes at the END of the body:
 rubyEndScript = """
 <script><!--
 var wk=navigator.userAgent.indexOf("WebKit/");if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'}
 function treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!="SCRIPT" && c.nodeName!="TEXTAREA" && !(c.nodeName=="A" && c.href)) { treewalk(c); if(c.nodeName=="RUBY" && c.title && !c.onclick) c.onclick=Function("alert(this.title)") } c=c.nextSibling; } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);
 //--></script>"""
+
+def bookmarklet(submit_url):
+    # get the bookmarklet to fetch more JS and eval/exec it, seeing as it'll need to talk to the server anyway (avoids cluttering bookmarks / can fix bugs later)
+    # TODO: ensure server response is cached!  last-modified when adjuster started ??
+    # TODO: make sure submit_url doesn't contain anything that can't be embedded in ''s within ""s (this depends on the user's setting of options.submitPath! although anything 'nasty' could run into trouble with browser URL-escaping anyway)
+    if not options.submitBookmarklet: return ""
+    if not options.htmlFilterName: names=['filter']
+    elif '#' in options.htmlFilter: names=options.htmlFilterName.split('#')[1:]
+    else: names = [options.htmlFilter]
+    if len(names)>1: plural="s"
+    else: plural=""
+    class C:
+        def __init__(self): self.count=0
+        def __call__(self):
+            ret = self.noInc()
+            self.count += 1 ; return ret
+        def noInc(self): return chr(self.count+ord('A')) # TODO: what if there are too many filters for this URL scheme? (and remember we're sharing the 'namespace' with Base64 encodings - don't clash with those)
+    c = C()
+    # TODO: The following nested quoting is horrible.
+    # Is there an Obfuscated Python+Javascript contest? :)
+    # (_IHQ_ = 'InnerHtmlQuote', is also checked for in preprocessOptions)
+    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPad|iPhone/),a=n.match(/Android/),c="",t=0,u="javascript:var r=new XMLHttpRequest();r.open(\'GET\',\''+submit_url+'b",v="\',false);r.send();eval(r.responseText)";if(i||a){t="'+submit_url+'"+(i?"i":"a");u="#"+u}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a)?"On "+(i?"iOS":"Android")+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to put the text of whatever page is currently in the browser through this service. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;Bookmarklet'+plural+': '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+'&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural+'</a></span>').replace('@]@','"')+'")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
+    # (DO hide bookmarklets by default, because don't want to confuse users if they're named the same as the immediate-action filter selections at the bottom of the page)
+    # TODO: maybe document that on Chrome Mobile (Android/iOS) you can tap address bar and start typing the bookmarklet name IF you've sync'd it from a desktop
+def quote_for_JS_doublequotes(s): return s.replace("\\","\\\\").replace('"',"\\\"").replace("\n","\\n").replace('</','<"+"/') # for use inside document.write("") etc
+def bookmarkletMainScript(jsonPostUrl):
+    return r"""var leaveTags=%s,stripTags=%s;
+function docSizeChanged(callback) {
+  // document size will usually change if there's a JS popup etc (TODO: could periodically do a full scan anyway, on the off-chance that some JS change somehow keeps length the same)
+  if(typeof document.sizeChangedLoop=="undefined") document.sizeChangedLoop=0; var me=++document.sizeChangedLoop; // (we stop our loop if user restarts the bookmarklet and it starts another)
+  var curLen=document.body.innerHTML.length,
+    stFunc=function(){if(document.sizeChangedLoop==me) window.setTimeout(tFunc,1000)},
+    tFunc=function(){if(document.body.innerHTML.length==curLen) stFunc(); else callback()};
+  stFunc()
+}
+var texts,tLen,oldTexts,otPtr,replacements;
+function tw0() {
+  texts = new Array(); tLen=0;
+  otPtr=0; walk(document);
+}
+function adjusterScan() {
+  oldTexts = new Array(); replacements = new Array();
+  tw0();
+  while(texts.length>0) {
+    var r=new XMLHttpRequest();
+    r.open("POST","%s",false);
+    r.send(JSON.stringify(texts));
+    replacements = JSON.parse(r.responseText);
+    if (replacements.length>=texts.length) {
+      oldTexts = texts; tw0();
+    } else break; // TODO: handle as error?
+    %s
+  }
+  docSizeChanged(adjusterScan)
+}
+function walk(n) {
+  var c=n.firstChild;
+  while(c) {
+    var cNext = c.nextSibling;
+    if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { // TODO: this JS code might strip more stripTags than the Python shouldStripTag stuff does
+      var ps = c.previousSibling;
+      while (c.firstChild) {
+        var tmp = c.firstChild; c.removeChild(tmp);
+        n.insertBefore(tmp,c);
+      }
+      n.removeChild(c);
+      if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) }
+      if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) }
+    }
+    c=cNext;
+  }
+  c=n.firstChild;
+  while(c) {
+    var cNext = c.nextSibling;
+    switch (c.nodeType) {
+    case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!="_adjust0") walk(c); break;
+    case 3:
+      if (%s) {
+          var i=otPtr;
+          while (i<oldTexts.length && oldTexts[i]!=c.nodeValue) i++;
+          if(i<replacements.length) {
+            var newNode=document.createElement("span");
+            newNode.className="_adjust0";
+            n.replaceChild(newNode, c);
+            newNode.innerHTML=replacements[i]; otPtr=i;
+          } else if (tLen < %d) {
+            texts[texts.length]=c.nodeValue;
+            tLen += c.nodeValue.length;
+          } else return; // will deal with rest next pass
+      }
+    }
+    c=cNext;
+  }
+}%sadjusterScan()""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),jsonPostUrl,addRubyScript1(),options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize,addRubyScript2())
+def addRubyScript1():
+    if not options.headAppendRuby: return ""
+    # rScript = rubyScript # doesn't work, fall back on:
+    rScript = '<style>'+rubyCss1+'</style>'+rubyScript_fonts
+    return r"""if(!rubyScriptAdded) {
+    var e=document.createElement('span'); e.innerHTML="%s"; document.body.insertBefore(e,document.body.firstChild);
+    e=document.createElement('span'); e.innerHTML="%s"; document.body.appendChild(e); rubyScriptAdded = true;
+    }""" % (quote_for_JS_doublequotes(rScript),quote_for_JS_doublequotes(rubyEndScript))
+def addRubyScript2():
+    if options.headAppendRuby: return "var rubyScriptAdded = false;"
+    else: return ""
 
 def unlink(fn):
     try: os.unlink(fn)
@@ -2597,6 +2764,7 @@ if(document.getElementById) {
     if bodyAppend1 and bodyAppend: bodyAppend = '<span style="float:left">' + bodyAppend1 + '</span><span style="float:left;width:1em"><br></span><span style="float: right">'+bodyAppend+'</span><span style="clear:both"></span>' # (the <br> is in case CSS is off or overrides float)
     elif bodyAppend1: bodyAppend = bodyAppend1
     if options.bodyAppend: bodyAppend = options.bodyAppend + bodyAppend
+    elif bodyAppend: bodyAppend='<p>'+bodyAppend # TODO: ?
     if bodyAppend:
         i = -1
         if options.bodyAppendGoesAfter:
