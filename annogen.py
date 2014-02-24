@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 
-# ( this is the last version to use o(word,annot) instead of o(numBytes,annot) )
-
-program_name = "Annotator Generator v0.42 (c) 2012-13 Silas S. Brown"
+program_name = "Annotator Generator v0.44 (c) 2012-13 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -126,6 +124,14 @@ parser.add_option("--newlines-reset",
                   default=True,
                   help="Have the C program reset its state on every newline byte. By default newlines do not affect state such as whether a space is required before the next word, so that if the C program is used with Web Adjuster's htmlText option (which defaults to using newline separators) the spacing should be handled sensibly when there is HTML markup in mid-sentence.")
 
+parser.add_option("--obfuscate",
+                  action="store_true",default=False,
+                  help="Obfuscate annotation strings in C code, as a deterrent to casual snooping of the compiled binary with tools like 'strings'.  This won't stop determined reverse engineering however.")
+
+parser.add_option("--reannotator",
+                  help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  (If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text.)  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
+# (Could just get the reannotator to post-process the 1st annotator's output, but that might be slower than generating an altered annotator with it)
+
 #  =========== ANALYSIS OPTIONS ==============
 
 parser.add_option("-o", "--allow-overlaps",
@@ -193,7 +199,7 @@ if single_words: max_words = 1
 def nearCall(conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
   if not max_or_length or len(conds) <= max_or_length:
-    return " || ".join("near(\""+c_escape(c)+"\")" for c in conds)
+    return " || ".join("near(\""+c_escape(c,0)+"\")" for c in conds)
   return subFuncCall("static int NewFunc() {\n"+"\n".join("if("+nearCall(conds[i:j],subFuncs,subFuncL)+") return 1;" for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+"\nreturn 0;}",subFuncs,subFuncL)
 
 def subFuncCall(newFunc,subFuncs,subFuncL):
@@ -295,6 +301,31 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         if default_action or not byteSeq_to_action_dict[""]: ret.append((default_action+" return;").strip()) # (return only if there was a default action, OR if an empty "" was in the dict with NO conditional actions (e.g. from the common-case optimisation above).  Otherwise, if there were conditional actions but no default, we didn't "match" anything if none of the conditions were satisfied.)
     return ret # caller does '\n'.join
 
+if obfuscate:
+  import random ; pad=[]
+  for i in xrange(32): pad.append(random.randint(128,255))
+  unobfusc_func=r"""
+
+void OutWriteDecode(const char *s) {
+static const char pad[]={%s}; int i=0;
+while(*s) {
+int t=pad[i++]; if(i==sizeof(pad)) i=0;
+if(*s==t) OutWriteByte(t); else OutWriteByte((*s)^t); s++;
+}
+}""" % repr(pad)[1:-1]
+  def encodeOutstr(s):
+    i = 0 ; r = []
+    for c in s:
+      t = pad[i] ; i = (i+1) % len(pad)
+      if ord(c) == t: toApp = t
+      else: toApp = ord(c)^t
+      if toApp==ord("\\"): r.append(r'\\')
+      elif toApp==ord('"'): r.append(r'\"')
+      elif toApp&0x80 or toApp<32: r.append(r'\x%x" "' % toApp)
+      else: r.append(chr(toApp))
+    return ''.join(r)
+else: unobfusc_func = ""
+
 c_start = "/* -*- coding: "+outcode+r""" -*- */
 #include <stdio.h>
 #include <string.h>
@@ -305,24 +336,25 @@ enum { ybytes = %%YBYTES%% }; /* for Yarowsky matching, minimum readahead */
 static int nearbytes = ybytes;
 #define setnear(n) (nearbytes = (n))
 #ifndef NEXTBYTE
-/* Default definition of NEXTBYTE etc is to use stdin */
+/* Default definition of NEXTBYTE etc is to read input
+   from stdin and write output to stdout.  */
 enum { Half_Bufsize = %%LONGEST_RULE_LEN%% };
 static unsigned char lookahead[Half_Bufsize*2];
-static size_t filePtr=0,bufStart=0,bufLen=0;
+static size_t readPtr=0,writePtr=0,bufStart=0,bufLen=0;
 static int nextByte() {
-  if (filePtr-bufStart +ybytes >= bufLen) {
+  if (readPtr-bufStart +ybytes >= bufLen) {
     if (bufLen == Half_Bufsize * 2) {
       memmove(lookahead,lookahead+Half_Bufsize,Half_Bufsize);
       bufStart += Half_Bufsize; bufLen -= Half_Bufsize;
     }
     bufLen += fread(lookahead+bufLen,1,Half_Bufsize*2-bufLen,stdin);
-    if (filePtr-bufStart == bufLen) return EOF;
+    if (readPtr-bufStart == bufLen) return EOF;
   }
-  return lookahead[(filePtr++)-bufStart];
+  return lookahead[(readPtr++)-bufStart];
 }
 static int near(char* string) {
   /* for Yarowsky-like matching */
-  size_t offset = filePtr-bufStart, l=strlen(string),
+  size_t offset = readPtr-bufStart, l=strlen(string),
          maxPos = bufLen;
   if (maxPos >= l) maxPos -= l; else return 0; // can't possibly start after maxPos-l
   if (offset+nearbytes>l) {
@@ -338,25 +370,16 @@ static int near(char* string) {
   return 0;
 }
 #define NEXTBYTE nextByte()
+#define NEXT_COPY_BYTE lookahead[(writePtr++)-bufStart]
+#define COPY_BYTE_SKIP writePtr++
 #define POSTYPE size_t
-#define THEPOS filePtr /* or get it via a function */
+#define THEPOS readPtr /* or get it via a function */
 #define SAVEPOS POSTYPE oldPos=THEPOS
-#define RESTOREPOS filePtr=oldPos /* or set via a func */
-#define PREVBYTE filePtr--
-#define BOGUS_BYTE OutWriteByte(NEXTBYTE)
-#define FINISHED (feof(stdin) && filePtr-bufStart == bufLen)
-#endif
-#ifndef OutWrite
-#define OutWrite(fmt,a,b) printf(fmt,a,b)
-#define OutWrite3(fmt,a,b,c) printf(fmt,a,b,c)
+#define RESTOREPOS readPtr=oldPos /* or set via a func */
+#define PREVBYTE readPtr--
+#define FINISHED (feof(stdin) && readPtr-bufStart == bufLen)
 #define OutWriteStr(s) fputs(s,stdout)
 #define OutWriteByte(c) putchar(c)
-#endif
-#ifndef OutWriteStr
-#define OutWriteStr(s) OutWrite("%s%s",s,"")
-#endif
-#ifndef OutWriteByte
-#define OutWriteByte(c) OutWrite("%c%s",c,"")
 #endif
 
 #ifndef Default_Annotation_Mode
@@ -372,30 +395,47 @@ static int needSpace=0;
 static void s() {
   if (needSpace) OutWriteByte(' ');
   else needSpace=1; /* for after the word we're about to write (if no intervening bytes cause needSpace=0) */
-}
+}""" + unobfusc_func + r"""
 
-static void o(const char *word,const char *annot) {
+static void o(int numBytes,const char *annot) {
   s();
   switch (annotation_mode) {
-  case annotations_only: OutWriteStr(annot); break;
-  case ruby_markup: OutWrite("<ruby><rb>%s</rb><rt>%s</rt></ruby>",word,annot); break;
-  case brace_notation: OutWrite("{%s|%s}",word,annot); break;
+  case annotations_only: OutWriteDecode(annot); break;
+  case ruby_markup:
+    OutWriteStr("<ruby><rb>");
+    for(;numBytes;numBytes--)
+      OutWriteByte(NEXT_COPY_BYTE);
+    OutWriteStr("</rb><rt>"); OutWriteDecode(annot);
+    OutWriteStr("</rt></ruby>"); break;
+  case brace_notation:
+    OutWriteByte('{');
+    for(;numBytes;numBytes--)
+      OutWriteByte(NEXT_COPY_BYTE);
+    OutWriteByte('|'); OutWriteDecode(annot);
+    OutWriteByte('}'); break;
   }
 }
-static void o2(const char *word,const char *annot,const char *title) {
+static void o2(int numBytes,const char *annot,const char *title) {
   if (annotation_mode == ruby_markup) {
     s();
-    OutWrite3("<ruby title=\"%s\"><rb>%s</rb><rt>%s</rt></ruby>",title,word,annot);
-  } else o(word,annot);
+    OutWriteStr("<ruby title=\""); OutWriteDecode(title);
+    OutWriteStr("\"><rb>");
+    for(;numBytes;numBytes--)
+      OutWriteByte(NEXT_COPY_BYTE);
+    OutWriteStr("</rb><rt>"); OutWriteDecode(annot);
+    OutWriteStr("</rt></ruby>");
+  } else o(numBytes,annot);
 }
 """
+
+if not obfuscate: c_start = c_start.replace("OutWriteDecode","OutWriteStr")
 
 c_end = """
 void matchAll() {
   while(!FINISHED) {
     POSTYPE oldPos=THEPOS;
     topLevelMatch();
-    if (oldPos==THEPOS) { needSpace=0; BOGUS_BYTE; }
+    if (oldPos==THEPOS) { needSpace=0; OutWriteByte(NEXTBYTE); COPY_BYTE_SKIP; }
   }
 }
 
@@ -938,9 +978,14 @@ def analyse():
     if ybytes: return accum.rules
     else: return accum.rules.keys()
 
-def c_escape(unistr):
-    # returns unistr encoded as outcode and escaped so can be put in C in "..."s
-    return re.sub(r"\?\?([=/'()<>!-])",r'?""?\1',unistr.encode(outcode).replace('\\','\\\\').replace('"','\\"').replace('\n','\\n')) # (the re.sub part is to get rid of trigraph warnings, TODO might get a marginal efficiency increase if do it to the entire C file at once instead)
+def c_escape(unistr,doEncode=True):
+    # returns unistr encoded as outcode and escaped so can be put in C in "..."s.  Optionally calls encodeOutstr also.
+    s = unistr.encode(outcode)
+    if obfuscate and doEncode: s = encodeOutstr(s)
+    else: s = s.replace('\\','\\\\').replace('"','\\"')
+    return re.sub(r"\?\?([=/'()<>!-])",r'?""?\1',s.replace('\n','\\n')) # (the re.sub part is to get rid of trigraph warnings, TODO might get a marginal efficiency increase if do it to the entire C file at once instead)
+
+def c_length(unistr): return len(unistr.encode(outcode))
 
 def matchingAction(rule,glossDic):
   action = []
@@ -953,8 +998,13 @@ def matchingAction(rule,glossDic):
     annotation_unistr = w[mStart:w.index(markupEnd,mStart)]
     if mreverse: text_unistr,annotation_unistr = annotation_unistr,text_unistr
     gloss = glossDic.get((text_unistr,annotation_unistr),glossDic.get(text_unistr,None))
-    if gloss: action.append('o2("%s","%s","%s");' % (c_escape(text_unistr),c_escape(annotation_unistr),c_escape(gloss.replace('&','&amp;').replace('"','&quot;'))))
-    else: action.append('o("%s","%s");' % (c_escape(text_unistr),c_escape(annotation_unistr)))
+    if reannotator:
+      if reannotator[0]=='#': toAdd=annotation_unistr
+      else: toAdd = text_unistr
+      if toAdd in reannotateDict: annotation_unistr = reannotateDict[toAdd]
+      else: toReannotateSet.add(toAdd)
+    if gloss: action.append('o2(%d,"%s","%s");' % (c_length(text_unistr),c_escape(annotation_unistr),c_escape(gloss.replace('&','&amp;').replace('"','&quot;'))))
+    else: action.append('o(%d,"%s");' % (c_length(text_unistr),c_escape(annotation_unistr)))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
@@ -973,7 +1023,7 @@ def outputParser(rules):
             if annot: glossDic[(word,annot)] = gloss
             else: glossDic[word] = gloss
     byteSeq_to_action_dict = {}
-    if ignoreNewlines: byteSeq_to_action_dict['\n'] = [(r"OutWriteByte('\n'); /* needSpace unchanged */",[])]
+    if ignoreNewlines: byteSeq_to_action_dict['\n'] = [(r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;",[])]
     if type(rules)==type([]): rulesAndConds = [(x,[]) for x in rules]
     else: rulesAndConds = rules.items()
     def addRule(rule,conds,byteSeq_to_action_dict,manualOverride=False):
@@ -982,6 +1032,27 @@ def outputParser(rules):
         if not gotAnnot: return # probably some spurious o("{","") rule that got in due to markup corruption
         if manualOverride or not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
         byteSeq_to_action_dict[byteSeq].append((' '.join(action),conds))
+    if reannotator:
+      # dry run to get the words to reannotate
+      global toReannotateSet, reannotateDict
+      toReannotateSet = set() ; reannotateDict = {}
+      dummyDict = {}
+      for rule,conds in rulesAndConds: addRule(rule,conds,dummyDict)
+      if manualrules:
+        for l in openfile(manualrules).xreadlines():
+            if not l.strip(): continue
+            l=l.decode(incode) # TODO: manualrulescode ?
+            addRule(l,[],dummyDict)
+      del dummyDict
+      if reannotator[0]=='#': cmd=reannotator[1:]
+      else: cmd = reannotator
+      cin,cout = os.popen2(cmd)
+      l = [ll for ll in toReannotateSet if not "\n" in ll]
+      cin.write("\n".join(l).encode(outcode)+"\n") ; cin.close() # TODO: reannotatorCode?
+      l2 = cout.read().replace("\r\n","\n").decode(outcode).split("\n") # TODO: reannotatorCode?
+      if l2 and not l2[-1]: del l2[-1]
+      if not len(l)==len(l2): errExit("reannotator command didn't output the same number of lines as we gave it (gave %d, got %d)" % (len(l),len(l2)))
+      toReannotateSet = set() ; reannotateDict = dict(zip(l,l2)) ; del l,l2
     for rule,conds in rulesAndConds: addRule(rule,conds,byteSeq_to_action_dict)
     if manualrules:
         for l in openfile(manualrules).xreadlines():
@@ -997,6 +1068,9 @@ def outputParser(rules):
     print c_end
     print
     del byteSeq_to_action_dict,subFuncL,ret
+    if reannotator:
+        print "/* Tab-delimited rules summary not yet implemented with reannotator option */"
+        return
     print "/* Tab-delimited summary of above rules:"
     if manualrules: print "  (not including manual rules)"
     outputRulesSummary(rules)
