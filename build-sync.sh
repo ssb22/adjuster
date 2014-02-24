@@ -1,4 +1,5 @@
 #!/bin/bash
-# sync Web Adjuster to SVN
+# sync Web Adjuster and Annotator Generator to SVN
 wget -N http://people.ds.cam.ac.uk/ssb22/adjuster/adjuster.py
-svn commit -m "Update adjuster.py"
+wget -N http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.py
+svn commit -m "Update adjuster/annogen"
