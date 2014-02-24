@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.44 (c) 2012-13 Silas S. Brown"
+program_name = "Annotator Generator v0.53 (c) 2012-13 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -72,6 +72,11 @@ parser.add_option("-c", "--capitalisation",
                   default=False,
                   help="Don't try to normalise capitalisation in the input.  Normally, to simplify the rules, the analyser will try to remove start-of-sentence capitals in annotations, so that the only remaining words with capital letters are the ones that are ALWAYS capitalised such as names.  (That's not perfect: it's possible that some words will always be capitalised just because they happen to never occur mid-sentence in the examples.)  If this option is used, the analyser will instead try to \"learn\" how to predict the capitalisation of ALL words (including start of sentence words) from their contexts.") # TODO: make the C program put the sentence capitals back
 
+parser.add_option("-w", "--annot-whitespace",
+                  action="store_true",
+                  default=False,
+                  help="Don't try to normalise the use of whitespace in the example annotations.  Normally the analyser will try to treat annotations which differ only in their use of whitespace as equivalent, to reduce the risk of missing a possible rule if there are too many whitespace differences.") # TODO: can this be extended to the point where the words 'try to' can be deleted ?  see comments
+
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz or .bz2 file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 
@@ -108,6 +113,10 @@ parser.add_option("-S", "--summary-only",
                   action="store_true",default=False,
                   help="Don't generate a parser, just write the rules summary to standard output")
 
+parser.add_option("--no-summary",
+                  action="store_true",default=False,
+                  help="Don't add a rules summary at the end of the parser")
+
 parser.add_option("-O", "--summary-omit",
                   help="Filename of a text file (or a compressed .gz or .bz2 file) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary (but still included in the parser).  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.")
 
@@ -126,7 +135,11 @@ parser.add_option("--newlines-reset",
 
 parser.add_option("--obfuscate",
                   action="store_true",default=False,
-                  help="Obfuscate annotation strings in C code, as a deterrent to casual snooping of the compiled binary with tools like 'strings'.  This won't stop determined reverse engineering however.")
+                  help="Obfuscate annotation strings in C code, as a deterrent to casual snooping of the compiled binary with tools like 'strings' (does NOT stop determined reverse engineering)")
+
+parser.add_option("--javascript",
+                  action="store_true",default=False,
+                  help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
 
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  (If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text.)  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
@@ -191,6 +204,10 @@ ymax_threshold = int(ymax_threshold)
 def errExit(msg):
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
+if javascript:
+    if not outcode=="utf-8": errExit("outcode must be utf-8 when using Javascript")
+    if obfuscate: errExit("obfuscate not yet implemented for the Javascript version") # (and it would probably slow down the JS far too much if it were)
+    if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".js"
 if diagnose: diagnose=diagnose.decode('utf-8')
 diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
@@ -212,7 +229,7 @@ def subFuncCall(newFunc,subFuncs,subFuncL):
     subFuncL.append(newFunc.replace("NewFunc",subFuncName,1))
   return subFuncName+"()" # the call (without a semicolon)
 
-def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFuncs={},inTopFunc=True): # ("topLevelMatch" is also mentioned in the C code)
+def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFuncs={}): # ("topLevelMatch" is also mentioned in the C code)
     # make a function to switch on a large number of variable-length string cases without repeated lookahead for each case
     # (may still backtrack if no words or no suffices match)
     # byteSeq_to_action_dict is really a byte sequence to [(action, OR-list of Yarowsky-like indicators which are still in Unicode)], the latter will be c_escape()d
@@ -241,7 +258,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         # will do any necessary save/restore pos)
         del ret[savePos] ; savePos = None
         del byteSeq_to_action_dict[""]
-        newFunc = "\n".join(stringSwitch(byteSeq_to_action_dict,subFuncL,"NewFunc",subFuncs,False))
+        newFunc = "\n".join(stringSwitch(byteSeq_to_action_dict,subFuncL,"NewFunc",subFuncs))
         byteSeq_to_action_dict[""] = [("",[])] # for the end of this func
         ret.append(subFuncCall(newFunc,subFuncs,subFuncL)+"; return;")
     elif allBytes:
@@ -253,7 +270,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         else: cstr=ord(case)
         if use_if: ret.append("if(NEXTBYTE==%s) {" % cstr)
         else: ret.append("case %s:" % cstr)
-        inner = stringSwitch(dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case]),subFuncL,None,subFuncs,inTopFunc)
+        inner = stringSwitch(dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case]),subFuncL,None,subFuncs)
         need_break = not (use_if or inner[-1].endswith("return;"))
         if nested_switch or not inner[0].startswith("switch"): ret += ["  "+x for x in inner]
         else:
@@ -460,6 +477,336 @@ int main(int argc,char*argv[]) {
 #endif
 """
 
+class BytecodeAssembler:
+  # Bytecode for a virtual machine run by the Javascript version (TODO other languages also?)
+  def __init__(self):
+    self.l = []
+    self.d2l = {}
+    self.lastLabelNo = 0
+    self.addingPosStack = []
+  def addOpcode(self,opcode):
+      self.addBytes({
+        'jump': 50, # params: address
+        'call': 51, # params: function address
+        'return': 52, # (or 'end program' if top level)
+        'switchbyte': 60, # switch(NEXTBYTE) (params: numBytes-1, bytes (sorted, TODO take advantage of this), addresses, default address)
+        'copyBytes':71,'o':72,'o2':73, # (don't change these numbers, they're hard-coded below)
+        'savepos':80, # local to the function
+        'restorepos':81,
+        'neartest':90, # params: true-label, false-label, byte nbytes, addresses of conds strings until true-label reached
+        }[opcode])
+  def addBytes(self,bStr):
+      if type(bStr)==int: self.l.append(chr(bStr))
+      elif type(bStr)==str: self.l.append(bStr)
+      else: raise Exception("unspported bytes type")
+  def startAddingFunction(self):
+      self.addingPosStack.append((len(self.l),self.lastLabelNo))
+      self.lastLabelNo = 0
+  def finishFunctionAndAddCall(self):
+      # make sure to add a return instruction before this!
+      fPtr, self.lastLabelNo = self.addingPosStack[-1]
+      del self.addingPosStack[-1]
+      fBody = tuple(self.l[fPtr:]) ; self.l=self.l[:fPtr]
+      if not fBody in self.d2l: # not a duplicate
+          self.d2l[fBody] = (-len(self.d2l)-1,)
+      self.addOpcode('call')
+      self.l.append(self.d2l[fBody])
+  def addByteswitch(self,byteArray,labelArray):
+      assert len(byteArray) + 1 == len(labelArray)
+      # labelArray has the default case added also (TODO: could re-organize code so the bytes immediately after the switch are either the default or one of the items, saving 1 address)
+      if not len(byteArray): return # empty switch = no-op
+      self.addOpcode('switchbyte')
+      self.addBytes(len(byteArray)-1) # num of bytes in list - 1 (so all 256 values can be accounted for if needed)
+      self.addBytes("".join(byteArray))
+      for i in labelArray: self.addRef(i)
+  def addActions(self,actionList):
+    for a in actionList:
+      assert 1 <= len(a) <= 3
+      assert type(a[0])==int and 1 <= a[0] <= 255, "bytecode currently supports markup or copy between 1 and 255 bytes only (but 0 is reserved for expansion)"
+      self.addBytes(70+len(a)) # 71=copyBytes 72=o() 73=o2
+      self.addBytes(a[0])
+      for i in a[1:]: self.addRefToString(i)
+  def addActionDictSwitch(self,byteSeq_to_action_dict,isFunc=True,labelToJump=None):
+    # a modified stringSwitch for the bytecode
+    # Actions aren't strings: they list tuples of either
+    # 1, 2 or 3 items for copyBytes, o(), o2()
+    # labelToJump is a jump to insert afterwards if not isFunc and if we don't emit an unconditional 'return'.  Otherwise, will ALWAYS end up with a 'return' (even if not isFunc i.e. the main program)
+    allBytes = set(b[0] for b in byteSeq_to_action_dict.iterkeys() if b)
+    if isFunc:
+        self.startAddingFunction()
+        savePos = len(self.l)
+        self.addOpcode('savepos')
+    elif ("" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1) or not labelToJump: # ('not labelToJump' and 'not isFunc' == main program)
+        savePos = len(self.l)
+        self.addOpcode('savepos')
+    else: savePos = None
+    if "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[""])==1 and not byteSeq_to_action_dict[""][0][1] and all((len(a)==1 and a[0][0][:len(byteSeq_to_action_dict[""][0][0])]==byteSeq_to_action_dict[""][0][0] and not a[0][1]) for a in byteSeq_to_action_dict.itervalues()):
+        self.addActions(byteSeq_to_action_dict[""][0][0])
+        l = len(byteSeq_to_action_dict[""][0][0])
+        byteSeq_to_action_dict = dict((x,[(y[l:],z)]) for x,[(y,z)] in byteSeq_to_action_dict.iteritems())
+        del self.l[savePos] ; savePos = None
+        del byteSeq_to_action_dict[""]
+        self.addActionDictSwitch(byteSeq_to_action_dict) # as a subfunction (ends up adding the call to it)
+        byteSeq_to_action_dict[""] = [("",[])] # for the end of this func
+        self.addOpcode('return')
+    elif allBytes:
+      allBytes = list(allBytes)
+      labels = [self.makeLabel() for b in allBytes+[0]]
+      self.addByteswitch(allBytes,labels)
+      for case in allBytes:
+        self.addLabelHere(labels[0]) ; del labels[0]
+        self.addActionDictSwitch(dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case]),False,labels[-1])
+      self.addLabelHere(labels[0])
+    if not savePos==None: self.addOpcode('restorepos')
+    if isFunc:
+        self.addOpcode('return')
+        if self.l[-1]==self.l[-2]: del self.l[-1] # double return
+        return self.finishFunctionAndAddCall()
+    elif "" in byteSeq_to_action_dict:
+        default_action = ""
+        for action,conds in byteSeq_to_action_dict[""]:
+            if conds:
+                if type(conds)==tuple: conds,nbytes = conds
+                else: nbytes = ybytes_max
+                assert 1 <= nbytes <= 255, "bytecode supports only single-byte nbytes (but nbytes=0 is reserved for expansion)"
+                trueLabel,falseLabel = self.makeLabel(),self.makeLabel()
+                self.addOpcode('neartest')
+                self.addRef(trueLabel)
+                self.addRef(falseLabel)
+                assert type(nbytes)==int
+                self.addBytes(nbytes)
+                for c in conds: self.addRefToString(c.encode(outcode))
+                self.addLabelHere(trueLabel)
+                self.addActions(action)
+                self.addOpcode('return')
+                self.addLabelHere(falseLabel)
+            else: default_action = action
+        if default_action or not byteSeq_to_action_dict[""]:
+            self.addActions(default_action)
+            self.addOpcode('return') ; return
+    if labelToJump:
+        self.addOpcode('jump')
+        self.addRef(labelToJump)
+    else: self.addOpcode('return')
+  def makeLabel(self):
+      self.lastLabelNo += 1
+      return self.lastLabelNo
+  def addLabelHere(self,labelNo):
+      assert type(labelNo)==int
+      assert labelNo, "label 0 not allowed"
+      self.l.append(labelNo)
+  def addRef(self,labelNo):
+      assert type(labelNo)==int
+      self.l.append(-labelNo)
+  def addRefToString(self,string):
+    # prepends with a length hint if possible (or if not,
+    # prepends with 0 and null-terminates it)
+    assert type(string)==str
+    if 1 <= len(string) < 256:
+        string = chr(len(string))+string
+    else: string = chr(0)+string+chr(0)
+    if not string in self.d2l:
+      self.d2l[string] = (-len(self.d2l)-1,)
+    self.l.append(self.d2l[string])
+  def link(self): # returns resulting bytes
+    # (add an 'end program' instruction before calling)
+    def f(*args): raise Exception("Must call link() only once")
+    self.link = f
+    sys.stderr.write("Linking... ")
+    for dat,ref in self.d2l.iteritems():
+        assert type(ref)==tuple and type(ref[0])==int
+        self.l.append((-ref[0],)) # the label
+        if type(dat)==str:
+            self.l.append(dat) ; continue
+        # otherwise it's a function, and non-reserved labels are local, so we need to rename them
+        l2l = {}
+        for i in dat:
+            if type(i)==int:
+                if i>0: j=i
+                else: j=-i
+                if not j in l2l:
+                    l2l[j] = self.makeLabel()
+                if i>0: self.addLabelHere(l2l[j])
+                else: self.addRef(l2l[j])
+            else: self.l.append(i) # str or tuple just cp
+    del self.d2l
+    # elements of self.l are now:
+    # - byte strings (just copied in)
+    # - positive integers (labels)
+    # - negative integers (references to labels)
+    # - +ve or -ve integers in tuples (reserved labels)
+    # 1st byte of o/p is num bytes needed per address
+    class TooNarrow(Exception): pass
+    for numBytes in xrange(1,256):
+        sys.stderr.write("(%d-bit) " % (numBytes*8))
+        try:
+          lDic = {} ; r = [chr(numBytes)]
+          for P in [1,2]:
+            ll = 1
+            for i in self.l:
+                if type(i) in [int,tuple]:
+                    if type(i)==int: i2,iKey = i,-i
+                    else: i2,iKey = i[0],(-i[0],)
+                    assert type(i2)==int
+                    if i2 > 0: # label going in here
+                        if i in lDic: assert lDic[i] == ll, "changing label %s from %d to %d, P=%d" % (repr(i),lDic[i],ll,P)
+                        else: lDic[i] = ll
+                        continue
+                    elif iKey in lDic: # known label
+                        i = lDic[iKey]
+                        shift = 8*numBytes
+                        if (i >> shift): raise TooNarrow()
+                        j = []
+                        for b in xrange(numBytes):
+                            # MSB-LSB (easier to do in JS)
+                            shift -= 8
+                            j.append(chr((i>>shift)&0xFF))
+                        i = "".join(j)
+                        assert len(i)==numBytes
+                    else: # as-yet unknown label
+                        assert P==1, "undefined label %d" % -i
+                        ll += numBytes ; continue
+                if P==2: r.append(i)
+                ll += len(i)
+          sys.stderr.write("%d bytes\n" % ll)
+          return "".join(r)
+        except TooNarrow: pass
+    assert 0, "can't even assemble it with 255-byte addressing !?!"
+
+js_start = r"""/* Javascript generated by """+program_name[:program_name.index("(c)")].strip()+r"""
+
+Usage:
+
+ - You could just include this code and then call the
+   annotate() function i.e. var result = annotate(input)
+
+ - Or you could use (and perhaps extend) the Annotator
+   object, and call its annotate() method.  If you have
+   Backbone.JS, Annotator will instead be a generator
+   (extending Backbone.Model) which you will have to
+   instantiate yourself (possibly after extending it).
+   The Annotator object/class is also what will be
+   exported by this module if you're using Common.JS.
+
+ - On Unix systems with Node.JS, you can run this file in
+   "node" to annotate standard input as a simple test.
+
+*/
+
+var Annotator={
+"""
+js_end = r"""
+annotate: function(input) {
+/* TODO: if input is a whole html doc, insert css in head
+   (e.g. from annoclip and/or adjuster), and hope there's
+   no stuff that's not to be annotated (form fields...) */
+input = unescape(encodeURIComponent(input)); // to UTF-8
+var data = this.data;
+var addrLen = data.charCodeAt(0);
+var dPtr;
+var inputLength = input.length;
+var p = 0; // read-ahead pointer
+var copyP = 0; // copy pointer
+var output = new Array();
+var needSpace = 0;
+
+function readAddr() {
+  var i,addr=0;
+  for (i=addrLen; i; i--) addr=(addr << 8) | data.charCodeAt(dPtr++);
+  return addr;
+}
+
+function readRefStr() {
+  var a = readAddr(); var l=data.charCodeAt(a);
+  if (l != 0) return data.slice(a+1,a+l+1);
+  else return data.slice(a+1,data.indexOf('\x00',a+1));
+}
+
+function s() {
+  if (needSpace) output.push(" ");
+  else needSpace=1; // for after the word we're about to write (if no intervening bytes cause needSpace=0)
+}
+
+function readData() {
+    var sPos = new Array();
+    while(1) {
+        switch(data.charCodeAt(dPtr++)) {
+            case 50: dPtr = readAddr(); break;
+            case 51: {
+              var f = readAddr(); var dO=dPtr;
+              dPtr = f; readData() ; dPtr = dO;
+              break; }
+            case 52: return;
+            case 60: {
+              var nBytes = data.charCodeAt(dPtr++)+1;
+              var i = data.slice(dPtr,dPtr+nBytes).indexOf(input.charAt(p++));
+              if (i==-1) i = nBytes;
+              dPtr += (nBytes + i * addrLen);
+              dPtr = readAddr(); break; }
+            case 71: {
+              var numBytes = data.charCodeAt(dPtr++);
+  output.push(input.slice(copyP,copyP+numBytes));
+  copyP += numBytes; break; }
+            case 72: {
+              var numBytes = data.charCodeAt(dPtr++);
+              var annot = readRefStr();
+  s();
+  output.push("<ruby><rb>");
+  output.push(input.slice(copyP,copyP+numBytes));
+  copyP += numBytes;
+  output.push("</rb><rt>"); output.push(annot);
+  output.push("</rt></ruby>"); break; }
+            case 73: {
+              var numBytes = data.charCodeAt(dPtr++);
+              var annot = readRefStr();
+              var title = readRefStr();
+  s();
+  output.push("<ruby title=\""); output.push(title);
+  output.push("\"><rb>");
+  output.push(input.slice(copyP,copyP+numBytes));
+  copyP += numBytes;
+  output.push("</rb><rt>"); output.push(annot);
+  output.push("</rt></ruby>"); break; }
+            case 80: sPos.push(p); break;
+            case 81: p=sPos.pop(); break;
+            case 90: {
+                var tPtr = readAddr();
+                var fPtr = readAddr();
+                var nearbytes = data.charCodeAt(dPtr++);
+  var o=p;
+  if (o > nearbytes) o -= nearbytes; else o = 0;
+  var max = p + nearbytes;
+  if (max > inputLength) max = inputLength;
+  var tStr = input.slice(o,max);
+                var found = 0;
+                while (dPtr < tPtr) if (tStr.indexOf(readRefStr()) != -1) { found = 1; break; }
+                dPtr = found ? tPtr : fPtr; break;
+                }
+        default: throw("corrupt data table at "+(dPtr-1)+" ("+data.charCodeAt(dPtr-1)+")");
+            }
+        }
+    }
+
+while(p < inputLength) {
+var oldPos=p;
+dPtr=1;readData();
+if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
+}
+return decodeURIComponent(escape(output.join(""))); // from UTF-8 back to Unicode
+} // end of annotate function
+};
+function annotate(input) { return Annotator.annotate(input); }
+
+if (typeof Backbone != "undefined" && Backbone.Model) { Annotator = Backbone.Model.extend(Annotator); annotate=function(input) { return new Annotator().annotate(input) } }
+if (typeof require != "undefined" && typeof module != "undefined" && require.main === module) {
+  // Node.js command-line test
+  fs=require('fs');
+  process.stdout.write(annotate(fs.readFileSync('/dev/stdin').toString()));
+} else if (typeof module != "undefined" && module.exports) { // Common.js
+  module.exports = Annotator;
+}
+"""
+
 def splitWords(text,phrases=False):
     # split text into words, ignoring anything between markupStart and markupEnd
     # if phrases = True, instead of words, split on any non-whitespace char outside markupStart..markupEnd
@@ -506,6 +853,10 @@ def markDown(text):
     if removeSpace: text=re.sub(whitespacePattern,"",text)
     return text
 
+def markUp(text,annotation):
+  if mreverse: text,annotation = annotation,text
+  return markupStart + text + markupMid + annotation + markupEnd
+    
 def checkpoint_exit(doIt=1):
   if not checkpoint: return
   try: open(checkpoint+os.sep+"ExitASAP")
@@ -516,7 +867,8 @@ def checkpoint_exit(doIt=1):
     raise SystemExit
   else: return True
 
-def normalise_capitalisation():
+def normalise():
+    if capitalisation and annot_whitespace: return
     global corpus_unistr
     if checkpoint:
       try:
@@ -524,33 +876,69 @@ def normalise_capitalisation():
         corpus_unistr = f.read().decode('utf-8')
         return
       except: pass
-    sys.stderr.write("Normalising capitalisation...")
-    # (as long as it's all Unicode strings, .lower() and .upper() work with accents etc)
+    sys.stderr.write("Normalising...")
     allWords = set() ; found = False
     for phrase in splitWords(corpus_unistr,phrases=True):
         allWords.update(splitWords(phrase))
-    replaceDic = {}
     def replaceBatch(r):
         global corpus_unistr
         if r: corpus_unistr = re.sub('|'.join(re.escape(k) for k in r.iterkeys()),lambda k:r[k.group(0)],corpus_unistr) # (stackoverflow suggestion)
-    for w in allWords:
-        wl = w.lower()
+    class Replacer:
+      def __init__(self): self.dic = {}
+      def add(self,x,y):
+        self.dic[x] = y
+        if len(self.dic)==2000: # limit the size of each batch - needed on some Pythons (e.g. Mac)
+          replaceBatch(self.dic)
+          sys.stderr.write(".")
+          self.dic = {}
+    rpl = Replacer() ; rpl.cu_nosp = None
+    def normWord(w):
+      if not capitalisation:
+        wl = w.lower() # (as long as it's all Unicode strings, .lower() and .upper() work with accents etc)
         if not w==wl and wl in allWords:
             # This word is NOT always capitalised, just
             # sometimes at the start of a sentence.
             # To simplify rules, make it always lower.
-            replaceDic[w] = wl
-            if len(replaceDic)==2000: # limit the size of each batch - needed on some Pythons (e.g. Mac)
-                replaceBatch(replaceDic)
-                replaceDic = {}
-                sys.stderr.write(".")
-    replaceBatch(replaceDic)
+            return rpl.add(w,wl)
+      if annot_whitespace: return
+      nowsp = "".join(w.split())
+      if w == nowsp: return # there wasn't any whitespace
+      if nowsp in allWords: return rpl.add(w,nowsp) # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set the relative authority of the reference (TODO)
+      ao,md = annotationOnly(w),markDown(w)
+      aoS = ao.split()
+      if len(md.split())==1 and len(md) <= 5 and len(aoS) <= len(md): # TODO: 5 configurable?  don't want different_ways_of_splitting to take too long
+        # if not too many chars, try different ways of
+        # assigning each word to chars, and see if any
+        # of these exist in the corpus; if any does,
+        # assume we have "ABC|a bc" <= "A|a BC|bc" type
+        # situations - the latter shouldn't necessarily be
+        # converted into the former, but the former might
+        # be convertible into the latter to simplify rules
+        if rpl.cu_nosp == None: rpl.cu_nosp = re.sub(whitespacePattern,"",corpus_unistr)
+        for charBunches in different_ways_of_splitting(md,len(aoS)):
+          multiword = "".join(markUp(c,w) for c,w in zip(charBunches,aoS))
+          if multiword in rpl.cu_nosp:
+            return rpl.add(w,multiword)
+          # TODO: is there ANY time where we want multiword to take priority over the nowsp (no-whitespace) version above?  or even REPLACE multiword occurrences in the corpus with the 1-word nowsp version?? (must be VERY CAREFUL doing that)
+      # TODO: anything else?
+    for w in allWords: normWord(w)
+    replaceBatch(rpl.dic)
     sys.stderr.write(" done\n")
     if checkpoint: open(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8'))
     checkpoint_exit()
 
 if mreverse: mdStart,mdEnd = markupMid,markupEnd
 else: mdStart,mdEnd = markupStart,markupMid
+
+def different_ways_of_splitting(chars,splitPoints):
+  if splitPoints > len(chars): return
+  elif splitPoints == len(chars):
+    yield list(chars) ; return
+  elif splitPoints == 0:
+    yield [chars] ; return
+  spAt_try1 = len(chars) / splitPoints + 1
+  for spAt in range(spAt_try1,0,-1) + range(spAt_try1+1, len(chars)-splitPoints):
+    for r in different_ways_of_splitting(chars[spAt:],splitPoints-1): yield [chars[:spAt]]+r
 
 def yarowsky_indicators(withAnnot_unistr,markedDown):
     # returns True if rule always works (or in majority of cases with ymajority), or lists enough indicators to cover example instances and returns (list, nbytes), or just list if empty.
@@ -912,7 +1300,6 @@ def generate_map():
 
 def analyse():
     global corpus_unistr
-    if not capitalisation: normalise_capitalisation()
     if ybytes: generate_map()
 
     # Due to the way we handle overlaps, it's better to process the shortest phrases first, as the longer phrases will yield more rule options and therefore more likely to be able to work around any "no-overlap" constraints imposed by already-processed examples.  Something like:
@@ -967,7 +1354,7 @@ def analyse():
               elif minsLeft>60: progress += " %dh+" % int(minsLeft/60)
               elif minsLeft: progress += " %dmin+" % minsLeft
               # (including the + because this is liable to be an underestimate; see comment after the --time-estimate option)
-            sys.stderr.write(progress+" \r")
+            sys.stderr.write(progress+clear_eol)
             lastUpdate = time.time()
             phraseLastUpdate = phraseNo
         coveredA,toCoverA = accum.addRulesForPhrase(phrases[phraseNo],markedUp,markedDown)
@@ -1003,8 +1390,12 @@ def matchingAction(rule,glossDic):
       else: toAdd = text_unistr
       if toAdd in reannotateDict: annotation_unistr = reannotateDict[toAdd]
       else: toReannotateSet.add(toAdd)
-    if gloss: action.append('o2(%d,"%s","%s");' % (c_length(text_unistr),c_escape(annotation_unistr),c_escape(gloss.replace('&','&amp;').replace('"','&quot;'))))
-    else: action.append('o(%d,"%s");' % (c_length(text_unistr),c_escape(annotation_unistr)))
+    if gloss:
+        if javascript: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.replace('&','&amp;').replace('"','&quot;').encode(outcode)))
+        else: action.append('o2(%d,"%s","%s");' % (c_length(text_unistr),c_escape(annotation_unistr),c_escape(gloss.replace('&','&amp;').replace('"','&quot;'))))
+    else:
+        if javascript: action.append((c_length(text_unistr),annotation_unistr.encode(outcode)))
+        else: action.append('o(%d,"%s");' % (c_length(text_unistr),c_escape(annotation_unistr)))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
@@ -1023,7 +1414,10 @@ def outputParser(rules):
             if annot: glossDic[(word,annot)] = gloss
             else: glossDic[word] = gloss
     byteSeq_to_action_dict = {}
-    if ignoreNewlines: byteSeq_to_action_dict['\n'] = [(r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;",[])]
+    if ignoreNewlines:
+        if javascript: newline_action = [(1,)]
+        else: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;"
+        byteSeq_to_action_dict['\n'] = [(newline_action,[])]
     if type(rules)==type([]): rulesAndConds = [(x,[]) for x in rules]
     else: rulesAndConds = rules.items()
     def addRule(rule,conds,byteSeq_to_action_dict,manualOverride=False):
@@ -1031,7 +1425,8 @@ def outputParser(rules):
         action,gotAnnot = matchingAction(rule,glossDic)
         if not gotAnnot: return # probably some spurious o("{","") rule that got in due to markup corruption
         if manualOverride or not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
-        byteSeq_to_action_dict[byteSeq].append((' '.join(action),conds))
+        if not javascript: action = ' '.join(action)
+        byteSeq_to_action_dict[byteSeq].append((action,conds))
     if reannotator:
       # dry run to get the words to reannotate
       global toReannotateSet, reannotateDict
@@ -1061,13 +1456,21 @@ def outputParser(rules):
             addRule(l,[],byteSeq_to_action_dict,True)
     longest_rule_len = max(len(b) for b in byteSeq_to_action_dict.iterkeys())
     longest_rule_len = max(ybytes_max*2, longest_rule_len) # make sure the half-bufsize is at least ybytes_max*2, so that a read-ahead when pos is ybytes_max from the end, resulting in a shift back to the 1st half of the buffer, will still leave ybytes_max from the beginning, so yar() can look ybytes_max-wide in both directions
+    if javascript:
+      print js_start
+      b = BytecodeAssembler()
+      b.addActionDictSwitch(byteSeq_to_action_dict,False)
+      print "data:",repr(b.link())+"," ; del b
+      print js_end
+      return
     print c_start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max))
     subFuncL = []
     ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
-    print "\n".join(subFuncL + ret)
+    print "\n".join(subFuncL + ret) ; del subFuncL,ret
     print c_end
     print
-    del byteSeq_to_action_dict,subFuncL,ret
+    del byteSeq_to_action_dict
+    if no_summary: return
     if reannotator:
         print "/* Tab-delimited rules summary not yet implemented with reannotator option */"
         return
@@ -1123,10 +1526,25 @@ def openfile(fname,mode='r'):
         import bz2 ; return bz2.BZ2File(fname,mode)
     else: return open(fname,mode)
 
+import atexit
+def set_title(t):
+  if not isatty(sys.stderr): return
+  if t: atexit.register(set_title,"")
+  term = os.environ.get("TERM","")
+  is_xterm = "xterm" in term
+  global clear_eol # by the way:
+  if is_xterm or term in ["screen","linux"]: clear_eol="\x1b[K\r" # use ANSI escape instead of overwriting with spaces
+  is_screen = (term=="screen" and os.environ.get("STY",""))
+  is_tmux = (term=="screen" and os.environ.get("TMUX",""))
+  if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
+  elif is_screen: os.system("screen -X title \"%s\"" % (t,))
+clear_eol = "  \r" # hope 2 spaces enough to overwrite old (don't want to risk going onto next line)
+
 if checkpoint:
   try: os.mkdir(checkpoint)
   except: pass
 
+set_title("annogen")
 if no_input:
   rules = RulesAccumulator() # should load rulesFile
   if ybytes: rules = rules.rules
@@ -1137,6 +1555,7 @@ else:
     infile = sys.stdin
     if isatty(infile): sys.stderr.write("Reading from standard input\n(If that's not what you wanted, press Ctrl-C and run again with --help)\n")
   corpus_unistr = infile.read().decode(incode)
+  normalise()
   rules = analyse() # dict if ybytes, otherwise list
 
 if c_filename: sys.stdout = open(c_filename,"w")
@@ -1144,7 +1563,7 @@ if summary_only: outputRulesSummary(rules)
 else: outputParser(rules)
 del rules
 sys.stderr.write("Done\n")
-if c_filename:
+if c_filename and not javascript:
     sys.stdout.close()
     cmd = c_compiler+" \""+c_filename+"\"" # (the -o option is part of c_compiler)
     sys.stderr.write(cmd+"\n")
