@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.191 (c) 2012-14 Silas S. Brown"
+program_name = "Web Adjuster v0.193 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -148,7 +148,7 @@ define("leaveTags",multiple=True,default="script,style,title,textarea,option",he
 define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names which should be deleted if they occur in any section of running text. For example, \"wbr\" (word-break opportunity) tags (listed by default) might cause problems with phrase-based annotators.")
 
 define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.") # (see comments in serve_submitPage)
-define("submitBookmarklet",default=True,help="If submitPath is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly.")
+define("submitBookmarklet",default=True,help="If submitPath is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly. The bookmarklets should work on modern desktop browsers and on iOS and Android; they should cope with frames and with Javascript-driven changes to a page, and an option is provided to additionally place the page into a frameset so that links to other pages on the same site can be followed without explicitly reactivating the bookmarklet (but this does have disadvantages - page must be reloaded + URL display gets 'stuck' - so it's left to the user to choose).") # (and if the other pages check their top.location, things could break there as well)
 define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",help="A Javascript expression that evaluates true if a DOM text node 'c' should be processed by the 'bookmarklet' Javascript when submitPath and submitBookmarklet are set. To process ALL text, simply set this option to 'true', but if your htmlFilter will not change certain kinds of text then you can make the Javascript run more efficiently by not processing these (quote the expression carefully). The default setting will not process text that is all ASCII.") # + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8
 define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate number of characters at a time that the 'bookmarklet' Javascript will send to the server if submitPath and submitBookmarklet are set. Setting this too high could impair browser responsiveness, but too low will be inefficient with bandwidth and pages will take longer to finish.")
 
@@ -804,7 +804,7 @@ def httpfetch(url,**kwargs):
         headers = dict(kwargs.get('headers',{}))
         req = urllib2.Request(url, data, headers)
         if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
-        try: resp = urllib2.urlopen(req)
+        try: resp = urllib2.urlopen(req,timeout=60)
         except urllib2.HTTPError, e: resp = e
         class Empty: pass
         r = Empty()
@@ -1902,34 +1902,39 @@ def bookmarklet(submit_url):
     if len(names)>1: plural="s"
     else: plural=""
     class C:
-        def __init__(self): self.count=0
+        def __init__(self): self.reset()
         def __call__(self):
             ret = self.noInc()
             self.count += 1 ; return ret
+        def reset(self):
+            self.count = 0 ; return ""
         def noInc(self): return chr(self.count+ord('A')) # TODO: what if there are too many filters for this URL scheme? (and remember we're sharing the 'namespace' with Base64 encodings - don't clash with those)
     c = C()
     # TODO: The following nested quoting is horrible.
     # Is there an Obfuscated Python+Javascript contest? :)
     # (_IHQ_ = 'InnerHtmlQuote', is also checked for in preprocessOptions)
-    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPad|iPhone/),a=n.match(/Android/),c="",t=0,u="javascript:var r=new XMLHttpRequest();r.open(\'GET\',\''+submit_url+'b",v="\',false);r.send();eval(r.responseText)";if(i||a){t="'+submit_url+'"+(i?"i":"a");u="#"+u}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a)?"On "+(i?"iOS":"Android")+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to put the text of whatever page is currently in the browser through this service. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;Bookmarklet'+plural+': '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+'&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural+'</a></span>').replace('@]@','"')+'")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
+    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPad|iPhone/),a=n.match(/Android/),c="",t=0,j="javascript:",u="var r=new XMLHttpRequest();r.open(\'GET\',\''+submit_url+'b",v="\',false);r.send();eval(r.responseText)"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var fs=d.createElement(\'frameset\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(d.firstChild)d.removeChild(d.firstChild);d.appendChild(fs);window.doneMasterFrame=1}"+u;u=j+u;if(i||a){t="'+submit_url+'"+(i?"i":"a");u="#"+u}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a)?"On "+(i?"iOS":"Android")+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;Basic bookmarklet'+plural+' (to process <b>one page</b> when activated): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'. Advanced bookmarklet'+plural+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural+'</a></span>').replace('@]@','"')+'")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
+    # 'resetting the current page': so you lose anything you typed in text boxes etc
     # (DO hide bookmarklets by default, because don't want to confuse users if they're named the same as the immediate-action filter selections at the bottom of the page)
     # TODO: maybe document that on Chrome Mobile (Android/iOS) you can tap address bar and start typing the bookmarklet name IF you've sync'd it from a desktop
+    # TODO: we append '+' to the names of the 'advanced' versions of the bookmarklets, but we don't do so on the Android/iOS title pages; is that OK?
 def quote_for_JS_doublequotes(s): return s.replace("\\","\\\\").replace('"',"\\\"").replace("\n","\\n").replace('</','<"+"/') # for use inside document.write("") etc
 def bookmarkletMainScript(jsonPostUrl):
     return r"""var leaveTags=%s,stripTags=%s;
-function docSizeChanged(callback) {
-  // document size will usually change if there's a JS popup etc (TODO: could periodically do a full scan anyway, on the off-chance that some JS change somehow keeps length the same)
-  if(typeof document.sizeChangedLoop=="undefined") document.sizeChangedLoop=0; var me=++document.sizeChangedLoop; // (we stop our loop if user restarts the bookmarklet and it starts another)
-  var curLen=document.body.innerHTML.length,
-    stFunc=function(){if(document.sizeChangedLoop==me) window.setTimeout(tFunc,1000)},
-    tFunc=function(){if(document.body.innerHTML.length==curLen) stFunc(); else callback()};
+function HTMLSizeChanged(callback) {
+  // innerHTML size will usually change if there's a JS popup etc (TODO: could periodically do a full scan anyway, on the off-chance that some JS change somehow keeps length the same)
+  if(typeof window.sizeChangedLoop=="undefined") window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; // (we stop our loop if user restarts the bookmarklet and it starts another)
+  var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r };
+  var curLen=getLen(window),
+    stFunc=function(){if(window.sizeChangedLoop==me) window.setTimeout(tFunc,1000)},
+    tFunc=function(){if(getLen(window)==curLen) stFunc(); else callback()};
   stFunc()
 }
 var texts,tLen,oldTexts,otPtr,replacements;
+function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }
 function tw0() {
   texts = new Array(); tLen=0;
-  otPtr=0; walk(document);
-}
+  otPtr=0; all_frames_docs(function(d){walk(d,d)}) }
 function adjusterScan() {
   oldTexts = new Array(); replacements = new Array();
   tw0();
@@ -1943,9 +1948,9 @@ function adjusterScan() {
     } else break; // TODO: handle as error?
     %s
   }
-  docSizeChanged(adjusterScan)
+  HTMLSizeChanged(adjusterScan)
 }
-function walk(n) {
+function walk(n,document) {
   var c=n.firstChild;
   while(c) {
     var cNext = c.nextSibling;
@@ -1965,7 +1970,7 @@ function walk(n) {
   while(c) {
     var cNext = c.nextSibling;
     switch (c.nodeType) {
-    case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!="_adjust0") walk(c); break;
+    case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!="_adjust0") walk(c,document); break;
     case 3:
       if (%s) {
           var i=otPtr;
@@ -1983,18 +1988,13 @@ function walk(n) {
     }
     c=cNext;
   }
-}%sadjusterScan()""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),jsonPostUrl,addRubyScript1(),options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize,addRubyScript2())
-def addRubyScript1():
+}adjusterScan()""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),jsonPostUrl,addRubyScript(),options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize)
+def addRubyScript():
     if not options.headAppendRuby: return ""
     # rScript = rubyScript # doesn't work, fall back on:
     rScript = '<style>'+rubyCss1+'</style>'+rubyScript_fonts
-    return r"""if(!rubyScriptAdded) {
-    var e=document.createElement('span'); e.innerHTML="%s"; document.body.insertBefore(e,document.body.firstChild);
-    e=document.createElement('span'); e.innerHTML="%s"; document.body.appendChild(e); rubyScriptAdded = true;
-    }""" % (quote_for_JS_doublequotes(rScript),quote_for_JS_doublequotes(rubyEndScript))
-def addRubyScript2():
-    if options.headAppendRuby: return "var rubyScriptAdded = false;"
-    else: return ""
+    return r"""all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML="%s"; d.body.insertBefore(e,d.body.firstChild);
+    e=d.createElement('span'); e.innerHTML="%s"; d.body.appendChild(e); d.rubyScriptAdded=1 });""" % (quote_for_JS_doublequotes(rScript),quote_for_JS_doublequotes(rubyEndScript))
 
 def unlink(fn):
     try: os.unlink(fn)
