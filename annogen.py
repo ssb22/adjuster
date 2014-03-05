@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.546 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.549 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -152,6 +152,12 @@ parser.add_option("--python",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code.")
 
+parser.add_option("--java",
+                  action="store_true",default=False,
+                  help="Instead of generating C code, generate Java.  A non-public class is created for you to include in your Java program.  See --android for example use.  WARNING: this might not cope with large annotators - you'll hit various limits in the Java compiler.")
+parser.add_option("--android",
+                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  This implies --java, and consequently might not cope with large annotators.  You will need the Android SDK to compile the app (see comments at the start for details).")
+
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  (If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text.)  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
 # (Could just get the reannotator to post-process the 1st annotator's output, but that might be slower than generating an altered annotator with it)
@@ -221,12 +227,15 @@ ymax_threshold = int(ymax_threshold)
 def errExit(msg):
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
-if javascript or python:
-    if javascript and python: errExit("Outputting both Javascript and Python on the same run is not yet implemented")
-    if not outcode=="utf-8": errExit("outcode must be utf-8 when using Javascript or Python")
-    if obfuscate: errExit("obfuscate not yet implemented for the Javascript or Python version") # (and it would probably slow down the JS far too much if it were)
+if android: java = True
+if java or javascript or python:
+    if sum(1 for x in [java,javascript,python] if x) > 1:
+      errExit("Outputting more than one programming language on the same run is not yet implemented")
+    if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript or Python")
+    if obfuscate: errExit("obfuscate not yet implemented for the Java, Javascript or Python versions") # (and it would probably slow down the JS far too much if it were)
     if c_filename.endswith(".c"):
       if javascript: c_filename = c_filename[:-2]+".js"
+      elif java: c_filename = c_filename[:-2]+".java"
       else: c_filename = c_filename[:-2]+".py"
 try:
   import locale
@@ -240,34 +249,50 @@ if single_words: max_words = 1
 def nearCall(conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
   if not max_or_length or len(conds) <= max_or_length:
-    return " || ".join("near(\""+c_escape(c,0)+"\")" for c in conds)
-  return subFuncCall("static int NewFunc() {\n"+"\n".join("if("+nearCall(conds[i:j],subFuncs,subFuncL)+") return 1;" for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+"\nreturn 0;}",subFuncs,subFuncL)
+    if java: f="n"
+    else: f="near"
+    return " || ".join(f+"(\""+c_or_java_escape(c,0)+"\")" for c in conds)
+  return subFuncCall(c_or_java_bool+" NewFunc() {\n"+"\n".join("if("+nearCall(conds[i:j],subFuncs,subFuncL)+") return "+c_or_java_true+";" for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+"\nreturn "+c_or_java_false+";}",subFuncs,subFuncL)
 
 def subFuncCall(newFunc,subFuncs,subFuncL):
   if newFunc in subFuncs:
     # we generated an identical one before
     subFuncName=subFuncs[newFunc]
   else:
-    subFuncName="match%d" % len(subFuncs)
+    if java: subFuncName="m%X" % len(subFuncs) # (try to save as many bytes as possible because it won't be compiled out and we also have to watch the compiler's footprint)
+    else: subFuncName="match%d" % len(subFuncs)
     subFuncs[newFunc]=subFuncName
-    subFuncL.append(newFunc.replace("NewFunc",subFuncName,1))
+    if java: static=""
+    else: static="static "
+    subFuncL.append(static+newFunc.replace("NewFunc",subFuncName,1))
   return subFuncName+"()" # the call (without a semicolon)
 
-def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFuncs={}): # ("topLevelMatch" is also mentioned in the C code)
+def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFuncs={},java_localvar_counter=None): # ("topLevelMatch" is also mentioned in the C code)
     # make a function to switch on a large number of variable-length string cases without repeated lookahead for each case
     # (may still backtrack if no words or no suffices match)
     # byteSeq_to_action_dict is really a byte sequence to [(action, OR-list of Yarowsky-like indicators which are still in Unicode)], the latter will be c_escape()d
     # can also be byte seq to [(action,(OR-list,nbytes))] but only if OR-list is not empty, so value[1] will always be false if OR-list is empty
+    if java: NEXTBYTE = 'nB()'
+    else: NEXTBYTE = 'NEXTBYTE'
     allBytes = set(b[0] for b in byteSeq_to_action_dict.iterkeys() if b)
     ret = []
+    if not java_localvar_counter: # unlike C, Java doesn't allow shadowing of local variable names, so we'll need to uniquify them
+      java_localvar_counter=[0]
+    olvc = "%X" % java_localvar_counter[0] # old localvar counter
     if funcName:
-        ret.append("static void %s() {" % funcName)
+        if funcName=="topLevelMatch" and not java: stat="static " # because we won't call subFuncCall on our result
+        else: stat=""
+        ret.append(stat+"void %s() {" % funcName)
         savePos = len(ret)
-        ret.append("{ SAVEPOS;")
+        if java: ret.append("{ int oldPos=inPtr;")
+        else: ret.append("{ SAVEPOS;")
     elif "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1:
         # no funcName, but might still want to come back here as there's a possible action at this level
         savePos = len(ret)
-        ret.append("{ SAVEPOS;")
+        if java:
+          ret.append("{ int oP"+olvc+"=inPtr;")
+          java_localvar_counter[0] += 1
+        else: ret.append("{ SAVEPOS;")
     else: savePos = None
     called_subswitch = False
     if "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[""])==1 and not byteSeq_to_action_dict[""][0][1] and all((len(a)==1 and a[0][0].startswith(byteSeq_to_action_dict[""][0][0]) and not a[0][1]) for a in byteSeq_to_action_dict.itervalues()):
@@ -280,6 +305,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         # (even if not re-used, this helps compiler speed)
         # + DON'T save/restore pos around it (it itself
         # will do any necessary save/restore pos)
+        # (TODO: don't create new function when in Java?)
         del ret[savePos] ; savePos = None
         del byteSeq_to_action_dict[""]
         newFunc = "\n".join(stringSwitch(byteSeq_to_action_dict,subFuncL,"NewFunc",subFuncs))
@@ -288,29 +314,31 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
     elif allBytes:
       # deal with all actions except "" first
       use_if = (len(allBytes)==1)
-      if not use_if: ret.append("switch(NEXTBYTE) {")
+      if not use_if: ret.append("switch("+NEXTBYTE+") {")
       for case in sorted(allBytes):
         if 32<=ord(case)<127 and case!="'": cstr="'%c'" % case
-        else: cstr=ord(case)
-        if use_if: ret.append("if(NEXTBYTE==%s) {" % cstr)
+        else:
+          cstr=str(ord(case))
+          if java: cstr = "(byte)"+cstr
+        if use_if: ret.append("if("+NEXTBYTE+"=="+cstr+") {")
         else: ret.append("case %s:" % cstr)
-        inner = stringSwitch(dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case]),subFuncL,None,subFuncs)
+        inner = stringSwitch(dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case]),subFuncL,None,subFuncs,java_localvar_counter) # (we don't yet know if it'll go in a separate function, so pass it java_localvar_counter anyway, TODO do something about this?)
         need_break = not (use_if or inner[-1].endswith("return;"))
         if nested_switch or not inner[0].startswith("switch"): ret += ["  "+x for x in inner]
         else:
           # Put the inner switch into a different function
           # which returns 1 if we should return.
           # (TODO: this won't catch cases where there's a SAVEPOS before the inner switch; will still nest in that case.  But it shouldn't lead to big nesting in practice.)
-          myFunc=["static int NewFunc() {"]
+          myFunc=[c_or_java_bool+" NewFunc() {"]
           for x in inner:
-            if x.endswith("return;"): x=x[:-len("return;")]+"return 1;"
+            if x.endswith("return;"): x=x[:-len("return;")]+"return "+c_or_java_true+";"
             myFunc.append("  "+x)
-          ret.append("  if("+subFuncCall("\n".join(myFunc)+"  return 0;\n}",subFuncs,subFuncL)+") return;")
+          ret.append("  if("+subFuncCall("\n".join(myFunc)+"  return "+c_or_java_false+";\n}",subFuncs,subFuncL)+") return;")
           called_subswitch=True # as it'll include more NEXTBYTE calls which are invisible to the code below
         if need_break: ret.append("  break;")
       ret.append("}") # end of switch or if
     if not savePos==None:
-        if len(' '.join(ret).split('NEXTBYTE'))==2 and not called_subswitch:
+        if len(' '.join(ret).split(NEXTBYTE))==2 and not called_subswitch:
             # only 1 NEXTBYTE after the SAVEPOS - just
             # do a PREVBYTE instead
             # (note however that splitting on NEXTBYTE
@@ -319,7 +347,11 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
             # there's more than 1.  We use max rule len
             # as an upper bound for that instead.)
             del ret[savePos]
-            ret.append("PREVBYTE;")
+            if java: ret.append("inPtr--;")
+            else: ret.append("PREVBYTE;")
+        elif java:
+          if funcName: ret.append("inPtr=oldPos; }")
+          else: ret.append("inPtr=oP"+olvc+"; }")
         else: ret.append("RESTOREPOS; }")
     if funcName: ret.append("}")
     elif "" in byteSeq_to_action_dict:
@@ -332,7 +364,8 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
                 assert action, "conds without action in "+repr(byteSeq_to_action_dict[""])
                 if type(conds)==tuple:
                     conds,nbytes = conds
-                    ret.append("setnear(%d);" % nbytes)
+                    if java: ret.append("sn(%d);" % nbytes)
+                    else: ret.append("setnear(%d);" % nbytes)
                 ret.append("if ("+nearCall(conds,subFuncs,subFuncL)+") {")
                 ret.append((action+" return;").strip())
                 ret.append("}")
@@ -471,7 +504,7 @@ static void o2(int numBytes,const char *annot,const char *title) {
 
 if not obfuscate: c_start = c_start.replace("OutWriteDecode","OutWriteStr")
 
-c_end = """
+c_end = r"""
 void matchAll() {
   while(!FINISHED) {
     POSTYPE oldPos=THEPOS;
@@ -499,6 +532,163 @@ int main(int argc,char*argv[]) {
   matchAll();
 }
 #endif
+"""
+
+android_start = r"""
+/* COMPILING
+   ---------
+
+   1.  Install the Android Developer Tools (ADT)
+   2.  Go to File / New / Android application project
+   3.  Application name = anything you want (for the phone's app menu)
+       Project name = anything you want (unique on your development machine)
+       Package name = org.ucam.ssb22.annotator
+       Minimum Required SDK = API 1: Android 1.0
+       Leave everything else as default
+       but make a note of the project directory
+       (usually on the second setup screen as "location")
+    4. Use THIS file (the one you're reading) to overwrite
+       src/org/ucam/ssb22/annotator/MainActivity.java
+    5. Edit AndroidManifest.xml and make it look like:
+       (you might need to change targetSdkVersion="18" if
+       your SDK has a different targetSdkVersion setting)
+---------------------- cut here ----------------------
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.ucam.ssb22.annotator" android:versionCode="1" android:versionName="1.0" >
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="18" />
+<application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" >
+<activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="org.ucam.ssb22.annotator.MainActivity" android:label="@string/app_name" >
+<intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+</activity></application></manifest>
+---------------------- cut here ----------------------
+    6. Copy new AndroidManifest.xml to the bin/ directory
+       (so there will be 2 copies, one in the top level
+        and the other in bin/ )
+    7. Edit res/layout/activity_main.xml and make it like:
+---------------------- cut here ----------------------
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_height="fill_parent" android:layout_width="fill_parent" android:orientation="vertical">
+  <TextView android:layout_height="wrap_content" android:layout_width="fill_parent" />
+  <WebView android:id="@+id/browser" android:layout_height="fill_parent" android:layout_width="fill_parent" />
+</LinearLayout>
+---------------------- cut here ----------------------
+    8. Restart ADT, do Run / Run As / Android application
+    9. Watch ADT's Console window until it says the app
+       has started, then interact with the Android virtual
+       device to test.  (If install fails, try again.)
+   10. .apk file should now be in the bin subdirectory.
+   11. On a real phone go to "Application settings" or
+       "Security" and enable "Unknown sources".
+*/
+
+package org.ucam.ssb22.annotator;
+import android.webkit.WebView;
+import android.webkit.WebChromeClient;
+import android.webkit.WebViewClient;
+import android.app.Activity;
+import android.os.Bundle;
+import android.view.KeyEvent;
+"""
+# In the below, setDefaultTextEncodingName("utf-8") is included as it might be needed if you include file:///android_asset/ URLs in your app (files put into assets/) as well as remote URLs.  (If including ONLY file URLs then you don't need to set the INTERNET permission in Manifest, but then you might as well pre-annotate the files and use a straightforward static HTML app like http://people.ds.cam.ac.uk/ssb22/gradint/html2apk.html )
+android_end = r"""
+public class MainActivity extends Activity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        browser = (WebView)findViewById(R.id.browser);
+        browser.getSettings().setJavaScriptEnabled(true);
+        browser.setWebChromeClient(new WebChromeClient());
+        class Annotator {
+            @android.webkit.JavascriptInterface
+            public String annotate(String t) { return new annotator(t).result().replaceAll("<ruby title=\"","ruby onclick=\"alert(this.title)\" title=\""); }
+        }
+        browser.addJavascriptInterface(new Annotator(),"ssb_local_annotator"); // hope no conflict with web JS
+        browser.setWebViewClient(new WebViewClient() {
+                public boolean shouldOverrideUrlLoading(WebView view,String url) { return false; }
+                public void onPageFinished(WebView view,String url) {
+                    browser.loadUrl("javascript:window.onerror=function(msg,url,line){alert(msg); return true};var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'],stripTags=['WBR']; function HTMLSizeChanged(callback) { var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window),stFunc=function(){window.setTimeout(tFunc,1000)},tFunc=function(){if(getLen(window)==curLen) stFunc(); else callback()};stFunc()} function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) } function tw0() { all_frames_docs(function(d){walk(d,d)}) } function adjusterScan() { tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); var wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'} d.rubyScriptAdded=1 }); HTMLSizeChanged(adjusterScan) } function walk(n,document) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { var ps = c.previousSibling; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) } if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) } } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document); break; case 3: { var nv=ssb_local_annotator.annotate(c.nodeValue); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; } } } c=cNext } } adjusterScan()");
+                } });
+        browser.getSettings().setDefaultTextEncodingName("utf-8");
+        browser.loadUrl("%%ANDROID-URL%%");
+    }
+    @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if ((keyCode == KeyEvent.KEYCODE_BACK) &&
+            browser.canGoBack()) {
+            browser.goBack(); return true;
+        } else return super.onKeyDown(keyCode, event);
+    }
+	WebView browser;
+}
+"""
+java_start = r"""class annotator {
+// use: new annotator(txt).result()
+static final java.nio.charset.Charset UTF8=java.nio.charset.Charset.forName("UTF-8");
+public annotator(String txt) { nearbytes=%%YBYTES%%; inBytes=txt.getBytes(UTF8); inPtr=0; writePtr=0; needSpace=false; outBuf=new java.util.ArrayList<Byte>(); }
+int nearbytes;
+byte[] inBytes; int inPtr,writePtr; boolean needSpace;
+java.util.List<Byte> outBuf; // TODO improve efficiency (although hopefully this annotator is called for only small strings at a time)
+void sn(int n) { nearbytes = n; }
+static final byte EOF = (byte)0; // TODO: a bit hacky
+byte nB() {
+  if (inPtr==inBytes.length) return EOF;
+  return inBytes[inPtr++];
+}
+boolean n(String s) {
+  // for Yarowsky-like matching (use Strings rather than byte arrays or Java compiler can get overloaded)
+  byte[] bytes=s.getBytes(UTF8);
+  int offset=inPtr, maxPos=inPtr+nearbytes;
+  if (maxPos > inBytes.length) maxPos = inBytes.length;
+  maxPos -= bytes.length;
+  if(offset>nearbytes) offset-=nearbytes; else offset = 0;
+  while(offset <= maxPos) {
+    boolean ok=true;
+    for(int i=0; i<bytes.length; i++) {
+      if(bytes[i]!=inBytes[offset+i]) { ok=false; break; }
+    }
+    if(ok) return true;
+    offset++;
+  }
+  return false;
+}
+void o(byte c) { outBuf.add(c); }
+void OutWriteByte(char c) { o((byte)c); }
+void o(String s) { byte[] b=s.getBytes(UTF8); for(int i=0; i<b.length; i++) outBuf.add(b[i]); } // TODO: is there a more efficient way to do it than this?
+void s() {
+  if (needSpace) o((byte)' ');
+  else needSpace=true;
+}
+void o(int numBytes,String annot) {
+  s();
+  o("<ruby><rb>");
+  for(;numBytes>0;numBytes--)
+    o(inBytes[writePtr++]);
+  o("</rb><rt>"); o(annot);
+  o("</rt></ruby>");
+}
+void o2(int numBytes,String annot,String title) {
+  s();
+  o("<ruby title=\""); o(title);
+  o("\"><rb>");
+  for(;numBytes>0;numBytes--)
+    o(inBytes[writePtr++]);
+  o("</rb><rt>"); o(annot);
+  o("</rt></ruby>");
+}
+"""
+java_end = r"""
+public String result() {
+  while(inPtr < inBytes.length) {
+    int oldPos=inPtr;
+    topLevelMatch();
+    if (oldPos==inPtr) { needSpace=false; o(nB()); writePtr++; }
+  }
+  byte[] b=new byte[outBuf.size()];
+  for(int i=0; i<b.length; i++) b[i]=outBuf.get(i); // TODO: is this as efficient as we can get??
+  return new String(b, UTF8);
+}
+}
 """
 
 class BytecodeAssembler:
@@ -1575,6 +1765,16 @@ def analyse():
     if ybytes: return accum.rules
     else: return accum.rules.keys()
 
+def java_escape(unistr,*_):
+  ret = []
+  for c in unistr:
+    if c=='"': ret.append(r'\"')
+    elif c=='\\': ret.append(r'\\')
+    elif ord(' ') <= ord(c) <= 127: ret.append(c)
+    elif c=='\n': ret.append('\n')
+    else: ret.append('\u%04x' % ord(c))
+  return ''.join(ret)
+    
 def c_escape(unistr,doEncode=True):
     # returns unistr encoded as outcode and escaped so can be put in C in "..."s.  Optionally calls encodeOutstr also.
     s = unistr.encode(outcode)
@@ -1583,6 +1783,17 @@ def c_escape(unistr,doEncode=True):
     return re.sub(r"\?\?([=/'()<>!-])",r'?""?\1',s.replace('\n','\\n')) # (the re.sub part is to get rid of trigraph warnings, TODO might get a marginal efficiency increase if do it to the entire C file at once instead)
 
 def c_length(unistr): return len(unistr.encode(outcode))
+
+if java:
+  c_or_java_escape = java_escape
+  c_or_java_bool = "boolean"
+  c_or_java_true = "true"
+  c_or_java_false = "false"
+else:
+  c_or_java_escape = c_escape
+  c_or_java_bool = "int"
+  c_or_java_true = "1"
+  c_or_java_false = "0"
 
 def matchingAction(rule,glossDic):
   action = []
@@ -1601,11 +1812,12 @@ def matchingAction(rule,glossDic):
       if toAdd in reannotateDict: annotation_unistr = reannotateDict[toAdd]
       else: toReannotateSet.add(toAdd)
     if gloss:
-        if javascript or python: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.replace('&','&amp;').replace('"','&quot;').encode(outcode)))
-        else: action.append('o2(%d,"%s","%s");' % (c_length(text_unistr),c_escape(annotation_unistr),c_escape(gloss.replace('&','&amp;').replace('"','&quot;'))))
+        gloss = gloss.replace('&','&amp;').replace('"','&quot;')
+        if javascript or python: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.encode(outcode)))
+        else: action.append('o2(%d,"%s","%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr),c_or_java_escape(gloss)))
     else:
         if javascript or python: action.append((c_length(text_unistr),annotation_unistr.encode(outcode)))
-        else: action.append('o(%d,"%s");' % (c_length(text_unistr),c_escape(annotation_unistr)))
+        else: action.append('o(%d,"%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr)))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
@@ -1626,6 +1838,7 @@ def outputParser(rules):
     byteSeq_to_action_dict = {}
     if ignoreNewlines:
         if javascript or python: newline_action = [(1,)]
+        elif java: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ writePtr++;"
         else: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;"
         byteSeq_to_action_dict['\n'] = [(newline_action,[])]
     if type(rules)==type([]): rulesAndConds = [(x,[]) for x in rules]
@@ -1680,11 +1893,18 @@ def outputParser(rules):
       print "data=",repr(b.link()) ; del b
       print py_end
       return
-    print c_start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max))
+    if java:
+      start = java_start
+      if android: start = android_start + start
+    else: start = c_start
+    print start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max))
     subFuncL = []
     ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
     print "\n".join(subFuncL + ret) ; del subFuncL,ret
-    print c_end
+    if java:
+      print java_end
+      if android: print android_end.replace('%%ANDROID-URL%%',android)
+    else: print c_end
     print
     del byteSeq_to_action_dict
     if no_summary: return
@@ -1792,7 +2012,7 @@ if summary_only: outputRulesSummary(rules)
 else: outputParser(rules)
 del rules
 sys.stderr.write("Done\n")
-if c_filename and not (javascript or python):
+if c_filename and not (java or javascript or python):
     sys.stdout.close()
     cmd = c_compiler+" \""+c_filename+"\"" # (the -o option is part of c_compiler)
     sys.stderr.write(cmd+"\n")
