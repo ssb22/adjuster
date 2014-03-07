@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.551 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.552 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -154,7 +154,7 @@ parser.add_option("--python",
 parser.add_option("--java",
                   help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option, removing any existing *.java files.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
 parser.add_option("--android",
-                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  You must set --java to something ending //org/ucam/ssb22/annotator.  You will need the Android SDK to compile the app (see comments in MainActivity.java for details).")
+                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  You will need the Android SDK to compile the app (see comments in MainActivity.java for details).")
 
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  (If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text.)  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
@@ -225,7 +225,7 @@ ymax_threshold = int(ymax_threshold)
 def errExit(msg):
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
-if android and (not java or not java.endswith("//org/ucam/ssb22/annotator")): errExit('You must set --java=(path-to-src)//org/ucam/ssb22/annotator when using --android')
+if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
 jPackage = None
 if nested_switch: nested_switch=int(nested_switch) # TODO: if java, override it?  or just rely on the help text for --nested-switch (TODO cross-reference it from --java?)
 if java:
@@ -574,12 +574,12 @@ android_src = r"""
    2.  Go to File / New / Android application project
    3.  Application name = anything you want (for the phone's app menu)
        Project name = anything you want (unique on your development machine)
-       Package name = org.ucam.ssb22.annotator
+       Package name = %%JPACKAGE%%
        Minimum Required SDK = API 1: Android 1.0
        Leave everything else as default
        but make a note of the project directory
        (usually on the second setup screen as "location")
-    4. Put *.java into src/org/ucam/ssb22/annotator/
+    4. Put *.java into src/%%JPACK2%%
     5. Edit project.properties and add the line
         dex.force.jumbo=true
     6. Edit AndroidManifest.xml and make it look like:
@@ -587,11 +587,11 @@ android_src = r"""
        your SDK has a different targetSdkVersion setting)
 ---------------------- cut here ----------------------
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.ucam.ssb22.annotator" android:versionCode="1" android:versionName="1.0" >
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" >
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-sdk android:minSdkVersion="1" android:targetSdkVersion="18" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" >
-<activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="org.ucam.ssb22.annotator.MainActivity" android:label="@string/app_name" >
+<activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
 </activity></application></manifest>
 ---------------------- cut here ----------------------
@@ -611,11 +611,15 @@ android_src = r"""
        has started, then interact with the Android virtual
        device to test.  (If install fails, try again.)
    11. .apk file should now be in the bin subdirectory.
-   12. On a real phone go to "Application settings" or
-       "Security" and enable "Unknown sources".
+       On a real phone go to "Application settings" or
+       "Security" and enable "Unknown sources".  Or if
+       you're ready to ship your .apk, select it in
+       Eclipse's Package Explorer (left-hand pane) and
+       do File / Export / Export Android Application (it
+       lets you create a keystore and private signing key)
 */
 
-package org.ucam.ssb22.annotator;
+package %%JPACKAGE%%;
 import android.webkit.WebView;
 import android.webkit.WebChromeClient;
 import android.webkit.WebViewClient;
@@ -633,7 +637,7 @@ public class MainActivity extends Activity {
         browser.setWebChromeClient(new WebChromeClient());
         class A {
             @android.webkit.JavascriptInterface
-            public String annotate(String t) { return new org.ucam.ssb22.annotator.Annotator(t).result().replaceAll("<ruby title=\"","<ruby onclick=\"alert(this.title)\" title=\""); }
+            public String annotate(String t) { return new %%JPACKAGE%%.Annotator(t).result().replaceAll("<ruby title=\"","<ruby onclick=\"alert(this.title)\" title=\""); }
         }
         browser.addJavascriptInterface(new A(),"ssb_local_annotator"); // hope no conflict with web JS
         browser.setWebViewClient(new WebViewClient() {
@@ -1935,7 +1939,7 @@ def outputParser(rules):
       open(java+os.sep+"topLevelMatch.java","w").write("\n".join(ret))
     else: print "\n".join(subFuncL + ret)
     del subFuncL,ret
-    if android: open(java+os.sep+"MainActivity.java","w").write(android_src.replace('%%ANDROID-URL%%',android))
+    if android: open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace("%%JPACK2%%",jPackage.replace('.','/')).replace('%%ANDROID-URL%%',android))
     if not java: print c_end
     print
     del byteSeq_to_action_dict
