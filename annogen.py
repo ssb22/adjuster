@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.56 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.561 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -408,7 +408,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
                 if type(conds)==tuple:
                     conds,nbytes = conds
                     if java: ret.append("a.sn(%d);" % nbytes)
-                    if c_sharp: ret.append("nearbytes=%d;" % nbytes)
+                    elif c_sharp: ret.append("nearbytes=%d;" % nbytes)
                     else: ret.append("setnear(%d);" % nbytes)
                 ret.append("if ("+nearCall(conds,subFuncs,subFuncL)+") {")
                 ret.append((action+" return;").strip())
@@ -754,6 +754,8 @@ android_src = r"""
        but make a note of the project directory
        (usually on the second setup screen as "location")
     4. Put *.java into src/%%JPACK2%%
+       (If you DON'T want the app to run in full screen,
+       see "Delete the following line if you don't want full screen" below)
     5. Edit project.properties and add the line
         dex.force.jumbo=true
     6. Edit AndroidManifest.xml and make it look like:
@@ -805,6 +807,10 @@ public class MainActivity extends Activity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // ---------------------------------------------
+        // Delete the following line if you DON'T want full screen:
+        requestWindowFeature(android.view.Window.FEATURE_NO_TITLE); getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        // ---------------------------------------------
         setContentView(R.layout.activity_main);
         browser = (WebView)findViewById(R.id.browser);
         browser.getSettings().setJavaScriptEnabled(true);
@@ -834,8 +840,7 @@ public class MainActivity extends Activity {
 java_src = r"""package %%JPACKAGE%%;
 public class Annotator {
 // use: new Annotator(txt).result()
-static final java.nio.charset.Charset UTF8=java.nio.charset.Charset.forName("UTF-8");
-public Annotator(String txt) { nearbytes=%%YBYTES%%; inBytes=txt.getBytes(UTF8); inPtr=0; writePtr=0; needSpace=false; outBuf=new java.util.ArrayList<Byte>(); }
+public Annotator(String txt) {  nearbytes=%%YBYTES%%; inBytes=s2b(txt); inPtr=0; writePtr=0; needSpace=false; outBuf=new java.util.ArrayList<Byte>(); }
 int nearbytes;
 byte[] inBytes;
 public int inPtr,writePtr; boolean needSpace;
@@ -848,7 +853,7 @@ public byte nB() {
 }
 public boolean n(String s) {
   // for Yarowsky-like matching (use Strings rather than byte arrays or Java compiler can get overloaded)
-  byte[] bytes=s.getBytes(UTF8);
+  byte[] bytes=s2b(s);
   int offset=inPtr, maxPos=inPtr+nearbytes;
   if (maxPos > inBytes.length) maxPos = inBytes.length;
   maxPos -= bytes.length;
@@ -864,7 +869,7 @@ public boolean n(String s) {
   return false;
 }
 public void o(byte c) { outBuf.add(c); }
-public void o(String s) { byte[] b=s.getBytes(UTF8); for(int i=0; i<b.length; i++) outBuf.add(b[i]); } // TODO: is there a more efficient way to do it than this?
+public void o(String s) { byte[] b=s2b(s); for(int i=0; i<b.length; i++) outBuf.add(b[i]); } // TODO: is there a more efficient way to do it than this?
 public void s() {
   if (needSpace) o((byte)' ');
   else needSpace=true;
@@ -886,6 +891,14 @@ public void o2(int numBytes,String annot,String title) {
   o("</rb><rt>"); o(annot);
   o("</rt></ruby>");
 }
+byte[] s2b(String s) {
+  // Convert string to bytes - version that works before Android API level 9 i.e. in Java 5 not 6.  (Some versions of Android Lint sometimes miss the fact that s.getBytes(UTF8) where UTF8==java.nio.charset.Charset.forName("UTF-8")) won't always work.  We could do an API9+ version and use @android.annotation.TargetApi(9) around the class, but then when we come to instantiate it we'll have problems using android.os.Build.VERSION.SDK_INT on API less than 4, and anyway we'd rather not have to generate a special Android-specific version of Annotator as well as putting Android stuff in a separate class.)
+  try { return s.getBytes("UTF-8"); }
+  catch(java.io.UnsupportedEncodingException e) {
+    // should never happen for UTF-8
+    return null;
+  }
+}
 public String result() {
   while(inPtr < inBytes.length) {
     int oldPos=inPtr;
@@ -894,7 +907,7 @@ public String result() {
   }
   byte[] b=new byte[outBuf.size()];
   for(int i=0; i<b.length; i++) b[i]=outBuf.get(i); // TODO: is this as efficient as we can get??
-  return new String(b, UTF8);
+  try { return new String(b, "UTF-8"); } catch(java.io.UnsupportedEncodingException e) { return null; }
 }
 }
 """
@@ -2186,8 +2199,8 @@ def outputParser(rules):
       else: cmd = reannotator
       cin,cout = os.popen2(cmd)
       l = [ll for ll in toReannotateSet if not "\n" in ll]
-      cin.write("\n".join(l).encode(outcode)+"\n") ; cin.close() # TODO: reannotatorCode?
-      l2 = cout.read().replace("\r\n","\n").decode(outcode).split("\n") # TODO: reannotatorCode?
+      cin.write("\n".join(l).encode(outcode)+"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
+      l2 = cout.read().replace("\r\n","\n").decode(outcode).split("\n") # TODO: ditto?
       if l2 and not l2[-1]: del l2[-1]
       if not len(l)==len(l2): errExit("reannotator command didn't output the same number of lines as we gave it (gave %d, got %d)" % (len(l),len(l2)))
       toReannotateSet = set() ; reannotateDict = dict(zip(l,l2)) ; del l,l2
