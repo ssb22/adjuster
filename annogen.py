@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.552 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.56 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -143,18 +143,26 @@ parser.add_option("--obfuscate",
                   action="store_true",default=False,
                   help="Obfuscate annotation strings in C code, as a deterrent to casual snooping of the compiled binary with tools like 'strings' (does NOT stop determined reverse engineering)")
 
+parser.add_option("--windows-clipboard",
+                  action="store_true",default=False,
+                  help="Include C code to read the clipboard on Windows or Windows Mobile and to write an annotated HTML file and launch a browser, instead of using the default cross-platform command-line C wrapper.  See the start of the generated C file for instructions on how to compile for Windows or Windows Mobile.")
+
+parser.add_option("--c-sharp",
+                  action="store_true",default=False,
+                  help="Instead of generating C code, generate C# (not quite as efficient as the C code but close; might be useful for adding an annotator to a C# project; see comments at the start for usage)")
+
+parser.add_option("--java",
+                  help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option, removing any existing *.java files.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
+parser.add_option("--android",
+                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  You will need the Android SDK to compile the app (see comments in MainActivity.java for details).")
+
 parser.add_option("--javascript",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
 
 parser.add_option("--python",
                   action="store_true",default=False,
-                  help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code.")
-
-parser.add_option("--java",
-                  help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option, removing any existing *.java files.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
-parser.add_option("--android",
-                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  You will need the Android SDK to compile the app (see comments in MainActivity.java for details).")
+                  help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.")
 
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  (If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text.)  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
@@ -232,18 +240,23 @@ if java:
   if not '//' in java: errExit("--java must include a // to separate the first part of the path from the package name")
   jPackage=java.rsplit('//',1)[1].replace('/','.')
   if 'NewFunc' in jPackage: errExit("Currently unable to include the string 'NewFunc' in your package due to an implementation detail in annogen's search/replace operations")
-if java or javascript or python:
-    if sum(1 for x in [java,javascript,python] if x) > 1:
+if java or javascript or python or c_sharp:
+    if windows_clipboard: errExit("--windows-clipboard not yet implemented in C#, Java, JS or Python; please use C")
+    if sum(1 for x in [java,javascript,python,c_sharp] if x) > 1:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
-    if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript or Python")
-    if obfuscate: errExit("obfuscate not yet implemented for the Java, Javascript or Python versions") # (and it would probably slow down the JS far too much if it were)
+    if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript, Python or C#")
+    if obfuscate: errExit("obfuscate not yet implemented for the Java, Javascript, Python or C# versions") # (and it would probably slow down JS/Python too much if it were)
     if java:
       for f in os.listdir(java):
         if f.endswith(".java"): os.remove(java+os.sep+f)
       c_filename = java+os.sep+"Annotator.java"
     elif c_filename.endswith(".c"):
       if javascript: c_filename = c_filename[:-2]+".js"
+      if c_sharp: c_filename = c_filename[:-2]+".cs"
       else: c_filename = c_filename[:-2]+".py"
+elif windows_clipboard:
+  if c_compiler=="cc -o annotator": c_compiler="i386-mingw32-gcc -o annoclip.exe"
+  if not outcode=="utf-8": errExit("outcode must be utf-8 when using --windows-clipboard")
 try:
   import locale
   terminal_charset = locale.getdefaultlocale()[1]
@@ -260,7 +273,7 @@ def nearCall(conds,subFuncs,subFuncL):
     else: f="near"
     return " || ".join(f+"(\""+c_or_java_escape(c,0)+"\")" for c in conds)
   if java: fStart,fEnd = "package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {","} }" # put functions in separate classes to try to save the constants table of the main class
-  else: fStart,fEnd = "int NewFunc() {","}"
+  else: fStart,fEnd = c_or_java_bool+" NewFunc() {","}"
   return subFuncCall(fStart+"\n".join("if("+nearCall(conds[i:j],subFuncs,subFuncL)+") return "+c_or_java_true+";" for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+"\nreturn "+c_or_java_false+";"+fEnd,subFuncs,subFuncL)
 
 def subFuncCall(newFunc,subFuncs,subFuncL):
@@ -271,7 +284,7 @@ def subFuncCall(newFunc,subFuncs,subFuncL):
     if java: subFuncName="z%X" % len(subFuncs) # (try to save as many bytes as possible because it won't be compiled out and we also have to watch the compiler's footprint; start with z so MainActivity.java etc appear before rather than among this lot in IDE listings)
     else: subFuncName="match%d" % len(subFuncs)
     subFuncs[newFunc]=subFuncName
-    if java: static=""
+    if java or c_sharp: static=""
     else: static="static "
     subFuncL.append(static+newFunc.replace("NewFunc",subFuncName,1))
   if java: return jPackage+"."+subFuncName+".f(a)"
@@ -284,26 +297,29 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
     # can also be byte seq to [(action,(OR-list,nbytes))] but only if OR-list is not empty, so value[1] will always be false if OR-list is empty
     if nestingsLeft==None: nestingsLeft=nested_switch
     canNestNow = not nestingsLeft==0 # (-1 = unlimited)
-    if java: NEXTBYTE = 'a.nB()'
+    if java: adot = "a."
+    else: adot = ""
+    if java or c_sharp: NEXTBYTE = adot + 'nB()'
     else: NEXTBYTE = 'NEXTBYTE'
     allBytes = set(b[0] for b in byteSeq_to_action_dict.iterkeys() if b)
     ret = []
-    if not java_localvar_counter: # unlike C, Java doesn't allow shadowing of local variable names, so we'll need to uniquify them
+    if not java_localvar_counter: # Java and C# don't allow shadowing of local variable names, so we'll need to uniquify them
       java_localvar_counter=[0]
     olvc = "%X" % java_localvar_counter[0] # old localvar counter
     if funcName:
-        if funcName=="topLevelMatch": stat="static " # because we won't call subFuncCall on our result
-        else: stat=""
         if java: ret.append("package "+jPackage+";\npublic class "+funcName+" { public static void f("+jPackage+".Annotator a) {")
-        else: ret.append(stat+"void %s() {" % funcName)
+        else:
+          if funcName=="topLevelMatch" and not c_sharp: stat="static " # because we won't call subFuncCall on our result
+          else: stat=""
+          ret.append(stat+"void %s() {" % funcName)
         savePos = len(ret)
-        if java: ret.append("{ int oldPos=a.inPtr;")
+        if java or c_sharp: ret.append("{ int oldPos="+adot+"inPtr;")
         else: ret.append("{ SAVEPOS;")
     elif "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1:
         # no funcName, but might still want to come back here as there's a possible action at this level
         savePos = len(ret)
-        if java:
-          ret.append("{ int oP"+olvc+"=a.inPtr;")
+        if java or c_sharp:
+          ret.append("{ int oP"+olvc+"="+adot+"inPtr;")
           java_localvar_counter[0] += 1
         else: ret.append("{ SAVEPOS;")
     else: savePos = None
@@ -319,10 +335,11 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
             # as an upper bound for that instead.)
             del ret[savePos]
             if java: ret.append("a.inPtr--;")
+            elif c_sharp: ret.append("inPtr--;")
             else: ret.append("PREVBYTE;")
-        elif java:
-          if funcName: ret.append("a.inPtr=oldPos; }")
-          else: ret.append("a.inPtr=oP"+olvc+"; }")
+        elif java or c_sharp:
+          if funcName: ret.append(adot+"inPtr=oldPos; }")
+          else: ret.append(adot+"inPtr=oP"+olvc+"; }")
         else: ret.append("RESTOREPOS; }")
     called_subswitch = False
     if "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[""])==1 and not byteSeq_to_action_dict[""][0][1] and all((len(a)==1 and a[0][0].startswith(byteSeq_to_action_dict[""][0][0]) and not a[0][1]) for a in byteSeq_to_action_dict.itervalues()):
@@ -353,7 +370,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         if nestingsLeft > 0: nestingsLeft -= 1
         ret.append("switch("+NEXTBYTE+") {")
       for case in sorted(allBytes):
-        if 32<=ord(case)<127 and case!="'": cstr="'%c'" % case
+        if not c_sharp and 32<=ord(case)<127 and case!="'": cstr="'%c'" % case
         else:
           cstr=str(ord(case))
           if java: cstr = "(byte)"+cstr
@@ -368,7 +385,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
           # (TODO: this won't catch cases where there's a SAVEPOS before the inner switch; will still nest in that case.  But it shouldn't lead to big nesting in practice.)
           if nested_switch: inner = stringSwitch(subDict,subFuncL,None,subFuncs,None,None) # re-do it with full nesting counter
           if java: myFunc,funcEnd = ["package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {"], "}}"
-          else: myFunc,funcEnd=["int NewFunc() {"],"}"
+          else: myFunc,funcEnd=[c_or_java_bool+" NewFunc() {"],"}"
           for x in inner:
             if x.endswith("return;"): x=x[:-len("return;")]+"return "+c_or_java_true+";"
             myFunc.append("  "+x)
@@ -391,6 +408,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
                 if type(conds)==tuple:
                     conds,nbytes = conds
                     if java: ret.append("a.sn(%d);" % nbytes)
+                    if c_sharp: ret.append("nearbytes=%d;" % nbytes)
                     else: ret.append("setnear(%d);" % nbytes)
                 ret.append("if ("+nearCall(conds,subFuncs,subFuncL)+") {")
                 ret.append((action+" return;").strip())
@@ -426,16 +444,77 @@ if(*s==t) OutWriteByte(t); else OutWriteByte((*s)^t); s++;
     return ''.join(r)
 else: unobfusc_func = ""
 
-c_start = "/* -*- coding: "+outcode+r""" -*- */
+if windows_clipboard:
+  c_preamble = r"""/*
+
+For running on Windows desktop or WINE, compile with:
+
+  i386-mingw32-gcc annoclip.c -o annoclip.exe
+
+For running on Windows Mobile (but not Windows Phone),
+compile with:
+
+  arm-cegcc-gcc annoclip.c -D_WINCE -Os -o annoclip-WM.exe
+
+or (if you have MSVC 2008 on a Windows machine),
+
+set PATH=%VCINSTALLDIR%\ce\bin\x86_arm;%PATH%
+set lib=%VCINSTALLDIR%\ce\lib\armv4
+set include=%VSINSTALLDIR%\SmartDevices\SDK\Smartphone2003\Include;%VCINSTALLDIR%\ce\include;%VCINSTALLDIR%\include
+set CL=/TP /EHsc /D "_WIN32_WCE=0x420" /D UNDER_CE /D WIN32_PLATFORM_PSPC /D _WINCE /D _WINDOWS /D ARM /D _ARM_ /D _UNICODE /D UNICODE /D POCKETPC2003_UI_MODEL
+set LINK=/force:multiple /NODEFAULTLIB:oldnames.lib /SUBSYSTEM:WINDOWSCE /LIBPATH:"C:\Program Files\Windows Mobile 5.0 SDK R2\PocketPC\Lib\ARMV4I" /OUT:annoclip-WM.exe /MANIFEST:NO /STACK:65536,4096 /DYNAMICBASE:NO aygshell.lib coredll.lib corelibc.lib ole32.lib oleaut32.lib uuid.lib commctrl.lib
+cl /D_WIN32_IE=0x0400 /D_WIN32_WCE=0x0400 /Os /Og annoclip.c
+
+(you could try omitting /Os /Og for faster compilation,
+but RAM is likely important on the Windows Mobile device)
+
+*/
+
+#include <stdio.h>
+#include <string.h>
+#define UNICODE 1 /* for TCHAR to be defined correctly */
+#include <windows.h>
+#ifdef near
+#undef near
+#endif
+FILE* outFile = NULL;
+unsigned char *p, *copyP, *pOrig;
+#define OutWriteStr(s) fputs(s,outFile)
+#define OutWriteByte(c) fputc(c,outFile)
+#define NEXTBYTE (*p++)
+#define NEXT_COPY_BYTE (*copyP++)
+#define COPY_BYTE_SKIP copyP++
+#define POSTYPE unsigned char*
+#define THEPOS p
+#define SAVEPOS POSTYPE oldPos=THEPOS
+#define RESTOREPOS p=oldPos
+#define PREVBYTE p--
+#define FINISHED (!*p && !p[1])
+"""
+  if c_filename and os.sep in c_filename: cfn = c_filename[c_filename.rindex(os.sep)+1:]
+  else: cfn = c_filename
+  if cfn: c_preamble=c_preamble.replace("annoclip.c",cfn)
+  c_defs = r"""static int near(char* string) {
+  POSTYPE o=p; if(p>pOrig+nearbytes) o-=nearbytes; else o=pOrig;
+  size_t l=strlen(string);
+  POSTYPE max=p+nearbytes-l;
+  while (*o && o <= max) {
+    if(!strncmp((char*)o,(char*)string,l)) return 1;
+    o++;
+  }
+  return 0;
+}
+"""
+  c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the windows_clipboard code
+else:
+  c_preamble = r"""
 #include <stdio.h>
 #include <string.h>
 
 /* To include this code in another program,
    define the ifndef'd macros below + define Omit_main */
-enum { ybytes = %%YBYTES%% }; /* for Yarowsky matching, minimum readahead */
-static int nearbytes = ybytes;
-#define setnear(n) (nearbytes = (n))
-#ifndef NEXTBYTE
+"""
+  c_defs = r"""#ifndef NEXTBYTE
 /* Default definition of NEXTBYTE etc is to read input
    from stdin and write output to stdout.  */
 enum { Half_Bufsize = %%LONGEST_RULE_LEN%% };
@@ -490,43 +569,46 @@ enum {
   annotations_only,
   ruby_markup,
   brace_notation} annotation_mode = Default_Annotation_Mode;
-
-static int needSpace=0;
-static void s() {
-  if (needSpace) OutWriteByte(' ');
-  else needSpace=1; /* for after the word we're about to write (if no intervening bytes cause needSpace=0) */
-}""" + unobfusc_func + r"""
-
-static void o(int numBytes,const char *annot) {
-  s();
-  switch (annotation_mode) {
+"""
+  c_switch1=r"""switch (annotation_mode) {
   case annotations_only: OutWriteDecode(annot); break;
-  case ruby_markup:
-    OutWriteStr("<ruby><rb>");
-    for(;numBytes;numBytes--)
-      OutWriteByte(NEXT_COPY_BYTE);
-    OutWriteStr("</rb><rt>"); OutWriteDecode(annot);
-    OutWriteStr("</rt></ruby>"); break;
+  case ruby_markup:"""
+  c_switch2=r"""break;
   case brace_notation:
     OutWriteByte('{');
     for(;numBytes;numBytes--)
       OutWriteByte(NEXT_COPY_BYTE);
     OutWriteByte('|'); OutWriteDecode(annot);
     OutWriteByte('}'); break;
-  }
-}
-static void o2(int numBytes,const char *annot,const char *title) {
-  if (annotation_mode == ruby_markup) {
+  }"""
+  c_switch3 = "if (annotation_mode == ruby_markup) {"
+  c_switch4 = "} else o(numBytes,annot);"
+
+c_start = "/* -*- coding: "+outcode+" -*- */\n"+c_preamble+r"""
+enum { ybytes = %%YBYTES%% }; /* for Yarowsky matching, minimum readahead */
+static int nearbytes = ybytes;
+#define setnear(n) (nearbytes = (n))
+""" + c_defs + r"""static int needSpace=0;
+static void s() {
+  if (needSpace) OutWriteByte(' ');
+  else needSpace=1; /* for after the word we're about to write (if no intervening bytes cause needSpace=0) */
+}""" + unobfusc_func + r"""
+
+static void o(int numBytes,const char *annot) {
+  s();""" + c_switch1 + r"""
+    OutWriteStr("<ruby><rb>");
+    for(;numBytes;numBytes--)
+      OutWriteByte(NEXT_COPY_BYTE);
+    OutWriteStr("</rb><rt>"); OutWriteDecode(annot);
+    OutWriteStr("</rt></ruby>"); """+c_switch2+r""" }
+static void o2(int numBytes,const char *annot,const char *title) {"""+c_switch3+r"""
     s();
     OutWriteStr("<ruby title=\""); OutWriteDecode(title);
     OutWriteStr("\"><rb>");
     for(;numBytes;numBytes--)
       OutWriteByte(NEXT_COPY_BYTE);
     OutWriteStr("</rb><rt>"); OutWriteDecode(annot);
-    OutWriteStr("</rt></ruby>");
-  } else o(numBytes,annot);
-}
-"""
+    OutWriteStr("</rt></ruby>"); """+c_switch4+"}"
 
 if not obfuscate: c_start = c_start.replace("OutWriteDecode","OutWriteStr")
 
@@ -537,8 +619,100 @@ void matchAll() {
     topLevelMatch();
     if (oldPos==THEPOS) { needSpace=0; OutWriteByte(NEXTBYTE); COPY_BYTE_SKIP; }
   }
+}"""
+if windows_clipboard: c_end += r"""
+#ifdef _WINCE
+#define CMD_LINE_T LPWSTR
+#else
+#define CMD_LINE_T LPSTR
+#endif
+
+static void errorExit(char* text) {
+  TCHAR msg[500];
+  DWORD e = GetLastError();
+  wsprintf(msg,TEXT("%s: %d"),text,e);
+  MessageBox(NULL, msg, TEXT("Error"), 0);
+  exit(1);
 }
 
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cmdLinePSTR, int iCmdShow)
+{
+  TCHAR *className = TEXT("annogen");
+
+  WNDCLASS wndclass;
+  memset(&wndclass, 0, sizeof(wndclass));
+  wndclass.hInstance = hInstance;
+  wndclass.lpfnWndProc = DefWindowProc;
+  wndclass.lpszClassName = className;
+  if (!RegisterClass(&wndclass)) errorExit("RegisterClass");
+
+#ifndef WS_OVERLAPPEDWINDOW
+#define WS_OVERLAPPEDWINDOW (WS_OVERLAPPED     | \
+                             WS_CAPTION        | \
+                             WS_SYSMENU        | \
+                             WS_THICKFRAME     | \
+                             WS_MINIMIZEBOX    | \
+                             WS_MAXIMIZEBOX)
+#endif
+  
+  HWND win = CreateWindow(className,className, WS_OVERLAPPEDWINDOW,CW_USEDEFAULT, CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT, NULL,NULL,hInstance, NULL);
+  if (!win) errorExit("CreateWindow");
+  // ShowWindow(win, SW_SHOW); // not needed
+  HANDLE hClipMemory;
+  if (!OpenClipboard(win)) errorExit("OpenClipboard");
+  hClipMemory = GetClipboardData(CF_UNICODETEXT);
+  if(!hClipMemory) errorExit("GetClipboardData");
+  TCHAR*u16 = (TCHAR*)GlobalLock(hClipMemory);
+  int u8bytes=0; while(u16[u8bytes++]); u8bytes*=3;
+  p=(POSTYPE)malloc(++u8bytes);
+  pOrig=p;
+  do {
+    if(!(*u16&~0x7f)) *p++=*u16;
+    else {
+      if(!(*u16&~0x7ff)) {
+        *p++=0xC0|((*u16)>>6);
+      } else {
+        *p++=0xE0|(((*u16)>>12)&15);
+        *p++=0x80|(((*u16)>>6)&0x3F);
+      }
+      *p++=0x80|((*u16)&0x3F);
+    }
+  } while(*u16++);
+  GlobalUnlock(hClipMemory);
+  CloseClipboard();
+  char fname[MAX_PATH];
+  #ifndef _WINCE
+  GetTempPathA(sizeof(fname) - 7, fname);
+  strcat(fname,"c.html"); /* c for clipboard */
+  outFile = fopen(fname,"w");
+  #endif
+  if (!outFile) {
+    strcpy(fname,"\\c.html");
+    outFile=fopen(fname,"w");
+  }
+  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style id=\"ruby\">ruby { display: inline-table; vertical-align: top; } ruby * { display: inline; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if !IE]>-->\n<style>rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n<script><!--\nvar wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1){var v=document.getElementById('ruby');v.innerHTML=v.innerHTML.replace(/display[^;]*;/g,'');v=navigator.userAgent.slice(wk+7,wk+12);if(v>=534.3&&v<535.7&&document.readyState!='complete')document.write('<style>rt{padding-left:1ex;padding-right:1ex;}<\\/style>')}\n//--></script>");
+  p=pOrig; copyP=p;
+  matchAll();
+  free(pOrig);
+  OutWriteStr("<script><!--\nif(navigator.userAgent.indexOf('WebKit/')>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'}\nfunction treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!=\"SCRIPT\" && c.nodeName!=\"TEXTAREA\" && !(c.nodeName==\"A\" && c.href)) { treewalk(c); if(c.nodeName==\"RUBY\" && c.title && !c.onclick) c.onclick=Function(\"alert(this.title)\") } c=c.nextSibling; } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);\n//--></script></body></html>");
+  fclose(outFile);
+  TCHAR fn2[sizeof(fname)]; int i;
+  for(i=0; fname[i]; i++) fn2[i]=fname[i]; fn2[i]=(TCHAR)0;
+  SHELLEXECUTEINFO sei;
+  memset(&sei, 0, sizeof(sei));
+  sei.cbSize = sizeof(sei);
+  sei.lpVerb = TEXT("open");
+  sei.lpFile = fn2;
+  sei.nShow = SW_SHOWNORMAL;
+  if (!ShellExecuteEx(&sei)) errorExit("ShellExecuteEx");
+
+  // TODO: sleep(); remove{fname); ?
+  // (although it will probably be the same on each run)
+
+  DestroyWindow(win); // TODO: needed?
+}
+"""
+else: c_end += r"""
 #ifndef Omit_main
 int main(int argc,char*argv[]) {
   int i; for(i=1; i<argc; i++) {
@@ -722,6 +896,114 @@ public String result() {
   for(int i=0; i<b.length; i++) b[i]=outBuf.get(i); // TODO: is this as efficient as we can get??
   return new String(b, UTF8);
 }
+}
+"""
+
+cSharp_start = r"""
+// use: new Annotator(txt).result()
+// (can also set annotation_mode on the Annotator)
+// or just use the Main() at end (compile with csc, and
+// see --help for usage)
+
+enum Annotation_Mode { ruby_markup, annotations_only, brace_notation };
+
+class Annotator {
+public Annotator(string txt) { nearbytes=%%YBYTES%%; inBytes=System.Text.Encoding.UTF8.GetBytes(txt); inPtr=0; writePtr=0; needSpace=false; outBuf=new System.IO.MemoryStream(); annotation_mode = Annotation_Mode.ruby_markup; }
+int nearbytes;
+public Annotation_Mode annotation_mode;
+byte[] inBytes;
+int inPtr,writePtr; bool needSpace;
+System.IO.MemoryStream outBuf;
+const byte EOF = (byte)0; // TODO: a bit hacky
+byte nB() {
+  if (inPtr==inBytes.Length) return EOF;
+  return inBytes[inPtr++];
+}
+bool near(string s) {
+  byte[] bytes=System.Text.Encoding.UTF8.GetBytes(s);
+  int offset=inPtr, maxPos=inPtr+nearbytes;
+  if (maxPos > inBytes.Length) maxPos = inBytes.Length;
+  maxPos -= bytes.Length;
+  if(offset>nearbytes) offset-=nearbytes; else offset = 0;
+  while(offset <= maxPos) {
+    bool ok=true;
+    for(int i=0; i<bytes.Length; i++) {
+      if(bytes[i]!=inBytes[offset+i]) { ok=false; break; }
+    }
+    if(ok) return true;
+    offset++;
+  }
+  return false;
+}
+void o(byte c) { outBuf.WriteByte(c); }
+void o(string s) { byte[] b=System.Text.Encoding.UTF8.GetBytes(s); outBuf.Write(b,0,b.Length); }
+void s() {
+  if (needSpace) o((byte)' ');
+  else needSpace=true;
+}
+void o(int numBytes,string annot) {
+  s();
+  switch (annotation_mode) {
+  case Annotation_Mode.annotations_only:
+    outBuf.Write(inBytes,writePtr,numBytes); break;
+  case Annotation_Mode.ruby_markup:
+    o("<ruby><rb>");
+    outBuf.Write(inBytes,writePtr,numBytes);
+    o("</rb><rt>"); o(annot);
+    o("</rt></ruby>"); break;
+  case Annotation_Mode.brace_notation:
+    o("{");
+    outBuf.Write(inBytes,writePtr,numBytes);
+    o("|"); o(annot);
+    o("}"); break;
+  }
+  writePtr += numBytes;
+}
+void o2(int numBytes,string annot,string title) {
+  if (annotation_mode == Annotation_Mode.ruby_markup) {
+    s();
+    o("<ruby title=\""); o(title);
+    o("\"><rb>");
+    outBuf.Write(inBytes,writePtr,numBytes);
+    writePtr += numBytes;
+    o("</rb><rt>"); o(annot);
+    o("</rt></ruby>");
+  } else o(numBytes,annot);
+}
+public string result() {
+  while(inPtr < inBytes.Length) {
+    int oldPos=inPtr;
+    topLevelMatch();
+    if (oldPos==inPtr) { needSpace=false; o(nB()); writePtr++; }
+  }
+  return System.Text.Encoding.UTF8.GetString(outBuf.ToArray());
+}
+"""
+cSharp_end = r"""}
+
+class Test {
+  static void Main(string[] args) {
+    Annotation_Mode annotation_mode = Annotation_Mode.ruby_markup;
+    for(int i=0; i<args.Length; i++) {
+      if (args[i]=="--help") {
+        System.Console.WriteLine("Use --ruby to output ruby markup (default)");
+        System.Console.WriteLine("Use --raw to output just the annotations without the base text");
+        System.Console.WriteLine("Use --braces to output as {base-text|annotation}");
+        return;
+      } else if(args[i]=="--ruby") {
+        annotation_mode = Annotation_Mode.ruby_markup;
+      } else if(args[i]=="--raw") {
+        annotation_mode = Annotation_Mode.annotations_only;
+      } else if(args[i]=="--braces") {
+        annotation_mode = Annotation_Mode.brace_notation;
+      }
+    }
+    System.Console.InputEncoding=System.Text.Encoding.UTF8;
+    System.Console.OutputEncoding=System.Text.Encoding.UTF8;
+    Annotator a=new Annotator(System.Console.In.ReadToEnd());
+    a.annotation_mode = annotation_mode;
+    System.Console.Write(a.result());
+  }
 }
 """
 
@@ -1818,9 +2100,10 @@ def c_escape(unistr,doEncode=True):
 
 def c_length(unistr): return len(unistr.encode(outcode))
 
-if java:
+if java or c_sharp:
   c_or_java_escape = java_escape
-  c_or_java_bool = "boolean"
+  if java: c_or_java_bool = "boolean"
+  else: c_or_java_bool = "bool"
   c_or_java_true = "true"
   c_or_java_false = "false"
 else:
@@ -1845,15 +2128,15 @@ def matchingAction(rule,glossDic):
       else: toAdd = text_unistr
       if toAdd in reannotateDict: annotation_unistr = reannotateDict[toAdd]
       else: toReannotateSet.add(toAdd)
-    if java: javaA = "a."
-    else: javaA = ""
+    if java: adot = "a."
+    else: adot = ""
     if gloss:
         gloss = gloss.replace('&','&amp;').replace('"','&quot;')
         if javascript or python: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.encode(outcode)))
-        else: action.append(javaA+'o2(%d,"%s","%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr),c_or_java_escape(gloss)))
+        else: action.append(adot+'o2(%d,"%s","%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr),c_or_java_escape(gloss)))
     else:
         if javascript or python: action.append((c_length(text_unistr),annotation_unistr.encode(outcode)))
-        else: action.append(javaA+'o(%d,"%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr)))
+        else: action.append(adot+'o(%d,"%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr)))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
@@ -1875,6 +2158,7 @@ def outputParser(rules):
     if ignoreNewlines:
         if javascript or python: newline_action = [(1,)]
         elif java: newline_action = r"a.o((byte)'\n'); /* needSpace unchanged */ a.writePtr++;"
+        elif c_sharp: newline_action = r"o((byte)'\n'); writePtr++;"
         else: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;"
         byteSeq_to_action_dict['\n'] = [(newline_action,[])]
     if type(rules)==type([]): rulesAndConds = [(x,[]) for x in rules]
@@ -1930,6 +2214,7 @@ def outputParser(rules):
       print py_end
       return
     if java: start = java_src.replace("%%JPACKAGE%%",jPackage)
+    elif c_sharp: start = cSharp_start
     else: start = c_start
     print start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max))
     subFuncL = []
@@ -1940,7 +2225,8 @@ def outputParser(rules):
     else: print "\n".join(subFuncL + ret)
     del subFuncL,ret
     if android: open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace("%%JPACK2%%",jPackage.replace('.','/')).replace('%%ANDROID-URL%%',android))
-    if not java: print c_end
+    if c_sharp: print cSharp_end
+    elif not java: print c_end
     print
     del byteSeq_to_action_dict
     if no_summary: return
@@ -2049,7 +2335,7 @@ if summary_only: outputRulesSummary(rules)
 else: outputParser(rules)
 del rules
 sys.stderr.write("Done\n")
-if c_filename and not (java or javascript or python):
+if c_filename and not (java or javascript or python or c_sharp):
     sys.stdout.close()
     cmd = c_compiler+" \""+c_filename+"\"" # (the -o option is part of c_compiler)
     sys.stderr.write(cmd+"\n")
