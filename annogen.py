@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.563 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.564 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1292,7 +1292,7 @@ function readData() {
             case 52: return;
             case 60: {
               var nBytes = data.charCodeAt(dPtr++)+1;
-              var i = data.slice(dPtr,dPtr+nBytes).indexOf(input.charAt(p++));
+              var i = ((p>=input.length)?-1:data.slice(dPtr,dPtr+nBytes).indexOf(input.charAt(p++)));
               if (i==-1) i = nBytes;
               dPtr += (nBytes + i * addrLen);
               dPtr = readAddr(); break; }
@@ -1417,7 +1417,8 @@ class Annotator:
     elif d==52: return
     elif d==60:
       nBytes = ord(data[self.dPtr])+1 ; self.dPtr += 1
-      i = data[self.dPtr:self.dPtr+nBytes].find(self.inStr[self.p]) ; self.p += 1
+      if self.p>=len(self.inStr): i = -1
+      else: i = data[self.dPtr:self.dPtr+nBytes].find(self.inStr[self.p]) ; self.p += 1
       if i==-1: i = nBytes
       self.dPtr += (nBytes + i * self.addrLen)
       self.dPtr = self.readAddr()
