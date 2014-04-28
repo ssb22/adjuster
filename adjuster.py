@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.193 (c) 2012-14 Silas S. Brown"
+program_name = "Web Adjuster v0.194 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -123,9 +123,10 @@ define("headAppend",help="Code to append to the HEAD section of every HTML docum
 define("headAppendCSS",help="URL of a stylesheet for headAppend.  This option automatically generates the LINK REL=... markup for it, and also tries to delete the string '!important' from other stylesheets, to emulate setting this stylesheet as a user CSS.  You can also include one or more 'fields' in the URL, by marking them with %s and following the URL with options e.g. http://example.org/style%s-%s.css;1,2,3;A,B will allow combinations like style1-A.css or style3-B.css; in this case appropriate selectors are provided with the URL box (values may optionally be followed by = and a description), and any visitors who have not set their options will be redirected to the URL box to do so.") # TODO: fill in a default URL in the URL box when doing this ?
 define("protectedCSS",help="A regular expression matching URLs of stylesheets with are \"protected\" from having their '!important' strings deleted by headAppendCSS's logic. This can be used for example if you are adding scripts to allow the user to choose alternate CSS files in place of headAppendCSS, and you wish the alternate CSS files to have the same status as the one supplied in headAppendCSS.")
 define("cssName",help="A name for the stylesheet specified in headAppendCSS, such as \"High Contrast\".  If cssName is set, then the headAppendCSS stylesheet will be marked as \"alternate\", with Javascript links at the bottom of the page for browsers that lack their own CSS switching options.  If cssName begins with a * then the stylesheet is switched on by default; if cssName is not set then the stylesheet (if any) is always on.")
-define("cssNameReload",multiple=True,default="IEMobile 6,IEMobile 7,IEMobile 8,Opera Mini,Opera Mobi,rekonq",help="List of (old) browsers that require alternate code for the cssName option, which is slower as it involves reloading the page on CSS switches.  Use this if the CSS switcher provided by cssName does nothing on your browser.") # Opera Mini sometimes worked and sometimes didn't; maybe there were regressions at their proxy; JS switcher needs network traffic anyway on Opera Mini so we almost might as well use the non-JS version
+define("cssNameReload",multiple=True,default="IEMobile 6,IEMobile 7,IEMobile 8,Opera Mini,Opera Mobi,rekonq",help="List of (old) browsers that require alternate code for the cssName option, which is slower as it involves reloading the page on CSS switches.  Use this if the CSS switcher provided by cssName does nothing on your browser.") # Opera Mini sometimes worked and sometimes didn't; maybe there were regressions at their proxy; JS switcher needs network traffic anyway on Opera Mini so we almost might as well use the reloading version (but in Spring 2014 they started having trouble with reload() AS WELL, see cssReload_cookieSuffix below)
 # Opera Mobile 10 on WM6.1 is fine with CSS switcher but it needs cssHtmlAttrs, TODO we might be able to have a list of browsers that require cssHtmlAttrs but not cssNameReload, add cssHtmlAttrs only if CSS is selected at time of page load, and make the 'off' switch remove them
 # TODO: Opera/9.5 on WM6.1 document.write can corrupt the display with EITHER script; page might also display for some time before the document.writes take effect.  Suggest those users upgrade to version 10 (= Opera/9.8) ?
+cssReload_cookieSuffix = "&&_adjuster_setCookie:" # enables code that works better on Opera Mini's transcoder (Spring 2014) by setting the cookie server-side. (Set to blank to use the old code. TODO: browser-dependent? make it a 'define' option?)
 define("cssHtmlAttrs",help="Attributes to add to the BODY element of an HTML document when cssNameReload is in effect (or when it would be in effect if cssName were set). This is for old browsers that try to render the document first and apply CSS later. Example: 'text=\"yellow\" bgcolor=\"black\"' (not as flexible as CSS but can still make the rendering process less annoying). If headAppendCSS has \"fields\" then cssHtmlAttrs can list multiple sets of attributes separated by ; and each set corresponds with an option in the last field of headAppendCSS.") # e.g. IEMobile 7 (or Opera 10) on WM 6.1
 define("headAppendRuby",default=False,help="Convenience option which adds CSS and Javascript code to the HTML body that tries to ensure simple RUBY markup displays legibly across all modern browsers; this might be useful if you used Annotator Generator to make the htmlFilter program. (The option is named 'head' because it used to add markup to the HEAD; this was moved to the BODY to work around browser bugs.)") # IEMobile 6 drops whitespace after closing tags if document HEAD contains any STYLE element, even an empty one, except via link rel=Stylesheet. Style element works OK if placed at start of body.
 define("bodyAppend",help="Code to append to the BODY section of every HTML document that has one. Use for example to add a script that needs to be run after the rest of the body has been read, or to add a footer explaining how the page has been modified. See also prominentNotice.") # TODO: note that it will go at the bottom of IFRAMEs also, and suggest using something similar to prominentNotice's iframe-detection code?
@@ -1374,6 +1375,10 @@ document.forms[0].i.focus()
         if ownServer_regexp and ownServer_regexp.match(self.request.host+self.request.uri):
             self.request.headers["Connection"] = "close" # MUST do this (keepalive can go wrong if it subsequently fetches a URL that DOESN'T match ownServer_regexp, but comes from the same domain, and this goes to ownServer incorrectly), TODO mention it in the help text?, TODO might we occasionally need something similar for ownServer_if_not_root etc?, TODO at lower priority: if we can reasonably repeat the requests then do that insntead of using forwardFor
             return self.forwardFor(options.own_server)
+        if cssReload_cookieSuffix and cssReload_cookieSuffix in self.request.uri:
+            ruri,rest = self.request.uri.split(cssReload_cookieSuffix,1)
+            self.setCookie_with_dots(rest)
+            return self.redirect(ruri) # so can set another
         viewSource = self.checkViewsource()
         self.cookieViaURL = None
         realHost = convert_to_real_host(self.request.host,self.cookie_host(checkReal=False)) # don't need checkReal if return value will be passed to convert_to_real_host anyway
@@ -2613,7 +2618,13 @@ def reloadSwitchJS(cookieName,jsCookieString,flipLogic,readableName,cookieHostTo
     if flipLogic: isOn,setOn,setOff = (not isOn),setOff,setOn
     if extraCondition: extraCondition = "&&"+extraCondition
     else: extraCondition = ""
-    if isOn: return r"""<script><!--
+    if cssReload_cookieSuffix and isOn: return r"""<script><!--
+if(!%s%s&&document.readyState!='complete')document.write("%s: On | "+'<a href="'+location.href.replace(location.hash,"")+'%s%s=%s">Off<\/a> ')
+//--></script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOff) # TODO: create a unique id for the link and # it ? (a test of this didn't always work on Opera Mini though)
+    elif cssReload_cookieSuffix: return r"""<script><!--
+if(!%s%s&&document.readyState!='complete')document.write("%s: "+'<a href="'+location.href.replace(location.hash,"")+'%s%s=%s">On<\/a> | Off ')
+//--></script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOn)
+    elif isOn: return r"""<script><!--
 if(!%s%s&&document.readyState!='complete')document.write("%s: On | "+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">Off<\/a> ')
 //--></script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOff,cookieHostToSet,cookieExpires,cookieName,setOff,cookieHostToSet,cookieExpires)
     else: return r"""<script><!--
