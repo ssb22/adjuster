@@ -319,10 +319,12 @@ def convert_to_requested_host(real_host,cookie_host=None):
     else: return dedot(real_host)+"."+hostSuffix()+port
 
 # RFC 2109: A Set-Cookie from request-host y.x.example.com for Domain=.example.com would be rejected, because H is y.x and contains a dot.
-# That means (especially if a password is set) we'd better make sure our domain-rewrites don't contain dots.  If requested with dot, relocate to without dot.
+# That means (especially if a password is set) we'd better make sure our domain-rewrites don't contain dots.  If requested with dot, relocate to without dot.  (But see below re RFC 1035 limitation.)
 def dedot(domain):
     # - means . but -- is a real - (OK as 2 dots can't come together and a - can't come immediately after a dot in domain names, so --- = -., ---- = --, ----- = --. etc)
-    return domain.replace("-","--").replace(".","-")
+    d2 = domain.replace("-","--").replace(".","-")
+    if len(d2) > 63: return domain # because RFC 1035 puts a 63-byte limit on each label (so our cross-domain preferences cookies can't work on very long domains, TODO document this?)
+    else: return d2
 def redot(domain): return domain.replace("--","@MINUS@").replace("-",".").replace("@MINUS","-")
 
 def changeConfigDirectory(fname):
