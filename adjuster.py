@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.194 (c) 2012-14 Silas S. Brown"
+program_name = "Web Adjuster v0.195 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -168,6 +168,42 @@ define("install",default=False,help="Try to install the program in the current u
 define("watchdog",default=0,help="(Linux only) Ping the system's watchdog every this number of seconds. This means the watchdog can reboot the system if for any reason Web Adjuster stops functioning, provided that no other program is pinging the watchdog. The default value of 0 means do not ping the watchdog.") # This option might not be suitable for a system whose watchdog cannot be set to wait a few extra seconds for a very complex page to be parsed (the worst case is where the program is just about to ping the watchdog when it gets a high-CPU request; the allowed delay time is the difference between the ping interval and the watchdog's \"heartbeat\" timeout, and this difference can be maximised by setting the ping interval to 1 although this does mean Adjuster will wake every second).  But see watchdogWait.
 define("watchdogWait",default=0,help="When the watchdog option is set, wait this number of seconds before stopping the watchdog pings. This causes the watchdog pings to be sent from a separate thread and therefore not stopped when the main thread is busy; they are stopped only when the main thread has not responded for watchdogWait seconds. This can be used to work around the limitations of a hardware watchdog that cannot be set to wait that long.") # such as the Raspberry Pi's Broadcom chip which defaults to 10 seconds and has max 15; you could say watchdog=5 and watchdogWait=60
 define("browser",help="The Web browser command to run. If this is set, Web Adjuster will run the specified command (which is assumed to be a web browser), and will exit when this browser exits. This is useful in conjunction with --real_proxy to have a personal proxy run with the browser. You still need to set the browser to use the proxy; this can sometimes be done via browser command line or environment variables.")
+define("ssh_proxy",help="host[:port][,URL] which, if set, can help to proxy SSH connections over HTTP if you need to perform server administration from a place with port restrictions.  See comments in adjuster.py for details.")
+# - If set host (and optional port, defaults to 22), then CONNECT requests for that server are accepted even without real_proxy.  Use (e.g.) ssh -o ProxyCommand "nc -X connect -x adjuster.example.org:80 %h %p" ssh-host
+# - This however won't work if the adjuster is running on a virtual hosting provider (like OpenShift) which doesn't support CONNECT (and many of them don't even support streaming 1-way connections like proxy2ssh, even if we modify Tornado to do that).  But you can set ,URL and write a ProxyCommand like this:
+"""# ---------- cut here ----------
+#!/usr/bin/env python
+host_name = host_name_or_IP = "you need to set this"
+path_part_of_URL = "/you need to set this too"
+import sys,socket,select,time,os ; lastPostTime = 0
+def connect():
+  global s ; s=socket.socket() ; s.connect((host_name_or_IP,80))
+connect()
+def post(dat):
+  global lastPostTime
+  if not lastPostTime: dat="new connection"
+  s.sendall('POST %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\nContent-Length: %d\r\n\r\n%s' % (path_part_of_URL,host_name,len(dat),dat)) ; r="" ; rx = True
+  while rx and not "\r\n\r\n" in r:
+    try: rx = s.recv(1024)
+    except socket.error: break
+    r += rx
+  if not "\r\n\r\n" in r: # probably keep-alive interrupted by virtualiser
+    connect() ; return post(dat)
+  cl=r[r.index(':',r.index("\nContent-Length:"))+1:].lstrip() ; cl=cl[:cl.index('\r')] ; cl=int(cl) ; r=r[r.index("\r\n\r\n")+4:]
+  while len(r) < cl:
+    rx = s.recv(1024) ; assert rx ; r += rx
+  r = r[:cl] ; sys.stdout.write(r) ; sys.stdout.flush()
+  lastPostTime = time.time()
+interval = 1
+while True:
+  read = []
+  while 0 in select.select([0], [], [], 0)[0]:
+    rx = os.read(0,1) ; assert rx ; read.append(rx)
+  if read or time.time() > lastPostTime+interval: post("".join(read))
+  if read: interval = 1
+  elif interval < 30: interval *= 2
+  time.sleep(0.1)
+# ---------- cut here ---------- """
 
 heading("Media conversion options")
 define("bitrate",default=0,help="Audio bitrate for MP3 files, or 0 to leave them unchanged. If this is set to anything other than 0 then the 'lame' program must be present. Bitrate is normally a multiple of 8. If your mobile device has a slow link, try 16 for speech.")
@@ -478,6 +514,13 @@ def preprocessOptions():
             upstreamGuard.add("adjustCss"+str(n)+"s")
             cRecogniseAny.add("adjustCss"+str(n)+"s")
     if options.useLXML: check_LXML()
+    global allowConnectHost,allowConnectPort,allowConnectURL
+    allowConnectHost=allowConnectPort=allowConnectURL=None
+    if options.ssh_proxy:
+        if ',' in options.ssh_proxy: sp,allowConnectURL = options.ssh_proxy.split(',',1)
+        else: sp = options.ssh_proxy
+        if ':' in sp: allowConnectHost,allowConnectPort=sp.rsplit(':',1)
+        else: allowConnectHost,allowConnectPort = sp,"22"
 
 def serverControl():
     if options.install:
@@ -500,9 +543,9 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         if eval('options.'+opt):
-            sys.stderr.write("Warning: '%s' option is ignored in WSGI mode\n" % opt)
+            sys.stderr.write("Warning: '%s' option may not work in WSGI mode\n" % opt)
     options.own_server = "" # for now, until we get forwardFor to work (TODO, and update the above list of ignored options accordingly)
     import tornado.wsgi
     return tornado.wsgi.WSGIApplication([(r"(.*)",SynchronousRequestForwarder)])
@@ -932,12 +975,12 @@ class RequestForwarder(RequestHandler):
 
     @asynchronous
     def connect(self, *args, **kwargs):
-      if options.real_proxy: # support tunnelling (but we can't adjust anything)
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-        upstream = tornado.iostream.IOStream(s)
+      try: host, port = self.request.uri.split(':')
+      except: host,port = None,None
+      if host and (options.real_proxy or (host,port)==(allowConnectHost,allowConnectPort)): # support tunnelling if real_proxy (but we can't adjust anything), but at any rate support ssh_proxy if set
+        upstream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
         client = self.request.connection.stream
-        host, port = self.request.uri.split(':')
-        # See note about Tornado versions in the own_server code (if realHost == -1) below
+        # See note about Tornado versions in writeAndClose
         upstream.connect((host, int(port)), lambda *args:(client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data)), upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data)), client.write('HTTP/1.0 200 Connection established\r\n\r\n')))
       else: self.set_status(400),self.myfinish()
 
@@ -1004,15 +1047,18 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         except: pass
         upstream.write(self.request.method+" "+self.request.uri+" "+self.request.version+"\r\n"+"\r\n".join(("%s: %s" % (k,v)) for k,v in (list(h for h in self.request.headers.get_all() if not h[0].lower()=="x-real-ip")+[("X-Real-Ip",self.request.remote_ip)]))+"\r\n\r\n"+self.request.body)
 
-    def answerPing(self,newVersion):
-        # answer a "ping" request from another machine that's using us as a fasterServer
-        # Need to make the response short, but still allow keepalive
+    def thin_down_headers(self):
+        # For ping, and for SSH tunnel.  Need to make the response short, but still allow keepalive
         self.request.suppress_logging = True
         for h in ["Server","Content-Type","Date"]:
             try: self.clear_header(h)
             except: pass
         # (Date is added by Tornado 3, which can also add "Vary: Accept-Encoding" but that's done after we get here, TODO: option to ping via a connect and low-level TCP keepalive bytes?)
         self.set_header("Etag","0") # shorter than Tornado's computed one (clear_header won't work with Etag)
+
+    def answerPing(self,newVersion):
+        # answer a "ping" request from another machine that's using us as a fasterServer
+        self.thin_down_headers()
         if newVersion and not wsgi_mode: # TODO: document that it's a bad idea to set up a fasterServer in wsgi_mode (can't do ipTrustReal, must have fasterServerNew=False, ...)
             # Forget the headers, just write one byte per second for as long as the connection is open
             stream = self.request.connection.stream
@@ -1111,7 +1157,41 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             if not self.request.uri: self.request.uri="/"
         elif not self.request.uri.startswith("/"): # invalid
             self.set_status(400) ; self.myfinish() ; return True
-    
+
+    def handleSSHTunnel(self):
+        if not allowConnectURL=="http://"+self.request.host+self.request.uri: return
+        self.thin_down_headers() ; self.add_header("Pragma","no-cache") # hopefully enough and don't need all of self.add_nocache_headers
+        global the_ssh_tunnel # TODO: support more than one? (but will need to use session IDs etc; GNU httptunnel does just 1 tunnel as of 3.x so maybe we're OK)
+        try:
+            if self.request.body=="new connection":
+                self.request.body = ""
+                the_ssh_tunnel[1].append(None) # if exists
+            if None in the_ssh_tunnel[1]:
+                try: the_ssh_tunnel[0].close()
+                except: pass
+                raise NameError # as though the_ssh_tunnel didn't yet exist
+        except NameError: # not yet established
+            sessionID = time.time() # for now
+            the_ssh_tunnel = [tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)),[],sessionID] # upstream connection, data waiting for client, id
+            def add(data):
+                if sessionID==the_ssh_tunnel[2]:
+                    the_ssh_tunnel[1].append(data)
+            the_ssh_tunnel[0].connect((allowConnectHost, int(allowConnectPort)), lambda *args:the_ssh_tunnel[0].read_until_close(lambda data:(add(data),add(None)),add))
+            # TODO: log the fact we're starting a tunnel?
+        if self.request.body: the_ssh_tunnel[0].write(self.request.body) # TODO: will this work even when it's not yet established? (not a big problem on SSH because server always speaks first)
+        def check_ssh_response(startTime,sessionID):
+            if not the_ssh_tunnel[2]==sessionID: return self.myfinish()
+            if the_ssh_tunnel[1]==[] and not time.time()>startTime+3: return IOLoop.instance().add_timeout(time.time()+0.2,lambda *args:check_ssh_response(startTime,sessionID)) # keep waiting (up to max 3sec - not too long because if client issues a 'read on timeout' while the SSH layer above is waiting for user input then we still want it to be reasonably responsive to that input; it's the client side that should wait longer between polls)
+            if None in the_ssh_tunnel[1]:
+                self.write(''.join(the_ssh_tunnel[1][:-1]))
+                the_ssh_tunnel[1] = [None]
+            else:
+                self.write(''.join(the_ssh_tunnel[1]))
+                the_ssh_tunnel[1] = []
+            self.myfinish()
+        IOLoop.instance().add_timeout(time.time()+0.2,lambda *args:check_ssh_response(time.time(),the_ssh_tunnel[2]))
+        return True
+
     def handleSpecificIPs(self):
         if not ipMatchingFunc: return False
         msg = ipMatchingFunc(self.request.remote_ip)
@@ -1369,7 +1449,9 @@ document.forms[0].i.focus()
         self.find_real_IP() # must do this BEFORE forwarding to fasterServer, because might also be behind nginx etc
         if fasterServer_up:
             return self.forwardFor(options.fasterServer)
-        if self.handleFullLocation() or self.handleSpecificIPs(): return
+        if self.handleFullLocation(): return # if returns here, URL is invalid; if not, handleFullLocation has 'normalised' self.request.host and self.request.uri
+        if self.handleSSHTunnel(): return
+        if self.handleSpecificIPs(): return
         # TODO: Slow down heavy users by self.request.remote_ip ?
         if extensions.handle("http://"+self.request.host+self.request.uri,self):
             self.request.suppress_logger_host_convert = self.request.valid_for_whois = True
