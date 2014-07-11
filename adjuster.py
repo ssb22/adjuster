@@ -204,6 +204,18 @@ while True:
   elif interval < 30: interval *= 2
   time.sleep(0.1)
 # ---------- cut here ---------- """
+# and if you then need to forward to the adjuster from a CGI
+# script (for example because the adjuster itself can't be
+# run on port 80) then try something like this:
+"""# ---------- cut here ----------
+#!/bin/bash
+export URL=http://localhost:28080/LetMeIn # or whatever
+export T=$(mktemp /dev/shm/XXXXXX) ; cat > $T
+export T2=$(mktemp /dev/shm/XXXXXX)
+wget --post-file $T -q -O - "$URL" > $T2
+echo "Content-Length: $(wc -c < $T2)" # please don't "chunk" it
+echo ; cat $T2 ; rm $T $T2
+# ---------- cut here ---------- """
 
 heading("Media conversion options")
 define("bitrate",default=0,help="Audio bitrate for MP3 files, or 0 to leave them unchanged. If this is set to anything other than 0 then the 'lame' program must be present. Bitrate is normally a multiple of 8. If your mobile device has a slow link, try 16 for speech.")
