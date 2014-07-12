@@ -373,7 +373,7 @@ def dedot(domain):
     d2 = domain.replace("-","--").replace(".","-")
     if len(d2) > 63: return domain # because RFC 1035 puts a 63-byte limit on each label (so our cross-domain preferences cookies can't work on very long domains, TODO document this?)
     else: return d2
-def redot(domain): return domain.replace("--","@MINUS@").replace("-",".").replace("@MINUS","-")
+def redot(domain): return domain.replace("--","@MINUS@").replace("-",".").replace("@MINUS@","-")
 
 def changeConfigDirectory(fname):
     fdir,ffile = os.path.split(fname)
