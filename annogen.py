@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.564 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.565 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -92,7 +92,7 @@ parser.add_option("--manualrules",
 
 #  =========== OUTPUT OPTIONS ==============
 
-parser.add_option("--rulesFile",help="Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz or .bz2 for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will first of all be read from it before generating any new rules. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.") # You may however change whether or not a --single-words / --max-words option applies to the new examples (but hopefully shouldn't have to)
+parser.add_option("--rulesFile",help="Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz or .bz2 for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will be read from it and incrementally updated. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.") # You may however change whether or not a --single-words / --max-words option applies to the new examples (but hopefully shouldn't have to)
 
 parser.add_option("--no-input",
                   action="store_true",default=False,
@@ -414,7 +414,10 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
                 ret.append((action+" return;").strip())
                 ret.append("}")
             else:
-                if default_action: sys.stderr.write("WARNING! More than one default action in "+repr(byteSeq_to_action_dict[""])+" - earlier one discarded!\n(This might indicate invalid markup in the corpus)\n") # see TODO in yarowsky_indicators. (TODO: we sometimes also get this if an incremental run has updated the annotation; why doesn't remove_old_rules prevent this? see also the TODO there re yBytesRet)
+                if default_action:
+                  sys.stderr.write("WARNING! More than one default action in "+repr(byteSeq_to_action_dict[""])+" - earlier one discarded!\n")
+                  if rulesFile: sys.stderr.write("(This might indicate invalid markup in the corpus, but it might just be due to a small change or capitalisation update during an incremental run, which can be ignored.)\n") # TODO: don't write this warning at all if accum.amend_rules was set at the end of analyse() ?
+                  else: sys.stderr.write("(This might indicate invalid markup in the corpus)\n")
                 default_action = action
         if default_action or not byteSeq_to_action_dict[""]: ret.append((default_action+" return;").strip()) # (return only if there was a default action, OR if an empty "" was in the dict with NO conditional actions (e.g. from the common-case optimisation above).  Otherwise, if there were conditional actions but no default, we didn't "match" anything if none of the conditions were satisfied.)
     return ret # caller does '\n'.join
@@ -833,7 +836,7 @@ public class MainActivity extends Activity {
         browser.setWebViewClient(new WebViewClient() {
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }
                 public void onPageFinished(WebView view,String url) {
-                    browser.loadUrl("javascript:var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'],stripTags=['WBR']; function annotPopAll(e) { ssb_local_annotator.alert(e.firstChild.firstChild.nodeValue+' '+e.firstChild.nextSibling.firstChild.nodeValue,e.title) }; function HTMLSizeChanged(callback) { var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window),stFunc=function(){window.setTimeout(tFunc,1000)},tFunc=function(){if(getLen(window)==curLen) stFunc(); else callback()};stFunc()} function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) } function tw0() { all_frames_docs(function(d){walk(d,d,false)}) } function adjusterScan() { tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); var wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'} d.rubyScriptAdded=1 }); HTMLSizeChanged(adjusterScan) } function walk(n,document,inLink) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { var ps = c.previousSibling; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) } if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) } } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break; case 3: { var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; } } } c=cNext } } adjusterScan()");
+                    browser.loadUrl("javascript:var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'],stripTags=['WBR']; function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title) }; function HTMLSizeChanged(callback) { var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window),stFunc=function(){window.setTimeout(tFunc,1000)},tFunc=function(){if(getLen(window)==curLen) stFunc(); else callback()};stFunc()} function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) } function tw0() { all_frames_docs(function(d){walk(d,d,false)}) } function adjusterScan() { tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); var wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'} d.rubyScriptAdded=1 }); HTMLSizeChanged(adjusterScan) } function walk(n,document,inLink) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { var ps = c.previousSibling; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) } if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) } } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break; case 3: { var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; } } } c=cNext } } adjusterScan()");
                 } });
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         browser.loadUrl("%%ANDROID-URL%%");
@@ -1937,7 +1940,7 @@ class RulesAccumulator:
     sys.stderr.write("done\n")
     self.amend_rules = True
     self.newRules = set()
-  def remove_old_rules(self,words,markedUp,markedDown): # for incremental runs
+  def remove_old_rules(self,words,markedUp,markedDown): # for incremental runs - removes previously-discovered rules that would have been suggested by this new phrase but that no longer 'work' with the rest of the corpus due to alterations elsewhere.  DOES NOT remove old rules that are not suggested by any phrase in the corpus because the phrases that suggested them have been removed or changed (TODO: might want an option for that, although fundamentally you shouldn't be relying on incremental runs if you're making a lot of changes to the corpus)
     for w in set(words):
       rulesAsWordlists = self.rulesAsWordlists_By1stWord.get(w,[])
       i=0
@@ -1945,15 +1948,18 @@ class RulesAccumulator:
         if max_words and len(rulesAsWordlists[i])>max_words:
           i += 1 ; continue # better leave that one alone if we're not reconsidering rules that long (e.g. running again with single_words when previous run wasn't)
         rule = " ".join(rulesAsWordlists[i])
-        if rule in self.newRules:
-          i += 1 ; continue # we've discovered this one on THIS run, don't re-remove it
-        if checkCoverage(rulesAsWordlists[i],words,[False]*len(words)) and (not test_rule(rule,markedUp,markedDown,[]) or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i],markedDown)): # rule would apply to the new phrase, and re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So re-test before removal (TODO: do something with the yBytesRet parameter to test_rule?)
-          self.rejectedRules.add(rule)
-          if not ybytes:
-            try: self.rulesAsWordlists.remove(rulesAsWordlists[i])
-            except: pass
-          del rulesAsWordlists[i] ; del self.rules[rule]
-        else: i += 1
+        if rule not in self.newRules and checkCoverage(rulesAsWordlists[i],words,[False]*len(words)): # rule would apply to the new phrase
+          yBytesRet = []
+          if not test_rule(rule,markedUp,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i],markedDown): # re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So we now re-test before removal.
+            self.rejectedRules.add(rule)
+            if not ybytes:
+              try: self.rulesAsWordlists.remove(rulesAsWordlists[i])
+              except: pass
+            del rulesAsWordlists[i] ; del self.rules[rule]
+            continue
+          self.newRules.add(rule) # still current - add to newRules now to save calling test_rule again
+          if len(yBytesRet): self.rules[rule] = yBytesRet[0] # overriding what it was before (since we've re-done test_rule for it, which might have returned a new set of Yarowsky-like indicators for the new version of the corpus)
+        i += 1
   def addRulesForPhrase(self,phrase,markedUp,markedDown):
     global diagnose, diagnose_limit
     if phrase in self.seenPhrases:
@@ -1995,6 +2001,7 @@ class RulesAccumulator:
     # If get here, failed to completely cover the phrase.
     # ruleAsWordlist should be set to the whole-phrase rule.
     return sum(1 for x in covered if x),len(covered)
+  def rulesAndConds(self): return [(k,v) for k,v in self.rules.items() if not k in self.newRules] + [(k,v) for k,v in self.rules.items() if k in self.newRules] # new rules must come last for incremental runs, so they will override existing actions in byteSeq_to_action_dict when small changes have been made to the annotation of the same word (e.g. capitalisation-normalisation has been changed by the presence of new material)
 
 def generate_map():
     global corpus_to_markedDown_map, c2m_inverse
@@ -2102,8 +2109,7 @@ def analyse():
         phraseNo += 1
     sys.stderr.write("\n")
     if rulesFile: accum.save()
-    if ybytes: return accum.rules
-    else: return accum.rules.keys()
+    return accum.rulesAndConds()
 
 def java_escape(unistr,*_):
   ret = []
@@ -2164,8 +2170,7 @@ def matchingAction(rule,glossDic):
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
-def outputParser(rules):
-    # rules is a dictionary if ybytes, otherwise a list
+def outputParser(rulesAndConds):
     sys.stderr.write("Generating byte cases...\n")
     glossDic = {}
     if glossfile:
@@ -2185,8 +2190,6 @@ def outputParser(rules):
         elif c_sharp: newline_action = r"o((byte)'\n'); writePtr++;"
         else: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;"
         byteSeq_to_action_dict['\n'] = [(newline_action,[])]
-    if type(rules)==type([]): rulesAndConds = [(x,[]) for x in rules]
-    else: rulesAndConds = rules.items()
     def addRule(rule,conds,byteSeq_to_action_dict,manualOverride=False):
         byteSeq = markDown(rule).encode(outcode)
         action,gotAnnot = matchingAction(rule,glossDic)
@@ -2259,10 +2262,10 @@ def outputParser(rules):
         return
     print "/* Tab-delimited summary of the rules:"
     if manualrules: print "  (not including manual rules)"
-    outputRulesSummary(rules)
+    outputRulesSummary(rulesAndConds)
     print "*/"
 
-def outputRulesSummary(rules):
+def outputRulesSummary(rulesAndConds):
     # (summary because we don't here specify which part
     # of the annotation goes with which part of the text, plus
     # we remove /* and */ so it can be placed into a C comment)
@@ -2287,16 +2290,14 @@ def outputRulesSummary(rules):
           else: return ""
     else:
         def refs(r): return ""
-    if type(rules)==type([]): annotOrigRuleCondList = [(annotationOnly(r),markDown(r),r,[]) for r in rules]
-    else: annotOrigRuleCondList = [(annotationOnly(k),markDown(k),k,v) for k,v in rules.iteritems()]
     count = 1 ; t = time.time()
-    for annot,orig,rule,conditions in sorted(annotOrigRuleCondList):
+    for annot,orig,rule,conditions in sorted([(annotationOnly(r),markDown(r),r,c) for r,c in rulesAndConds]): # sorted so diff is possible between 2 summaries, but TODO: if incremental, some rules might now have been overridden by newer ones, so we might want to see the original order (rules listed later take priority in byteSeq_to_action_dict)
         if time.time() >= t + 2:
-          sys.stderr.write(("(%d of %d)" % (count,len(annotOrigRuleCondList)))+clear_eol)
+          sys.stderr.write(("(%d of %d)" % (count,len(rulesAndConds)))+clear_eol)
           t = time.time()
         count += 1
         toPrn = orig.encode(outcode)+"\t"+annot.encode(outcode)
-        if not type(rules)==type([]):
+        if ybytes:
             toPrn += "\t"
             if conditions:
                 if type(conditions)==tuple: toPrn += "if within "+str(conditions[1])+" bytes of "+" or ".join(conditions[0]).encode(outcode)
@@ -2342,9 +2343,7 @@ if checkpoint:
 
 set_title("annogen")
 if no_input:
-  rules = RulesAccumulator() # should load rulesFile
-  if ybytes: rules = rules.rules
-  else: rules = rules.rules.keys()
+  rulesAndConds = RulesAccumulator().rulesAndConds() # should load rulesFile
 else:
   if infile: infile=openfile(infile)
   else:
@@ -2352,12 +2351,12 @@ else:
     if isatty(infile): sys.stderr.write("Reading from standard input\n(If that's not what you wanted, press Ctrl-C and run again with --help)\n")
   corpus_unistr = infile.read().decode(incode)
   normalise()
-  rules = analyse() # dict if ybytes, otherwise list
+  rulesAndConds = analyse()
 
 if c_filename: sys.stdout = open(c_filename,"w")
-if summary_only: outputRulesSummary(rules)
-else: outputParser(rules)
-del rules
+if summary_only: outputRulesSummary(rulesAndConds)
+else: outputParser(rulesAndConds)
+del rulesAndConds
 sys.stderr.write("Done\n")
 if c_filename and not (java or javascript or python or c_sharp):
     sys.stdout.close()
