@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.565 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.57 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -143,6 +143,13 @@ parser.add_option("--obfuscate",
                   action="store_true",default=False,
                   help="Obfuscate annotation strings in C code, as a deterrent to casual snooping of the compiled binary with tools like 'strings' (does NOT stop determined reverse engineering)")
 
+parser.add_option("--ios",
+                  help="Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page.  You will need Xcode to compile the app (see the start of the generated C file for instructions); if it runs out of space, try using --data-driven")
+
+parser.add_option("--data-driven",
+                  action="store_true",default=False,
+                  help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler, so try it if you get errors like clang's \"section too large\".  Javascript and Python output is always data-driven anyway.")
+
 parser.add_option("--windows-clipboard",
                   action="store_true",default=False,
                   help="Include C code to read the clipboard on Windows or Windows Mobile and to write an annotated HTML file and launch a browser, instead of using the default cross-platform command-line C wrapper.  See the start of the generated C file for instructions on how to compile for Windows or Windows Mobile.")
@@ -241,6 +248,7 @@ if java:
   jPackage=java.rsplit('//',1)[1].replace('/','.')
   if 'NewFunc' in jPackage: errExit("Currently unable to include the string 'NewFunc' in your package due to an implementation detail in annogen's search/replace operations")
 if java or javascript or python or c_sharp:
+    if ios: errExit("--ios not yet implemented in C#, Java, JS or Python; please use C (it becomes Objective-C)")
     if windows_clipboard: errExit("--windows-clipboard not yet implemented in C#, Java, JS or Python; please use C")
     if sum(1 for x in [java,javascript,python,c_sharp] if x) > 1:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
@@ -255,8 +263,14 @@ if java or javascript or python or c_sharp:
       if c_sharp: c_filename = c_filename[:-2]+".cs"
       else: c_filename = c_filename[:-2]+".py"
 elif windows_clipboard:
+  if ios: errExit("Support for having both --ios and --windows-clipboard at the same time is not yet implemented") # (I suppose you could make a single output file that will compile as either C+MS-stuff or Objective-C depending on preprocessor tests)
   if c_compiler=="cc -o annotator": c_compiler="i386-mingw32-gcc -o annoclip.exe"
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --windows-clipboard")
+elif ios:
+  if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ios")
+  if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
+if data_driven and (c_sharp or java): errExit("--data-driven is not yet implemented in C# or Java")
+elif javascript or python: data_driven = True
 try:
   import locale
   terminal_charset = locale.getdefaultlocale()[1]
@@ -314,19 +328,19 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
           ret.append(stat+"void %s() {" % funcName)
         savePos = len(ret)
         if java or c_sharp: ret.append("{ int oldPos="+adot+"inPtr;")
-        else: ret.append("{ SAVEPOS;")
+        else: ret.append("{ POSTYPE oldPos=THEPOS;")
     elif "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1:
         # no funcName, but might still want to come back here as there's a possible action at this level
         savePos = len(ret)
         if java or c_sharp:
           ret.append("{ int oP"+olvc+"="+adot+"inPtr;")
           java_localvar_counter[0] += 1
-        else: ret.append("{ SAVEPOS;")
+        else: ret.append("{ POSTYPE oldPos=THEPOS;")
     else: savePos = None
     def restorePos():
       if not savePos==None:
         if len(' '.join(ret).split(NEXTBYTE))==2 and not called_subswitch:
-            # only 1 NEXTBYTE after the SAVEPOS - just
+            # only 1 NEXTBYTE after the savePos - just
             # do a PREVBYTE instead
             # (note however that splitting on NEXTBYTE
             # does not necessarily give a reliable value
@@ -340,7 +354,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         elif java or c_sharp:
           if funcName: ret.append(adot+"inPtr=oldPos; }")
           else: ret.append(adot+"inPtr=oP"+olvc+"; }")
-        else: ret.append("RESTOREPOS; }")
+        else: ret.append("SETPOS(oldPos); }") # restore
     called_subswitch = False
     if "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[""])==1 and not byteSeq_to_action_dict[""][0][1] and all((len(a)==1 and a[0][0].startswith(byteSeq_to_action_dict[""][0][0]) and not a[0][1]) for a in byteSeq_to_action_dict.itervalues()):
         # there's an action in common for this and all subsequent matches, and no Yarowsky-like indicators, so we can do the common action up-front
@@ -371,6 +385,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         ret.append("switch("+NEXTBYTE+") {")
       for case in sorted(allBytes):
         if not c_sharp and 32<=ord(case)<127 and case!="'": cstr="'%c'" % case
+        elif ios and ord(case)>127: cstr=str(ord(case)-256)
         else:
           cstr=str(ord(case))
           if java: cstr = "(byte)"+cstr
@@ -382,7 +397,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         else:
           # Put the inner switch into a different function
           # which returns 1 if we should return.
-          # (TODO: this won't catch cases where there's a SAVEPOS before the inner switch; will still nest in that case.  But it shouldn't lead to big nesting in practice.)
+          # (TODO: this won't catch cases where there's a savePos before the inner switch; will still nest in that case.  But it shouldn't lead to big nesting in practice.)
           if nested_switch: inner = stringSwitch(subDict,subFuncL,None,subFuncs,None,None) # re-do it with full nesting counter
           if java: myFunc,funcEnd = ["package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {"], "}}"
           else: myFunc,funcEnd=[c_or_java_bool+" NewFunc() {"],"}"
@@ -447,7 +462,43 @@ if(*s==t) OutWriteByte(t); else OutWriteByte((*s)^t); s++;
     return ''.join(r)
 else: unobfusc_func = ""
 
-if windows_clipboard:
+if ios:
+  c_preamble = r"""/*
+
+To compile this, go into Xcode and do File > New > Project
+and under iOS / Application choose Single View Application.
+Fill in the dialogue box as you like, then use this file
+to replace the generated ViewController.m file.  You should
+then be able to press the Run button on the toolbar.
+
+*/
+
+#import <UIKit/UIKit.h>
+#include <string.h>
+"""
+  c_defs = r"""static const char *readPtr, *writePtr, *startPtr;
+static NSMutableData *outBytes;
+#define NEXTBYTE (*readPtr++)
+#define NEXT_COPY_BYTE (*writePtr++)
+#define COPY_BYTE_SKIP writePtr++
+#define POSTYPE const char*
+#define THEPOS readPtr
+#define SETPOS(p) (readPtr=(p))
+#define PREVBYTE readPtr--
+#define FINISHED (!(*readPtr))
+static void OutWriteStr(const char *s) { [outBytes appendBytes:s length:strlen(s)]; }
+static void OutWriteByte(char c) { [outBytes appendBytes:(&(c)) length:1]; }
+static int near(char* string) {
+    const char *startFrom = readPtr-nearbytes;
+    size_t n=2*nearbytes;
+    if (startFrom < startPtr) {
+        n -= startPtr-startFrom;
+        startFrom = startPtr; }
+    return strnstr(startFrom,string,n) != NULL;
+}
+""" # (strnstr is BSD-specific, but that's OK on iOS.  TODO: might be nice if all loops over outWriteByte could be reduced to direct calls of appendBytes with appropriate lengths, but it wouldn't be a major speedup)
+  c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the iOS code
+elif windows_clipboard:
   c_preamble = r"""/*
 
 For running on Windows desktop or WINE, compile with:
@@ -489,8 +540,7 @@ unsigned char *p, *copyP, *pOrig;
 #define COPY_BYTE_SKIP copyP++
 #define POSTYPE unsigned char*
 #define THEPOS p
-#define SAVEPOS POSTYPE oldPos=THEPOS
-#define RESTOREPOS p=oldPos
+#define SETPOS(sp) (p=(sp))
 #define PREVBYTE p--
 #define FINISHED (!*p && !p[1])
 """
@@ -544,7 +594,6 @@ static int near(char* string) {
       maxPos = offset+nearbytes-l;
   } else maxPos = 0; // (don't let it go below 0, as size_t is usually unsigned)
   if (offset>nearbytes) offset-=nearbytes; else offset = 0;
-  // can use strnstr(haystack,needle,n) if on a BSD system
   while (offset <= maxPos) {
     if(!strncmp((char*)lookahead+offset,string,l)) return 1;
     offset++;
@@ -556,8 +605,7 @@ static int near(char* string) {
 #define COPY_BYTE_SKIP writePtr++
 #define POSTYPE size_t
 #define THEPOS readPtr /* or get it via a function */
-#define SAVEPOS POSTYPE oldPos=THEPOS
-#define RESTOREPOS readPtr=oldPos /* or set via a func */
+#define SETPOS(p) (readPtr=(p)) /* or set via a func */
 #define PREVBYTE readPtr--
 #define FINISHED (feof(stdin) && readPtr-bufStart == bufLen)
 #define OutWriteStr(s) fputs(s,stdout)
@@ -587,7 +635,8 @@ enum {
   c_switch3 = "if (annotation_mode == ruby_markup) {"
   c_switch4 = "} else o(numBytes,annot);"
 
-c_start = "/* -*- coding: "+outcode+" -*- */\n"+c_preamble+r"""
+# line below: just say 'code generated by', not 'C code' as it might also be Objective-C (if ios is set; TODO: check and say which one?)
+c_start = "/* -*- coding: "+outcode+" -*- */\n/* code generated by "+program_name[:program_name.index("(c)")].strip()+" */\n"+c_preamble+r"""
 enum { ybytes = %%YBYTES%% }; /* for Yarowsky matching, minimum readahead */
 static int nearbytes = ybytes;
 #define setnear(n) (nearbytes = (n))
@@ -623,7 +672,51 @@ void matchAll() {
     if (oldPos==THEPOS) { needSpace=0; OutWriteByte(NEXTBYTE); COPY_BYTE_SKIP; }
   }
 }"""
-if windows_clipboard: c_end += r"""
+if ios:
+  c_end += r"""
+@interface ViewController : UIViewController <UIWebViewDelegate>
+@property (nonatomic,retain) UIWebView *myWebView;
+@end
+@implementation ViewController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.myWebView = [[UIWebView alloc] initWithFrame:CGRectMake(10, 20, 300,500)];
+    self.myWebView.backgroundColor = [UIColor whiteColor];
+    self.myWebView.scalesPageToFit = YES;
+    self.myWebView.autoresizingMask = (UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight);
+    self.myWebView.delegate = self;
+    [self.view addSubview:self.myWebView];
+"""
+  ios=ios.replace('\\','\\\\').replace('"','\\"').replace('\n','\\n')
+  if ios.startswith('<'): c_end += '[self.myWebView loadHTMLString:@"'+ios+'" baseURL:nil];'
+  # TODO: 'file from local project' option?  for now, anything that doesn't start with < is taken as URL
+  else:
+    assert "://" in ios, "not an HTML fragment and doesn't look like a URL"
+    c_end += '[self.myWebView loadRequest:[[NSURLRequest alloc] initWithURL:[[NSURL alloc] initWithString:@"'+ios+'"]]];'
+  c_end += r"""
+}
+- (void)webViewDidFinishLoad:(UIWebView *)webView
+{
+    [webView stringByEvaluatingJavaScriptFromString:@"var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'],stripTags=['WBR'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a' }; var texts,tLen,oldTexts,otPtr,replacements; function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { texts = new Array(); tLen=0; otPtr=0; all_frames_docs(function(d){walk(d,d,false)}) }; function adjusterScan() { oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a' }; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { var ps = c.previousSibling; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) } if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) }} c=cNext;}c=n.firstChild;while(c) {var cNext = c.nextSibling;switch (c.nodeType) {case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break;case 3:var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=c.nodeValue) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; if(!inLink) r=r.replace(/<ruby title=/g,'<ruby onclick=\"annotPopAll(this)\" title=');newNode.innerHTML=r; otPtr=i;} else if (tLen < 1024) { texts[texts.length]=c.nodeValue;tLen += c.nodeValue.length;} else return}c=cNext;}}adjusterScan()"];
+}
+- (BOOL)webView:(UIWebView*)webView shouldStartLoadWithRequest:(NSURLRequest*)request navigationType:(UIWebViewNavigationType)navigationType {
+    NSURL *URL = [request URL];
+    if ([[URL scheme] isEqualToString:@"alert"]) {
+        [[[UIAlertView alloc] initWithTitle:[self.myWebView stringByEvaluatingJavaScriptFromString:@"window.alertTitle"] message:[self.myWebView stringByEvaluatingJavaScriptFromString:@"window.alertMessage"] delegate: self cancelButtonTitle: nil otherButtonTitles: @"OK",nil, nil] show];
+        return NO;
+    } else if ([[URL scheme] isEqualToString:@"scan"]) {
+        NSString *texts=[self.myWebView stringByEvaluatingJavaScriptFromString:@"texts.join('/@@---------@@/')"];
+        startPtr = [texts UTF8String]; readPtr = startPtr; writePtr = startPtr;
+        outBytes = [NSMutableData alloc]; matchAll(); OutWriteByte(0);
+        if([texts length]>0) [self.myWebView stringByEvaluatingJavaScriptFromString:[@"replacements=\"" stringByAppendingString:[[[[[[NSString alloc] initWithUTF8String:[outBytes bytes]] stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""] stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"] stringByAppendingString:@"\".split('/@@---------@@/');oldTexts=texts;tw0();all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })"]]];
+        [self.myWebView stringByEvaluatingJavaScriptFromString:@"if(typeof window.sizeChangedLoop=='undefined') window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window), stFunc=function(){if(window.sizeChangedLoop==me) window.setTimeout(tFunc,1000)}, tFunc=function(){if(getLen(window)==curLen) stFunc(); else adjusterScan()}; stFunc()"]; // HTMLSizeChanged(adjusterScan)
+        return NO;
+    }
+    return YES;
+}
+@end
+"""
+elif windows_clipboard: c_end += r"""
 #ifdef _WINCE
 #define CMD_LINE_T LPWSTR
 #else
@@ -836,7 +929,7 @@ public class MainActivity extends Activity {
         browser.setWebViewClient(new WebViewClient() {
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }
                 public void onPageFinished(WebView view,String url) {
-                    browser.loadUrl("javascript:var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'],stripTags=['WBR']; function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title) }; function HTMLSizeChanged(callback) { var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window),stFunc=function(){window.setTimeout(tFunc,1000)},tFunc=function(){if(getLen(window)==curLen) stFunc(); else callback()};stFunc()} function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) } function tw0() { all_frames_docs(function(d){walk(d,d,false)}) } function adjusterScan() { tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); var wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'} d.rubyScriptAdded=1 }); HTMLSizeChanged(adjusterScan) } function walk(n,document,inLink) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { var ps = c.previousSibling; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) } if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) } } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break; case 3: { var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; } } } c=cNext } } adjusterScan()");
+                    browser.loadUrl("javascript:var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'],stripTags=['WBR']; function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title) }; function HTMLSizeChanged(callback) { var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window),stFunc=function(){window.setTimeout(tFunc,1000)},tFunc=function(){if(getLen(window)==curLen) stFunc(); else callback()};stFunc()} function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) } function tw0() { all_frames_docs(function(d){walk(d,d,false)}) } function adjusterScan() { tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); var wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'} d.rubyScriptAdded=1 }); HTMLSizeChanged(adjusterScan) } function walk(n,document,inLink) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { var ps = c.previousSibling; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) } if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) } } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break; case 3: { var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; } } } c=cNext } } adjusterScan()");
                 } });
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         browser.loadUrl("%%ANDROID-URL%%");
@@ -925,7 +1018,7 @@ public String result() {
 }
 """
 
-cSharp_start = r"""
+cSharp_start = r"""// C# generated by """+program_name[:program_name.index("(c)")].strip()+r"""
 // use: new Annotator(txt).result()
 // (can also set annotation_mode on the Annotator)
 // or just use the Main() at end (compile with csc, and
@@ -1076,9 +1169,10 @@ class BytecodeAssembler:
       self.addBytes("".join(byteArray))
       for i in labelArray: self.addRef(i)
   def addActions(self,actionList):
+    # assert type(actionList) in [list,tuple], repr(actionList)
     for a in actionList:
-      assert 1 <= len(a) <= 3
-      assert type(a[0])==int and 1 <= a[0] <= 255, "bytecode currently supports markup or copy between 1 and 255 bytes only (but 0 is reserved for expansion)"
+      assert 1 <= len(a) <= 3 and type(a[0])==int, repr(a)
+      assert 1 <= a[0] <= 255, "bytecode currently supports markup or copy between 1 and 255 bytes only, not %d (but 0 is reserved for expansion)" % a[0]
       self.addBytes(70+len(a)) # 71=copyBytes 72=o() 73=o2
       self.addBytes(a[0])
       for i in a[1:]: self.addRefToString(i)
@@ -1155,12 +1249,14 @@ class BytecodeAssembler:
       assert type(labelNo)==int
       self.l.append(-labelNo)
   def addRefToString(self,string):
-    # prepends with a length hint if possible (or if not,
-    # prepends with 0 and null-terminates it)
     assert type(string)==str
-    if 1 <= len(string) < 256:
+    if python or javascript:
+      # prepends with a length hint if possible (or if not
+      # prepends with 0 and null-terminates it)
+      if 1 <= len(string) < 256:
         string = chr(len(string))+string
-    else: string = chr(0)+string+chr(0)
+      else: string = chr(0)+string+chr(0)
+    else: string += chr(0) # just null-termination for C
     if not string in self.d2l:
       self.d2l[string] = (-len(self.d2l)-1,)
     self.l.append(self.d2l[string])
@@ -1478,6 +1574,73 @@ def main():
   else: param = "ruby"
   sys.stdout.write(annotate(sys.stdin.read(),param))
 if __name__=="__main__": main()
+"""
+
+c_datadrive = r"""
+static unsigned char *dPtr; static int addrLen;
+
+#include <stdlib.h>
+
+static unsigned char * readAddr() {
+  size_t i,addr=0;
+  for (i=addrLen; i; i--) addr=(addr << 8) | *dPtr++;
+  return data + addr;
+}
+static void readData() {
+  POSTYPE *savedPositions = NULL;
+  size_t numSavedPositions = 0;
+  while(1) {
+    switch(*dPtr++) {
+    case 50: dPtr = readAddr(); break;
+    case 51: {
+      unsigned char *funcToCall=readAddr();
+      unsigned char *retAddr = dPtr;
+      dPtr = funcToCall; readData(); dPtr = retAddr;
+      break; }
+    case 52:
+      if (savedPositions) free(savedPositions);
+      return;
+    case 60: {
+      int nBytes=(*dPtr++)+1, i;
+      unsigned char byte=(unsigned char)NEXTBYTE;
+      for (i=0; i<nBytes; i++) if(byte==dPtr[i]) break;
+      dPtr += (nBytes + i * addrLen);
+      dPtr = readAddr(); break; }
+    case 71: {
+      int numBytes=*dPtr++;
+      for(;numBytes;numBytes--)
+        OutWriteByte(NEXT_COPY_BYTE);
+      break; }
+    case 72: {
+      int numBytes=*dPtr++;
+      char *annot = (char*)readAddr();
+      o(numBytes,annot); break; }
+    case 73: {
+      int numBytes=*dPtr++;
+      char *annot = (char*)readAddr();
+      char *title = (char*)readAddr();
+      o2(numBytes,annot,title); break; }
+    case 80:
+      savedPositions=realloc(savedPositions,++numSavedPositions*sizeof(POSTYPE)); // TODO: check non-NULL?
+      savedPositions[numSavedPositions-1]=THEPOS;
+      break;
+    case 81:
+      SETPOS(savedPositions[--numSavedPositions]);
+      break;
+    case 90: {
+      unsigned char *truePtr = readAddr();
+      unsigned char *falsePtr = readAddr();
+      setnear(*dPtr++); int found=0;
+      while(dPtr < truePtr) if(near((char*)readAddr())) { found = 1; break; }
+      dPtr = found ? truePtr : falsePtr; break; }
+      // default: TODO: error about corrupt data?
+    }
+  }
+}
+static void topLevelMatch() {
+  addrLen = data[0];
+  dPtr=data+1; readData();
+}
 """
 
 def splitWords(text,phrases=False):
@@ -2001,7 +2164,9 @@ class RulesAccumulator:
     # If get here, failed to completely cover the phrase.
     # ruleAsWordlist should be set to the whole-phrase rule.
     return sum(1 for x in covered if x),len(covered)
-  def rulesAndConds(self): return [(k,v) for k,v in self.rules.items() if not k in self.newRules] + [(k,v) for k,v in self.rules.items() if k in self.newRules] # new rules must come last for incremental runs, so they will override existing actions in byteSeq_to_action_dict when small changes have been made to the annotation of the same word (e.g. capitalisation-normalisation has been changed by the presence of new material)
+  def rulesAndConds(self):
+    if self.amend_rules: return [(k,v) for k,v in self.rules.items() if not k in self.newRules] + [(k,v) for k,v in self.rules.items() if k in self.newRules] # new rules must come last for incremental runs, so they will override existing actions in byteSeq_to_action_dict when small changes have been made to the annotation of the same word (e.g. capitalisation-normalisation has been changed by the presence of new material)
+    else: return self.rules.items()
 
 def generate_map():
     global corpus_to_markedDown_map, c2m_inverse
@@ -2162,10 +2327,10 @@ def matchingAction(rule,glossDic):
     else: adot = ""
     if gloss:
         gloss = gloss.replace('&','&amp;').replace('"','&quot;')
-        if javascript or python: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.encode(outcode)))
+        if data_driven: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.encode(outcode)))
         else: action.append(adot+'o2(%d,"%s","%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr),c_or_java_escape(gloss)))
     else:
-        if javascript or python: action.append((c_length(text_unistr),annotation_unistr.encode(outcode)))
+        if data_driven: action.append((c_length(text_unistr),annotation_unistr.encode(outcode)))
         else: action.append(adot+'o(%d,"%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr)))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
@@ -2185,7 +2350,7 @@ def outputParser(rulesAndConds):
             else: glossDic[word] = gloss
     byteSeq_to_action_dict = {}
     if ignoreNewlines:
-        if javascript or python: newline_action = [(1,)]
+        if data_driven: newline_action = [(1,)]
         elif java: newline_action = r"a.o((byte)'\n'); /* needSpace unchanged */ a.writePtr++;"
         elif c_sharp: newline_action = r"o((byte)'\n'); writePtr++;"
         else: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;"
@@ -2195,7 +2360,7 @@ def outputParser(rulesAndConds):
         action,gotAnnot = matchingAction(rule,glossDic)
         if not gotAnnot: return # probably some spurious o("{","") rule that got in due to markup corruption
         if manualOverride or not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
-        if not (javascript or python): action = ' '.join(action)
+        if not data_driven: action = ' '.join(action)
         byteSeq_to_action_dict[byteSeq].append((action,conds))
     if reannotator:
       # dry run to get the words to reannotate
@@ -2244,13 +2409,19 @@ def outputParser(rulesAndConds):
     elif c_sharp: start = cSharp_start
     else: start = c_start
     print start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max))
-    subFuncL = []
-    ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
-    if java:
-      for f in subFuncL: open(java+os.sep+f[f.index("class ")+6:].split(None,1)[0]+".java","w").write(f)
-      open(java+os.sep+"topLevelMatch.java","w").write("\n".join(ret))
-    else: print "\n".join(subFuncL + ret)
-    del subFuncL,ret
+    if data_driven:
+      b = BytecodeAssembler()
+      b.addActionDictSwitch(byteSeq_to_action_dict,False)
+      print "static unsigned char data[]=\""+re.sub(r"(?<!\\)((?:\\\\)*\\x..)([0-9a-fA-F])",r'\1""\2',re.sub(r"\?\?([=/'()<>!-])",r'?""?\1',b.link().replace('\\','\\\\').decode('unicode_escape').encode('unicode_escape').replace('"','\\"')))+'\";' ; del b
+      print c_datadrive
+    else:
+      subFuncL = []
+      ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
+      if java:
+        for f in subFuncL: open(java+os.sep+f[f.index("class ")+6:].split(None,1)[0]+".java","w").write(f)
+        open(java+os.sep+"topLevelMatch.java","w").write("\n".join(ret))
+      else: print "\n".join(subFuncL + ret)
+      del subFuncL,ret
     if android: open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace("%%JPACK2%%",jPackage.replace('.','/')).replace('%%ANDROID-URL%%',android))
     if c_sharp: print cSharp_end
     elif not java: print c_end
@@ -2358,7 +2529,7 @@ if summary_only: outputRulesSummary(rulesAndConds)
 else: outputParser(rulesAndConds)
 del rulesAndConds
 sys.stderr.write("Done\n")
-if c_filename and not (java or javascript or python or c_sharp):
+if c_filename and not (java or javascript or python or c_sharp or ios):
     sys.stdout.close()
     cmd = c_compiler+" \""+c_filename+"\"" # (the -o option is part of c_compiler)
     sys.stderr.write(cmd+"\n")
