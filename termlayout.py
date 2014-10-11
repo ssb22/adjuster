@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# TermLayout v0.1 (c) 2014 Silas S. Brown
+# TermLayout v0.11 (c) 2014 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -275,7 +275,7 @@ class XYGrid:
         else: axis = 1
         if spaceForBorder: border = nEnd-N-1 # the internal borders in the range
         else: border = 0
-        return border + sum([0]+[max([0]+[contribOf(v[1].getSize(direction),v[0][axis],n == k[axis]+v[0][axis]-1) for k,v in self.items.iteritems() if k[axis] <= n < k[axis]+v[0][axis]]) for n in xrange(N,nEnd)])
+        return border + sum(max([0]+[contribOf(v[1].getSize(direction),v[0][axis],n == k[axis]+v[0][axis]-1) for k,v in self.items.iteritems() if k[axis] <= n < k[axis]+v[0][axis]]) for n in xrange(N,nEnd))
     def getSize(self,direction='x'):
         if direction=='x': axis = 0
         else: axis = 1
@@ -398,16 +398,23 @@ tagsToIgnore = [
 tagsToIgnore = re.compile('(?i)<('+'|'.join(re.escape(t) for t in tagsToIgnore)+')( [^>]*)?>')
 
 def parseDoc(html,width=None,attList=None,realWidth=None,
-             inPre=False,isOL=False,inCentre=False):
+             inPre=False,isOL=False,inCentre=False,
+             callback=None):
+    "if callback is not None, we're reading the top-level document and callback is called to 'flush' lines from it (so don't need to build up entire doc in memory before starting to print)"
     if width==None: width = screenWidth
     if realWidth==None: realWidth = width # for lists
     if attList==None: attList = []
     theDoc = StackingRectangle('y',name='doc')
     realDoc = theDoc # if we go into <li>, THAT becomes the new theDoc (this is a 'messy-HTML' parser)
     lstrip = True ; liNum = 0
+    def flush():
+        if callback and theDoc.items:
+            theDoc.lineBreakAndPadLeading(realWidth)
+            callback(theDoc.getLines())
+            theDoc.items = []
     def makeP():
         theP=StackingRectangle('x',name='p')
-        theDoc.items.append(theP)
+        flush() ; theDoc.items.append(theP)
         return theP
     def closeLI():
         if not theDoc==realDoc:
@@ -439,7 +446,9 @@ def parseDoc(html,width=None,attList=None,realWidth=None,
         if m:
             gobbled += m.end() ; html = html[m.end():]
             lstrip=False ; continue
-        if re.match('(?i)</p>',html): thisTag = ('p',4,len(html),len(html)) # treat as <p> (see below)
+        m = re.match('(?i)</?p>',html)
+        if m: # treat both <p> and </p> as <p> (see below), and don't bother trying to find their closing tags
+            thisTag = ('p',m.end(),len(html),len(html))
         else: thisTag = matchToClosingTag(html)
         if thisTag:
             tagName, inStart, inEnd, pastClose = thisTag
@@ -454,6 +463,7 @@ def parseDoc(html,width=None,attList=None,realWidth=None,
                 else: thisTag = None # invalid
                 lstrip = False
             elif tagName in ['ul','ol']:
+                flush()
                 theDoc.items.append(parseDoc(html[inStart:inEnd],max(min(10,width),width-4),attList,width,isOL=(tagName=='ol')))
                 # plus we need a new para at the end
                 theP = makeP()
@@ -479,6 +489,7 @@ def parseDoc(html,width=None,attList=None,realWidth=None,
                 theP = makeP() ; pastClose = inStart
                 lstrip = True
             elif tagName in ['address','blockquote','h1','h2','h3','h4','h5','h6','dd']: # TODO: leave space above/below for some of these ?
+                flush()
                 if tagName.startswith('h'): al2 = attList + ansiAttributesForTag('<b>')
                 elif tagName.startswith('a'): al2 = attList + ansiAttributesForTag('<em>')
                 else: al2 = attList
@@ -495,9 +506,11 @@ def parseDoc(html,width=None,attList=None,realWidth=None,
                 theP = makeP() ; lstrip = True
             elif tagName in ['div','pre','dt','center']:
                 # as above but without the extra margins
+                flush()
                 theDoc.items.append(parseDoc(html[inStart:inEnd],width,attList,inPre=(tagName=='pre'),inCentre=(tagName=='center')))
                 theP = makeP() ; lstrip = True
             elif tagName in ['table']:
+                flush()
                 theDoc.items.append(parseTable(html[inStart:inEnd],width,attList,'border' in html[:inStart]))
                 theP = makeP() ; lstrip = True
             elif tagName in ['hr']:
@@ -512,7 +525,7 @@ def parseDoc(html,width=None,attList=None,realWidth=None,
         else: # it's a tag we didn't recognise, or something that's malformed
             theP.items.append(f('<'))
             gobbled += 1 ; html = html[1:] ; lstrip=False
-    closeLI()
+    closeLI() ; flush()
     if realDoc==theDoc:
         realDoc.lineBreakAndPadLeading(realWidth)
         if inCentre: realDoc.padToSize(desired=realWidth) # TODO: unless we're inside a table or something, in which case leave desired=0
@@ -690,11 +703,8 @@ term = os.environ.get("TERM","")
 supports_ansi = ("xterm" in term or term in ["screen","linux"]) # TODO: others?
 
 if __name__ == "__main__":
-    ansiLines = parseDoc(htmlPreprocess(sys.stdin.read().decode(terminal_charset))).getLines()
-    # TODO: although we definitely .encode(terminal_charset) below, the .decode above might have to be something else if there's a META specifying it
-    toOut = mergeAnsifiedLines(ansiLines,not supports_ansi).encode(terminal_charset)
-    if sys.stdout.isatty() and len(ansiLines) > screenDim('ROWS')-2 and os.path.exists('/usr/bin/less'):
-        if '\x1b(0' in toOut: raw = '-r' # because we used ANSI line drawing (not just colours).  Customising less's -R option with the LESSANSIMIDCHARS and LESSANSIENDCHARS environment variables won't help us here, because '0' is an "end" character on one control sequence but a "mid" on the other, so we have no choice but to ask for ALL codes to go through raw, which in theory means less loses track of the real line lengths, although it seems to work well enough for the ANSI codes we generate
-        else: raw = '-R' # just the ANSI colours
-        os.popen('/usr/bin/less '+raw,'w').write(toOut)
-    else: sys.stdout.write(toOut)
+    if sys.stdin.isatty(): sys.stderr.write("termlayout: reading HTML from standard input\n")
+    if sys.stdout.isatty() and not sys.stdin.isatty() and os.path.exists('/usr/bin/less'):
+        outstream = os.popen('/usr/bin/less -FrX','w')
+    else: outstream = sys.stdout
+    parseDoc(htmlPreprocess(sys.stdin.read().decode(terminal_charset)),callback=lambda lines:(outstream.write(mergeAnsifiedLines(lines,not supports_ansi).encode(terminal_charset)),outstream.flush())) # TODO: although we definitely .encode(terminal_charset), the .decode might have to be something else if there's a META specifying it
