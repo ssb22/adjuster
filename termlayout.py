@@ -14,6 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# If you want to compare this code to old versions, the old
+# versions are being kept on SourceForge's E-GuideDog SVN repository
+# http://sourceforge.net/p/e-guidedog/code/HEAD/tree/ssb22/adjuster/
+# To check out the repository, you can do:
+# svn co http://svn.code.sf.net/p/e-guidedog/code/ssb22/adjuster
+
 import re, unicodedata, os, sys
 
 class ANSIfiedText:
@@ -164,7 +170,7 @@ class StackingRectangle:
             for r in self.items:
                 r.padToSize(direction,desired,align)
     def tabulate(self):
-        "Pad the children of children as in a table.  Assumes each cell takes exactly 1 row or column and there are no borders except a gap between columns.  For more complex tables (borders, rowspan/colspan etc), please use an XYGrid instead, which automatically tabulates (although it's probably slower than the more simplistic approach used here)."
+        "Pad the children of children as in a table.  Assumes each cell takes exactly 1 row or column and there are no borders except a gap between columns.  For more complex tables (borders, rowspan/colspan etc), please use an XYGrid instead, which automatically tabulates (although it's probably slower than the more simplistic approach used here, and the simpler version is also more flexible at reflowing overly-wide tables)."
         rows = [i for i in self.items if not i.__class__ == Strut]
         numCols = max(len([c for c in r.items if not c.__class__ == Strut]) for r in rows) ; numRows = len(rows)
         if self.stackingDir=='y': colWidthDir='x'
@@ -184,9 +190,12 @@ class StackingRectangle:
             hi = max(xy(c,rowNo).getSize(self.stackingDir) for c in xrange(numCols))
             if rowNo < numRows-1 and self.stackingDir=='x': hi += 1 # gap between cols
             for c in xrange(numCols): xy(c,rowNo).padToSize(self.stackingDir,hi,'top') # TODO: alignment as above TODO (currently handled by XYGrid)
-    def lineBreakAndPadLeading(self,maxSize,ourDirectionRunsFromEnd=False,orthogonalDirectionRunsFromEnd=False,baselineAlign='bottom'): # ( = 'right' for columns)
-        "When processing a stack of lines (or, for vertical text, a bunch of columns), interprets hard line breaks, adds soft line breaks, and ensures all lines are consistent 'height' (or width if they are columns), using baselineAlign to align any that were out of place.  Flags: False,False for a StackingRectangle('y') containing StackingRectangle('x') lines with left-to-right top-to-bottom line wrapping; True,False for a StackingRectangle('x') containing StackingRectangle('y') columns when we want to wrap in columns from right to left (and top to bottom within each column; True,True would give bottom to top), etc.  It's assumed that all relevant immediate children are other StackingRectangles; if any of these have a direction the same as ours, we'll recurse on them."
-        if ourDirectionRunsFromEnd: self.items.reverse()
+    def lineBreakAndPadLeading(self,maxSize,ourDirectionRunsFromEnd=False,orthogonalDirectionRunsFromEnd=False,baselineAlign='bottom',callback=None): # ( 'bottom' = 'right' for columns)
+        "When processing a stack of lines (or, for vertical text, a bunch of columns), interprets hard line breaks, adds soft line breaks, and ensures all lines are consistent 'height' (or width if they are columns), using baselineAlign to align any that were out of place.  Flags: False,False for a StackingRectangle('y') containing StackingRectangle('x') lines with left-to-right top-to-bottom line wrapping; True,False for a StackingRectangle('x') containing StackingRectangle('y') columns when we want to wrap in columns from right to left (and top to bottom within each column; True,True would give bottom to top), etc.  It's assumed that all relevant immediate children are other StackingRectangles; if any of these have a direction the same as ours, we'll recurse on them.  If callback is not None, we're the top-level document and callback is called to 'flush' lines from it as we go (so don't need to build up entire doc in memory before starting to print); in this case the document is left empty at the end."
+        if callback: assert self.stackingDir=='y'
+        _callback = callback
+        if ourDirectionRunsFromEnd:
+            self.items.reverse() ; callback = None
         if self.stackingDir=='y': wrappingDir = 'x'
         else: wrappingDir = 'y'
         i = 0
@@ -194,7 +203,7 @@ class StackingRectangle:
             if not self.items[i].__class__ == StackingRectangle:
                 i += 1 ; continue
             if self.items[i].stackingDir == self.stackingDir:
-                self.items[i].lineBreakAndPadLeading(maxSize,ourDirectionRunsFromEnd,orthogonalDirectionRunsFromEnd,baselineAlign)
+                self.items[i].lineBreakAndPadLeading(maxSize,ourDirectionRunsFromEnd,orthogonalDirectionRunsFromEnd,baselineAlign,callback=callback)
                 i += 1 ; continue
             if orthogonalDirectionRunsFromEnd:
                 self.items[i].items.reverse()
@@ -223,7 +232,14 @@ class StackingRectangle:
             for it in self.items[i].items: it.padToSize(wrappingDir) # (so any extra 'rows' we just added to those 'columns' are padded out as well)
             # note however that we DON'T pad our ROWS to size in wrappingDir (that's done separately if centering etc is desired)
             i += 1
+            if callback:
+                self.items,it0 = self.items[:i],self.items[i:]
+                callback(self.getLines())
+                self.items = it0 ; i = 0
         if ourDirectionRunsFromEnd: self.items.reverse()
+        if _callback and self.items:
+            _callback(self.getLines())
+            self.items = []
     def getLines(self):
         "assumes all needed padding is already done"
         return [self.getLine(N) for N in range(self.getSize('y'))]
@@ -400,7 +416,6 @@ tagsToIgnore = re.compile('(?i)<('+'|'.join(re.escape(t) for t in tagsToIgnore)+
 def parseDoc(html,width=None,attList=None,realWidth=None,
              inPre=False,isOL=False,inCentre=False,
              callback=None):
-    "if callback is not None, we're reading the top-level document and callback is called to 'flush' lines from it (so don't need to build up entire doc in memory before starting to print)"
     if width==None: width = screenWidth
     if realWidth==None: realWidth = width # for lists
     if attList==None: attList = []
@@ -408,10 +423,7 @@ def parseDoc(html,width=None,attList=None,realWidth=None,
     realDoc = theDoc # if we go into <li>, THAT becomes the new theDoc (this is a 'messy-HTML' parser)
     lstrip = True ; liNum = 0
     def flush():
-        if callback and theDoc.items:
-            theDoc.lineBreakAndPadLeading(realWidth)
-            callback(theDoc.getLines())
-            theDoc.items = []
+        if callback and theDoc.items: theDoc.lineBreakAndPadLeading(realWidth,callback=callback)
     def makeP():
         theP=StackingRectangle('x',name='p')
         flush() ; theDoc.items.append(theP)
@@ -708,3 +720,4 @@ if __name__ == "__main__":
         outstream = os.popen('/usr/bin/less -FrX','w')
     else: outstream = sys.stdout
     parseDoc(htmlPreprocess(sys.stdin.read().decode(terminal_charset)),callback=lambda lines:(outstream.write(mergeAnsifiedLines(lines,not supports_ansi).encode(terminal_charset)),outstream.flush())) # TODO: although we definitely .encode(terminal_charset), the .decode might have to be something else if there's a META specifying it
+
