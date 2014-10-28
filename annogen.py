@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.57 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.58 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -100,7 +100,7 @@ parser.add_option("--no-input",
 
 parser.add_option("--c-filename",default=tempfile.gettempdir()+os.sep+"annotator.c",help="Where to write the C program if standard output is not connected to a pipe. Defaults to annotator.c in the system temporary directory (the program might be large, especially if Yarowsky indicators are not used, so it's best not to use a server home directory where you might have limited quota). If standard output is connected to a pipe, then this option is ignored and C code is written to the pipe instead.")
 
-parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. Default: %default")
+parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
 # If compiling an experimental annotator quickly, you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc.
 # (BUT tcc can have problems on Raspberry Pi see http://www.raspberrypi.org/phpBB3/viewtopic.php?t=30036&p=263213; can be best to cross-compile, e.g. from a Mac use https://github.com/UnhandledException/ARMx/wiki/Sourcery-G---Lite-for-ARM-GNU-Linux-(2009q3-67)-for-Mac-OS-X and arm-none-linux-gnueabi-gcc)
 # In large rulesets with --max-or-length=0 and --nested-switch, gcc takes time and gcc -Os can take a LOT longer, and CINT, Ch and picoc run out of memory.  Without these options the overhead of gcc's -Os isn't so bad (and does save some room).
@@ -110,7 +110,7 @@ parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compi
 parser.add_option("--max-or-length",default=100,help="The maximum number of items allowed in an OR-expression in C and Java code (used when ybytes is in effect). When an OR-expression becomes larger than this limit, it will be made into a function. 0 means unlimited, which works for tcc and gcc; many other compilers have limits. Default: %default")
 
 parser.add_option("--nested-switch",default=0,
-                  help="Allow C and Java switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for little gain in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.") # tcc is still fast (although that doesn't generate the smallest executables anyway)
+                  help="Allow C and Java switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for small savings in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.") # tcc is still fast (although that doesn't generate the smallest executables anyway)
 
 parser.add_option("--outcode",default="utf-8",
                   help="Character encoding to use in the generated parser and rules summary (default %default, must be ASCII-compatible i.e. not utf-16)")
@@ -179,7 +179,7 @@ parser.add_option("--reannotator",
 
 parser.add_option("-o", "--allow-overlaps",
                   action="store_true",default=False,
-                  help="Normally, the analyser avoids generating rules that could overlap with each other in a way that would leave the program not knowing which one to apply.  If a short rule would cause overlaps, the analyser will prefer to generate a longer rule that uses more context, and if even the entire phrase cannot be made into a rule without causing overlaps then the analyser will give up on trying to cover that phrase.  This option allows the analyser to generate rules that could overlap, as long as none of the overlaps would cause actual problems in the example phrases. Thus more of the examples can be covered, at the expense of a higher risk of ambiguity problems when applying the rules to other texts.")
+                  help="Normally, the analyser avoids generating rules that could overlap with each other in a way that would leave the program not knowing which one to apply.  If a short rule would cause overlaps, the analyser will prefer to generate a longer rule that uses more context, and if even the entire phrase cannot be made into a rule without causing overlaps then the analyser will give up on trying to cover that phrase.  This option allows the analyser to generate rules that could overlap, as long as none of the overlaps would cause actual problems in the example phrases. Thus more of the examples can be covered, at the expense of a higher risk of ambiguity problems when applying the rules to other texts.  See also the -y option.")
 
 parser.add_option("-P", "--primitive",
                   action="store_true",default=False,
@@ -190,7 +190,7 @@ parser.add_option("-y","--ybytes",default=0,
 parser.add_option("--ybytes-max",default=0,
                   help="Extend the Yarowsky seed-collocation search to check over larger ranges up to this maximum.  If this is set then several ranges will be checked in an attempt to determine the best one for each word, but see also ymax-threshold.")
 parser.add_option("--ymax-threshold",default=1,
-                  help="Limits the length of word that receives the narrower-range Yarowsky search when ybytes-max is in use. For words longer than this, the search will go directly to ybytes-max. This is for languages where the likelihood of a word's annotation being influenced by its immediate neighbours more than its distant collocations increases for shorter words, and less is to be gained by comparing different ranges when processing longer words. Setting this to 0 means no limit, i.e. the full range will be explored on ALL Yarowsky checks.")
+                  help="Limits the length of word that receives the narrower-range Yarowsky search when ybytes-max is in use. For words longer than this, the search will go directly to ybytes-max. This is for languages where the likelihood of a word's annotation being influenced by its immediate neighbours more than its distant collocations increases for shorter words, and less is to be gained by comparing different ranges when processing longer words. Setting this to 0 means no limit, i.e. the full range will be explored on ALL Yarowsky checks.") # TODO: see TODO below re temporary recommendation of --ymax-threshold=0
 parser.add_option("--ybytes-step",default=3,
                   help="The increment value for the loop between ybytes and ybytes-max")
 parser.add_option("--warn-yarowsky",
@@ -206,7 +206,7 @@ parser.add_option("--single-words",
                   action="store_true",default=False,
                   help="Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.")
 parser.add_option("--max-words",default=0,
-                  help="Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one.")
+                  help="Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one.")  # (There was a bug in annogen versions before 0.58 that caused --max-words to additionally limit how far away from the start of its phrase a rule-example must be placed; this has now been fixed.  There was also a bug that resulted in too many extra rules being tested over already-catered-for phrases; as this has now been fixed, the additional benefit of a --max-words limit is now reduced, but you might want to put one in anyway.  That second bug also had the effect of the coverage % being far too low in the progress stats.)
 
 # TODO: optionally (especially if NOT using Yarowsky) do an additional pass (after discovering all other rules) and turn whole phrases that are not completely covered by other rules into whole-phrase rules, if it doesn't conflict 1 phrase w. anothr of equal priority; shld be ok if no overlap, overlaps wld *sometimes* be ok suggest a len threshold
 
@@ -214,8 +214,10 @@ parser.add_option("--checkpoint",help="Periodically save checkpoint files in the
 # (Condor can checkpoint an application on Win/Mac/Linux but is awkward to set up.  Various Linux and BSD application checkpoint approaches also exist; another option is virtualisation.)
 
 parser.add_option("-d","--diagnose",help="Output some diagnostics for the specified word. Use this option to help answer \"why doesn't it have a rule for...?\" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).")
-
 parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: %default")
+parser.add_option("--diagnose-quick",
+                  action="store_true",default=False,
+                  help="Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics WITHOUT these disadvantages by loading a --rulesFile instead.")
 
 parser.add_option("--time-estimate",
                   action="store_true",default=False,
@@ -271,6 +273,8 @@ elif ios:
   if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
 if data_driven and (c_sharp or java): errExit("--data-driven is not yet implemented in C# or Java")
 elif javascript or python: data_driven = True
+if java or javascript or python or c_sharp or ios:
+  c_compiler = None
 try:
   import locale
   terminal_charset = locale.getdefaultlocale()[1]
@@ -280,15 +284,21 @@ diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
 
-def nearCall(conds,subFuncs,subFuncL):
+def nearCall(negate,conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
   if not max_or_length or len(conds) <= max_or_length:
     if java: f="a.n"
     else: f="near"
-    return " || ".join(f+"(\""+c_or_java_escape(c,0)+"\")" for c in conds)
+    ret = " || ".join(f+"(\""+c_or_java_escape(c,0)+"\")" for c in conds)
+    if negate:
+      if " || " in ret: ret = " ! ("+ret+")"
+      else: ret = "!"+ret
+    return ret
   if java: fStart,fEnd = "package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {","} }" # put functions in separate classes to try to save the constants table of the main class
   else: fStart,fEnd = c_or_java_bool+" NewFunc() {","}"
-  return subFuncCall(fStart+"\n".join("if("+nearCall(conds[i:j],subFuncs,subFuncL)+") return "+c_or_java_true+";" for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+"\nreturn "+c_or_java_false+";"+fEnd,subFuncs,subFuncL)
+  if negate: rTrue,rFalse = c_or_java_false,c_or_java_true
+  else: rTrue,rFalse = c_or_java_true,c_or_java_false
+  return subFuncCall(fStart+"\n".join("if("+nearCall(False,conds[i:j],subFuncs,subFuncL)+") return "+rTrue+";" for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+"\nreturn "+rFalse+";"+fEnd,subFuncs,subFuncL)
 
 def subFuncCall(newFunc,subFuncs,subFuncL):
   if newFunc in subFuncs:
@@ -421,11 +431,12 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
             if conds:
                 assert action, "conds without action in "+repr(byteSeq_to_action_dict[""])
                 if type(conds)==tuple:
-                    conds,nbytes = conds
+                    negate,conds,nbytes = conds
                     if java: ret.append("a.sn(%d);" % nbytes)
                     elif c_sharp: ret.append("nearbytes=%d;" % nbytes)
                     else: ret.append("setnear(%d);" % nbytes)
-                ret.append("if ("+nearCall(conds,subFuncs,subFuncL)+") {")
+                else: negate = False
+                ret.append("if ("+nearCall(negate,conds,subFuncs,subFuncL)+") {")
                 ret.append((action+" return;").strip())
                 ret.append("}")
             else:
@@ -697,7 +708,7 @@ if ios:
 }
 - (void)webViewDidFinishLoad:(UIWebView *)webView
 {
-    [webView stringByEvaluatingJavaScriptFromString:@"var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'],stripTags=['WBR'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a' }; var texts,tLen,oldTexts,otPtr,replacements; function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { texts = new Array(); tLen=0; otPtr=0; all_frames_docs(function(d){walk(d,d,false)}) }; function adjusterScan() { oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a' }; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { var ps = c.previousSibling; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) } if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) }} c=cNext;}c=n.firstChild;while(c) {var cNext = c.nextSibling;switch (c.nodeType) {case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break;case 3:var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=c.nodeValue) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; if(!inLink) r=r.replace(/<ruby title=/g,'<ruby onclick=\"annotPopAll(this)\" title=');newNode.innerHTML=r; otPtr=i;} else if (tLen < 1024) { texts[texts.length]=c.nodeValue;tLen += c.nodeValue.length;} else return}c=cNext;}}adjusterScan()"];
+    [webView stringByEvaluatingJavaScriptFromString:@"var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'],stripTags=['WBR'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a' }; var texts,tLen,oldTexts,otPtr,replacements; function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { texts = new Array(); tLen=0; otPtr=0; all_frames_docs(function(d){walk(d,d,false)}) }; function annotScan() { oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a' }; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { var ps = c.previousSibling; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) } if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) }} c=cNext;}c=n.firstChild;while(c) {var cNext = c.nextSibling;switch (c.nodeType) {case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break;case 3:var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=c.nodeValue) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; if(!inLink) r=r.replace(/<ruby title=/g,'<ruby onclick=\"annotPopAll(this)\" title=');newNode.innerHTML=r; otPtr=i;} else if (tLen < 1024) { texts[texts.length]=c.nodeValue;tLen += c.nodeValue.length;} else return}c=cNext;}}annotScan()"];
 }
 - (BOOL)webView:(UIWebView*)webView shouldStartLoadWithRequest:(NSURLRequest*)request navigationType:(UIWebViewNavigationType)navigationType {
     NSURL *URL = [request URL];
@@ -709,7 +720,7 @@ if ios:
         startPtr = [texts UTF8String]; readPtr = startPtr; writePtr = startPtr;
         outBytes = [NSMutableData alloc]; matchAll(); OutWriteByte(0);
         if([texts length]>0) [self.myWebView stringByEvaluatingJavaScriptFromString:[@"replacements=\"" stringByAppendingString:[[[[[[NSString alloc] initWithUTF8String:[outBytes bytes]] stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""] stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"] stringByAppendingString:@"\".split('/@@---------@@/');oldTexts=texts;tw0();all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })"]]];
-        [self.myWebView stringByEvaluatingJavaScriptFromString:@"if(typeof window.sizeChangedLoop=='undefined') window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window), stFunc=function(){if(window.sizeChangedLoop==me) window.setTimeout(tFunc,1000)}, tFunc=function(){if(getLen(window)==curLen) stFunc(); else adjusterScan()}; stFunc()"]; // HTMLSizeChanged(adjusterScan)
+        [self.myWebView stringByEvaluatingJavaScriptFromString:@"if(typeof window.sizeChangedLoop=='undefined') window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window), stFunc=function(){if(window.sizeChangedLoop==me) window.setTimeout(tFunc,1000)}, tFunc=function(){if(getLen(window)==curLen) stFunc(); else annotScan()}; stFunc()"]; // HTMLSizeChanged(annotScan)
         return NO;
     }
     return YES;
@@ -893,6 +904,19 @@ android_src = r"""
        Eclipse's Package Explorer (left-hand pane) and
        do File / Export / Export Android Application (it
        lets you create a keystore and private signing key)
+   12. If you ship your app on Play Store, you are advised
+       to use the "beta test" facility before going live.
+       Play Store has been known to somehow 'corrupt' APKs
+       generated by Annogen, for an unknown reason.  (The
+       APK works just fine when run standalone, but fails
+       to annotate when downloaded from Play Store.)  When
+       this happens, simply incrementing the
+       version numbers in the AndroidManifest.xml files
+       and re-uploading to Play Store somehow 'fixes' it.
+       (Similarly, you might find one version works fine
+       but the next does not, even if you've only fixed a
+       'typo' between the versions.  Use beta test, and if
+       it goes wrong then re-upload.)
 */
 
 package %%JPACKAGE%%;
@@ -929,7 +953,7 @@ public class MainActivity extends Activity {
         browser.setWebViewClient(new WebViewClient() {
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }
                 public void onPageFinished(WebView view,String url) {
-                    browser.loadUrl("javascript:var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'],stripTags=['WBR']; function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title) }; function HTMLSizeChanged(callback) { var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window),stFunc=function(){window.setTimeout(tFunc,1000)},tFunc=function(){if(getLen(window)==curLen) stFunc(); else callback()};stFunc()} function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) } function tw0() { all_frames_docs(function(d){walk(d,d,false)}) } function adjusterScan() { tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); var wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'} d.rubyScriptAdded=1 }); HTMLSizeChanged(adjusterScan) } function walk(n,document,inLink) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { var ps = c.previousSibling; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) } if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) } } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break; case 3: { var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; } } } c=cNext } } adjusterScan()");
+                    browser.loadUrl("javascript:var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'],stripTags=['WBR']; function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title) }; function HTMLSizeChanged(callback) { var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window),stFunc=function(){window.setTimeout(tFunc,1000)},tFunc=function(){if(getLen(window)==curLen) stFunc(); else callback()};stFunc()} function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) } function tw0() { all_frames_docs(function(d){walk(d,d,false)}) } function annotScan() { tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); var wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'} d.rubyScriptAdded=1 }); HTMLSizeChanged(annotScan) } function walk(n,document,inLink) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1) { var ps = c.previousSibling; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); if (ps && ps.nodeType==3 && ps.nextSibling && ps.nextSibling.nodeType==3) { ps.nodeValue += ps.nextSibling.nodeValue; n.removeChild(ps.nextSibling) } if (cNext && cNext.nodeType==3 && cNext.previousSibling && cNext.previousSibling.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; var tmp=cNext; cNext = cNext.previousSibling; n.removeChild(tmp) } } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break; case 3: { var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; } } } c=cNext } } annotScan()");
                 } });
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         browser.loadUrl("%%ANDROID-URL%%");
@@ -1142,7 +1166,7 @@ class BytecodeAssembler:
         'copyBytes':71,'o':72,'o2':73, # (don't change these numbers, they're hard-coded below)
         'savepos':80, # local to the function
         'restorepos':81,
-        'neartest':90, # params: true-label, false-label, byte nbytes, addresses of conds strings until true-label reached
+        'neartest':90, # params: true-label, false-label, byte nbytes, addresses of conds strings until first of the 2 labels is reached (normally true-label, unless the whole neartest is negated)
         }[opcode])
   def addBytes(self,bStr):
       if type(bStr)==int: self.l.append(chr(bStr))
@@ -1216,8 +1240,8 @@ class BytecodeAssembler:
         default_action = ""
         for action,conds in byteSeq_to_action_dict[""]:
             if conds:
-                if type(conds)==tuple: conds,nbytes = conds
-                else: nbytes = ybytes_max
+                if type(conds)==tuple: negate,conds,nbytes = conds
+                else: negate,nbytes = False,ybytes_max
                 assert 1 <= nbytes <= 255, "bytecode supports only single-byte nbytes (but nbytes=0 is reserved for expansion)"
                 trueLabel,falseLabel = self.makeLabel(),self.makeLabel()
                 self.addOpcode('neartest')
@@ -1226,6 +1250,7 @@ class BytecodeAssembler:
                 assert type(nbytes)==int
                 self.addBytes(nbytes)
                 for c in conds: self.addRefToString(c.encode(outcode))
+                if negate: trueLabel,falseLabel = falseLabel,trueLabel
                 self.addLabelHere(trueLabel)
                 self.addActions(action)
                 self.addOpcode('return')
@@ -1431,7 +1456,7 @@ function readData() {
   if (max > inputLength) max = inputLength;
   var tStr = input.slice(o,max);
                 var found = 0;
-                while (dPtr < tPtr) if (tStr.indexOf(readRefStr()) != -1) { found = 1; break; }
+                while (dPtr < tPtr && dPtr < fPtr) if (tStr.indexOf(readRefStr()) != -1) { found = 1; break; }
                 dPtr = found ? tPtr : fPtr; break;
                 }
         default: throw("corrupt data table at "+(dPtr-1)+" ("+data.charCodeAt(dPtr-1)+")");
@@ -1560,7 +1585,7 @@ class Annotator:
       maxx = min(self.p+nearbytes,self.inputLength)
       tStr = self.inStr[o:maxx]
       found = 0
-      while self.dPtr < tPtr:
+      while self.dPtr < tPtr and self.dPtr < fPtr:
         if self.readRefStr() in tStr:
           found = 1 ; break
       if found: self.dPtr = tPtr
@@ -1631,7 +1656,7 @@ static void readData() {
       unsigned char *truePtr = readAddr();
       unsigned char *falsePtr = readAddr();
       setnear(*dPtr++); int found=0;
-      while(dPtr < truePtr) if(near((char*)readAddr())) { found = 1; break; }
+      while(dPtr < truePtr && dPtr < falsePtr) if(near((char*)readAddr())) { found = 1; break; }
       dPtr = found ? truePtr : falsePtr; break; }
       // default: TODO: error about corrupt data?
     }
@@ -1822,7 +1847,7 @@ def different_ways_of_splitting(chars,splitPoints):
     for r in different_ways_of_splitting(chars[spAt:],splitPoints-1): yield [chars[:spAt]]+r
 
 def yarowsky_indicators(withAnnot_unistr,markedDown):
-    # returns True if rule always works (or in majority of cases with ymajority), or lists enough indicators to cover example instances and returns (list, nbytes), or just list if empty.
+    # returns True if rule always works (or in majority of cases with ymajority), or lists enough indicators to cover example instances and returns (negate, list, nbytes), or just list if empty.
     # (If too few indicators can be found, will list the ones it can, or empty if no clearly-distinguishable indicators can be found within ybytes of end of match.)
     nonAnnot=markDown(withAnnot_unistr)
     if nonAnnot in yPriorityDic: # TODO: enforce len==1 ?
@@ -1856,37 +1881,42 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
           return True # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
         # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default unless can be sure about it
         # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without positive indicators it should do so
-        # Might get an exception if there is no possibility of a rule A in the examples, i.e. no markup of a word of length < nonAnnot whose marked-down version matches the start of nonAnnot in corpus_unistr:
-        # if not re.search(re.escape(mdStart)+reduce(lambda x,y:re.escape(y)+"("+x+")?",reversed(list(nonAnnot[:-1])))+re.escape(mdEnd),corpus_unistr): return True
-        # Might also have an exception if there is no possibility of a rule BC, i.e. no word in corpus_unistr whose marked-down version starts with any of the strings nonAnnot[1:] [2:] ... [-1:]
-        # if not re.search(re.escape(mdStart)+reduce(lambda x,y:"("+x+")?"+re.escape(y),list(nonAnnot[1:])),corpus_unistr): return True
-        # + might have an exception if can confirm from all badStarts that the marked-down version of the rule applied (if one starts at that badStart) is at least as long as nonAnnot.  A special case of this (which should be easier to check) is if all badStarts begin with a single word that starts with nonAnnot, in which case they ought to be able to find collocations:
-        # if all(b in c2m_inverse and corpus_unistr[c2m_inverse[b]:c2m_inverse[b]+len(mdStart)+len(nonAnnot)]==mdStart+nonAnnot for b in badStarts): return True
-        # Or just directly check for "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
+        # Check for no "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
+        # (The below might under-match if there's the appearance of a split rule but it actually has extra non-marked-up text in between, but it shouldn't over-match.)
+        # TODO: if we can find the actual "A BC" sequences (instead of simply checking for their possibility as here), and if we can guarantee to make 'phrase'-length rules for all of them, then AB can still be the default.  This might be useful if okStarts is very much greater than badStarts.
+        # (TODO: until the above is implemented, consider recommending --ymax-threshold=0, because, now that Yarowsky-like collocations can be negative, the 'following word' could just go in as a collocation with low ybytes)
+        # TODO: also, if the exceptions to rule AB are always of the form "Z A B", and we can guarantee to generate a phrase rule for "Z A B", then AB can still be default.  (We should already catch this when the exceptions are "ZA B", but not when they are "Z A B", and --ymax-threshold=0 probably won't always help here, especially if Z==B; Mandarin "mei2you3" / "you3 mei2 you3" comes to mind)
         llen = len(mdStart)+len(nonAnnot)
         if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+("("+re.escape(mdEnd)+"((?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?").join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
           if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case rule after checking for dangerous overlaps etc\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
           return True
-        # (This exception might under-match if there's the appearance of a split rule but it actually has extra non-marked-up text in between.  But it shouldn't over-match.)
-    if len(okStarts) > 1000: sys.stderr.write("\nLarge collocation check (%s has %d matches + %s), could take some time....  \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),len(okStarts),badInfo(badStarts,nonAnnot,markedDown)))
+    may_take_time = len(okStarts) > 1000
+    if may_take_time: sys.stderr.write("\nLarge collocation check (%s has %d matches + %s), could take some time....  \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),len(okStarts),badInfo(badStarts,nonAnnot,markedDown)))
     if ybytes_max > ybytes and (not ymax_threshold or len(nonAnnot) <= ymax_threshold):
       retList = [] ; append=retList.append
       for nbytes in range(ybytes,ybytes_max+1,ybytes_step):
-        ret,covered,toCover = tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr)
-        if covered==toCover and len(ret)==1: return (ret,nbytes) # a single indicator that covers everything will be better than anything else we'll find
-        append((-covered,len(ret),nbytes,toCover,ret)) # (1st 3 of these are the sort keys: maximum coverage, THEN minimum num indicators for the same coverage, THEN minimum nbytes (TODO: problems of very large nbytes might outweigh having more indicators; break if found 100% coverage by N?)  toCover should always ==len(okStarts).)
+        negate,ret,covered,toCover = tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr)
+        if covered==toCover and len(ret)==1:
+          if may_take_time: sys.stderr.write(" - using 1 indicator, negate=%s\n" % repr(negate))
+          return (negate,ret,nbytes) # a single indicator that covers everything will be better than anything else we'll find
+        append((-covered,len(ret),nbytes,negate,toCover,ret)) # (1st 4 of these are the sort keys: maximum coverage, THEN minimum num indicators for the same coverage, THEN minimum nbytes (TODO: problems of very large nbytes might outweigh having more indicators; break if found 100% coverage by N?), THEN avoid negate)
         # TODO: try finding an OR-combination of indicators at *different* proximity lengths ?
-      retList.sort() ; ret = retList[0][-1]
+      retList.sort()
+      negate,ret = retList[0][-3],retList[0][-1]
       distance = retList[0][2]
     else:
-      ret = tryNBytes(ybytes_max,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr)[0]
+      negate,ret = tryNBytes(ybytes_max,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr)[:2]
       if ybytes < ybytes_max: distance = ybytes_max
       else: distance = None # all the same anyway
-    if not ret and warn_yarowsky: sys.stderr.write("Couldn't find ANY Yarowsky-like indicators for %s   \n" % (withAnnot_unistr.encode(terminal_charset,'replace')))
+    if not ret and warn_yarowsky: sys.stderr.write("Couldn't find ANY Yarowsky-like indicators for %s   \n" % (withAnnot_unistr.encode(terminal_charset,'replace'))) # (if nonAnnot==diagnose, this'll be reported by tryNBytes below)
     # elif ybytes_max > ybytes: sys.stderr.write("Debugger: %s best coverage=%d/%d by %d indicators at nbytes=%d   \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),-retList[0][0],retList[0][3],retList[0][1],retList[0][2]))
     # TODO: if partially but not completely covered, shouldn't entirely count the word as 'covered' in analyse()
-    if not ret or not distance: return ret
-    else: return ret,distance
+    elif ret and may_take_time: sys.stderr.write(" - using %d indicators, negate=%s\n" % (len(ret),repr(negate)))
+    if not ret or (not distance and not negate):
+      return ret
+    else:
+      if not distance: distance = ybytes_max
+      return negate,ret,distance
 # keep these functions separate for cProfile clarity:
 def getOkStarts(withAnnot_unistr):
     if withAnnot_unistr in precalc_sets: return precalc_sets[withAnnot_unistr]
@@ -1910,23 +1940,47 @@ def getReallyBadStarts(badStarts,nonAnnot):
       append(b) # to reallyBadStarts
     return reallyBadStarts
 def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr):
+    # try to find either positive or negative Yarowsky-like indicators, whichever gives a smaller set.  Negative indicators might be useful if there are many matches and only a few special exceptions (TODO: but put in an option to avoid checking for them as per v0.57 and below? although I'm not sure what application would have to be that careful but still use Yarowsky-like indicators)
+    # (Negative indicators are used only if they cover 100% of the exceptions - see belowe re negate==None)
     def bytesAround(start): return within_Nbytes(markedDown,start+len(nonAnnot),nbytes)
-    omitStr = unichr(1).join(bytesAround(s) for s in badStarts)
-    okStrs=[bytesAround(s) for s in okStarts]
-    covered=[False]*len(okStrs)
-    ret = [] ; append=ret.append
-    for indicatorStr in unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in omitStr,lambda txt:sum(1 for s in okStrs if txt in s)):
-      cChanged = False
-      for i in xrange(len(okStrs)):
-        if not covered[i] and indicatorStr in okStrs[i]: covered[i]=cChanged=True
-      if cChanged: append(indicatorStr)
-      if all(covered): break
+    okStrs=list(set(bytesAround(s) for s in okStarts))
+    badStrs=list(set(bytesAround(s) for s in badStarts))
+    pOmit = unichr(1).join(badStrs) # omit anything that occurs in this string from +ve indicators
+    nOmit = unichr(1).join(okStrs) # ditto for -ve indicators
+    pCovered=[False]*len(okStrs)
+    nCovered=[False]*len(badStrs)
+    pRet = [] ; pAppend=pRet.append
+    nRet = [] ; nAppend=nRet.append
+    negate = None # not yet set
+    stuffToCheck = [(okStrs,pAppend,pCovered,unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))] # a generator and associated parameters for positive indicators
+    if len(okStrs) > len(badStrs): stuffToCheck.append((badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s)))) # and for negative indicators, if it seems badStrs are in the minority (TODO: smaller minority?  we'll try a string from each generator in turn, stopping if we find one that covers everything; that way we're hopefully more likely to finish early if one of the two is going to quickly give a string that matches everything, but TODO is this always so optimal in other cases?  especially if there are far more negative indicators than positive ones, in which case it's unlikely to end up being a "many matches and only a few special exceptions" situation, and checking through ALL the negative indicators is a lot of work for comparatively little benefit; TODO: also have 'if len(nAppend) > SOME_THRESHOLD and len(stuffToCheck)==2: del stuffToCheck[1] # give up on negative indicators if too many' ? )
+    while stuffToCheck and negate==None:
+      for i in range(len(stuffToCheck)):
+        strs,append,covered,generator = stuffToCheck[i]
+        try: indicator = generator.next()
+        except StopIteration:
+          del stuffToCheck[i] ; break
+        found = True ; cChanged = False
+        for i in xrange(len(strs)):
+          if not covered[i] and indicator in strs[i]:
+            covered[i]=cChanged=True
+        if cChanged: append(indicator)
+        if all(covered):
+          if append==pAppend: negate=False
+          else: negate=True
+          break
+    # and if negate==None AFTER this loop, didn't get all(pCovered) OR all(nCovered), in which case we fall back to negate=False.  In other words, negative indicators have to cover ALL non-occurrences to be passed, wheras positive indicators just have to cover SOME.  This is in keeping with the idea of 'under-match is better than over-match' (because an under-matching negative indicator is like an over-matching positive one)
+    if negate: ret,covered = nRet,nCovered
+    else: ret,covered = pRet,pCovered
     if nonAnnot==diagnose:
-      if ret: indicators = "indicators "+'/'.join(ret)
+      if ret:
+        if negate: indicators = "negative indicators "
+        else: indicators = "indicators "
+        indicators += '/'.join(ret)
       else: indicators = "no indicators"
-      if len(omitStr) > 200: omitStr = omitStr[:200]+"..."
-      sys.stderr.write(("Diagnose: tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts\n" % (nbytes,withAnnot_unistr,indicators,omitStr.replace(unichr(1),'/'),sum(1 for x in covered if x),len(covered))).encode(terminal_charset,'replace'))
-    return ret,sum(1 for x in covered if x),len(covered)
+      if len(pOmit) > 200: pOmit = pOmit[:200]+"..."
+      sys.stderr.write(("Diagnose: tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts\n" % (nbytes,withAnnot_unistr,indicators,pOmit.replace(unichr(1),'/'),sum(1 for x in covered if x),len(covered))).encode(terminal_charset,'replace'))
+    return negate,ret,sum(1 for x in covered if x),len(covered)
 
 def badInfo(badStarts,nonAnnot,markedDown):
   ret = "%d false positive" % len(badStarts)
@@ -1995,25 +2049,28 @@ def test_rule(withAnnot_unistr,markedUp,markedDown,yBytesRet):
         # Doesn't have to be always right, but put the indicators in yBytesRet
         ybr = yarowsky_indicators(withAnnot_unistr,markedDown)
         if ybr==True or not ybr: return ybr
-        yBytesRet.append(ybr) # (list of indicators, nbytes)
+        yBytesRet.append(ybr) # (negate, list of indicators, nbytes)
         return True
-    def occurrences(haystack,needle): return len(haystack.split(needle))-1 # assumes haystack has non-needle terminators - have put these in with unichr(1)s below
+    def occurrences(haystack,needle): return len(haystack.split(needle))-1 # assumes haystack has non-needle terminators - have put these in with unichr(1)s below (TODO: might be slightly quicker if do len(re.findall(re.escape(needle),haystack)) - would then need to revise whether we really need the unichr(1)s at start/end of corpus, and all resulting code changes)
     phrase = markDown(withAnnot_unistr)
     ret = occurrences(markedDown,phrase) == occurrences(markedUp,withAnnot_unistr)
     if diagnose and diagnose==phrase:
       sys.stderr.write(("Diagnose: occurrences(%s)==occurrences(%s) = %s\n" % (phrase,withAnnot_unistr,ret)).encode(terminal_charset,'replace'))
     return ret
 
-def all_possible_rules(words):
+def all_possible_rules(words,covered):
     # Iterate over ALL possible rules derived from the
     # word sequence (don't just "find the shortest context
     # that predicts each word" because that can have
     # trouble with overlaps; need to check them all and
     # stop when we've got enough to reproduce the example)
+    # As optimisation, avoids returning rules for which
+    # all(covered) over that rule's range
     if max_words: maxRuleLen = min(len(words),max_words)
     else: maxRuleLen = len(words)
     for ruleLen in range(1,maxRuleLen+1): # (sort by len)
-        for wStart in range(maxRuleLen-ruleLen+1):
+        for wStart in range(len(words)-ruleLen+1):
+          if not all(covered[wStart:wStart+ruleLen]):
             yield words[wStart:wStart+ruleLen]
             # caller should do " ".join() before putting
             # it into rules dict
@@ -2024,6 +2081,7 @@ def checkCoverage(ruleAsWordlist,words,coveredFlags):
     # Don't worry about ybytes - assume the Yarowsky-like
     # indicators have been calculated correctly across the
     # whole text so we don't need to re-check them now.
+    assert type(ruleAsWordlist)==type(words)==list
     try: start = words.index(ruleAsWordlist[0])
     except ValueError: return False
     ln = len(ruleAsWordlist)
@@ -2040,21 +2098,6 @@ def checkCoverage(ruleAsWordlist,words,coveredFlags):
                 start = words.index(ruleAsWordlist[0],start+1)
             except ValueError: break
     return changedFlags
-
-def checkCoverage_checkOnly(ruleAsWordlist,words,coveredFlags):
-    # version that just returns without changing coveredFlags (used to early-avoid calling test_rule); assume ruleAsWordlist IS a possible rule from words
-    start = words.index(ruleAsWordlist[0])
-    ln = len(ruleAsWordlist)
-    while start <= len(words)-ln:
-        if words[start:start+ln] == ruleAsWordlist:
-            if not all(coveredFlags[start:start+ln]):
-                return True
-            start += ln
-        else:
-            try:
-                start = words.index(ruleAsWordlist[0],start+1)
-            except ValueError: break
-    return False
 
 def potentially_bad_overlap(rulesAsWordlists,newRuleAsWords,markedDown):
     # Allow overlaps only if rule(s) being overlapped are
@@ -2125,9 +2168,12 @@ class RulesAccumulator:
         i += 1
   def addRulesForPhrase(self,phrase,markedUp,markedDown):
     global diagnose, diagnose_limit
-    if phrase in self.seenPhrases:
-      if diagnose and self.amend_rules and mdStart+diagnose+mdEnd in phrase: pass # look at it again for diagnostics (TODO: accept a diagnose that spans multiple words?)
-      else: return 0,0
+    if phrase in self.seenPhrases or (diagnose_quick and diagnose):
+      if diagnose and (diagnose_quick or self.amend_rules) and mdStart+diagnose+mdEnd in phrase: pass # look at it again for diagnostics (TODO: accept a diagnose that spans multiple words?  should be pointed out by --diagnose-quick below)
+      else:
+        # if diagnose_quick and diagnose and diagnose in markDown(phrase): sys.stderr.write("Diagnose-quick: NOT looking at phrase '%s' because '%s' is not in it\n" % (phrase.encode(terminal_charset),(mdStart+diagnose+mdEnd).encode(terminal_charset)))
+        return 0,0 # TODO: document that this means the total 'covered' figure in the progress status is AFTER phrase de-duplication (otherwise we'd have to look up what the previous values were last time we saw it - no point doing that just for a quick statistic)
+    # if diagnose_quick and diagnose: sys.stderr.write("Diagnose-quick: looking at phrase: "+phrase.encode(terminal_charset)+'\n')
     self.seenPhrases.add(phrase)
     words = filter(lambda x:markDown(x).strip(),splitWords(phrase)) # filter out any that don't have base text (these will be input glitches, TODO: verify the annotation text is also just whitespace, warn if not)
     if not words: return 0,0
@@ -2137,18 +2183,17 @@ class RulesAccumulator:
     # careful about overlaps)
     if self.amend_rules: self.remove_old_rules(words,markedUp,markedDown)
     for w in set(words):
-     for rulesAsWordlists in self.rulesAsWordlists_By1stWord.get(w,[]):
-      for ruleAsWordlist in rulesAsWordlists:
-        checkCoverage(ruleAsWordlist,words,covered)
-        if all(covered): return len(covered),len(covered) # no new rules needed
-    for ruleAsWordlist in all_possible_rules(words):
+      for ruleAsWordlist in self.rulesAsWordlists_By1stWord.get(w,[]):
+        if checkCoverage(ruleAsWordlist,words,covered) and all(covered): return len(covered),len(covered) # no new rules needed
+    for ruleAsWordlist in all_possible_rules(words,covered):
         rule = " ".join(ruleAsWordlist) ; yBytesRet = []
-        if rule in self.rules or rule in self.rejectedRules: continue
-        if len(ruleAsWordlist)>1 and not checkCoverage_checkOnly(ruleAsWordlist,words,covered): continue # optimisation to avoid too many test_rule calls (TODO: is >1 the best threshold?)
+        if rule in self.rejectedRules: continue
+        if rule in self.rules: continue # this can still happen even now all_possible_rules takes 'covered' into account, because the above checkCoverage assumes the rule won't be applied in a self-overlapping fashion, whereas all_possible_rules makes no such assumption (TODO: fix this inconsistency?)
         if not test_rule(rule,markedUp,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordlists,ruleAsWordlist,markedDown):
             self.rejectedRules.add(rule) # so we don't waste time evaluating it again (TODO: make sure rejectedRules doesn't get too big?)
             continue
-        if not checkCoverage(ruleAsWordlist,words,covered): continue # (checkCoverage must be last as it changes the coverage state)
+        cc = checkCoverage(ruleAsWordlist,words,covered) # changes 'covered'
+        assert cc, "this call to checkCoverage should never return False now that all_possible_rules takes 'covered' into account"
         if len(yBytesRet): self.rules[rule] = yBytesRet[0]
         else: self.rules[rule] = [] # unconditional
         if not ybytes: self.rulesAsWordlists.append(ruleAsWordlist)
@@ -2379,7 +2424,7 @@ def outputParser(rulesAndConds):
       cin,cout = os.popen2(cmd)
       l = [ll for ll in toReannotateSet if not "\n" in ll]
       cin.write("\n".join(l).encode(outcode)+"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
-      l2 = cout.read().replace("\r\n","\n").decode(outcode).split("\n") # TODO: ditto?
+      l2 = cout.read().decode(outcode).splitlines() # TODO: ditto?
       if l2 and not l2[-1]: del l2[-1]
       if not len(l)==len(l2): errExit("reannotator command didn't output the same number of lines as we gave it (gave %d, got %d)" % (len(l),len(l2)))
       toReannotateSet = set() ; reannotateDict = dict(zip(l,l2)) ; del l,l2
@@ -2441,7 +2486,7 @@ def outputRulesSummary(rulesAndConds):
     # of the annotation goes with which part of the text, plus
     # we remove /* and */ so it can be placed into a C comment)
     sys.stderr.write("Writing rules summary...\n")
-    if summary_omit: omit=set(openfile(summary_omit).read().split("\n"))
+    if summary_omit: omit=set(openfile(summary_omit).read().splitlines())
     else: omit=[]
     if reference_sep and not norefs and not no_input:
         def refs(r):
@@ -2471,7 +2516,11 @@ def outputRulesSummary(rulesAndConds):
         if ybytes:
             toPrn += "\t"
             if conditions:
-                if type(conditions)==tuple: toPrn += "if within "+str(conditions[1])+" bytes of "+" or ".join(conditions[0]).encode(outcode)
+                if type(conditions)==tuple:
+                  negate,conds,nbytes = conditions[:3]
+                  if negate: negate=" not"
+                  else: negate=""
+                  toPrn += "if"+negate+" within "+str(nbytes)+" bytes of "+" or ".join(conds).encode(outcode)
                 else: toPrn += "if near "+" or ".join(conditions).encode(outcode)
         if not toPrn in omit: print (toPrn+refs(rule).encode(outcode)).replace('/*','').replace('*/','')
     sys.stderr.write("\n")
@@ -2524,13 +2573,16 @@ else:
   normalise()
   rulesAndConds = analyse()
 
+stdout_old = sys.stdout # in case of cProfile, see below
 if c_filename: sys.stdout = open(c_filename,"w")
 if summary_only: outputRulesSummary(rulesAndConds)
 else: outputParser(rulesAndConds)
 del rulesAndConds
 sys.stderr.write("Done\n")
-if c_filename and not (java or javascript or python or c_sharp or ios):
+if c_filename:
     sys.stdout.close()
-    cmd = c_compiler+" \""+c_filename+"\"" # (the -o option is part of c_compiler)
-    sys.stderr.write(cmd+"\n")
-    sys.exit(os.system(cmd))
+    sys.stdout = stdout_old # in case running with python -m cProfile or something
+    if c_compiler:
+      cmd = c_compiler+" \""+c_filename+"\"" # (the -o option is part of c_compiler)
+      sys.stderr.write(cmd+"\n")
+      sys.exit(os.system(cmd))
