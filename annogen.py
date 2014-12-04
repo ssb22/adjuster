@@ -1022,7 +1022,7 @@ public void o2(int numBytes,String annot,String title) {
   o("</rt></ruby>");
 }
 byte[] s2b(String s) {
-  // Convert string to bytes - version that works before Android API level 9 i.e. in Java 5 not 6.  (Some versions of Android Lint sometimes miss the fact that s.getBytes(UTF8) where UTF8==java.nio.charset.Charset.forName("UTF-8")) won't always work.  We could do an API9+ version and use @android.annotation.TargetApi(9) around the class, but then when we come to instantiate it we'll have problems using android.os.Build.VERSION.SDK_INT on API less than 4, and anyway we'd rather not have to generate a special Android-specific version of Annotator as well as putting Android stuff in a separate class.)
+  // Convert string to bytes - version that works before Android API level 9 i.e. in Java 5 not 6.  (Some versions of Android Lint sometimes miss the fact that s.getBytes(UTF8) where UTF8==java.nio.charset.Charset.forName("UTF-8")) won't always work.  We could do an API9+ version and use @android.annotation.TargetApi(9) around the class (android.os.Build.VERSION.SDK_INT won't work on API less than 4 but Integer.valueOf(android.os.Build.VERSION.SDK) works), but anyway we'd rather not have to generate a special Android-specific version of Annotator as well as putting Android stuff in a separate class.)
   try { return s.getBytes("UTF-8"); }
   catch(java.io.UnsupportedEncodingException e) {
     // should never happen for UTF-8
