@@ -917,6 +917,11 @@ android_src = r"""
        but the next does not, even if you've only fixed a
        'typo' between the versions.  Use beta test, and if
        it goes wrong then re-upload.)
+
+       To copy/paste from the annotated text, make sure to
+       start the long-press ON a word (not in a space).  This
+       appears to be an Android/Chrome limitation (especially
+       in version 4, but I haven't been able to test all versions).
 */
 
 package %%JPACKAGE%%;
