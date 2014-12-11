@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.58 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.581 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -162,6 +162,8 @@ parser.add_option("--java",
                   help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option, removing any existing *.java files.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
 parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  You will need the Android SDK to compile the app (see comments in MainActivity.java for details).")
+parser.add_option("--ndk",
+                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is a more complex setup than a Java-based annotator, but it improves speed and size.  The --ndk option should be set to the name of the package that will use the library.  See comments in the output file for details.")
 
 parser.add_option("--javascript",
                   action="store_true",default=False,
@@ -251,6 +253,7 @@ if java:
   if 'NewFunc' in jPackage: errExit("Currently unable to include the string 'NewFunc' in your package due to an implementation detail in annogen's search/replace operations")
 if java or javascript or python or c_sharp:
     if ios: errExit("--ios not yet implemented in C#, Java, JS or Python; please use C (it becomes Objective-C)")
+    if ndk: errExit("--ndk requires the output language to be C")
     if windows_clipboard: errExit("--windows-clipboard not yet implemented in C#, Java, JS or Python; please use C")
     if sum(1 for x in [java,javascript,python,c_sharp] if x) > 1:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
@@ -266,14 +269,18 @@ if java or javascript or python or c_sharp:
       else: c_filename = c_filename[:-2]+".py"
 elif windows_clipboard:
   if ios: errExit("Support for having both --ios and --windows-clipboard at the same time is not yet implemented") # (I suppose you could make a single output file that will compile as either C+MS-stuff or Objective-C depending on preprocessor tests)
+  if ndk: errExit("Support for having both --ndk and --windows-clipboard at the same time is not yet implemented")
   if c_compiler=="cc -o annotator": c_compiler="i386-mingw32-gcc -o annoclip.exe"
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --windows-clipboard")
 elif ios:
+  if ndk: errExit("Support for having both --ios and --ndk at the same time is not yet implemented")
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ios")
   if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
+elif ndk:
+  if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ndk")
 if data_driven and (c_sharp or java): errExit("--data-driven is not yet implemented in C# or Java")
 elif javascript or python: data_driven = True
-if java or javascript or python or c_sharp or ios:
+if java or javascript or python or c_sharp or ios or ndk:
   c_compiler = None
 try:
   import locale
@@ -509,6 +516,91 @@ static int near(char* string) {
 }
 """ # (strnstr is BSD-specific, but that's OK on iOS.  TODO: might be nice if all loops over outWriteByte could be reduced to direct calls of appendBytes with appropriate lengths, but it wouldn't be a major speedup)
   c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the iOS code
+elif ndk:
+  c_preamble = r"""#!/bin/bash
+#
+# Run this script in the Android workspace to set up the
+# JNI folder and compile the library (requires ndk-build).
+# Then in class MainActivity (in MainActivity.java), do:
+#   static { System.loadLibrary("Annotator"); }
+#   static synchronized native String jniAnnotate(String in);
+# and instead of =new....Annotator(t).result() (as is used
+# in MainActivity.java of Java-based Android annotators),
+# simply do:  =jniAnnotate(t)
+# (and keep MainActivity.java but not other Java files;
+# you might also want to reduce the window.setTimeout call
+# e.g. from 1000 to 300, to match the faster annotator)
+# 
+mkdir -p jni
+cat > jni/Android.mk <<"EOF"
+LOCAL_PATH:= $(call my-dir)
+LOCAL_SRC_FILES := annotator.c
+LOCAL_MODULE := Annotator
+LOCAL_MODULE_FILENAME := Annotator
+include $(BUILD_SHARED_LIBRARY)
+EOF
+cat > jni/Application.mk <<"EOF"
+APP_PLATFORM := android-1
+APP_ABI := armeabi
+EOF
+cat > jni/annotator.c <<"EOF"
+#include <stdlib.h>
+#include <jni.h>
+"""
+  c_defs = r"""static const char *readPtr, *writePtr, *startPtr;
+static char *outBytes;
+static size_t outWriteLen,outWritePtr;
+#define NEXTBYTE (*readPtr++)
+#define NEXT_COPY_BYTE (*writePtr++)
+#define COPY_BYTE_SKIP writePtr++
+#define POSTYPE const char*
+#define THEPOS readPtr
+#define SETPOS(p) (readPtr=(p))
+#define PREVBYTE readPtr--
+#define FINISHED (!(*readPtr))
+
+static void OutWriteStr(const char *s) {
+  size_t l = strlen(s);
+  while (outWritePtr+l > outWriteLen) {
+    outWriteLen *= 2;
+    outBytes = realloc(outBytes,outWriteLen); // TODO: check non-NULL
+  }
+  memcpy(outBytes+outWritePtr, s, l);
+  outWritePtr += l;
+}
+static void OutWriteByte(char c) {
+  if (outWritePtr >= outWriteLen) {
+    outWriteLen *= 2;
+    outBytes = realloc(outBytes,outWriteLen); // TODO: check non-NULL
+  }
+  outBytes[outWritePtr++] = c;
+}
+int near(char* string) {
+    const char *startFrom = readPtr-nearbytes,
+                     *end = readPtr+nearbytes;
+    if (startFrom < startPtr) startFrom = startPtr;
+    size_t l=strlen(string); end -= l;
+    while (*startFrom && startFrom <= end) {
+      if(!strncmp(startFrom,string,l)) return 1;
+      startFrom++;
+    }
+    return 0;
+}
+void matchAll();
+JNIEXPORT jstring JNICALL Java_%PACKAGE%_MainActivity_jniAnnotate(JNIEnv *env, jclass theClass, jstring jIn) {
+  startPtr=(char*)(*env)->GetStringUTFChars(env,jIn,NULL);
+  readPtr = startPtr; writePtr = startPtr;
+  outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
+  outBytes = malloc(outWriteLen); // TODO: check non-NULL
+  outWritePtr = 0;
+  matchAll();
+  (*env)->ReleaseStringUTFChars(env,jIn,startPtr);
+  OutWriteByte(0);
+  jstring ret=(*env)->NewStringUTF(env,outBytes);
+  free(outBytes); return ret;
+}
+""".replace("%PACKAGE%",ndk.replace('.','_'))
+  c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the Android code
 elif windows_clipboard:
   c_preamble = r"""/*
 
@@ -646,8 +738,10 @@ enum {
   c_switch3 = "if (annotation_mode == ruby_markup) {"
   c_switch4 = "} else o(numBytes,annot);"
 
+if ndk: c_start = ""
 # line below: just say 'code generated by', not 'C code' as it might also be Objective-C (if ios is set; TODO: check and say which one?)
-c_start = "/* -*- coding: "+outcode+" -*- */\n/* code generated by "+program_name[:program_name.index("(c)")].strip()+" */\n"+c_preamble+r"""
+else: c_start = "/* -*- coding: "+outcode+" -*- */\n/* code generated by "+program_name[:program_name.index("(c)")].strip()+" */\n"
+c_start += c_preamble+r"""
 enum { ybytes = %%YBYTES%% }; /* for Yarowsky matching, minimum readahead */
 static int nearbytes = ybytes;
 #define setnear(n) (nearbytes = (n))
@@ -726,6 +820,11 @@ if ios:
     return YES;
 }
 @end
+"""
+elif ndk: c_end += """
+EOF
+ndk-build
+mv -f libs/armeabi/Annotator.so libs/armeabi/libAnnotator.so >/dev/null 2>/dev/null || true
 """
 elif windows_clipboard: c_end += r"""
 #ifdef _WINCE
@@ -929,10 +1028,12 @@ import android.webkit.WebView;
 import android.webkit.WebChromeClient;
 import android.webkit.WebViewClient;
 import android.content.Intent;
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.os.Bundle;
 import android.view.KeyEvent;
 public class MainActivity extends Activity {
+    @SuppressLint("SetJavaScriptEnabled")
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
