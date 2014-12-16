@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.581 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.582 (c) 2012-14 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -161,7 +161,7 @@ parser.add_option("--c-sharp",
 parser.add_option("--java",
                   help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option, removing any existing *.java files.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
 parser.add_option("--android",
-                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  You will need the Android SDK to compile the app (see comments in MainActivity.java for details).")
+                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  A function to annotate the local clipboard is also provided.  You will need the Android SDK to compile the app; see comments in MainActivity.java for details.")
 parser.add_option("--ndk",
                   help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is a more complex setup than a Java-based annotator, but it improves speed and size.  The --ndk option should be set to the name of the package that will use the library.  See comments in the output file for details.")
 
@@ -1021,6 +1021,12 @@ android_src = r"""
        start the long-press ON a word (not in a space).  This
        appears to be an Android/Chrome limitation (especially
        in version 4, but I haven't been able to test all versions).
+
+       You can annotate local HTML files as well as Web pages.
+       Local HTML is placed in the 'assets' folder and referred
+       to via --android=file:///android_asset/FILENAME
+       where FILENAME is the name of your HTML file.
+       A clipboard viewer is placed in clipboard.html.
 */
 
 package %%JPACKAGE%%;
@@ -1050,10 +1056,11 @@ public class MainActivity extends Activity {
             MainActivity act;
             @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) { String r=new %%JPACKAGE%%.Annotator(t).result(); if(!inLink) r=r.replaceAll("<ruby title=\"","<ruby onclick=\"annotPopAll(this)\" title=\""); return r; }
             @android.webkit.JavascriptInterface public void alert(String t,String a) {
-            	android.app.AlertDialog d = new android.app.AlertDialog.Builder(act).create();
-            	d.setTitle(t); d.setMessage(a); // don't add setButton, difficulty in API 1 (and can just click outside the dialog to clear). (TODO: would be nice if it could pop up somewhere near the word that was touched)
-            	d.show();
+                android.app.AlertDialog d = new android.app.AlertDialog.Builder(act).create();
+                d.setTitle(t); d.setMessage(a); // don't add setButton, difficulty in API 1 (and can just click outside the dialog to clear). (TODO: would be nice if it could pop up somewhere near the word that was touched)
+                d.show();
             }
+            @android.webkit.JavascriptInterface public String getClip() { return readClipboard(); }
         }
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         browser.setWebViewClient(new WebViewClient() {
@@ -1070,9 +1077,29 @@ public class MainActivity extends Activity {
             browser.goBack(); return true;
         } else return super.onKeyDown(keyCode, event);
     }
-	WebView browser;
+    public String readClipboard() {
+        android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip();
+        if (c != null && c.getItemCount()>0) {
+            return c.getItemAt(0).coerceToText(this).toString();
+        }
+        return "";
+    }
+    WebView browser;
 }
 """
+android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
+<script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg); return true}</script>
+    <h3>Clipboard</h3>
+    <div id="clip">waiting for clipboard contents</div>
+    <script>
+var curClip="";
+function update() {
+var newClip = ssb_local_annotator.getClip();
+if (newClip != curClip) {
+  document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  curClip = newClip;
+} window.setTimeout(update,1000) } update(); </script>
+</body></html>"""
 java_src = r"""package %%JPACKAGE%%;
 public class Annotator {
 // use: new Annotator(txt).result()
@@ -2573,7 +2600,9 @@ def outputParser(rulesAndConds):
         open(java+os.sep+"topLevelMatch.java","w").write("\n".join(ret))
       else: print "\n".join(subFuncL + ret)
       del subFuncL,ret
-    if android: open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace("%%JPACK2%%",jPackage.replace('.','/')).replace('%%ANDROID-URL%%',android))
+    if android:
+      open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace("%%JPACK2%%",jPackage.replace('.','/')).replace('%%ANDROID-URL%%',android))
+      open(java.rsplit('//',1)[0]+"/../assets/clipboard.html",'w').write(android_clipboard)
     if c_sharp: print cSharp_end
     elif not java: print c_end
     print
