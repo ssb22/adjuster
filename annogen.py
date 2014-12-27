@@ -1073,6 +1073,9 @@ public class MainActivity extends Activity {
         if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 3) {
             browser.getSettings().setBuiltInZoomControls(true);
         }
+        int size=Math.round(16*getResources().getConfiguration().fontScale); // from device accessibility settings
+        browser.getSettings().setDefaultFontSize(size);
+        browser.getSettings().setDefaultFixedFontSize(size);
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         browser.loadUrl("%%ANDROID-URL%%");
     }
