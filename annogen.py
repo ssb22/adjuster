@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.582 (c) 2012-14 Silas S. Brown"
+program_name = "Annotator Generator v0.583 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1817,33 +1817,14 @@ static void topLevelMatch() {
 def splitWords(text,phrases=False):
     # split text into words, ignoring anything between markupStart and markupEnd
     # if phrases = True, instead of words, split on any non-whitespace char outside markupStart..markupEnd
-    i=start=0
-    text = text.replace(markupEnd+markupStart, markupEnd+' '+markupStart) # force at least one breakpoint between each marked-up phrase (otherwise get problems later - much code assumes each item returned by splitWords contains at most 1 markup)
-    def isSplitpoint():
-        isspace = not text[i].split()
-        if phrases: return not isspace
-        else: return isspace
-    while i<len(text):
-        if text[i:i+len(markupStart)]==markupStart:
-            i = text.find(markupEnd,i+len(markupStart))
-            if i==-1: i=len(text)
-            else: i += len(markupEnd)
-        elif isSplitpoint():
-            if i>start: yield text[start:i]
-            if phrases:
-                # can skip to text markupStart
-                i=text.find(markupStart,i)
-                if i==-1: i=len(text)
-                start = i
-            else:
-                i += 1 # just after the 1st splitter
-                while i<len(text) and isSplitpoint(): i += 1
-                start = i # 1st non-splitter char
-        else: i += 1
-    if i>start: yield text[start:i]
+    if phrases: it=re.finditer(phrasePattern,text)
+    else: it=re.finditer(wordPattern,text)
+    for i in it: yield i.group()
 
 markupPattern = re.compile(re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd))
 whitespacePattern = re.compile(r"\s+")
+phrasePattern = re.compile('('+re.escape(markupStart)+'.*?'+re.escape(markupEnd)+'\s*)+')
+wordPattern = re.compile(re.escape(markupStart)+'.*?'+re.escape(markupEnd))
 
 def annotationOnly(text):
     ret = []
@@ -2395,8 +2376,9 @@ def generate_map():
         if e==-1: e=len(corpus_unistr)
         for w in splitWords(corpus_unistr[s:e]):
           wd = markDown(w)
-          if wd in yPriorityDic: pass
-          else: yPriorityDic[wd] = w
+          if wd in yPriorityDic: continue
+          if diagnose==wd: sys.stderr.write(("Diagnose: yPriorityDic[%s] = %s\n" % (wd,w)).encode(terminal_charset,'replace'))
+          yPriorityDic[wd] = w
     sys.stderr.write("done\n")
     if checkpoint: pickle.Pickler(open(checkpoint+os.sep+'map','wb'),-1).dump((corpus_to_markedDown_map,c2m_inverse,precalc_sets,yPriorityDic))
     checkpoint_exit()
