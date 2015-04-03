@@ -2550,11 +2550,14 @@ def outputParser(rulesAndConds):
       if reannotator[0]=='#': cmd=reannotator[1:]
       else: cmd = reannotator
       cin,cout = os.popen2(cmd)
-      l = [ll for ll in toReannotateSet if not "\n" in ll]
+      l = [ll for ll in toReannotateSet if ll and not "\n" in ll]
       cin.write("\n".join(l).encode(outcode)+"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
       l2 = cout.read().decode(outcode).splitlines() # TODO: ditto?
-      if l2 and not l2[-1]: del l2[-1]
-      if not len(l)==len(l2): errExit("reannotator command didn't output the same number of lines as we gave it (gave %d, got %d)" % (len(l),len(l2)))
+      while len(l2)>len(l) and not l2[-1]: del l2[-1] # don't mind extra blank line(s) at end of output
+      if not len(l)==len(l2):
+        open('reannotator-debug-in.txt','w').write("\n".join(l).encode(outcode)+"\n")
+        open('reannotator-debug-out.txt','w').write("\n".join(l2).encode(outcode)+"\n")
+        errExit("Reannotator command didn't output the same number of lines as we gave it (gave %d, got %d).  Input and output have been written to reannotator-debug-in.txt and reannotator-debug-out.txt for inspection.  Bailing out." % (len(l),len(l2)))
       toReannotateSet = set() ; reannotateDict = dict(zip(l,l2)) ; del l,l2
     for rule,conds in rulesAndConds: addRule(rule,conds,byteSeq_to_action_dict)
     if manualrules:
