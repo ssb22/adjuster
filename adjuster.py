@@ -953,6 +953,8 @@ class RequestForwarder(RequestHandler):
         for hs in options.host_suffix.split("/"):
             if self.request.host.endswith("."+hs):
                 return hs
+        pp = ':'+str(options.publicPort)
+        if self.request.host.endswith(pp): return self.request.host[:-len(pp)]
         return self.request.host
     
     def authenticates_ok(self,host):
