@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.583 (c) 2012-15 Silas S. Brown"
+program_name = "Annotator Generator v0.584 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -86,6 +86,8 @@ parser.add_option("-w", "--annot-whitespace",
 
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz or .bz2 file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
+parser.add_option("--glossmiss",
+                  help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile")
 
 parser.add_option("--manualrules",
                   help="Filename of an optional text file (or compressed .gz or .bz2 file) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule).") # (or if there's a longer automatic match)
@@ -131,7 +133,7 @@ parser.add_option("--maxrefs",default=3,
 
 parser.add_option("--norefs",
                   action="store_true",default=False,
-                  help="Don't write references in the rules summary.  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (omitting references makes summary generation faster).  This option is automatically turned on if --no-input is specified.")
+                  help="Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (omitting references makes summary generation faster).  This option is automatically turned on if --no-input is specified.")
 
 parser.add_option("--newlines-reset",
                   action="store_false",
@@ -1825,6 +1827,7 @@ markupPattern = re.compile(re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"
 whitespacePattern = re.compile(r"\s+")
 phrasePattern = re.compile('('+re.escape(markupStart)+'.*?'+re.escape(markupEnd)+'\s*)+')
 wordPattern = re.compile(re.escape(markupStart)+'.*?'+re.escape(markupEnd))
+wspPattern = re.compile("\s+")
 
 def annotationOnly(text):
     ret = []
@@ -1889,6 +1892,7 @@ def normalise():
             ff = 1
         if ff: allWords = getAllWords() # re-generate
       del cu0
+    sys.stderr.write(":")
     class Replacer:
       def __init__(self): self.dic = {}
       def add(self,x,y):
@@ -1914,8 +1918,8 @@ def normalise():
             w = wl
             if hTry: hTry.add(w.replace('-',''))
       if annot_whitespace: return w,None
-      nowsp = "".join(w.split())
-      if w == nowsp: return w,hTry # no whitespace in w
+      if not re.search(wspPattern,w): return w,hTry
+      nowsp = re.sub(wspPattern,"",w)
       if nowsp in allWords: return nowsp,hTry # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set the relative authority of the reference (TODO)
       ao,md = annotationOnly(w),markDown(w)
       aoS = ao.split()
@@ -2480,7 +2484,7 @@ else:
   c_or_java_true = "1"
   c_or_java_false = "0"
 
-def matchingAction(rule,glossDic):
+def matchingAction(rule,glossDic,glossMiss):
   action = []
   gotAnnot = False
   for w in splitWords(rule):
@@ -2503,6 +2507,7 @@ def matchingAction(rule,glossDic):
         if data_driven: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.encode(outcode)))
         else: action.append(adot+'o2(%d,"%s","%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr),c_or_java_escape(gloss)))
     else:
+        glossMiss.add(w)
         if data_driven: action.append((c_length(text_unistr),annotation_unistr.encode(outcode)))
         else: action.append(adot+'o(%d,"%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr)))
     if annotation_unistr or gloss: gotAnnot = True
@@ -2510,7 +2515,7 @@ def matchingAction(rule,glossDic):
 
 def outputParser(rulesAndConds):
     sys.stderr.write("Generating byte cases...\n")
-    glossDic = {}
+    glossDic = {} ; glossMiss = set()
     if glossfile:
         for l in openfile(glossfile).xreadlines():
             if not l.strip(): continue
@@ -2530,7 +2535,7 @@ def outputParser(rulesAndConds):
         byteSeq_to_action_dict['\n'] = [(newline_action,[])]
     def addRule(rule,conds,byteSeq_to_action_dict,manualOverride=False):
         byteSeq = markDown(rule).encode(outcode)
-        action,gotAnnot = matchingAction(rule,glossDic)
+        action,gotAnnot = matchingAction(rule,glossDic,glossMiss)
         if not gotAnnot: return # probably some spurious o("{","") rule that got in due to markup corruption
         if manualOverride or not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
         if not data_driven: action = ' '.join(action)
@@ -2565,6 +2570,7 @@ def outputParser(rulesAndConds):
             if not l.strip(): continue
             l=l.decode(incode) # TODO: manualrulescode ?
             addRule(l,[],byteSeq_to_action_dict,True)
+    write_glossMiss(glossMiss)
     longest_rule_len = max(len(b) for b in byteSeq_to_action_dict.iterkeys())
     longest_rule_len = max(ybytes_max*2, longest_rule_len) # make sure the half-bufsize is at least ybytes_max*2, so that a read-ahead when pos is ybytes_max from the end, resulting in a shift back to the 1st half of the buffer, will still leave ybytes_max from the beginning, so yar() can look ybytes_max-wide in both directions
     if javascript:
@@ -2614,6 +2620,39 @@ def outputParser(rulesAndConds):
     outputRulesSummary(rulesAndConds)
     print "*/"
 
+def write_glossMiss(glossMiss):
+  if not glossmiss: return
+  sys.stderr.write("Writing glossmiss (norefs=%s)...\n" % repr(norefs))
+  gm = openfile(glossmiss,'wb')
+  count = 1 ; t = time.time() ; prndProg=False
+  for w in sorted(list(glossMiss)):
+    gm.write((w+refs(w)+'\n').encode(incode)) # TODO: glosscode ? glossMissCode ??
+    if time.time() >= t + 2:
+      sys.stderr.write(("(%d of %d)" % (count,len(glossMiss)))+clear_eol)
+      t = time.time() ; prndProg = True
+    count += 1
+  if prndProg: sys.stderr.write("\n")
+
+if no_input or not reference_sep: norefs=True
+if norefs:
+  def refs(rule): return ""
+else:
+  def refs(rule):
+    ret = [] ; s = 0
+    while len(ret) < maxrefs and s>=0:
+      i = corpus_unistr.find(rule,s)
+      if i<0: break
+      rS = corpus_unistr.rfind(reference_sep,s,i)
+      if rS >= 0:
+        rS += len(reference_sep)
+        rE = corpus_unistr.find(ref_name_end,rS,i)
+        if rE >= 0:
+          app = corpus_unistr[rS:rE]
+          if not app in ret: ret.append(app)
+      s = corpus_unistr.find(reference_sep,i)
+    if ret: return "\t"+"; ".join(ret)
+    else: return ""
+
 def outputRulesSummary(rulesAndConds):
     # (summary because we don't here specify which part
     # of the annotation goes with which part of the text, plus
@@ -2621,24 +2660,6 @@ def outputRulesSummary(rulesAndConds):
     sys.stderr.write("Writing rules summary...\n")
     if summary_omit: omit=set(openfile(summary_omit).read().splitlines())
     else: omit=[]
-    if reference_sep and not norefs and not no_input:
-        def refs(r):
-          ret = [] ; s = 0
-          while len(ret) < maxrefs and s>=0:
-            i = corpus_unistr.find(r,s)
-            if i<0: break
-            rS = corpus_unistr.rfind(reference_sep,s,i)
-            if rS >= 0:
-              rS += len(reference_sep)
-              rE = corpus_unistr.find(ref_name_end,rS,i)
-              if rE >= 0:
-                app = corpus_unistr[rS:rE]
-                if not app in ret: ret.append(app)
-            s = corpus_unistr.find(reference_sep,i)
-          if ret: return "\t"+"; ".join(ret)
-          else: return ""
-    else:
-        def refs(r): return ""
     count = 1 ; t = time.time()
     for annot,orig,rule,conditions in sorted([(annotationOnly(r),markDown(r),r,c) for r,c in rulesAndConds]): # sorted so diff is possible between 2 summaries, but TODO: if incremental, some rules might now have been overridden by newer ones, so we might want to see the original order (rules listed later take priority in byteSeq_to_action_dict)
         if time.time() >= t + 2:
