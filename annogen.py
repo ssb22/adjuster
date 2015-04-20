@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.585 (c) 2012-15 Silas S. Brown"
+program_name = "Annotator Generator v0.586 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -490,6 +490,8 @@ and under iOS / Application choose Single View Application.
 Fill in the dialogue box as you like, then use this file
 to replace the generated ViewController.m file.  You should
 then be able to press the Run button on the toolbar.
+Tested on an iOS 6.1 simulator in Xcode 4.6 on Mac OS 10.7
+(hopefully compatible with later versions too)
 
 */
 
@@ -795,7 +797,11 @@ if ios:
     self.myWebView.scalesPageToFit = YES;
     self.myWebView.autoresizingMask = (UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight);
     self.myWebView.delegate = self;
+    [self.view addGestureRecognizer:[[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(swipeBack:)]];
     [self.view addSubview:self.myWebView];
+    [self loadInitialPage];
+}
+- (void)loadInitialPage {
 """
   ios=ios.replace('\\','\\\\').replace('"','\\"').replace('\n','\\n')
   if ios.startswith('<'): c_end += '[self.myWebView loadHTMLString:@"'+ios+'" baseURL:nil];'
@@ -804,6 +810,12 @@ if ios:
     assert "://" in ios, "not an HTML fragment and doesn't look like a URL"
     c_end += '[self.myWebView loadRequest:[[NSURLRequest alloc] initWithURL:[[NSURL alloc] initWithString:@"'+ios+'"]]];'
   c_end += r"""
+}
+-(void)swipeBack:(UISwipeGestureRecognizer *)recognizer {
+    if (recognizer.state == UIGestureRecognizerStateEnded) {
+        if ([self.myWebView canGoBack]) [self.myWebView goBack];
+        else [self loadInitialPage];
+    }
 }
 - (void)webViewDidFinishLoad:(UIWebView *)webView
 {
