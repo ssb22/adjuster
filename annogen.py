@@ -146,7 +146,7 @@ parser.add_option("--obfuscate",
                   help="Obfuscate annotation strings in C code, as a deterrent to casual snooping of the compiled binary with tools like 'strings' (does NOT stop determined reverse engineering)")
 
 parser.add_option("--ios",
-                  help="Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page.  You will need Xcode to compile the app (see the start of the generated C file for instructions); if it runs out of space, try using --data-driven")
+                  help="Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app (see the start of the generated C file for instructions); if it runs out of space, try using --data-driven")
 
 parser.add_option("--data-driven",
                   action="store_true",default=False,
@@ -493,6 +493,10 @@ then be able to press the Run button on the toolbar.
 Tested on an iOS 6.1 simulator in Xcode 4.6 on Mac OS 10.7
 (hopefully compatible with later versions too)
 
+Swipe left to go back (as in Safari).
+If your pages refer to clip://anything then that
+link will show and annotate the local clipboard.
+
 */
 
 #import <UIKit/UIKit.h>
@@ -826,6 +830,8 @@ if ios:
     if ([[URL scheme] isEqualToString:@"alert"]) {
         [[[UIAlertView alloc] initWithTitle:[self.myWebView stringByEvaluatingJavaScriptFromString:@"window.alertTitle"] message:[self.myWebView stringByEvaluatingJavaScriptFromString:@"window.alertMessage"] delegate: self cancelButtonTitle: nil otherButtonTitles: @"OK",nil, nil] show];
         return NO;
+    } else if ([[URL scheme] isEqualToString:@"clip"]) {
+        [self.myWebView loadHTMLString:[@"<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>" stringByAppendingString:[UIPasteboard generalPasteboard].string] baseURL:nil]; // TODO: make the string HTML-safe and refresh it if clipboard changes, like the Android version does via JS
     } else if ([[URL scheme] isEqualToString:@"scan"]) {
         NSString *texts=[self.myWebView stringByEvaluatingJavaScriptFromString:@"texts.join('/@@---------@@/')"];
         startPtr = [texts UTF8String]; readPtr = startPtr; writePtr = startPtr;
