@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.197 (c) 2012-15 Silas S. Brown"
+program_name = "Web Adjuster v0.198 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,8 +22,11 @@ program_name = "Web Adjuster v0.197 (c) 2012-15 Silas S. Brown"
 # svn co http://svn.code.sf.net/p/e-guidedog/code/ssb22/adjuster
 
 import sys,os
+twoline_program_name = program_name+"\nLicensed under the Apache License, Version 2.0\n"
 
-if '--html-options' in sys.argv: # for updating the website
+if '--version' in sys.argv:
+    print twoline_program_name.rstrip() ; raise SystemExit # no imports needed
+elif '--html-options' in sys.argv: # for updating the website (this option is not included in the help text)
     tornado=False
     inDL = 0
     print "<h3>Options for "+program_name[:program_name.index("(c)")].strip()+"</h3>"
@@ -48,7 +51,7 @@ else:
     from tornado.httpclient import AsyncHTTPClient,HTTPClient,HTTPError
     from tornado.ioloop import IOLoop
     from tornado import web
-    from tornado.web import Application, RequestHandler, asynchronous
+    from tornado.web import Application, RequestHandler, StaticFileHandler, asynchronous
     import tornado.options, tornado.iostream
     from tornado.options import define,options
     def heading(h): pass
@@ -56,6 +59,7 @@ getfqdn_default = "is the machine's domain name" # default is ... (avoid calling
 
 heading("General options")
 define("config",help="Name of the configuration file to read, if any. The process's working directory will be set to that of the configuration file so that relative pathnames can be used inside it. Any option that would otherwise have to be set on the command line may be placed in this file as an option=\"value\" or option='value' line (without any double-hyphen prefix). Multi-line values are possible if you quote them in \"\"\"...\"\"\", and you can use standard \\ escapes. You can also set config= in the configuration file itself to import another configuration file (for example if you have per-machine settings and global settings). If you want there to be a default configuration file without having to set it on the command line every time, an alternative option is to set the ADJUSTER_CFG environment variable.")
+define("version",help="Just print program version and exit")
 
 heading("Network listening and security settings")
 define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix).")
@@ -133,6 +137,7 @@ define("bodyAppend",help="Code to append to the BODY section of every HTML docum
 define("bodyAppendGoesAfter",help="If this is set to a regular expression matching some text or HTML code that appears verbatim in the body section, the code in bodyAppend will be inserted after the last instance of this regular expression (case sensitive) instead of at the end of the body. Use for example if a site styles its pages such that the end of the body is not a legible place for a footer.") # (e.g. it would overprint some position=fixed stuff)
 define("bodyPrepend",help="Code to place at the start of the BODY section of every HTML document that has one.") # May be a useful place to put some scripts. For example, a script that changes a low-vision stylesheet according to screen size might be better in the BODY than in the HEAD, because some Webkit-based browsers do not make screen size available when processing the HEAD of the starting page. # but sometimes it still goes wrong on Chromium startup; probably a race condition; might be worth re-running the script at end of page load just to make sure
 define("prominentNotice",help="Text to add as a brief prominent notice to processed sites (may include HTML). If the browser has sufficient Javascript support, this will float relative to the browser window and will contain an 'acknowledge' button to hide it (for the current site in the current browsing session). Use prominentNotice if you need to add important information about how the page has been modified. Note: if you include Javascript document.write() code in prominentNotice, check that document.readyState is not 'complete' or you might find the document is erased on some website/browser combinations when a site script somehow causes your script to be re-run after the document stream is closed. In some rare cases you might also need to verify that document.cookie.indexOf('_WA_warnOK=1')==-1.") # e.g. if the site does funny things with the browser cache.  Rewriting the innerHTML manipulation to appendChild doesn't fix the need to check document.readyState
+define("staticDocs",help="url#path of static documents to add to every website, e.g. /_myStatic/#/var/www (make sure the first part is something not likely to be used by the websites you visit). This can be used to supply extra Javascript (e.g. for bodyPrepend to load) if it needs to be served from the same domain. Note: staticDocs currently overrides the password and own_server options.")
 define("delete",multiple=True,help="Comma-separated list of regular expressions to delete from HTML documents. Can be used to delete selected items of Javascript and other code if it is causing trouble for your browser. Will also delete from the text of pages; use with caution.")
 define("delete_css",multiple=True,help="Comma-separated list of regular expressions to delete from CSS documents (but not inline CSS in HTML); can be used to remove, for example, dimension limits that conflict with annotations you add, as an alternative to inserting CSS overrides.")
 define("delete_doctype",default=False,help="Delete the DOCTYPE declarations from HTML pages. This option is needed to get some old Webkit browsers to apply multiple CSS files consistently.")
@@ -147,7 +152,7 @@ define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted we
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page.")
 
 heading("External processing options")
-define("htmlFilter",help="External program(s) to run to filter every HTML document. If more than one program is specified separated by # then the user will be given a choice (see htmlFilterName option). Any shell command can be used; its standard input will get the HTML (or the plain text if htmlText is set), and it should send the new version to standard output. Multiple copies of each program might be run at the same time to serve concurrent requests. UTF-8 character encoding is used. If you are not able to run external programs then you could use Python instead: in place of an external command, put a * followed by the name of a Python function that you injected into the adjuster module from a wrapper script; the function will be run in the serving thread.") # (so try to make it fast, although this is not quite so essential in WSGI mode; if you're in WSGI mode then I suggest getting the function to import any large required modules on-demand)
+define("htmlFilter",help="External program(s) to run to filter every HTML document. If more than one program is specified separated by # then the user will be given a choice (see htmlFilterName option). Any shell command can be used; its standard input will get the HTML (or the plain text if htmlText is set), and it should send the new version to standard output. Multiple copies of each program might be run at the same time to serve concurrent requests. UTF-8 character encoding is used. If you are not able to run external programs then you could use a back-end server (specify an http:// URL and input is POSTed in the request body) or a Python function (specify * followed by the function name, and inject the function into the adjuster module from a wrapper script; the function is run in the serving thread).") # (so try to make it fast, although this is not quite so essential in WSGI mode; if you're in WSGI mode then I suggest getting the function to import any large required modules on-demand)
 define("htmlFilterName",help="A name for the task performed by htmlFilter. If this is set, the user will be able to switch it on and off from the browser via a cookie and some Javascript links at the bottom of HTML pages. If htmlFilter lists two or more options, htmlFilterName should list the same number plus one (again separated by #); the first is the name of the entire category (for example \"filters\"), and the user can choose between any one of them or none at all (hence the number of options is one more than the number of filters); if this yields more than 3 options then all but the first two are hidden behind a \"More\" option on some browsers.") # TODO: non-Javascript fallback for the switcher
 define("htmlJson",default=False,help="Try to detect HTML strings in JSON responses and feed them to htmlFilter. This can help when using htmlFilter with some AJAX-driven sites. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple HTML strings in the same JSON response will be given to it separated by newlines, and the newlines of the output determine which fragment to put back where. (If you combine htmlJson with htmlText, the external program will see text in HTML in JSON as well as text in HTML, but it won't see text in HTML in JSON in HTML.)")
 define("htmlText",default=False,help="Causes the HTML to be parsed, and only the text parts (not the markup) will be sent to htmlFilter. Useful to save doing HTML parsing in the external program. The external program is still allowed to include HTML markup in its output. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple text strings will be given to it separated by newlines, and the newlines of the output determine which modified string to put back where.")
@@ -302,6 +307,7 @@ try: # can we page the help text?
     import pydoc,cStringIO ; pydoc.pager # ensure present
     def new_top(*args):
         dat = cStringIO.StringIO()
+        dat.write(twoline_program_name)
         tornado.options.options.old_top(dat)
         pydoc.pager(dat.getvalue())
     tornado.options.options.__dict__['old_top'] = tornado.options.options.print_help
@@ -426,6 +432,7 @@ def readOptions():
     parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files)
 
 def preprocessOptions():
+    if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
     if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
     if type(options.mailtoSMS)==type(""): options.mailtoSMS=options.mailtoSMS.split(',')
     if type(options.leaveTags)==type(""): options.leaveTags=options.leaveTags.split(',')
@@ -560,23 +567,30 @@ def make_WSGI_application():
             sys.stderr.write("Warning: '%s' option may not work in WSGI mode\n" % opt)
     options.own_server = "" # for now, until we get forwardFor to work (TODO, and update the above list of ignored options accordingly)
     import tornado.wsgi
-    return tornado.wsgi.WSGIApplication([(r"(.*)",SynchronousRequestForwarder)])
+    handlers = [("(.*)",SynchronousRequestForwarder)]
+    if options.staticDocs: handlers.insert(0,static_handler()) # (the staticDocs option is probably not really needed in a WSGI environment if we're behind a wrapper that can also list static URIs, but keeping it anyway might be a convenience for configuration-porting)
+    return tornado.wsgi.WSGIApplication(handlers)
 
 def main():
     readOptions() ; preprocessOptions() ; serverControl()
-    application = Application([(r"(.*)",RequestForwarder,{})],log_function=accessLog,gzip=True)
+    handlers = [(r"(.*)",RequestForwarder,{})]
+    if options.staticDocs: handlers.insert(0,static_handler())
+    application = Application(handlers,log_function=accessLog,gzip=True)
     if not hasattr(application,"listen"): errExit("Your version of Tornado is too old.  Please install version 2.x.\n")
     if fork_before_listen and options.background:
-        sys.stderr.write("%s\nLicensed under the Apache License, Version 2.0\nChild will listen on port %d\n(can't report errors here as this system needs early fork)\n" % (program_name,options.port)) # (need some other way of checking it really started)
+        sys.stderr.write("%sChild will listen on port %d\n(can't report errors here as this system needs early fork)\n" % (twoline_program_name,options.port)) # (need some other way of checking it really started)
         unixfork()
+    workaround_raspbian_IPv6_bug()
     for portTry in [5,4,3,2,1,0]:
       try:
           application.listen(options.port,options.address)
           break
-      except:
+      except socket.error, e:
+        if not "already in use" in e.strerror: raise
+        # Maybe the previous server is taking a while to stop
         if portTry:
             time.sleep(0.5) ; continue
-        # tried 6 times over 3 seconds, can't open the port (either the other process is taking a long time to stop or something)
+        # tried 6 times over 3 seconds, can't open the port
         if options.browser:
             # there's probably another adjuster instance, in which case we probably want to let the browser open a new window and let our listen() fail
             dropPrivileges()
@@ -585,7 +599,7 @@ def main():
     if options.watchdog:
         watchdog = open("/dev/watchdog", 'w')
     dropPrivileges()
-    sys.stderr.write("%s\nLicensed under the Apache License, Version 2.0\nListening on port %d\n" % (program_name,options.port))
+    sys.stderr.write("%sListening on port %d\n" % (twoline_program_name,options.port))
     if options.watchdog:
         sys.stderr.write("Writing /dev/watchdog every %d seconds\n" % options.watchdog)
         if options.watchdogWait: sys.stderr.write("(abort if unresponsive for %d seconds)\n" % options.watchdogWait)
@@ -646,6 +660,26 @@ def main():
             os.killpg(os.getpgrp(),signal.SIGTERM)
         except: pass
         os.abort()
+
+def static_handler():
+    url,path = options.staticDocs.split('#')
+    if not url.startswith("/"): url="/"+url
+    if not url.endswith("/"): url += "/"
+    class OurStaticFileHandler(StaticFileHandler):
+        def set_extra_headers(self,path): fixServerHeader(self)
+    return (url+"(.*)",OurStaticFileHandler,{"path":path,"default_filename":"index.html"})
+
+def workaround_raspbian_IPv6_bug():
+    """Some versions of Raspbian apparently boot with IPv6 enabled but later don't configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However,if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
+    if options.address: return # don't need to do this if we're listening on a specific address
+    flags = socket.AI_PASSIVE
+    if hasattr(socket, "AI_ADDRCONFIG"): flags |= socket.AI_ADDRCONFIG
+    for af,socktype,proto,r1,r2 in socket.getaddrinfo(None,options.port,socket.AF_UNSPEC,socket.SOCK_STREAM,0,flags):
+        try: socket.socket(af,socktype,proto)
+        except socket.error, e:
+            if "family not supported" in e.strerror:
+                options.address = "0.0.0.0" # use IPv4 only
+                return
 
 def set_title(t):
   if not (hasattr(sys.stderr,"isatty") and sys.stderr.isatty()): return
@@ -882,6 +916,11 @@ def httpfetch(url,**kwargs):
         r.body = resp.read()
     callback(r)
 
+def fixServerHeader(i):
+    i.set_header("Server",serverName) # TODO: in "real" proxy mode, "Server" might not be the most appropriate header to set for this
+    try: i.clear_header("Date") # Date is added by Tornado 3; HTTP 1.1 says it's mandatory but then says don't put it if you're a clockless server (which we might be I suppose) so it seems leaving it out is OK especially if not specifying Age etc, and leaving it out saves bytes.  But if the REMOTE server specifies a Date then we should probably pass it on (see comments in doResponse below)
+    except: pass # (ok if "Date" wasn't there)
+    
 class RequestForwarder(RequestHandler):
     
     def get_error_html(self,status,**kwargs): return htmlhead("Web Adjuster error")+options.errorHTML+"</body></html>"
@@ -1519,9 +1558,7 @@ document.forms[0].i.focus()
               self.write(htmlhead("")+auth_error+"</body></html>")
               return self.myfinish()
         # Authentication is now OK
-        self.set_header("Server",serverName) # TODO: in "real" proxy mode, "Server" might not be the most appropriate header to set for this
-        try: self.clear_header("Date") # Date is added by Tornado 3; HTTP 1.1 says it's mandatory but then says don't put it if you're a clockless server (which we might be I suppose) so it seems leaving it out is OK especially if not specifying Age etc, and leaving it out saves bytes.  But if the REMOTE server specifies a Date then we should probably pass it on (see comments below)
-        except: pass # (ok if "Date" wasn't there)
+        fixServerHeader(self)
         if self.handleGoAway(realHost): return
         # Now check if it's an image request:
         _olduri = self.request.uri
@@ -1685,7 +1722,7 @@ document.forms[0].i.focus()
         cookie_host = self.cookie_host()
         doRedirect = ""
         for name,value in response.headers.get_all():
-          if name.lower() in ["connection","content-length","content-encoding","transfer-encoding","etag","server","alternate-protocol"]: continue # we'll do our own connection type etc (but don't include "Date" in this list: if the remote server includes a Date it would be useful to propagate that as a reference for its Age headers etc, TODO: unless remote server is broken? see also above comment re having no Date by default)
+          if name.lower() in ["connection","content-length","content-encoding","transfer-encoding","etag","server","alternate-protocol"]: continue # we'll do our own connection type etc (but don't include "Date" in this list: if the remote server includes a Date it would be useful to propagate that as a reference for its Age headers etc, TODO: unless remote server is broken? see also comment in fixServerHeader re having no Date by default)
           # TODO: WebSocket (and Microsoft SM) gets the client to say 'Connection: Upgrade' with a load of Sec-WebSocket-* headers, check what Tornado does with that
           if (do_pdftotext or do_epubtotext) and name.lower() in ["content-disposition","content-type"]: continue # we're re-doing these also
           elif do_epubtozip and name.lower()=="content-disposition" and value.replace('"','').endswith(".epub"):
@@ -2122,7 +2159,9 @@ def runFilter(cmd,text,callback,textmode=True):
     # this is for using runFilterOnText with an internal
     # callable such as the Renderer.  Similarly if 'cmd'
     # starts with a * then we assume the rest is the name
-    # of a Python function to call on the text.
+    # of a Python function to call on the text.  And if it
+    # starts with http:// then we assume it's a back-end
+    # server to query.
     if type(cmd)==type("") and cmd.startswith("*"):
         cmd = eval(cmd[1:]) # (normally a function name, but any Python expression that evaluates to a callable is OK, TODO: document this?  and incidentally if it evaluates to a string that's OK as well; the string will be given to an external command)
     if not type(cmd)==type(""):
@@ -2130,6 +2169,8 @@ def runFilter(cmd,text,callback,textmode=True):
         # slightly more roundabout version to give watchdog ping a chance to work between cmd and callback:
         out = cmd(text)
         return IOLoop.instance().add_timeout(time.time(),lambda *args:callback(out,""))
+    elif cmd.startswith("http://"):
+        return httpfetch(cmd,method="POST",body=text,callback=lambda r:callback(r.body,""))
     def subprocess_thread():
         global helper_thread_count
         helper_thread_count += 1
