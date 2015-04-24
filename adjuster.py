@@ -712,19 +712,19 @@ def unixfork():
     
 def stopOther():
     import commands,signal
-    out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN") # TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
+    out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # >/dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
     if out.startswith("lsof: unsupported"):
         # lsof 4.81 has -sTCP:LISTEN but lsof 4.78 does not.  However, not including -sTCP:LISTEN can cause lsof to make unnecessary hostname queries for established connections.  So fall back only if have to.
-        out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -Ts") # -Ts ensures will say LISTEN on the pid that's listening
+        out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # -Ts ensures will say LISTEN on the pid that's listening
         lines = filter(lambda x:"LISTEN" in x,out.split("\n")[1:])
-    elif out.find("not found")>-1 and not commands.getoutput("which lsof 2>/dev/null"):
+    elif not out.strip() and not commands.getoutput("which lsof 2>/dev/null"):
         sys.stderr.write("stopOther: no 'lsof' command on this system\n")
         return False
     else: lines = out.split("\n")[1:]
     for line in lines:
         try: pid=int(line.split()[1])
         except:
-            sys.stderr.write("stopOther: Can't make sense of lsof output\n")
+            sys.stderr.write("stopOther: Can't make sense of lsof output %s\n" % repr(line))
             break
         if not pid==os.getpid():
             if options.stop: other="the"
@@ -2105,7 +2105,7 @@ function walk(n,document) {
   var c=n.firstChild;
   while(c) {
     var cNext = c.nextSibling;
-    var awkwardSpan = (c.nodeType==1 && c.nodeName=='SPAN' && c.childNodes.length==1 && (c.firstChild.nodeValue?c.firstChild.nodeValue:'').match(/^\s*$/));
+    var awkwardSpan = (c.nodeType==1 && c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\s*$/))));
     if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1 || awkwardSpan) { // TODO: this JS code strips more stripTags than the Python shouldStripTag stuff does
       var ps = c.previousSibling;
       while (c.firstChild && !awkwardSpan) {
