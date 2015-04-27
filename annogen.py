@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.586 (c) 2012-15 Silas S. Brown"
+program_name = "Annotator Generator v0.587 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -175,6 +175,9 @@ parser.add_option("--python",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.")
 
+parser.add_option("--golang",
+                  help="Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on AppEngine.")
+
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  (If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text.)  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
 # (Could just get the reannotator to post-process the 1st annotator's output, but that might be slower than generating an altered annotator with it)
@@ -253,14 +256,14 @@ if java:
   if not '//' in java: errExit("--java must include a // to separate the first part of the path from the package name")
   jPackage=java.rsplit('//',1)[1].replace('/','.')
   if 'NewFunc' in jPackage: errExit("Currently unable to include the string 'NewFunc' in your package due to an implementation detail in annogen's search/replace operations")
-if java or javascript or python or c_sharp:
-    if ios: errExit("--ios not yet implemented in C#, Java, JS or Python; please use C (it becomes Objective-C)")
+if java or javascript or python or c_sharp or golang:
+    if ios: errExit("--ios not yet implemented in C#, Java, JS, Python or Go; please use C (it becomes Objective-C)")
     if ndk: errExit("--ndk requires the output language to be C")
-    if windows_clipboard: errExit("--windows-clipboard not yet implemented in C#, Java, JS or Python; please use C")
-    if sum(1 for x in [java,javascript,python,c_sharp] if x) > 1:
+    if windows_clipboard: errExit("--windows-clipboard not yet implemented in C#, Java, JS, Python or Go; please use C")
+    if sum(1 for x in [java,javascript,python,c_sharp,golang] if x) > 1:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
-    if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript, Python or C#")
-    if obfuscate: errExit("obfuscate not yet implemented for the Java, Javascript, Python or C# versions") # (and it would probably slow down JS/Python too much if it were)
+    if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript, Python, C# or Go")
+    if obfuscate: errExit("obfuscate not yet implemented for the Java, Javascript, Python, C# or Go versions") # (and it would probably slow down JS/Python too much if it were)
     if java:
       for f in os.listdir(java):
         if f.endswith(".java"): os.remove(java+os.sep+f)
@@ -268,6 +271,7 @@ if java or javascript or python or c_sharp:
     elif c_filename.endswith(".c"):
       if javascript: c_filename = c_filename[:-2]+".js"
       if c_sharp: c_filename = c_filename[:-2]+".cs"
+      if golang: c_filename = c_filename[:-2]+".go"
       else: c_filename = c_filename[:-2]+".py"
 elif windows_clipboard:
   if ios: errExit("Support for having both --ios and --windows-clipboard at the same time is not yet implemented") # (I suppose you could make a single output file that will compile as either C+MS-stuff or Objective-C depending on preprocessor tests)
@@ -280,9 +284,9 @@ elif ios:
   if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
 elif ndk:
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ndk")
-if data_driven and (c_sharp or java): errExit("--data-driven is not yet implemented in C# or Java")
+if data_driven and (c_sharp or java or golang): errExit("--data-driven is not yet implemented in C#, Java or Go")
 elif javascript or python: data_driven = True
-if java or javascript or python or c_sharp or ios or ndk:
+if java or javascript or python or c_sharp or ios or ndk or golang:
   c_compiler = None
 try:
   import locale
@@ -298,16 +302,21 @@ def nearCall(negate,conds,subFuncs,subFuncL):
   if not max_or_length or len(conds) <= max_or_length:
     if java: f="a.n"
     else: f="near"
-    ret = " || ".join(f+"(\""+c_or_java_escape(c,0)+"\")" for c in conds)
+    ret = " || ".join(f+"(\""+outLang_escape(c,0)+"\")" for c in conds)
     if negate:
       if " || " in ret: ret = " ! ("+ret+")"
       else: ret = "!"+ret
     return ret
   if java: fStart,fEnd = "package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {","} }" # put functions in separate classes to try to save the constants table of the main class
-  else: fStart,fEnd = c_or_java_bool+" NewFunc() {","}"
-  if negate: rTrue,rFalse = c_or_java_false,c_or_java_true
-  else: rTrue,rFalse = c_or_java_true,c_or_java_false
-  return subFuncCall(fStart+"\n".join("if("+nearCall(False,conds[i:j],subFuncs,subFuncL)+") return "+rTrue+";" for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+"\nreturn "+rFalse+";"+fEnd,subFuncs,subFuncL)
+  elif golang: fStart,fEnd = "func NewFunc() bool {","}"
+  else: fStart,fEnd = outLang_bool+" NewFunc() {","}"
+  if negate: rTrue,rFalse = outLang_false,outLang_true
+  else: rTrue,rFalse = outLang_true,outLang_false
+  return subFuncCall(fStart+"\n".join(outLang_shortIf(nearCall(False,conds[i:j],subFuncs,subFuncL),"return "+rTrue+";") for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+"\nreturn "+rFalse+";"+fEnd,subFuncs,subFuncL)
+
+def outLang_shortIf(cond,statement):
+  if golang: return "if "+cond+" {\n  "+statement+"\n}"
+  else: return "if("+cond+") "+statement
 
 def subFuncCall(newFunc,subFuncs,subFuncL):
   if newFunc in subFuncs:
@@ -317,7 +326,7 @@ def subFuncCall(newFunc,subFuncs,subFuncL):
     if java: subFuncName="z%X" % len(subFuncs) # (try to save as many bytes as possible because it won't be compiled out and we also have to watch the compiler's footprint; start with z so MainActivity.java etc appear before rather than among this lot in IDE listings)
     else: subFuncName="match%d" % len(subFuncs)
     subFuncs[newFunc]=subFuncName
-    if java or c_sharp: static=""
+    if java or c_sharp or golang: static=""
     else: static="static "
     subFuncL.append(static+newFunc.replace("NewFunc",subFuncName,1))
   if java: return jPackage+"."+subFuncName+".f(a)"
@@ -332,7 +341,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
     canNestNow = not nestingsLeft==0 # (-1 = unlimited)
     if java: adot = "a."
     else: adot = ""
-    if java or c_sharp: NEXTBYTE = adot + 'nB()'
+    if java or c_sharp or golang: NEXTBYTE = adot + 'nB()'
     else: NEXTBYTE = 'NEXTBYTE'
     allBytes = set(b[0] for b in byteSeq_to_action_dict.iterkeys() if b)
     ret = []
@@ -344,9 +353,11 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         else:
           if funcName=="topLevelMatch" and not c_sharp: stat="static " # because we won't call subFuncCall on our result
           else: stat=""
-          ret.append(stat+"void %s() {" % funcName)
+          if golang: ret.append("func %s() {" % funcName)
+          else: ret.append(stat+"void %s() {" % funcName)
         savePos = len(ret)
         if java or c_sharp: ret.append("{ int oldPos="+adot+"inPtr;")
+        elif golang: ret.append("{ oldPos := inPtr;")
         else: ret.append("{ POSTYPE oldPos=THEPOS;")
     elif "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1:
         # no funcName, but might still want to come back here as there's a possible action at this level
@@ -354,6 +365,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         if java or c_sharp:
           ret.append("{ int oP"+olvc+"="+adot+"inPtr;")
           java_localvar_counter[0] += 1
+        elif golang: ret.append("{ oldPos := inPtr;")
         else: ret.append("{ POSTYPE oldPos=THEPOS;")
     else: savePos = None
     def restorePos():
@@ -368,11 +380,12 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
             # as an upper bound for that instead.)
             del ret[savePos]
             if java: ret.append("a.inPtr--;")
-            elif c_sharp: ret.append("inPtr--;")
+            elif c_sharp or golang: ret.append("inPtr--;")
             else: ret.append("PREVBYTE;")
         elif java or c_sharp:
           if funcName: ret.append(adot+"inPtr=oldPos; }")
           else: ret.append(adot+"inPtr=oP"+olvc+"; }")
+        elif golang: ret.append("inPtr=oldPos; }")
         else: ret.append("SETPOS(oldPos); }") # restore
     called_subswitch = False
     if "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[""])==1 and not byteSeq_to_action_dict[""][0][1] and all((len(a)==1 and a[0][0].startswith(byteSeq_to_action_dict[""][0][0]) and not a[0][1]) for a in byteSeq_to_action_dict.itervalues()):
@@ -419,11 +432,12 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
           # (TODO: this won't catch cases where there's a savePos before the inner switch; will still nest in that case.  But it shouldn't lead to big nesting in practice.)
           if nested_switch: inner = stringSwitch(subDict,subFuncL,None,subFuncs,None,None) # re-do it with full nesting counter
           if java: myFunc,funcEnd = ["package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {"], "}}"
-          else: myFunc,funcEnd=[c_or_java_bool+" NewFunc() {"],"}"
+          elif golang: myFunc,funcEnd=["func NewFunc() bool {"],"}"
+          else: myFunc,funcEnd=[outLang_bool+" NewFunc() {"],"}"
           for x in inner:
-            if x.endswith("return;"): x=x[:-len("return;")]+"return "+c_or_java_true+";"
+            if x.endswith("return;"): x=x[:-len("return;")]+"return "+outLang_true+";"
             myFunc.append("  "+x)
-          ret.append("  if("+subFuncCall("\n".join(myFunc)+"  return "+c_or_java_false+";\n"+funcEnd,subFuncs,subFuncL)+") return;")
+          ret += ("  "+outLang_shortIf(subFuncCall("\n".join(myFunc)+"\n  return "+outLang_false+";\n"+funcEnd,subFuncs,subFuncL),"return;")).split('\n') # if golang, MUST have the \n before the 1st return there (optional for other languages); also must split outLang_shortIf o/p into \n for the above 'for x in inner' rewrite to work
           called_subswitch=True # as it'll include more NEXTBYTE calls which are invisible to the code below
         if not (use_if or inner[-1].endswith("return;")): ret.append("  break;")
       ret.append("}") # end of switch or if
@@ -442,7 +456,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
                 if type(conds)==tuple:
                     negate,conds,nbytes = conds
                     if java: ret.append("a.sn(%d);" % nbytes)
-                    elif c_sharp: ret.append("nearbytes=%d;" % nbytes)
+                    elif c_sharp or golang: ret.append("nearbytes=%d;" % nbytes)
                     else: ret.append("setnear(%d);" % nbytes)
                 else: negate = False
                 ret.append("if ("+nearCall(negate,conds,subFuncs,subFuncL)+") {")
@@ -786,7 +800,7 @@ void matchAll() {
   }
 }"""
 
-def jsAnnot(alertStr,xtra1,xtra2,annotScan,case3): return "var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } " + alertStr + " }; "+xtra1+" function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { "+xtra2+"all_frames_docs(function(d){walk(d,d,false)}) }; function annotScan() {"+annotScan+"}; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var cNext = c.nextSibling; if (c.nodeType==1 && (c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"+r"\\"+"s*$/)))))) { var ps = c.previousSibling; n.removeChild(c); if (cNext && cNext.nodeType==3 && ps && ps.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; n.removeChild(cNext); cNext = ps } } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break; case 3: {"+case3+"} } c=cNext } } annotScan()"
+def jsAnnot(alertStr,xtra1,xtra2,annotScan,case3): return "var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } " + alertStr + " }; "+xtra1+" function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { "+xtra2+"all_frames_docs(function(d){walk(d,d,false)}) }; function annotScan() {"+annotScan+"}; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var ps = c.previousSibling, cNext = c.nextSibling; function isTxt(n) {return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"+r"\\"+"s*$/)}; if (c.nodeType==1 && (c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"+r"\\"+"s*$/))))) && isTxt(cNext) && isTxt(ps)) { n.removeChild(c); cNext.previousSibling.nodeValue += cNext.nodeValue; n.removeChild(cNext); cNext = ps } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&c.href)); break; case 3: {"+case3+"} } c=cNext } } annotScan()"
 
 if ios:
   c_end += r"""
@@ -1323,6 +1337,163 @@ class Test {
     a.annotation_mode = annotation_mode;
     System.Console.Write(a.result());
   }
+}
+"""
+
+golang_start = r"""/* "Go" code generated by """+program_name[:program_name.index("(c)")].strip()+r"""
+
+To set up a Web service on GAE, put this file in a
+subdirectory of your project, and create a top-level .go
+file with something like:
+
+package server
+import (
+  "net/http"
+  "%%PKG%%"
+)
+func init() {
+    http.HandleFunc("/", %%PKG%%_handler)
+    // add other handlers as appropriate
+}
+func %%PKG%%_handler(w http.ResponseWriter, r *http.Request) {
+    %%PKG%%.Annotate(r.Body,w)
+}
+
+Then in app.yaml:
+application: whatever
+version: 1
+runtime: go
+api_version: go1
+handlers:
+- url: /.*
+  script: _go_app
+
+Then test with: goapp serve
+(then POST to localhost:8080, e.g. as a backend server in Web Adjuster)
+
+ */
+
+package %%PKG%%
+
+import (
+  "sync"
+  "bytes"
+  "io"
+)
+// We have a Mutex for thread safety.  TODO: option to put
+// the global variables into a per-instance struct instead
+var mutex sync.Mutex
+
+var inBytes []byte = nil
+var outBuf bytes.Buffer
+var inPtr int
+var writePtr int
+var needSpace bool
+var nearbytes int = 15
+
+func nB() byte {
+   if (inPtr == len(inBytes)) {
+      return 0
+   }
+   tmp := inBytes[inPtr]
+   inPtr++
+   return tmp
+}
+
+func near(s0 string) bool {
+   s := make([]byte, len(s0))
+   copy (s,s0)
+   offset := inPtr
+   maxPos := inPtr + nearbytes
+   if maxPos > len(inBytes) {
+      maxPos = len(inBytes)
+   }
+   maxPos -= len(s)
+   if (offset > nearbytes) {
+      offset -= nearbytes
+   } else {
+      offset = 0
+   }
+   for(offset <= maxPos) {
+      ok := true ; i := 0
+      for (i < len(s)) {
+         if s[i] != inBytes[offset+i] {
+            ok = false ; break
+         }
+         i++
+      }
+      if (ok) {
+         return true
+      }
+      offset++
+   }
+   return false
+}
+
+func oB(c byte) {
+   outBuf.WriteByte(c)
+}
+func oS(s string) {
+   outBuf.WriteString(s)
+}
+func s() {
+   if(needSpace) {
+      oB(' ')
+   } else {
+      needSpace = true
+   }
+}
+func o(numBytes int,annot string) {
+  s()
+  oS("<ruby><rb>")
+  for (numBytes > 0) {
+    // TODO: does Go have a way to do this in 1 operation?
+    oB(inBytes[writePtr])
+    numBytes--
+    writePtr++
+  }
+  oS("</rb><rt>")
+  oS(annot)
+  oS("</rt></ruby>")
+}
+func o2(numBytes int,annot string,title string) {
+  s()
+  oS("<ruby title=\"")
+  oS(title)
+  oS("\"><rb>")
+  for (numBytes > 0) {
+    // TODO: as above
+    oB(inBytes[writePtr])
+    numBytes--
+    writePtr++
+  }
+  oS("</rb><rt>")
+  oS(annot)
+  oS("</rt></ruby>")
+}
+""".replace("%%PKG%%",golang)
+golang_end=r"""
+func Annotate(src io.Reader, dest io.Writer) {
+   inBuf := new(bytes.Buffer)
+   io.Copy(inBuf, src)
+   mutex.Lock()
+   inBytes = inBuf.Bytes()
+   inBuf.Reset() ; outBuf.Reset()
+   needSpace = false
+   inPtr = 0 ; writePtr = 0
+   for(inPtr < len(inBytes)) {
+      oldPos := inPtr
+      topLevelMatch()
+      if oldPos==inPtr {
+         needSpace = false
+         oB(nB())
+         writePtr++
+      }
+   }
+   // outBuf.WriteTo(dest) // may hold up if still locked, try this instead:
+   outBytes := outBuf.Bytes()
+   mutex.Unlock()
+   dest.Write(outBytes)
 }
 """
 
@@ -2487,10 +2658,13 @@ def java_escape(unistr,*_):
     if c=='"': ret.append(r'\"')
     elif c=='\\': ret.append(r'\\')
     elif ord(' ') <= ord(c) <= 127: ret.append(c)
-    elif c=='\n': ret.append('\n')
+    elif c=='\n': ret.append(r'\n')
     else: ret.append('\u%04x' % ord(c))
   return ''.join(ret)
-    
+
+def golang_escape(unistr,*_):
+  return unistr.replace('\\','\\\\').replace('"','\\"').replace('\n',r'\n').encode(outcode)
+
 def c_escape(unistr,doEncode=True):
     # returns unistr encoded as outcode and escaped so can be put in C in "..."s.  Optionally calls encodeOutstr also.
     s = unistr.encode(outcode)
@@ -2500,17 +2674,18 @@ def c_escape(unistr,doEncode=True):
 
 def c_length(unistr): return len(unistr.encode(outcode))
 
-if java or c_sharp:
-  c_or_java_escape = java_escape
-  if java: c_or_java_bool = "boolean"
-  else: c_or_java_bool = "bool"
-  c_or_java_true = "true"
-  c_or_java_false = "false"
+if java or c_sharp or golang:
+  if golang: outLang_escape = golang_escape
+  else: outLang_escape = java_escape
+  if java: outLang_bool = "boolean"
+  else: outLang_bool = "bool"
+  outLang_true = "true"
+  outLang_false = "false"
 else:
-  c_or_java_escape = c_escape
-  c_or_java_bool = "int"
-  c_or_java_true = "1"
-  c_or_java_false = "0"
+  outLang_escape = c_escape
+  outLang_bool = "int"
+  outLang_true = "1"
+  outLang_false = "0"
 
 def matchingAction(rule,glossDic,glossMiss):
   action = []
@@ -2533,11 +2708,11 @@ def matchingAction(rule,glossDic,glossMiss):
     if gloss:
         gloss = gloss.replace('&','&amp;').replace('"','&quot;')
         if data_driven: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.encode(outcode)))
-        else: action.append(adot+'o2(%d,"%s","%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr),c_or_java_escape(gloss)))
+        else: action.append(adot+'o2(%d,"%s","%s");' % (c_length(text_unistr),outLang_escape(annotation_unistr),outLang_escape(gloss)))
     else:
         glossMiss.add(w)
         if data_driven: action.append((c_length(text_unistr),annotation_unistr.encode(outcode)))
-        else: action.append(adot+'o(%d,"%s");' % (c_length(text_unistr),c_or_java_escape(annotation_unistr)))
+        else: action.append(adot+'o(%d,"%s");' % (c_length(text_unistr),outLang_escape(annotation_unistr)))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
@@ -2559,6 +2734,7 @@ def outputParser(rulesAndConds):
         if data_driven: newline_action = [(1,)]
         elif java: newline_action = r"a.o((byte)'\n'); /* needSpace unchanged */ a.writePtr++;"
         elif c_sharp: newline_action = r"o((byte)'\n'); writePtr++;"
+        elif golang: newline_action = r"oB('\n'); writePtr++;"
         else: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;"
         byteSeq_to_action_dict['\n'] = [(newline_action,[])]
     def addRule(rule,conds,byteSeq_to_action_dict,manualOverride=False):
@@ -2617,6 +2793,7 @@ def outputParser(rulesAndConds):
       return
     if java: start = java_src.replace("%%JPACKAGE%%",jPackage)
     elif c_sharp: start = cSharp_start
+    elif golang: start = golang_start
     else: start = c_start
     print start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max))
     if data_driven:
@@ -2630,12 +2807,14 @@ def outputParser(rulesAndConds):
       if java:
         for f in subFuncL: open(java+os.sep+f[f.index("class ")+6:].split(None,1)[0]+".java","w").write(f)
         open(java+os.sep+"topLevelMatch.java","w").write("\n".join(ret))
+      elif golang: print "\n".join(subFuncL + ret).replace(';\n','\n') # (this 'elif' line is not really necessary but it might save someone getting worried about too many semicolons)
       else: print "\n".join(subFuncL + ret)
       del subFuncL,ret
     if android:
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace("%%JPACK2%%",jPackage.replace('.','/')).replace('%%ANDROID-URL%%',android))
       open(java.rsplit('//',1)[0]+"/../assets/clipboard.html",'w').write(android_clipboard)
     if c_sharp: print cSharp_end
+    elif golang: print golang_end
     elif not java: print c_end
     print
     del byteSeq_to_action_dict

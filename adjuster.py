@@ -2104,16 +2104,19 @@ function adjusterScan() {
 function walk(n,document) {
   var c=n.firstChild;
   while(c) {
-    var cNext = c.nextSibling;
+    var ps = c.previousSibling, cNext = c.nextSibling;
+    function isTxt(n) {return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"\s*$/)};
+    if (isTxt(cNext) && isTxt(ps)) {
     var awkwardSpan = (c.nodeType==1 && c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\s*$/))));
     if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1 || awkwardSpan) { // TODO: this JS code strips more stripTags than the Python shouldStripTag stuff does
-      var ps = c.previousSibling;
       while (c.firstChild && !awkwardSpan) {
         var tmp = c.firstChild; c.removeChild(tmp);
         n.insertBefore(tmp,c);
       }
       n.removeChild(c);
-      if (cNext && cNext.nodeType==3 && ps && ps.nodeType==3) { cNext.previousSibling.nodeValue += cNext.nodeValue; n.removeChild(cNext); cNext = ps }
+      cNext.previousSibling.nodeValue += cNext.nodeValue;
+      n.removeChild(cNext); cNext = ps
+    }
     }
     c=cNext;
   }
