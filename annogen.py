@@ -109,10 +109,10 @@ parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compi
 # clang with --max-or-length=100 and --nested-switch=0 is not slowed much by -Os (slowed considerably by -O3). -Os and -Oz gave same size in my tests.
 # on 64-bit distros -m32 won't always work and won't necessarily give a smaller program
 
-parser.add_option("--max-or-length",default=100,help="The maximum number of items allowed in an OR-expression in C and Java code (used when ybytes is in effect). When an OR-expression becomes larger than this limit, it will be made into a function. 0 means unlimited, which works for tcc and gcc; many other compilers have limits. Default: %default")
+parser.add_option("--max-or-length",default=100,help="The maximum number of items allowed in an OR-expression in non table-driven code (used when ybytes is in effect). When an OR-expression becomes larger than this limit, it will be made into a function. 0 means unlimited, which works for tcc and gcc; many other compilers have limits. Default: %default")
 
 parser.add_option("--nested-switch",default=0,
-                  help="Allow C and Java switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for small savings in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.") # tcc is still fast (although that doesn't generate the smallest executables anyway)
+                  help="Allow C/C#/Java/Go switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for small savings in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.") # tcc is still fast (although that doesn't generate the smallest executables anyway)
 
 parser.add_option("--outcode",default="utf-8",
                   help="Character encoding to use in the generated parser and rules summary (default %default, must be ASCII-compatible i.e. not utf-16)")
