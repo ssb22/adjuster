@@ -150,7 +150,7 @@ parser.add_option("--ios",
 
 parser.add_option("--data-driven",
                   action="store_true",default=False,
-                  help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler, so try it if you get errors like clang's \"section too large\".  Javascript and Python output is always data-driven anyway.")
+                  help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's \"section too large\"), as well as compiling faster and reducing the resulting binary's RAM size (by 30% is typical), at the expense of a small reduction in execution speed.  Javascript and Python output is always data-driven anyway.") # If the resulting binary is compressed (e.g. in an APK), its compressed size will likely not change much (same information content), so I'm specifically saying "RAM size" i.e. when decompressed
 
 parser.add_option("--windows-clipboard",
                   action="store_true",default=False,
