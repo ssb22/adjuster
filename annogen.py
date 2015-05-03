@@ -246,6 +246,7 @@ else: yarowsky_debug = 0
 ybytes_step = int(ybytes_step)
 maxrefs = int(maxrefs)
 ymax_threshold = int(ymax_threshold)
+if not golang: golang = ""
 def errExit(msg):
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
