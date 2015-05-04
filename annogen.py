@@ -143,14 +143,14 @@ parser.add_option("--newlines-reset",
 
 parser.add_option("--compress",
                   action="store_true",default=False,
-                  help="Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 15-20%) but that might help if memory is short; see also --data-driven.")
+                  help="Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but that might help if memory is short; see also --data-driven.")
 
 parser.add_option("--ios",
                   help="Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app (see the start of the generated C file for instructions); if it runs out of space, try using --data-driven")
 
 parser.add_option("--data-driven",
                   action="store_true",default=False,
-                  help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's \"section too large\"), as well as compiling faster and reducing the resulting binary's RAM size (by 30% is typical), at the expense of a small reduction in execution speed.  Javascript and Python output is always data-driven anyway.") # If the resulting binary is compressed (e.g. in an APK), its compressed size will likely not change much (same information content), so I'm specifically saying "RAM size" i.e. when decompressed
+                  help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's \"section too large\"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript and Python output is always data-driven anyway.") # If the resulting binary is compressed (e.g. in an APK), its compressed size will likely not change much (same information content), so I'm specifically saying "RAM size" i.e. when decompressed
 
 parser.add_option("--windows-clipboard",
                   action="store_true",default=False,
@@ -287,6 +287,7 @@ elif ndk:
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ndk")
 if data_driven and (c_sharp or java or golang): errExit("--data-driven is not yet implemented in C#, Java or Go")
 elif javascript or python: data_driven = True
+additional_compact_opcodes = data_driven and not (python or javascript) # currently implemented only in the C version of the data-driven runtime
 if java or javascript or python or c_sharp or ios or ndk or golang:
   c_compiler = None
 try:
@@ -485,7 +486,7 @@ if compress:
       t = tokens.pop()
       counts = {}
       for s in squashStrings:
-        # To make decompression as fast and compact as possible, each 1-byte token represents 2 bytes exactly.  In practice allowing it to represent variable lengths of whole bytes up to 4 is not likely to improve the compression by more than 3.2% (that's 3.2% of whatever % it achieves), and length 9 by 3.7%, so we might as well stick with this simpler scheme unless we do real LZMA or whatever.
+        # To make decompression as fast and compact as possible, each 1-byte token represents 2 bytes exactly.  In practice allowing it to represent variable lengths of whole bytes up to 4 is not likely to improve the compression by more than 3.2% (that's 3.2% of the 10-20% it achieves, so it's around 0.5%), and not very much better for length 9, so we might as well stick with this simpler scheme unless we do real LZMA or whatever.
           for i in range(0,len(s)-1):
             k = s[i:i+2]
             if k[0] in orig_tokens or k[1] in orig_tokens: continue # to keep the decoder simple, don't set things up so it needs to recurse (being able to recurse within the 2-byte expansion is very unlikely to save anything in practice anyway - it didn't on my annotators - so not worth implementing the decoder for)
@@ -1530,22 +1531,22 @@ func Annotate(src io.Reader, dest io.Writer) {
 
 class BytecodeAssembler:
   # Bytecode for a virtual machine run by the Javascript version etc
+  opcodes = {
+    'jump': 50, # params: address
+    'call': 51, # params: function address
+    'return': 52, # (or 'end program' if top level)
+    'switchbyte': 60, # switch(NEXTBYTE) (params: numBytes-1, bytes (sorted, TODO take advantage of this), addresses, default address)
+    'copyBytes':71,'o':72,'o2':73, # (don't change these numbers, they're hard-coded below)
+    'savepos':80, # local to the function
+    'restorepos':81,
+    'neartest':90, # params: true-label, false-label, byte nbytes, addresses of conds strings until first of the 2 labels is reached (normally true-label, unless the whole neartest is negated)
+  }
   def __init__(self):
     self.l = []
     self.d2l = {}
     self.lastLabelNo = 0
     self.addingPosStack = []
-  def addOpcode(self,opcode):
-      self.addBytes({
-        'jump': 50, # params: address
-        'call': 51, # params: function address
-        'return': 52, # (or 'end program' if top level)
-        'switchbyte': 60, # switch(NEXTBYTE) (params: numBytes-1, bytes (sorted, TODO take advantage of this), addresses, default address)
-        'copyBytes':71,'o':72,'o2':73, # (don't change these numbers, they're hard-coded below)
-        'savepos':80, # local to the function
-        'restorepos':81,
-        'neartest':90, # params: true-label, false-label, byte nbytes, addresses of conds strings until first of the 2 labels is reached (normally true-label, unless the whole neartest is negated)
-        }[opcode])
+  def addOpcode(self,opcode): self.l.append((opcode,))
   def addBytes(self,bStr):
       if type(bStr)==int: self.l.append(chr(bStr))
       elif type(bStr)==str: self.l.append(bStr)
@@ -1689,24 +1690,62 @@ class BytecodeAssembler:
     # - byte strings (just copied in)
     # - positive integers (labels)
     # - negative integers (references to labels)
-    # - +ve or -ve integers in tuples (reserved labels)
+    # - +ve or -ve integers in tuples (reserved labels: a different counter, used for functions etc)
+    # strings in tuples: opcodes
     # 1st byte of o/p is num bytes needed per address
     class TooNarrow(Exception): pass
     for numBytes in xrange(1,256):
         sys.stderr.write("(%d-bit) " % (numBytes*8))
         try:
-          lDic = {} ; r = [chr(numBytes)]
-          for P in [1,2]:
-            ll = 1
-            for i in self.l:
-                if type(i) in [int,tuple]:
+          lDic = {} # the label dictionary
+          for P in [1,2,3]:
+            labelMove = 0 # amount future labels have to move by, due to instructions taking longer than we thought on pass 2
+            compacted = 0
+            labels_seen_this_pass = set() # to avoid backward jumps (as we can't just apply labelMove to them and see if they're behind the program counter, since need to know if they're backward before knowing if labelMove applies)
+            r = [chr(numBytes)] ; ll = 1
+            count = 0
+            while count < len(self.l):
+                i = self.l[count] ; count += 1
+                if type(i)==tuple and type(i[0])==str:
+                    # an opcode: consider rewriting with additional_compact_opcodes if present
+                    opcode = i[0]
+                    i = chr(BytecodeAssembler.opcodes[opcode])
+                    if additional_compact_opcodes:
+                      if opcode=='jump' and type(self.l[count])==int:
+                        # Maybe we can use a 1-byte relative forward jump (up to 128 bytes), useful for 'break;' in a small switch
+                        bytesSaved = numBytes # as we're having a single byte instead of byte + numBytes-addr
+                        if P==1: i = ' ' # optimistic placeholder on pass 1 (might have to replace with a normal jump if the label turns out to be too far away)
+                        elif -self.l[count] in lDic and not -self.l[count] in labels_seen_this_pass and lDic[-self.l[count]]+labelMove-(ll+1) < 0x80: # it fits
+                          compacted += bytesSaved
+                          i = chr(0x80 | (lDic[-self.l[count]]+labelMove-(ll+1)))
+                        else:
+                          if P==2: labelMove += bytesSaved # because we need a normal jump (if P==3 then the labels should already have been moved into place on pass 2)
+                          count -= 1 # counteract the below
+                        count += 1
+                      elif opcode=='switchbyte' and self.l[count] < 20: # might be able to do the short version of switchbyte as well
+                        numItems = self.l[count]+1 # it's len-1
+                        # self.l[count+1] is the bytes; labels start at self.l[count+2]
+                        numLabels = numItems+1 # there's an extra default label at the end
+                        instrLen = 1+numItems+numLabels # 1-byte len, bytes, 1-byte address offsets
+                        bytesSaved = 1+1+numItems+numBytes*numLabels-instrLen
+                        if P==1: i=' '*instrLen # optimistic
+                        elif all(type(self.l[count+N])==int and -self.l[count+N] in lDic and not -self.l[count+N] in labels_seen_this_pass and lDic[-self.l[count+N]]+labelMove-(ll+instrLen) <= 0xFF for N in xrange(2,2+numLabels)): # it fits
+                          compacted += bytesSaved
+                          i = chr(self.l[count])+self.l[count+1]+''.join(chr(self.l[count+N]) for N in xrange(2,2+numLabels))
+                        else:
+                          if P==2: labelMove += bytesSaved
+                          count -= 2+numLabels
+                        count += 2+numLabels
+                    # end of opcode handling/rewriting
+                if type(i) in [int,tuple]: # labels
                     if type(i)==int: i2,iKey = i,-i
                     else: i2,iKey = i[0],(-i[0],)
                     assert type(i2)==int
+                    # iKey is the lDic key *IF* i is a reference (i.e. i2 is -ve).  But i might also be the label itself, in which case lKey is irrelevant.
                     if i2 > 0: # label going in here
-                        if i in lDic: assert lDic[i] == ll, "changing label %s from %d to %d, P=%d" % (repr(i),lDic[i],ll,P)
-                        else: lDic[i] = ll
-                        continue
+                        labels_seen_this_pass.add(i)
+                        assert not (i in lDic and not lDic[i] == ll-labelMove), "Changing %s from %d to %d (labelMove=%d P=%d)\n" % (repr(i),lDic[i],ll,labelMove,P)
+                        lDic[i] = ll ; i = ""
                     elif iKey in lDic: # known label
                         i = lDic[iKey]
                         shift = 8*numBytes
@@ -1720,10 +1759,16 @@ class BytecodeAssembler:
                         assert len(i)==numBytes
                     else: # as-yet unknown label
                         assert P==1, "undefined label %d" % -i
-                        ll += numBytes ; continue
-                if P==2: r.append(i)
-                ll += len(i)
-          sys.stderr.write("%d bytes\n" % ll)
+                        ll += numBytes
+                        i = ""
+                if len(i):
+                  r.append(i) ; ll += len(i)
+            if P==2:
+              if not additional_compact_opcodes: break # need only 2 passes if have fixed-length addressing
+            else: assert not labelMove, "Labels move only on pass 2"
+            sys.stderr.write('.')
+          if additional_compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d)\n" % (ll,compacted))
+          else: sys.stderr.write("%d bytes\n" % ll)
           return "".join(r)
         except TooNarrow: pass
     assert 0, "can't even assemble it with 255-byte addressing !?!"
@@ -1993,44 +2038,52 @@ static void readData() {
   POSTYPE *savedPositions = NULL;
   size_t numSavedPositions = 0;
   while(1) {
-    switch(*dPtr++) {
-    case 50: dPtr = readAddr(); break;
-    case 51: {
+    unsigned char c = *dPtr++;
+    if (c & 0x80) dPtr += (c&0x7F); // short relative forward jump (up to 128 bytes from addr after instruction)
+    else if(c < 20) { // switchbyte with short jumps
+      c++; // now c == nBytes
+      unsigned char byte=(unsigned char)NEXTBYTE;
+      int i;
+      for (i=0; i<c; i++) if(byte==dPtr[i]) break;
+      dPtr += c+c+1 + dPtr[c+i]; // relative from end of switch (after all bytes, 1-byte addresses and the 1-byte default address: up to 256 bytes after)
+    } else switch(c) {
+    case 50: /* jump */ dPtr = readAddr(); break;
+    case 51: /* call */ {
       unsigned char *funcToCall=readAddr();
       unsigned char *retAddr = dPtr;
       dPtr = funcToCall; readData(); dPtr = retAddr;
       break; }
-    case 52:
+    case 52: /* return */
       if (savedPositions) free(savedPositions);
       return;
-    case 60: {
+    case 60: /* switchbyte */ {
       int nBytes=(*dPtr++)+1, i;
       unsigned char byte=(unsigned char)NEXTBYTE;
       for (i=0; i<nBytes; i++) if(byte==dPtr[i]) break;
       dPtr += (nBytes + i * addrLen);
       dPtr = readAddr(); break; }
-    case 71: {
+    case 71: /* copyBytes */ {
       int numBytes=*dPtr++;
       for(;numBytes;numBytes--)
         OutWriteByte(NEXT_COPY_BYTE);
       break; }
-    case 72: {
+    case 72: /* o */ {
       int numBytes=*dPtr++;
       char *annot = (char*)readAddr();
       o(numBytes,annot); break; }
-    case 73: {
+    case 73: /* o2 */ {
       int numBytes=*dPtr++;
       char *annot = (char*)readAddr();
       char *title = (char*)readAddr();
       o2(numBytes,annot,title); break; }
-    case 80:
+    case 80: /* savepos */
       savedPositions=realloc(savedPositions,++numSavedPositions*sizeof(POSTYPE)); // TODO: check non-NULL?
       savedPositions[numSavedPositions-1]=THEPOS;
       break;
-    case 81:
+    case 81: /* restorepos */
       SETPOS(savedPositions[--numSavedPositions]);
       break;
-    case 90: {
+    case 90: /* neartest */ {
       unsigned char *truePtr = readAddr();
       unsigned char *falsePtr = readAddr();
       setnear(*dPtr++); int found=0;
