@@ -484,13 +484,14 @@ int t=pad[i++]; if(i==sizeof(pad)) i=0;
 if(*s==t) OutWriteByte(t); else OutWriteByte((*s)^t); s++;
 }
 }""" % repr(pad)[1:-1]
-  def encodeOutstr(s):
+  def encodeOutstr(s,raw=False):
     i = 0 ; r = []
     for c in s:
       t = pad[i] ; i = (i+1) % len(pad)
       if ord(c) == t: toApp = t
       else: toApp = ord(c)^t
-      if toApp==ord("\\"): r.append(r'\\')
+      if raw: r.append(chr(toApp))
+      elif toApp==ord("\\"): r.append(r'\\')
       elif toApp==ord('"'): r.append(r'\"')
       elif toApp&0x80 or toApp<32: r.append(r'\x%x" "' % toApp)
       else: r.append(chr(toApp))
@@ -522,6 +523,7 @@ static NSMutableData *outBytes;
 #define NEXTBYTE (*readPtr++)
 #define NEXT_COPY_BYTE (*writePtr++)
 #define COPY_BYTE_SKIP writePtr++
+#define COPY_BYTE_SKIPN(n) writePtr += (n)
 #define POSTYPE const char*
 #define THEPOS readPtr
 #define SETPOS(p) (readPtr=(p))
@@ -576,6 +578,7 @@ static size_t outWriteLen,outWritePtr;
 #define NEXTBYTE (*readPtr++)
 #define NEXT_COPY_BYTE (*writePtr++)
 #define COPY_BYTE_SKIP writePtr++
+#define COPY_BYTE_SKIPN(n) writePtr += (n)
 #define POSTYPE const char*
 #define THEPOS readPtr
 #define SETPOS(p) (readPtr=(p))
@@ -664,6 +667,7 @@ unsigned char *p, *copyP, *pOrig;
 #define NEXTBYTE (*p++)
 #define NEXT_COPY_BYTE (*copyP++)
 #define COPY_BYTE_SKIP copyP++
+#define COPY_BYTE_SKIPN(n) copyP += (n)
 #define POSTYPE unsigned char*
 #define THEPOS p
 #define SETPOS(sp) (p=(sp))
@@ -729,6 +733,7 @@ static int near(char* string) {
 #define NEXTBYTE nextByte()
 #define NEXT_COPY_BYTE lookahead[(writePtr++)-bufStart]
 #define COPY_BYTE_SKIP writePtr++
+#define COPY_BYTE_SKIPN(n) writePtr += (n)
 #define POSTYPE size_t
 #define THEPOS readPtr /* or get it via a function */
 #define SETPOS(p) (readPtr=(p)) /* or set via a func */
@@ -748,7 +753,7 @@ enum {
   brace_notation} annotation_mode = Default_Annotation_Mode;
 """
   c_switch1=r"""switch (annotation_mode) {
-  case annotations_only: OutWriteDecode(annot); break;
+  case annotations_only: OutWriteDecode(annot); COPY_BYTE_SKIPN(numBytes); break;
   case ruby_markup:"""
   c_switch2=r"""break;
   case brace_notation:
@@ -1279,7 +1284,7 @@ void o(int numBytes,string annot) {
   s();
   switch (annotation_mode) {
   case Annotation_Mode.annotations_only:
-    outBuf.Write(inBytes,writePtr,numBytes); break;
+    outBuf.Write(annot); break;
   case Annotation_Mode.ruby_markup:
     o("<ruby><rb>");
     outBuf.Write(inBytes,writePtr,numBytes);
@@ -1623,6 +1628,7 @@ class BytecodeAssembler:
       self.l.append(-labelNo)
   def addRefToString(self,string):
     assert type(string)==str
+    if obfuscate: string = encodeOutstr(string,True)
     if python or javascript:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
