@@ -1284,7 +1284,7 @@ void o(int numBytes,string annot) {
   s();
   switch (annotation_mode) {
   case Annotation_Mode.annotations_only:
-    outBuf.Write(annot); break;
+    o(annot); break;
   case Annotation_Mode.ruby_markup:
     o("<ruby><rb>");
     outBuf.Write(inBytes,writePtr,numBytes);
