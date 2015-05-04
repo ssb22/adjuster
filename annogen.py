@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.587 (c) 2012-15 Silas S. Brown"
+program_name = "Annotator Generator v0.588 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -141,9 +141,9 @@ parser.add_option("--newlines-reset",
                   default=True,
                   help="Have the annotator reset its state on every newline byte. By default newlines do not affect state such as whether a space is required before the next word, so that if the annotator is used with Web Adjuster's htmlText option (which defaults to using newline separators) the spacing should be handled sensibly when there is HTML markup in mid-sentence.")
 
-parser.add_option("--obfuscate",
+parser.add_option("--compress",
                   action="store_true",default=False,
-                  help="Obfuscate annotation strings in C code, as a deterrent to casual snooping of the compiled binary with tools like 'strings' (does NOT stop determined reverse engineering)")
+                  help="Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 15-20%) but that might help if memory is short; see also --data-driven.")
 
 parser.add_option("--ios",
                   help="Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app (see the start of the generated C file for instructions); if it runs out of space, try using --data-driven")
@@ -264,7 +264,7 @@ if java or javascript or python or c_sharp or golang:
     if sum(1 for x in [java,javascript,python,c_sharp,golang] if x) > 1:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
     if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript, Python, C# or Go")
-    if obfuscate: errExit("obfuscate not yet implemented for the Java, Javascript, Python, C# or Go versions") # (and it would probably slow down JS/Python too much if it were)
+    if compress: errExit("compress not yet implemented for the Java, Javascript, Python, C# or Go versions") # (and it would probably slow down JS/Python too much if it were)
     if java:
       for f in os.listdir(java):
         if f.endswith(".java"): os.remove(java+os.sep+f)
@@ -303,7 +303,7 @@ def nearCall(negate,conds,subFuncs,subFuncL):
   if not max_or_length or len(conds) <= max_or_length:
     if java: f="a.n"
     else: f="near"
-    ret = " || ".join(f+"(\""+outLang_escape(c,0)+"\")" for c in conds)
+    ret = " || ".join(f+"(\""+outLang_escape(c)+"\")" for c in conds)
     if negate:
       if " || " in ret: ret = " ! ("+ret+")"
       else: ret = "!"+ret
@@ -472,31 +472,56 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         if default_action or not byteSeq_to_action_dict[""]: ret.append((default_action+" return;").strip()) # (return only if there was a default action, OR if an empty "" was in the dict with NO conditional actions (e.g. from the common-case optimisation above).  Otherwise, if there were conditional actions but no default, we didn't "match" anything if none of the conditions were satisfied.)
     return ret # caller does '\n'.join
 
-if obfuscate:
-  import random ; pad=[]
-  for i in xrange(32): pad.append(random.randint(128,255))
-  unobfusc_func=r"""
+if compress:
+  squashStrings = set() ; squashReplacements = []
+  def squashFinish():
+    global squashStrings # so can set it to "done" at end
+    tokens = set()
+    for s in squashStrings: tokens.update(list(s))
+    totSaved = 0
+    tokens = [chr(t) for t in range(1,256) if not chr(t) in tokens] ; orig_tokens = set(tokens)
+    pairs = [chr(0)] * 512
+    while tokens:
+      t = tokens.pop()
+      counts = {}
+      for s in squashStrings:
+        # To make decompression as fast and compact as possible, each 1-byte token represents 2 bytes exactly.  In practice allowing it to represent variable lengths of whole bytes up to 4 is not likely to improve the compression by more than 3.2% (that's 3.2% of whatever % it achieves), and length 9 by 3.7%, so we might as well stick with this simpler scheme unless we do real LZMA or whatever.
+          for i in range(0,len(s)-1):
+            k = s[i:i+2]
+            if k[0] in orig_tokens or k[1] in orig_tokens: continue # to keep the decoder simple, don't set things up so it needs to recurse (being able to recurse within the 2-byte expansion is very unlikely to save anything in practice anyway - it didn't on my annotators - so not worth implementing the decoder for)
+            counts[k] = counts.get(k,0) + 1
+      bSaved, k = max((v,k) for k,v in counts.items())
+      pairs[ord(t)] = k[0]
+      pairs[ord(t)+256] = k[1]
+      squashReplacements.append((k,t)) # this assumes we won't be doing things like 'if ALL instances of a byte end up in our tokens, add the byte's original value as an extra token'
+      for s in squashStrings:
+        s2 = s.replace(k,t)
+        if not s2==s:
+          squashStrings.remove(s) ; squashStrings.add(s2)
+      totSaved += bSaved
+      sys.stderr.write("Compress: %d/%d tokens, %d bytes saved%s" % (len(orig_tokens)-len(tokens),len(orig_tokens),totSaved,clear_eol))
+    squashStrings = "done"
+    while len(pairs) > 255 and pairs[-1]==chr(0): pairs = pairs[:-1] # 255 not 256 because C will add a chr(0) anyway (however the compression isn't working if it's < 256)
+    sys.stderr.write("\n")
+    if totSaved < len(pairs)+50: sys.stderr.write("Warning: --compress on this data made it bigger!  Consider dropping --compress\n") # 50 as rough guess for OutWriteDecompress binary (probably about 12 instructions at 4+ bytes each)
+    return c_escapeRawBytes("".join(pairs))
+  decompress_func=r"""
 
-void OutWriteDecode(const char *s) {
-static const char pad[]={%s}; int i=0;
+static unsigned char pairs[]="%%PAIRS%%";
+static void OutWriteDecompress(const char *s) {
 while(*s) {
-int t=pad[i++]; if(i==sizeof(pad)) i=0;
-if(*s==t) OutWriteByte(t); else OutWriteByte((*s)^t); s++;
+  int i=(unsigned char)*s;
+  if (pairs[i]) { OutWriteByte(pairs[i]); OutWriteByte(pairs[i|0x100]); } else OutWriteByte(*s);
+  s++;
 }
-}""" % repr(pad)[1:-1]
-  def encodeOutstr(s,raw=False):
-    i = 0 ; r = []
-    for c in s:
-      t = pad[i] ; i = (i+1) % len(pad)
-      if ord(c) == t: toApp = t
-      else: toApp = ord(c)^t
-      if raw: r.append(chr(toApp))
-      elif toApp==ord("\\"): r.append(r'\\')
-      elif toApp==ord('"'): r.append(r'\"')
-      elif toApp&0x80 or toApp<32: r.append(r'\x%x" "' % toApp)
-      else: r.append(chr(toApp))
-    return ''.join(r)
-else: unobfusc_func = ""
+}"""
+  def squash(byteStr):
+    if squashStrings == "done":
+      for k,v in squashReplacements:
+        byteStr = byteStr.replace(k,v)
+    else: squashStrings.add(byteStr) # for the dry run
+    return byteStr
+else: decompress_func = ""
 
 if ios:
   c_preamble = r"""/*
@@ -753,14 +778,14 @@ enum {
   brace_notation} annotation_mode = Default_Annotation_Mode;
 """
   c_switch1=r"""switch (annotation_mode) {
-  case annotations_only: OutWriteDecode(annot); COPY_BYTE_SKIPN(numBytes); break;
+  case annotations_only: OutWriteDecompress(annot); COPY_BYTE_SKIPN(numBytes); break;
   case ruby_markup:"""
   c_switch2=r"""break;
   case brace_notation:
     OutWriteByte('{');
     for(;numBytes;numBytes--)
       OutWriteByte(NEXT_COPY_BYTE);
-    OutWriteByte('|'); OutWriteDecode(annot);
+    OutWriteByte('|'); OutWriteDecompress(annot);
     OutWriteByte('}'); break;
   }"""
   c_switch3 = "if (annotation_mode == ruby_markup) {"
@@ -777,25 +802,25 @@ static int nearbytes = ybytes;
 static void s() {
   if (needSpace) OutWriteByte(' ');
   else needSpace=1; /* for after the word we're about to write (if no intervening bytes cause needSpace=0) */
-}""" + unobfusc_func + r"""
+}""" + decompress_func + r"""
 
 static void o(int numBytes,const char *annot) {
   s();""" + c_switch1 + r"""
     OutWriteStr("<ruby><rb>");
     for(;numBytes;numBytes--)
       OutWriteByte(NEXT_COPY_BYTE);
-    OutWriteStr("</rb><rt>"); OutWriteDecode(annot);
+    OutWriteStr("</rb><rt>"); OutWriteDecompress(annot);
     OutWriteStr("</rt></ruby>"); """+c_switch2+r""" }
 static void o2(int numBytes,const char *annot,const char *title) {"""+c_switch3+r"""
     s();
-    OutWriteStr("<ruby title=\""); OutWriteDecode(title);
+    OutWriteStr("<ruby title=\""); OutWriteDecompress(title);
     OutWriteStr("\"><rb>");
     for(;numBytes;numBytes--)
       OutWriteByte(NEXT_COPY_BYTE);
-    OutWriteStr("</rb><rt>"); OutWriteDecode(annot);
+    OutWriteStr("</rb><rt>"); OutWriteDecompress(annot);
     OutWriteStr("</rt></ruby>"); """+c_switch4+"}"
 
-if not obfuscate: c_start = c_start.replace("OutWriteDecode","OutWriteStr")
+if not compress: c_start = c_start.replace("OutWriteDecompress","OutWriteStr")
 
 c_end = r"""
 void matchAll() {
@@ -1628,7 +1653,6 @@ class BytecodeAssembler:
       self.l.append(-labelNo)
   def addRefToString(self,string):
     assert type(string)==str
-    if obfuscate: string = encodeOutstr(string,True)
     if python or javascript:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
@@ -2659,7 +2683,7 @@ def analyse():
     if rulesFile: accum.save()
     return accum.rulesAndConds()
 
-def java_escape(unistr,*_):
+def java_escape(unistr):
   ret = []
   for c in unistr:
     if c=='"': ret.append(r'\"')
@@ -2669,15 +2693,16 @@ def java_escape(unistr,*_):
     else: ret.append('\u%04x' % ord(c))
   return ''.join(ret)
 
-def golang_escape(unistr,*_):
+def golang_escape(unistr):
   return unistr.replace('\\','\\\\').replace('"','\\"').replace('\n',r'\n').encode(outcode)
 
-def c_escape(unistr,doEncode=True):
-    # returns unistr encoded as outcode and escaped so can be put in C in "..."s.  Optionally calls encodeOutstr also.
-    s = unistr.encode(outcode)
-    if obfuscate and doEncode: s = encodeOutstr(s)
-    else: s = s.replace('\\','\\\\').replace('"','\\"')
-    return re.sub(r"\?\?([=/'()<>!-])",r'?""?\1',s.replace('\n','\\n')) # (the re.sub part is to get rid of trigraph warnings, TODO might get a marginal efficiency increase if do it to the entire C file at once instead)
+def c_escape(unistr):
+    # returns unistr encoded as outcode and escaped so can be put in C in "..."s
+    return zapTrigraphs(unistr.encode(outcode).replace('\\','\\\\').replace('"','\\"').replace('\n','\\n'))
+def zapTrigraphs(x): return re.sub(r"\?\?([=/'()<>!-])",r'?""?\1',x) # to get rid of trigraph warnings, TODO might get a marginal efficiency increase if do it to the entire C file at once instead)
+
+def c_escapeRawBytes(s): # as it won't be valid outcode; don't want to crash any editors/viewers of the C file
+  return re.sub(r"(?<!\\)((?:\\\\)*\\x..)([0-9a-fA-F])",r'\1""\2',zapTrigraphs(s.replace('\\','\\\\').decode('unicode_escape').encode('unicode_escape').replace('"','\\"')))
 
 def c_length(unistr): return len(unistr.encode(outcode))
 
@@ -2695,6 +2720,7 @@ else:
   outLang_false = "0"
 
 def matchingAction(rule,glossDic,glossMiss):
+  # called by addRule, returns (actionList, did-we-actually-annotate).  Also applies reannotator and compression (both of which will require 2 passes if present)
   action = []
   gotAnnot = False
   for w in splitWords(rule):
@@ -2705,21 +2731,42 @@ def matchingAction(rule,glossDic,glossMiss):
     annotation_unistr = w[mStart:w.index(markupEnd,mStart)]
     if mreverse: text_unistr,annotation_unistr = annotation_unistr,text_unistr
     gloss = glossDic.get((text_unistr,annotation_unistr),glossDic.get(text_unistr,None))
+    if gloss: gloss = gloss.replace('&','&amp;').replace('"','&quot;') # because it'll be in a title= attribute
     if reannotator:
       if reannotator[0]=='#': toAdd=annotation_unistr
       else: toAdd = text_unistr
       if toAdd in reannotateDict: annotation_unistr = reannotateDict[toAdd]
       else: toReannotateSet.add(toAdd)
+    if compress:
+      annotation_bytes0=annotation_unistr.encode(outcode)
+      annotation_bytes = squash(annotation_bytes0)
+      if gloss:
+        gloss_bytes0 = gloss.encode(outcode)
+        gloss_bytes = squash(gloss_bytes0)
+      else: gloss_bytes0 = gloss_bytes = None
+      if not data_driven:
+        if annotation_bytes == annotation_bytes0: annotation_bytes = outLang_escape(annotation_unistr) # (if compress didn't do anything, might as well write a readable string to the C)
+        else: annotation_bytes = c_escapeRawBytes(annotation_bytes)
+        if gloss and gloss_bytes == gloss_bytes0: gloss_bytes = outLang_escape(gloss)
+        elif gloss_bytes: gloss_bytes = c_escapeRawBytes(gloss_bytes)
+    elif data_driven: # data-driven w. no compression:
+      annotation_bytes = annotation_unistr.encode(outcode)
+      if gloss: gloss_bytes = gloss.encode(outcode)
+      else: gloss_bytes = None
+    else: # non data-driven, no compression:
+      annotation_bytes = outLang_escape(annotation_unistr)
+      if gloss: gloss_bytes = outLang_escape(gloss)
+      else: gloss_bytes = None
     if java: adot = "a."
     else: adot = ""
+    bytesToCopy = c_length(text_unistr)
     if gloss:
-        gloss = gloss.replace('&','&amp;').replace('"','&quot;')
-        if data_driven: action.append((c_length(text_unistr),annotation_unistr.encode(outcode),gloss.encode(outcode)))
-        else: action.append(adot+'o2(%d,"%s","%s");' % (c_length(text_unistr),outLang_escape(annotation_unistr),outLang_escape(gloss)))
+        if data_driven: action.append((bytesToCopy,annotation_bytes,gloss_bytes))
+        else: action.append(adot+'o2(%d,"%s","%s");' % (bytesToCopy,annotation_bytes,gloss_bytes))
     else:
         glossMiss.add(w)
-        if data_driven: action.append((c_length(text_unistr),annotation_unistr.encode(outcode)))
-        else: action.append(adot+'o(%d,"%s");' % (c_length(text_unistr),outLang_escape(annotation_unistr)))
+        if data_driven: action.append((bytesToCopy,annotation_bytes))
+        else: action.append(adot+'o(%d,"%s");' % (bytesToCopy,annotation_bytes))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
@@ -2751,30 +2798,40 @@ def outputParser(rulesAndConds):
         if manualOverride or not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
         if not data_driven: action = ' '.join(action)
         byteSeq_to_action_dict[byteSeq].append((action,conds))
-    if reannotator:
-      # dry run to get the words to reannotate
+    def dryRun(clearReannotator=True): # to prime the reannotator or compressor
       global toReannotateSet, reannotateDict
-      toReannotateSet = set() ; reannotateDict = {}
+      toReannotateSet = set()
+      if clearReannotator: reannotateDict = {} # (not if we've run the reannotator and are just doing it for the compressor)
       dummyDict = {}
       for rule,conds in rulesAndConds: addRule(rule,conds,dummyDict)
-      if manualrules:
-        for l in openfile(manualrules).xreadlines():
-            if not l.strip(): continue
-            l=l.decode(incode) # TODO: manualrulescode ?
-            addRule(l,[],dummyDict)
-      del dummyDict
+      if not manualrules: return
+      for l in openfile(manualrules).xreadlines():
+        if not l.strip(): continue
+        l=l.decode(incode) # TODO: manualrulescode ?
+        addRule(l,[],dummyDict)
+    if reannotator:
+      sys.stderr.write("Reannotating... ")
+      dryRun()
       if reannotator[0]=='#': cmd=reannotator[1:]
       else: cmd = reannotator
       cin,cout = os.popen2(cmd)
+      global toReannotateSet, reannotateDict
       l = [ll for ll in toReannotateSet if ll and not "\n" in ll]
       cin.write("\n".join(l).encode(outcode)+"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
       l2 = cout.read().decode(outcode).splitlines() # TODO: ditto?
+      del cin,cout,cmd
       while len(l2)>len(l) and not l2[-1]: del l2[-1] # don't mind extra blank line(s) at end of output
       if not len(l)==len(l2):
         open('reannotator-debug-in.txt','w').write("\n".join(l).encode(outcode)+"\n")
         open('reannotator-debug-out.txt','w').write("\n".join(l2).encode(outcode)+"\n")
         errExit("Reannotator command didn't output the same number of lines as we gave it (gave %d, got %d).  Input and output have been written to reannotator-debug-in.txt and reannotator-debug-out.txt for inspection.  Bailing out." % (len(l),len(l2)))
+      sys.stderr.write("(%d items)\n" % len(l))
       toReannotateSet = set() ; reannotateDict = dict(zip(l,l2)) ; del l,l2
+    if compress:
+      global squashStrings ; squashStrings = set() # discard any that were made in any reannotator dry-run
+      dryRun(False) # redo with the new annotation strings (or do for the first time if no reannotator)
+      pairs = squashFinish()
+    else: pairs = ""
     for rule,conds in rulesAndConds: addRule(rule,conds,byteSeq_to_action_dict)
     if manualrules:
         for l in openfile(manualrules).xreadlines():
@@ -2802,11 +2859,11 @@ def outputParser(rulesAndConds):
     elif c_sharp: start = cSharp_start
     elif golang: start = golang_start
     else: start = c_start
-    print start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max))
+    print start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max)).replace("%%PAIRS%%",pairs)
     if data_driven:
       b = BytecodeAssembler()
       b.addActionDictSwitch(byteSeq_to_action_dict,False)
-      print "static unsigned char data[]=\""+re.sub(r"(?<!\\)((?:\\\\)*\\x..)([0-9a-fA-F])",r'\1""\2',re.sub(r"\?\?([=/'()<>!-])",r'?""?\1',b.link().replace('\\','\\\\').decode('unicode_escape').encode('unicode_escape').replace('"','\\"')))+'\";' ; del b
+      print "static unsigned char data[]=\""+c_escapeRawBytes(b.link())+'\";' ; del b
       print c_datadrive
     else:
       subFuncL = []
