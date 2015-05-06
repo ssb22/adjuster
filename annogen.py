@@ -169,7 +169,7 @@ parser.add_option("--java",
 parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  A function to annotate the local clipboard is also provided.  You will need the Android SDK to compile the app; see comments in MainActivity.java for details.")
 parser.add_option("--ndk",
-                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is a more complex setup than a Java-based annotator, but it improves speed and size.  The --ndk option should be set to the name of the package that will use the library.  See comments in the output file for details.")
+                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is a more complex setup than a Java-based annotator, but it improves speed and size.  The --ndk option should be set to the name of the package that will use the library, and --android should be set to the initial URL.  See comments in the output file for details.")
 
 parser.add_option("--javascript",
                   action="store_true",default=False,
@@ -254,7 +254,8 @@ if not golang: golang = ""
 def errExit(msg):
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
-if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
+if android and not (java or ndk): errExit('You must set --java=/path/to/src//name/of/package or --ndk=name.of.package when using --android')
+if ndk and not android: errExit("You must set --android=URL when using --ndk. E.g. --android=file:///android_asset/index.html")
 jPackage = None
 if nested_switch: nested_switch=int(nested_switch) # TODO: if java, override it?  or just rely on the help text for --nested-switch (TODO cross-reference it from --java?)
 if java:
@@ -581,17 +582,9 @@ elif ndk:
 #
 # Run this script in the Android workspace to set up the
 # JNI folder and compile the library (requires ndk-build).
-# Then in class MainActivity (in MainActivity.java), do:
-#   static { System.loadLibrary("Annotator"); }
-#   static synchronized native String jniAnnotate(String in);
-# and instead of =new....Annotator(t).result() (as is used
-# in MainActivity.java of Java-based Android annotators),
-# simply do:  =jniAnnotate(t)
-# (and keep MainActivity.java but not other Java files;
-# you might also want to reduce the window.setTimeout call
-# e.g. from 1000 to 300, to match the faster annotator)
-# 
-mkdir -p jni
+# Then see comments in src/%%PACKAGE%%/MainActivity.java
+#
+mkdir -p jni src/%%PACKAGE%%
 cat > jni/Android.mk <<"EOF"
 LOCAL_PATH:= $(call my-dir)
 LOCAL_SRC_FILES := annotator.c
@@ -603,10 +596,16 @@ cat > jni/Application.mk <<"EOF"
 APP_PLATFORM := android-1
 APP_ABI := armeabi
 EOF
+cat > src/%%PACKAGE%%/MainActivity.java <<"EOF"
+%%android_src%%
+EOF
+cat > assets/clipboard.html <<"EOF"
+%%android_clipboard%%
+EOF
 cat > jni/annotator.c <<"EOF"
 #include <stdlib.h>
 #include <jni.h>
-"""
+""".replace('%%PACKAGE%%',ndk.replace('.','/'))
   if zlib: c_preamble=c_preamble.replace("LOCAL_PATH","LOCAL_LDLIBS := -lz\nLOCAL_PATH",1)
   c_defs = r"""static const char *readPtr, *writePtr, *startPtr;
 static char *outBytes;
@@ -1170,7 +1169,6 @@ public class MainActivity extends Activity {
     }
     @SuppressWarnings("deprecation") // using getText so works on API 1 (TODO consider adding a version check and the more-modern alternative android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip(); if (c != null && c.getItemCount()>0) return c.getItemAt(0).coerceToText(this).toString(); return ""; )
     @android.annotation.TargetApi(11)
-    @SuppressWarnings("deprecation")
     public String readClipboard() {
         if(Integer.valueOf(android.os.Build.VERSION.SDK) < android.os.Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
             return ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getText().toString();
@@ -1183,6 +1181,7 @@ public class MainActivity extends Activity {
     WebView browser;
 }
 """
+if ndk: c_start = c_start.replace("%%android_src%%",android_src.replace("Put *.java into src/%%JPACK2%%","Optionally edit this file").replace('new %%JPACKAGE%%.Annotator(t).result()','jniAnnotate(t)').replace('%%JPACKAGE%%',ndk).replace('public class MainActivity extends Activity {','public class MainActivity extends Activity {\n    static { System.loadLibrary("Annotator"); }\n    static synchronized native String jniAnnotate(String in);').replace('%%ANDROID-URL%%',android))
 android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
 <script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg); return true}</script>
     <h3>Clipboard</h3>
@@ -1196,6 +1195,7 @@ if (newClip != curClip) {
   curClip = newClip;
 } window.setTimeout(update,1000) } update(); </script>
 </body></html>"""
+if ndk: c_start = c_start.replace("%%android_clipboard%%",android_clipboard)
 java_src = r"""package %%JPACKAGE%%;
 public class Annotator {
 // use: new Annotator(txt).result()
@@ -2963,7 +2963,7 @@ def outputParser(rulesAndConds):
       elif golang: print "\n".join(subFuncL + ret).replace(';\n','\n') # (this 'elif' line is not really necessary but it might save someone getting worried about too many semicolons)
       else: print "\n".join(subFuncL + ret)
       del subFuncL,ret
-    if android:
+    if android and not ndk:
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace("%%JPACK2%%",jPackage.replace('.','/')).replace('%%ANDROID-URL%%',android))
       open(java.rsplit('//',1)[0]+"/../assets/clipboard.html",'w').write(android_clipboard)
     if c_sharp: print cSharp_end
