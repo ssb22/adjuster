@@ -1047,7 +1047,7 @@ android_src = r"""
     5. Edit project.properties and add the line
         dex.force.jumbo=true
     6. Edit AndroidManifest.xml and make it look as below
-       (you might need to change targetSdkVersion="18" if
+       (you might need to change targetSdkVersion="19" if
        your SDK has a different targetSdkVersion setting,
        and if you're creating a new version of a
        previously-released app then you might want to
@@ -1057,7 +1057,7 @@ android_src = r"""
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" >
 <uses-permission android:name="android.permission.INTERNET" />
-<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="18" />
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="19" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" >
 <activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
@@ -1070,8 +1070,7 @@ android_src = r"""
 ---------------------- cut here ----------------------
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_height="fill_parent" android:layout_width="fill_parent" android:orientation="vertical">
-  <TextView android:layout_height="wrap_content" android:layout_width="fill_parent" />
-  <WebView android:id="@+id/browser" android:layout_height="fill_parent" android:layout_width="fill_parent" />
+  <WebView android:id="@+id/browser" android:layout_height="match_parent" android:layout_width="match_parent" />
 </LinearLayout>
 ---------------------- cut here ----------------------
     9. Restart ADT, do Run / Run As / Android application
@@ -1149,25 +1148,10 @@ public class MainActivity extends Activity {
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         browser.setWebViewClient(new WebViewClient() {
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }
-                static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title)","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); var wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'} d.rubyScriptAdded=1 })","var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
-                android.os.Handler theTimer;
-                @android.annotation.TargetApi(19)
-                public void onPageStarted(WebView view,String url,android.graphics.Bitmap b) {
-                	if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
-                		theTimer = new android.os.Handler();
-                		theTimer.postDelayed(new Runnable() {
-                			@Override
-                			public void run() {
-                        		browser.evaluateJavascript(js_common+"AnnotIfLenChanged()",null);
-                        		theTimer.postDelayed(this,1000);
-                			}
-                		},0);
-                	}
-                }
                 public void onPageFinished(WebView view,String url) {
-                    if(Integer.valueOf(android.os.Build.VERSION.SDK) < 19) // Pre-Android 4.4, so above alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
-                    browser.loadUrl("javascript: "+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
-                    else browser.loadUrl("javascript:AnnotIfLenChanged()"); // (no point waiting the rest of the second, especially if this is the initial assets page)
+                    if(Integer.valueOf(android.os.Build.VERSION.SDK) < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
+                    browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
+                    else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged()"); // (no point waiting the rest of the second, especially if this is the initial assets page) (and yes we do need to include js_common on this line, in case a page-transition happens and completes before runTimer occurs at all)
                 } });
         if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 3) {
             browser.getSettings().setBuiltInZoomControls(true);
@@ -1176,7 +1160,24 @@ public class MainActivity extends Activity {
         browser.getSettings().setDefaultFontSize(size);
         browser.getSettings().setDefaultFixedFontSize(size);
         browser.getSettings().setDefaultTextEncodingName("utf-8");
+        runTimerLoop();
         browser.loadUrl("%%ANDROID-URL%%");
+    }
+    static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title)","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); var wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'} d.rubyScriptAdded=1 })","var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
+    android.os.Handler theTimer;
+    @SuppressWarnings("deprecation")
+    @android.annotation.TargetApi(19)
+    void runTimerLoop() {
+    	if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
+   		theTimer = new android.os.Handler();
+    		theTimer.postDelayed(new Runnable() {
+    			@Override
+    			public void run() {
+            		browser.evaluateJavascript(js_common+"AnnotIfLenChanged()",null);
+            		theTimer.postDelayed(this,1000);
+    			}
+    		},0);
+        }
     }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if ((keyCode == KeyEvent.KEYCODE_BACK) &&
