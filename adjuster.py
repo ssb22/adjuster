@@ -1386,7 +1386,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             txt = self.request.uri[len(options.submitPath):]
             if len(txt)==2 and options.submitBookmarklet:
                 filterNo = ord(txt[1])-ord('A')
-                if txt[0]=='b': return self.serve_bookmarklet_code(txt[1])
+                if txt[0] in 'bB': return self.serve_bookmarklet_code(txt[1],txt[0]=='B')
                 elif txt[0]=='j': return self.serve_bookmarklet_json(filterNo)
                 elif txt[0]=='i' or txt[0]=='a':
                     # Android or iOS instructions
@@ -1441,10 +1441,10 @@ document.forms[0].i.focus()
             headers = H()
         r=R() ; r.body="""%s<h3>Your text</h3>%s<hr>This is %s. %s</body></html>""" % (htmlhead("Uploaded Text - Web Adjuster"),txt2html(txt),serverName_html,backScriptNoBr) # backScriptNoBr AFTER the server notice to save vertical space
         self.doResponse(r,[False]*4,False,False)
-    def serve_bookmarklet_code(self,xtra):
+    def serve_bookmarklet_code(self,xtra,forceSameWindow):
         self.add_header("Content-Type","application/javascript")
         self.add_header("Access-Control-Allow-Origin","*")
-        self.write(bookmarkletMainScript("http://"+self.request.host+options.submitPath+'j'+xtra))
+        self.write(bookmarkletMainScript("http://"+self.request.host+options.submitPath+'j'+xtra,forceSameWindow))
         self.myfinish()
     def serve_err(self,err):
         self.set_status(500)
@@ -2063,14 +2063,16 @@ def bookmarklet(submit_url):
     # TODO: The following nested quoting is horrible.
     # Is there an Obfuscated Python+Javascript contest? :)
     # (_IHQ_ = 'InnerHtmlQuote', is also checked for in preprocessOptions)
-    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPad|iPhone/),a=n.match(/Android/),c="",t=0,j="javascript:",u="var r=new XMLHttpRequest();r.open(\'GET\',\''+submit_url+'b",v="\',false);r.send();eval(r.responseText)"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var b=d.body;var fs=d.createElement(\'frameset\'),h=d.createElement(\'html\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(b.firstChild)h.appendChild(b.removeChild(b.firstChild));b.appendChild(fs);window.doneMasterFrame=1;window.setTimeout(function(){if(!window.frames[0].document.body.innerHTML){var d=document;var b=d.body;while(b.firstChild)b.removeChild(b.firstChild);while(h.firstChild)b.appendChild(h.removeChild(h.firstChild));alert(\'The bookmarklet cannot annotate the whole site because your browser does not seem to have the frames loophole it needs. Falling back to annotating this page only. (To avoid this message in future, install the not Plus bookmarklet.)\')}},1000)}"+u;u=j+u;if(i||a){t="'+submit_url+'"+(i?"i":"a");u="#"+u;u2="#"+u2}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a)?"On "+(i?"iOS":"Android")+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;Basic bookmarklet'+plural+' (to process <b>one page</b> when activated): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'. Advanced bookmarklet'+plural+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural+'</a></span>').replace('@]@','"')+'")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
+    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPad|iPhone/),a=n.match(/Android/),c="",t=0,j="javascript:",u="var r=new XMLHttpRequest();r.open(\'GET\',\''+submit_url+'",v="\',false);r.send();eval(r.responseText)"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var b=d.body;var fs=d.createElement(\'frameset\'),h=d.createElement(\'html\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(b.firstChild)h.appendChild(b.removeChild(b.firstChild));b.appendChild(fs);window.doneMasterFrame=1;window.setTimeout(function(){if(!window.frames[0].document.body.innerHTML){var d=document;var b=d.body;while(b.firstChild)b.removeChild(b.firstChild);while(h.firstChild)b.appendChild(h.removeChild(h.firstChild));alert(\'The bookmarklet cannot annotate the whole site because your browser does not seem to have the frames loophole it needs. Falling back to annotating this page only. (To avoid this message in future, install the not Plus bookmarklet.)\')}},1000)}"+u+"B";u=j+u+"b";if(i||a){t="'+submit_url+'"+(i?"i":"a");u="#"+u;u2="#"+u2}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a)?"On "+(i?"iOS":"Android")+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;Basic bookmarklet'+plural+' (to process <b>one page</b> when activated): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'. Advanced bookmarklet'+plural+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural+'</a></span>').replace('@]@','"')+'")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
     # 'loophole': https://bugzilla.mozilla.org/show_bug.cgi?id=1123694 (+ 'seem to' because I don't know if the timeout value is enough; however we don't want it to hang around too long) (don't do else h=null if successful because someone else may hv used that var?)
     # 'resetting the current page': so you lose anything you typed in text boxes etc
     # (DO hide bookmarklets by default, because don't want to confuse users if they're named the same as the immediate-action filter selections at the bottom of the page)
     # TODO: maybe document that on Chrome Mobile (Android/iOS) you can tap address bar and start typing the bookmarklet name IF you've sync'd it from a desktop
     # TODO: we append '+' to the names of the 'advanced' versions of the bookmarklets, but we don't do so on the Android/iOS title pages; is that OK?
 def quote_for_JS_doublequotes(s): return s.replace("\\","\\\\").replace('"',"\\\"").replace("\n","\\n").replace('</','<"+"/') # for use inside document.write("") etc
-def bookmarkletMainScript(jsonPostUrl):
+def bookmarkletMainScript(jsonPostUrl,forceSameWindow):
+    if forceSameWindow: xtra = "if(c.target=='_blank') c.removeAttribute('target'); "
+    else: xtra = ""
     return r"""var leaveTags=%s,stripTags=%s;
 function HTMLSizeChanged(callback) {
   // innerHTML size will usually change if there's a JS popup etc (TODO: could periodically do a full scan anyway, on the off-chance that some JS change somehow keeps length the same)
@@ -2124,7 +2126,7 @@ function walk(n,document) {
   while(c) {
     var cNext = c.nextSibling;
     switch (c.nodeType) {
-    case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!="_adjust0") walk(c,document); break;
+    case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!="_adjust0") walk(c,document); %sbreak;
     case 3:
       if (%s) {
           var i=otPtr;
@@ -2142,7 +2144,7 @@ function walk(n,document) {
     }
     c=cNext;
   }
-}adjusterScan()""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),jsonPostUrl,addRubyScript(),options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize)
+}adjusterScan()""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),jsonPostUrl,addRubyScript(),xtra,options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize)
 def addRubyScript():
     if not options.headAppendRuby: return ""
     # rScript = rubyScript # doesn't work, fall back on:
