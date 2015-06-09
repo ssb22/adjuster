@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.589 (c) 2012-15 Silas S. Brown"
+program_name = "Annotator Generator v0.59 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -2227,6 +2227,7 @@ def normalise():
     class Replacer:
       def __init__(self): self.dic = {}
       def add(self,x,y):
+        if diagnose and diagnose in x: diagnose_write("Replacer.add(%s,%s)" % (x,y))
         self.dic[x] = y
         if len(self.dic)==1500: # limit the size of each batch - needed on some Pythons (e.g. Mac: 2000 usually works, but occasionally still throws "OverflowError: regular expression code size limit exceeded", so try 1500; TODO: catch and bisect when necessary?)
           self.flush()
@@ -2264,20 +2265,20 @@ def normalise():
         # be convertible into the latter to simplify rules
         if rpl.cu_nosp == None: rpl.cu_nosp = re.sub(whitespacePattern,"",corpus_unistr)
         for charBunches in different_ways_of_splitting(md,len(aoS)):
-          aoS_try = [aoS]
+          aoS_try = [aoS] # [annotationOnly.split]
           if not capitalisation: # we have to account for the case where the above 'wl in allWords' did not happen but WOULD have happened if this substitution had been made
-            aoS_try.append([w.lower() for w in aoS])
-            if aoS_try[0]==aoS_try[1]: del aoS_try[1]
+            l = [w0.lower() for w0 in aoS]
+            if not l==aoS: aoS_try.append(l)
           for aoS2 in aoS_try:
-            mw = [markUp(c,w) for c,w in zip(charBunches,aoS2)]
+            mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS2)]
             multiword = "".join(mw)
             if multiword in rpl.cu_nosp:
               # we're about to return a split version of the words, but we now have to pretend it went through the initial capitalisation logic that way (otherwise could get unnecessarily large collocation checks)
               if not capitalisation:
                 for i in range(len(mw)):
-                  w = mw[i]
-                  wl = w.lower()
-                  if not w==wl and wl in allWords:
+                  w0 = mw[i]
+                  wl = w0.lower()
+                  if not w0==wl and wl in allWords:
                     mw[i] = wl
               return "".join(mw),hTry
           # TODO: is there ANY time where we want multiword to take priority over the nowsp (no-whitespace) version above?  or even REPLACE multiword occurrences in the corpus with the 1-word nowsp version?? (must be VERY CAREFUL doing that)
@@ -2298,15 +2299,15 @@ def normalise():
 if mreverse: mdStart,mdEnd,aoStart,aoEnd = markupMid,markupEnd,markupStart,markupMid
 else: mdStart,mdEnd,aoStart,aoEnd = markupStart,markupMid,markupMid,markupEnd
 
-def different_ways_of_splitting(chars,splitPoints):
-  if splitPoints > len(chars): return
-  elif splitPoints == len(chars):
+def different_ways_of_splitting(chars,numWords):
+  if numWords > len(chars): return
+  elif numWords == len(chars):
     yield list(chars) ; return
-  elif splitPoints == 0:
+  elif numWords == 1:
     yield [chars] ; return
-  spAt_try1 = len(chars) / splitPoints + 1
-  for spAt in range(spAt_try1,0,-1) + range(spAt_try1+1, len(chars)-splitPoints):
-    for r in different_ways_of_splitting(chars[spAt:],splitPoints-1): yield [chars[:spAt]]+r
+  spAt_try1 = len(chars) / numWords + 1
+  for spAt in range(spAt_try1,0,-1) + range(spAt_try1+1, len(chars)-numWords+1):
+    for r in different_ways_of_splitting(chars[spAt:],numWords-1): yield [chars[:spAt]]+r
 
 def yarowsky_indicators(withAnnot_unistr,markedDown):
     # returns True if rule always works (or in majority of cases with ymajority), or lists enough indicators to cover example instances and returns (negate, list, nbytes), or just list if empty.
@@ -2315,10 +2316,10 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     if nonAnnot in yPriorityDic: # TODO: enforce len==1 ?
         if yPriorityDic[nonAnnot] == withAnnot_unistr:
             # we want this case to be the default
-            if nonAnnot==diagnose: sys.stderr.write(("Diagnose: yPriorityDic forces %s\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
+            if nonAnnot==diagnose: diagnose_write("yPriorityDic forces %s" % (withAnnot_unistr,))
             return True
         else:
-          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: yPriorityDic forbids default %s\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
+          if nonAnnot==diagnose: diagnose_write("yPriorityDic forbids default %s" % (withAnnot_unistr,))
           can_be_default = False # another is default, don't make this one default even if it occurs more
     else: can_be_default = True
     # First, find positions in markedDown which match withAnnot_unistr in corpus_unistr (not markedUp as that's harder to sync with markedDown, since markedUp contains /-separated annotated phrases whereas markedDown also contains the in-between bytes)
@@ -2326,20 +2327,20 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     # now check for markedDown matches that *don't* have withAnnot_unistr
     badStarts = getBadStarts(nonAnnot,markedDown,okStarts)
     if not badStarts:
-      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s always works\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
+      if nonAnnot==diagnose: diagnose_write("%s always works" % (withAnnot_unistr,))
       return True # rule always works, no Yarowsky indicators needed
     if can_be_default and len(okStarts) > len(badStarts) and len(nonAnnot)==1:
-      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case len-1 rule\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
+      if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len-1 rule" % (withAnnot_unistr,))
       return True # duplicate of code below (can test for this case early before reducing-down badStarts)
     badStarts = getReallyBadStarts(badStarts,nonAnnot) # see its comments (ignore some badStarts)
     if not badStarts:
-      if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s always works if we ignore probably-irrelevant badStarts\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
+      if nonAnnot==diagnose: diagnose_write("%s always works if we ignore probably-irrelevant badStarts" % (withAnnot_unistr,))
       return True
     # Now, if it's right more often than not:
     if can_be_default and len(okStarts) > len(badStarts):
         # could we have this as a "default" rule, with the other cases as exceptions that will be found first?
         if len(nonAnnot)==1:
-          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case len-1 rule after removing irrelevant badStarts\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
+          if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len-1 rule after removing irrelevant badStarts" % (withAnnot_unistr,))
           return True # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
         # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default unless can be sure about it
         # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without positive indicators it should do so
@@ -2350,7 +2351,7 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
         # TODO: also, if the exceptions to rule AB are always of the form "Z A B", and we can guarantee to generate a phrase rule for "Z A B", then AB can still be default.  (We should already catch this when the exceptions are "ZA B", but not when they are "Z A B", and --ymax-threshold=0 probably won't always help here, especially if Z==B; Mandarin "mei2you3" / "you3 mei2 you3" comes to mind)
         llen = len(mdStart)+len(nonAnnot)
         if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+("("+re.escape(mdEnd)+"((?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?").join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
-          if nonAnnot==diagnose: sys.stderr.write(("Diagnose: %s is default by majority-case rule after checking for dangerous overlaps etc\n" % (withAnnot_unistr,)).encode(terminal_charset,'replace'))
+          if nonAnnot==diagnose: diagnose_write("%s is default by majority-case rule after checking for dangerous overlaps etc" % (withAnnot_unistr,))
           return True
     may_take_time = len(okStarts) > 1000
     if may_take_time: sys.stderr.write("\nLarge collocation check (%s has %d matches + %s), could take some time....  \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),len(okStarts),badInfo(badStarts,nonAnnot,markedDown)))
@@ -2441,7 +2442,7 @@ def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr):
         indicators += '/'.join(ret)
       else: indicators = "no indicators"
       if len(pOmit) > 200: pOmit = pOmit[:200]+"..."
-      sys.stderr.write(("Diagnose: tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts\n" % (nbytes,withAnnot_unistr,indicators,pOmit.replace(unichr(1),'/'),sum(1 for x in covered if x),len(covered))).encode(terminal_charset,'replace'))
+      diagnose_write("tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts" % (nbytes,withAnnot_unistr,indicators,pOmit.replace(unichr(1),'/'),sum(1 for x in covered if x),len(covered)))
     return negate,ret,sum(1 for x in covered if x),len(covered)
 
 def badInfo(badStarts,nonAnnot,markedDown):
@@ -2517,7 +2518,7 @@ def test_rule(withAnnot_unistr,markedUp,markedDown,yBytesRet):
     phrase = markDown(withAnnot_unistr)
     ret = occurrences(markedDown,phrase) == occurrences(markedUp,withAnnot_unistr)
     if diagnose and diagnose==phrase:
-      sys.stderr.write(("Diagnose: occurrences(%s)==occurrences(%s) = %s\n" % (phrase,withAnnot_unistr,ret)).encode(terminal_charset,'replace'))
+      diagnose_write("occurrences(%s)==occurrences(%s) = %s" % (phrase,withAnnot_unistr,ret))
     return ret
 
 def all_possible_rules(words,covered):
@@ -2712,7 +2713,7 @@ def generate_map():
         for w in splitWords(corpus_unistr[s:e]):
           wd = markDown(w)
           if wd in yPriorityDic: continue
-          if diagnose==wd: sys.stderr.write(("Diagnose: yPriorityDic[%s] = %s\n" % (wd,w)).encode(terminal_charset,'replace'))
+          if diagnose==wd: diagnose_write("yPriorityDic[%s] = %s" % (wd,w))
           yPriorityDic[wd] = w
     sys.stderr.write("done\n")
     if checkpoint: pickle.Pickler(open(checkpoint+os.sep+'map','wb'),-1).dump((corpus_to_markedDown_map,c2m_inverse,precalc_sets,yPriorityDic))
@@ -3080,14 +3081,20 @@ def set_title(t):
   if t: atexit.register(set_title,"")
   term = os.environ.get("TERM","")
   is_xterm = "xterm" in term
-  global clear_eol,reverse_on,reverse_off # by the way:
-  if is_xterm or term in ["screen","linux"]: clear_eol,reverse_on,reverse_off="\x1b[K\r","\x1b[7m","\x1b[0m" # use ANSI escapes instead of overwriting with spaces or using **'s (use reverse rather than bold etc, as reverse is more widely supported)
+  # and by the way:
+  global clear_eol,reverse_on,reverse_off,diagnose_colon
+  if is_xterm or term in ["screen","linux"]:
+    # use ANSI escapes instead of overwriting with spaces or using **'s (use reverse rather than bold etc, as reverse is more widely supported, but can use bold for "Diagnose:")
+    clear_eol,reverse_on,reverse_off="\x1b[K\r","\x1b[7m","\x1b[0m"
+    diagnose_colon = "\x1b[1m"+diagnose_colon+"\x1b[0m"
   is_screen = (term=="screen" and os.environ.get("STY",""))
   is_tmux = (term=="screen" and os.environ.get("TMUX",""))
   if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
 clear_eol = "  \r" # hope 2 spaces enough to overwrite old (don't want to risk going onto next line)
 reverse_on,reverse_off = " **","** "
+diagnose_colon = "Diagnose: "
+def diagnose_write(s): sys.stderr.write(diagnose_colon+s.encode(terminal_charset,'replace')+'\n')
 
 if checkpoint:
   try: os.mkdir(checkpoint)
@@ -3102,7 +3109,12 @@ else:
     infile = sys.stdin
     if isatty(infile): sys.stderr.write("Reading from standard input\n(If that's not what you wanted, press Ctrl-C and run again with --help)\n")
   corpus_unistr = infile.read().decode(incode)
+  if diagnose and not diagnose in corpus_unistr:
+    diagnose_write(diagnose+" is not present in the corpus, even before normalisation")
+    suppress = True
+  else: suppress = False
   normalise()
+  if diagnose and not suppress and not diagnose in corpus_unistr: diagnose_write(diagnose+" was in the corpus before normalisation, but not after") # (if running from a checkpoint, might want to rm normalised and redo the diagnose)
   rulesAndConds = analyse()
 
 stdout_old = sys.stdout # in case of cProfile, see below
