@@ -2552,13 +2552,11 @@ def checkCoverage(ruleAsWordlist,words,coveredFlags):
     while start <= len(words)-ln:
         if words[start:start+ln] == ruleAsWordlist:
             if not all(coveredFlags[start:start+ln]):
-                for i in range(start,start+ln):
-                    coveredFlags[i] = True
+                coveredFlags[start:start+ln]=[True]*ln
                 changedFlags = True
             start += ln
         else:
-            try:
-                start = words.index(ruleAsWordlist[0],start+1)
+            try: start = words.index(ruleAsWordlist[0],start+1)
             except ValueError: break
     return changedFlags
 
