@@ -276,8 +276,8 @@ if java or javascript or python or c_sharp or golang:
       c_filename = java+os.sep+"Annotator.java"
     elif c_filename.endswith(".c"):
       if javascript: c_filename = c_filename[:-2]+".js"
-      if c_sharp: c_filename = c_filename[:-2]+".cs"
-      if golang: c_filename = c_filename[:-2]+".go"
+      elif c_sharp: c_filename = c_filename[:-2]+".cs"
+      elif golang: c_filename = c_filename[:-2]+".go"
       else: c_filename = c_filename[:-2]+".py"
 elif windows_clipboard:
   if ios: errExit("Support for having both --ios and --windows-clipboard at the same time is not yet implemented") # (I suppose you could make a single output file that will compile as either C+MS-stuff or Objective-C depending on preprocessor tests)
