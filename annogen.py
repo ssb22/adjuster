@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.59 (c) 2012-15 Silas S. Brown"
+program_name = "Annotator Generator v0.591 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -197,7 +197,7 @@ parser.add_option("-P", "--primitive",
                   help="Don't bother with any overlap or conflict checks at all, just make a rule for each word. The resulting parser is not likely to be useful, but the summary might be.")
 
 parser.add_option("-y","--ybytes",default=0,
-                  help="Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed if the seed collocations can be used to distinguish between them.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of bytes between them.")
+                  help="Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed if the seed collocations can be used to distinguish between them.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of (non-whitespace) bytes between them.")
 parser.add_option("--ybytes-max",default=0,
                   help="Extend the Yarowsky seed-collocation search to check over larger ranges up to this maximum.  If this is set then several ranges will be checked in an attempt to determine the best one for each word, but see also ymax-threshold.")
 parser.add_option("--ymax-threshold",default=1,
@@ -2155,10 +2155,10 @@ def splitWords(text,phrases=False):
     for i in it: yield i.group()
 
 markupPattern = re.compile(re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd))
-whitespacePattern = re.compile(r"\s+")
-phrasePattern = re.compile('('+re.escape(markupStart)+'.*?'+re.escape(markupEnd)+'\s*)+')
-wordPattern = re.compile(re.escape(markupStart)+'.*?'+re.escape(markupEnd))
-wspPattern = re.compile("\s+")
+wordPattern = re.escape(markupStart)+'.*?'+re.escape(markupEnd)
+phrasePattern = re.compile(wordPattern+r'(\s*'+wordPattern+r')*')
+wordPattern = re.compile(wordPattern)
+wspPattern = re.compile(r"\s+")
 
 def annotationOnly(text):
     ret = []
@@ -2171,9 +2171,7 @@ def markDown(text):
     # Return just the original text, without markup
     if mreverse: group=r"\2"
     else: group=r"\1"
-    text = re.sub(markupPattern,group,text)
-    if removeSpace: text=re.sub(whitespacePattern,"",text)
-    return text
+    return re.sub(markupPattern,group,text)
 
 def markUp(text,annotation):
   if mreverse: text,annotation = annotation,text
@@ -2197,7 +2195,11 @@ def normalise():
         f=open(checkpoint+os.sep+'normalised','rb')
         corpus_unistr = f.read().decode('utf-8')
         return
-      except: pass
+      except: # if re-generating 'normalised', will also need to regenerate 'map' and 'checkpoint' if present
+        try: os.remove(checkpoint+os.sep+'map')
+        except: pass
+        try: os.remove(checkpoint+os.sep+'checkpoint')
+        except: pass
     sys.stderr.write("Normalising...")
     def getAllWords():
      allWords = set()
@@ -2205,7 +2207,9 @@ def normalise():
         allWords.update(splitWords(phrase))
      return allWords
     allWords = getAllWords()
-    if removeSpace and not annot_whitespace:
+    if removeSpace:
+     corpus_unistr = re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),markupEnd+markupStart,corpus_unistr) # so getOkStarts works consistently if corpus has some space-separated and some not
+     if not annot_whitespace:
       # normalise trailing hyphens e.g. from OCR'd scans:
       cu0 = corpus_unistr ; ff = 0
       for hTry in [1,2]:
@@ -2214,7 +2218,7 @@ def normalise():
             idx = w.index('-'+aoEnd)
             if w[:idx].endswith(aoStart) or w[:idx].endswith("-"): continue # ignore this one (a mess of some kind)
             if hTry==2: # ouch, this doesn't look good
-              sys.stderr.write(" (can't normalise hyphens) ")
+              sys.stderr.write(" (can't normalise hyphens due to '%s') " % w.encode(terminal_charset,'replace'))
               corpus_unistr = cu0 ; break
             if mreverse: grp,mdG=r"-\1",r"\2"
             else: grp,mdG=r"-\2",r"\1"
@@ -2252,6 +2256,7 @@ def normalise():
       if annot_whitespace: return w,None
       if not re.search(wspPattern,w): return w,hTry
       nowsp = re.sub(wspPattern,"",w)
+      if not capitalisation and not nowsp.lower()==nowsp and nowsp.lower() in allWords: nowsp = nowsp.lower()
       if nowsp in allWords: return nowsp,hTry # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set the relative authority of the reference (TODO)
       ao,md = annotationOnly(w),markDown(w)
       aoS = ao.split()
@@ -2263,18 +2268,18 @@ def normalise():
         # situations - the latter shouldn't necessarily be
         # converted into the former, but the former might
         # be convertible into the latter to simplify rules
-        if rpl.cu_nosp == None: rpl.cu_nosp = re.sub(whitespacePattern,"",corpus_unistr)
+        if rpl.cu_nosp == None:
+          rpl.cu_nosp = re.sub(wspPattern,"",corpus_unistr)
+          if not capitalisation: rpl.cu_nosp = rpl.cu_nosp.lower() # ignore capitalisation when searching for this
+        if capitalisation: aoS2 = aoS
+        else: aoS2 = [w0.lower() for w0 in aoS]
         for charBunches in different_ways_of_splitting(md,len(aoS)):
-          aoS_try = [aoS] # [annotationOnly.split]
-          if not capitalisation: # we have to account for the case where the above 'wl in allWords' did not happen but WOULD have happened if this substitution had been made
-            l = [w0.lower() for w0 in aoS]
-            if not l==aoS: aoS_try.append(l)
-          for aoS2 in aoS_try:
             mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS2)]
             multiword = "".join(mw)
             if multiword in rpl.cu_nosp:
               # we're about to return a split version of the words, but we now have to pretend it went through the initial capitalisation logic that way (otherwise could get unnecessarily large collocation checks)
               if not capitalisation:
+                mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS)] # the original capitalisation. for selective .lower()
                 for i in range(len(mw)):
                   w0 = mw[i]
                   wl = w0.lower()
@@ -2315,14 +2320,14 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     nonAnnot=markDown(withAnnot_unistr)
     if nonAnnot in yPriorityDic: # TODO: enforce len==1 ?
         if yPriorityDic[nonAnnot] == withAnnot_unistr:
-            # we want this case to be the default
+            # we want this case to be the default (TODO: can't we just put it straight into the rules when making yPriorityDic, and skip this?  although I'm not sure if that would give much of a speedup, as the phrase/sec count tends to go into the thousands anyway when it's processing a yPriorityDic section)
             if nonAnnot==diagnose: diagnose_write("yPriorityDic forces %s" % (withAnnot_unistr,))
             return True
         else:
           if nonAnnot==diagnose: diagnose_write("yPriorityDic forbids default %s" % (withAnnot_unistr,))
           can_be_default = False # another is default, don't make this one default even if it occurs more
     else: can_be_default = True
-    # First, find positions in markedDown which match withAnnot_unistr in corpus_unistr (not markedUp as that's harder to sync with markedDown, since markedUp contains /-separated annotated phrases whereas markedDown also contains the in-between bytes)
+    # First, find positions in markedDown which match withAnnot_unistr in corpus_unistr
     okStarts = getOkStarts(withAnnot_unistr)
     # now check for markedDown matches that *don't* have withAnnot_unistr
     badStarts = getBadStarts(nonAnnot,markedDown,okStarts)
@@ -2330,7 +2335,7 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
       if nonAnnot==diagnose: diagnose_write("%s always works" % (withAnnot_unistr,))
       return True # rule always works, no Yarowsky indicators needed
     if can_be_default and len(okStarts) > len(badStarts) and len(nonAnnot)==1:
-      if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len-1 rule" % (withAnnot_unistr,))
+      if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len=1 rule" % (withAnnot_unistr,))
       return True # duplicate of code below (can test for this case early before reducing-down badStarts)
     badStarts = getReallyBadStarts(badStarts,nonAnnot) # see its comments (ignore some badStarts)
     if not badStarts:
@@ -2340,7 +2345,7 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     if can_be_default and len(okStarts) > len(badStarts):
         # could we have this as a "default" rule, with the other cases as exceptions that will be found first?
         if len(nonAnnot)==1:
-          if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len-1 rule after removing irrelevant badStarts" % (withAnnot_unistr,))
+          if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len=1 rule after removing irrelevant badStarts" % (withAnnot_unistr,))
           return True # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
         # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default unless can be sure about it
         # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without positive indicators it should do so
@@ -2365,6 +2370,7 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
         append((-covered,len(ret),nbytes,negate,toCover,ret)) # (1st 4 of these are the sort keys: maximum coverage, THEN minimum num indicators for the same coverage, THEN minimum nbytes (TODO: problems of very large nbytes might outweigh having more indicators; break if found 100% coverage by N?), THEN avoid negate)
         # TODO: try finding an OR-combination of indicators at *different* proximity lengths ?
       retList.sort()
+      if nonAnnot==diagnose: diagnose_write("Best coverage is %d/%d" % (-retList[0][0],retList[0][-2]))
       negate,ret = retList[0][-3],retList[0][-1]
       distance = retList[0][2]
     else:
@@ -2380,7 +2386,6 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     else:
       if not distance: distance = ybytes_max
       return negate,ret,distance
-# keep these functions separate for cProfile clarity:
 def getOkStarts(withAnnot_unistr):
     if withAnnot_unistr in precalc_sets: return precalc_sets[withAnnot_unistr]
     # else: return set(corpus_to_markedDown_map[s.start()] for s in re.finditer(re.escape(withAnnot_unistr), corpus_unistr))
@@ -2390,7 +2395,7 @@ def getOkStarts(withAnnot_unistr):
     return set(x for x in precalc_sets[splitWords(withAnnot_unistr).next()] if corpus_unistr[c2m_inverse[x]:c2m_inverse[x]+walen]==withAnnot_unistr)
 def getBadStarts(nonAnnot,markedDown,okStarts): return set(x.start() for x in re.finditer(re.escape(nonAnnot),markedDown) if not x.start() in okStarts)
 def getReallyBadStarts(badStarts,nonAnnot):
-    # Some of the badStarts can be ignored on the grounds that they should be picked up by other rules first: any where the nonAnnot match does not start at the start of a word (the rule matching the word starting earlier should get there first), and any where it starts at the start of a word that is longer than itself (the longest-first ordering should take care of this).  So keep only the ones where it starts at the start of a word and that word is no longer than len(nonAnnot).
+    # Some of the badStarts can be ignored on the grounds that they should be picked up by other rules first: any where the nonAnnot match does not start at the start of a word (the rule matching the word starting earlier should get there first), and any where it starts at the start of a word that is longer than its own first word (the longest-first ordering should take care of this).  So keep only the ones where it starts at the start of a word and that word is no longer than len(nonAnnot).
     reallyBadStarts = [] ; append=reallyBadStarts.append
     nonAnnotLen = len(mdStart+nonAnnot+mdEnd)
     theRe = re.compile(re.escape(mdStart+nonAnnot[0])+".*?"+re.escape(mdEnd))
@@ -2404,7 +2409,7 @@ def getReallyBadStarts(badStarts,nonAnnot):
     return reallyBadStarts
 def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr):
     # try to find either positive or negative Yarowsky-like indicators, whichever gives a smaller set.  Negative indicators might be useful if there are many matches and only a few special exceptions (TODO: but put in an option to avoid checking for them as per v0.57 and below? although I'm not sure what application would have to be that careful but still use Yarowsky-like indicators)
-    # (Negative indicators are used only if they cover 100% of the exceptions - see belowe re negate==None)
+    # (Negative indicators are used only if they cover 100% of the exceptions - see below re negate==None)
     def bytesAround(start): return within_Nbytes(markedDown,start+len(nonAnnot),nbytes)
     okStrs=list(set(bytesAround(s) for s in okStarts))
     badStrs=list(set(bytesAround(s) for s in badStarts))
@@ -2464,7 +2469,7 @@ def badInfo(badStarts,nonAnnot,markedDown):
     else: contextStart = max(0,wordStart - 15) # This might cut across markup, but better that than failing to report the original corpus and making it look like the words might not have "lined up" when actually they did.  Might also just cut into surrounding non-markup text (if the above loop simply couldn't find anything near enough because such text was in the way).
     if newCEnd in c2m_inverse: contextEnd = c2m_inverse[newCEnd]
     else: contextEnd = wordEnd + 15 # ditto
-   ret += (u" (%s%s%s%s%s)" % (toRead[contextStart:wordStart],reverse_on,toRead[wordStart:wordEnd],reverse_off,toRead[wordEnd:contextEnd])).encode(terminal_charset,'replace')
+   ret += (u" (%s%s%s%s%s)" % (toRead[contextStart:wordStart],reverse_on,toRead[wordStart:wordEnd],reverse_off,toRead[wordEnd:contextEnd])).replace("\n","\\n").replace("\r","\\r").encode(terminal_charset,'replace')
   return ret
 
 def unique_substrings(texts,allowedChars,omitFunc,valueFunc):
@@ -2498,7 +2503,10 @@ def within_Nbytes(markedDown,matchEndPos,nbytes):
     # Assumes multibyte codes are self-synchronizing, i.e. if you start in the middle of a multibyte sequence, the first valid character will be the start of the next sequence, ok for utf-8 but TODO might not be the case for some codes
     return markedDown[max(0,matchEndPos-nbytes):matchEndPos].encode(outcode)[-nbytes:].decode(outcode,'ignore')+markedDown[matchEndPos:matchEndPos+nbytes].encode(outcode)[:nbytes].decode(outcode,'ignore')
 
-def test_rule(withAnnot_unistr,markedUp,markedDown,yBytesRet):
+def occurrences(haystack,needle):
+  # Returns number of occurrences of 'needle' in 'haystack', needs to be fast (TODO: can we do better than this?)
+  return len(re.findall(re.escape(needle),haystack))
+def test_rule(withAnnot_unistr,markedDown,yBytesRet):
     # Tests to see if the rule withAnnot_unistr is
     # ALWAYS right in the examples, i.e.
     # the number of occurrences of its marked-down text
@@ -2514,9 +2522,8 @@ def test_rule(withAnnot_unistr,markedUp,markedDown,yBytesRet):
         if ybr==True or not ybr: return ybr
         yBytesRet.append(ybr) # (negate, list of indicators, nbytes)
         return True
-    def occurrences(haystack,needle): return len(haystack.split(needle))-1 # assumes haystack has non-needle terminators - have put these in with unichr(1)s below (TODO: might be slightly quicker if do len(re.findall(re.escape(needle),haystack)) - would then need to revise whether we really need the unichr(1)s at start/end of corpus, and all resulting code changes)
     phrase = markDown(withAnnot_unistr)
-    ret = occurrences(markedDown,phrase) == occurrences(markedUp,withAnnot_unistr)
+    ret = occurrences(markedDown,phrase) == len(getOkStarts(withAnnot_unistr))
     if diagnose and diagnose==phrase:
       diagnose_write("occurrences(%s)==occurrences(%s) = %s" % (phrase,withAnnot_unistr,ret))
     return ret
@@ -2535,8 +2542,7 @@ def all_possible_rules(words,covered):
         for wStart in range(len(words)-ruleLen+1):
           if not all(covered[wStart:wStart+ruleLen]):
             yield words[wStart:wStart+ruleLen]
-            # caller should do " ".join() before putting
-            # it into rules dict
+            # caller join()s before adding to rules dict
 
 def checkCoverage(ruleAsWordlist,words,coveredFlags):
     # Updates coveredFlags and returns True if any changes
@@ -2560,6 +2566,10 @@ def checkCoverage(ruleAsWordlist,words,coveredFlags):
             except ValueError: break
     return changedFlags
 
+def wspJoin(l):
+  if removeSpace: return "".join(l)
+  else: return " ".join(l)
+
 def potentially_bad_overlap(rulesAsWordlists,newRuleAsWords,markedDown):
     # Allow overlaps only if rule(s) being overlapped are
     # entirely included within newRule.  Otherwise could
@@ -2575,7 +2585,7 @@ def potentially_bad_overlap(rulesAsWordlists,newRuleAsWords,markedDown):
             if not (ruleAsWordlist[-overlapSize:] == newRuleAsWords[:overlapSize] or newRuleAsWords[-overlapSize:] == ruleAsWordlist[:overlapSize]): continue
             if not allow_overlaps: return True
             # Test to see if the examples "allow" this potentially-bad overlap
-            def overlapOK(rAW): return not markDown(" ".join(rAW)) in markedDown
+            def overlapOK(rAW): return not markDown(wspJoin(rAW)) in markedDown
             if (ruleAsWordlist[-overlapSize:] == newRuleAsWords[:overlapSize] and not overlapOK(ruleAsWordlist[:-overlapSize]+newRuleAsWords)) or (newRuleAsWords[-overlapSize:] == ruleAsWordlist[:overlapSize] and not overlapOK(newRuleAsWords[:-overlapSize]+ruleAsWordlist)): return True
 
 def longerStartsOrEndsWithTheShorter(l1,l2):
@@ -2607,17 +2617,17 @@ class RulesAccumulator:
     sys.stderr.write("done\n")
     self.amend_rules = True
     self.newRules = set()
-  def remove_old_rules(self,words,markedUp,markedDown): # for incremental runs - removes previously-discovered rules that would have been suggested by this new phrase but that no longer 'work' with the rest of the corpus due to alterations elsewhere.  DOES NOT remove old rules that are not suggested by any phrase in the corpus because the phrases that suggested them have been removed or changed (TODO: might want an option for that, although fundamentally you shouldn't be relying on incremental runs if you're making a lot of changes to the corpus)
+  def remove_old_rules(self,words,markedDown): # for incremental runs - removes previously-discovered rules that would have been suggested by this new phrase but that no longer 'work' with the rest of the corpus due to alterations elsewhere.  DOES NOT remove old rules that are not suggested by any phrase in the corpus because the phrases that suggested them have been removed or changed (TODO: might want an option for that, although fundamentally you shouldn't be relying on incremental runs if you're making a lot of changes to the corpus)
     for w in set(words):
       rulesAsWordlists = self.rulesAsWordlists_By1stWord.get(w,[])
       i=0
       while i<len(rulesAsWordlists):
         if max_words and len(rulesAsWordlists[i])>max_words:
           i += 1 ; continue # better leave that one alone if we're not reconsidering rules that long (e.g. running again with single_words when previous run wasn't)
-        rule = " ".join(rulesAsWordlists[i])
+        rule = wspJoin(rulesAsWordlists[i])
         if rule not in self.newRules and checkCoverage(rulesAsWordlists[i],words,[False]*len(words)): # rule would apply to the new phrase
           yBytesRet = []
-          if not test_rule(rule,markedUp,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i],markedDown): # re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So we now re-test before removal.
+          if not test_rule(rule,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i],markedDown): # re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So we now re-test before removal.
             self.rejectedRules.add(rule)
             if not ybytes:
               try: self.rulesAsWordlists.remove(rulesAsWordlists[i])
@@ -2627,14 +2637,11 @@ class RulesAccumulator:
           self.newRules.add(rule) # still current - add to newRules now to save calling test_rule again
           if len(yBytesRet): self.rules[rule] = yBytesRet[0] # overriding what it was before (since we've re-done test_rule for it, which might have returned a new set of Yarowsky-like indicators for the new version of the corpus)
         i += 1
-  def addRulesForPhrase(self,phrase,markedUp,markedDown):
-    global diagnose, diagnose_limit
+  def addRulesForPhrase(self,phrase,markedDown):
     if phrase in self.seenPhrases or (diagnose_quick and diagnose):
-      if diagnose and (diagnose_quick or self.amend_rules) and mdStart+diagnose+mdEnd in phrase: pass # look at it again for diagnostics (TODO: accept a diagnose that spans multiple words?  should be pointed out by --diagnose-quick below)
-      else:
-        # if diagnose_quick and diagnose and diagnose in markDown(phrase): sys.stderr.write("Diagnose-quick: NOT looking at phrase '%s' because '%s' is not in it\n" % (phrase.encode(terminal_charset),(mdStart+diagnose+mdEnd).encode(terminal_charset)))
-        return 0,0 # TODO: document that this means the total 'covered' figure in the progress status is AFTER phrase de-duplication (otherwise we'd have to look up what the previous values were last time we saw it - no point doing that just for a quick statistic)
-    # if diagnose_quick and diagnose: sys.stderr.write("Diagnose-quick: looking at phrase: "+phrase.encode(terminal_charset)+'\n')
+      # if diagnose and (diagnose_quick or self.amend_rules) and mdStart+diagnose+mdEnd in phrase: pass # look at it again for diagnostics.  But do we accept a diagnose that spans multiple words?  should be pointed out by --diagnose-quick below if uncommented
+      if diagnose and (diagnose_quick or self.amend_rules) and diagnose in markDown(phrase): pass # this version accepts diagnose of multiple words (and might also let some phrases through where it matches on an overlap)
+      else: return 0,0 # TODO: document that this means the total 'covered' figure in the progress status is AFTER phrase de-duplication (otherwise we'd have to look up what the previous values were last time we saw it - no point doing that just for a quick statistic)
     self.seenPhrases.add(phrase)
     words = filter(lambda x:markDown(x).strip(),splitWords(phrase)) # filter out any that don't have base text (these will be input glitches, TODO: verify the annotation text is also just whitespace, warn if not)
     if not words: return 0,0
@@ -2642,30 +2649,26 @@ class RulesAccumulator:
     # first see how much is covered by existing rules
     # (don't have to worry about the order, as we've been
     # careful about overlaps)
-    if self.amend_rules: self.remove_old_rules(words,markedUp,markedDown)
+    if self.amend_rules: self.remove_old_rules(words,markedDown) # NB if yignore this might not remove all, but still removes all that affect checkCoverage below
     for w in set(words):
       for ruleAsWordlist in self.rulesAsWordlists_By1stWord.get(w,[]):
         if checkCoverage(ruleAsWordlist,words,covered) and all(covered): return len(covered),len(covered) # no new rules needed
     for ruleAsWordlist in all_possible_rules(words,covered):
-        rule = " ".join(ruleAsWordlist) ; yBytesRet = []
+        rule = wspJoin(ruleAsWordlist) ; yBytesRet = []
         if rule in self.rejectedRules: continue
         if rule in self.rules: continue # this can still happen even now all_possible_rules takes 'covered' into account, because the above checkCoverage assumes the rule won't be applied in a self-overlapping fashion, whereas all_possible_rules makes no such assumption (TODO: fix this inconsistency?)
-        if not test_rule(rule,markedUp,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordlists,ruleAsWordlist,markedDown):
+        if not test_rule(rule,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordlists,ruleAsWordlist,markedDown):
             self.rejectedRules.add(rule) # so we don't waste time evaluating it again (TODO: make sure rejectedRules doesn't get too big?)
             continue
         cc = checkCoverage(ruleAsWordlist,words,covered) # changes 'covered'
-        assert cc, "this call to checkCoverage should never return False now that all_possible_rules takes 'covered' into account"
+        assert cc, "this call to checkCoverage should never return False now that all_possible_rules takes 'covered' into account" # and it's a generator which is always working from the CURRENT copy of 'covered'
         if len(yBytesRet): self.rules[rule] = yBytesRet[0]
         else: self.rules[rule] = [] # unconditional
         if not ybytes: self.rulesAsWordlists.append(ruleAsWordlist)
         if not ruleAsWordlist[0] in self.rulesAsWordlists_By1stWord: self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]] = []
         self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]].append(ruleAsWordlist)
         if self.amend_rules: self.newRules.add(rule)
-        if diagnose and diagnose_limit and diagnose==markDown(rule):
-          diagnose_limit -= 1
-          if not diagnose_limit:
-            diagnose = False
-            sys.stderr.write("diagnose-limit reached, suppressing further diagnostics\n")
+        handle_diagnose_limit(rule)
         if all(covered): return len(covered),len(covered)
     # If get here, failed to completely cover the phrase.
     # ruleAsWordlist should be set to the whole-phrase rule.
@@ -2673,6 +2676,14 @@ class RulesAccumulator:
   def rulesAndConds(self):
     if self.amend_rules: return [(k,v) for k,v in self.rules.items() if not k in self.newRules] + [(k,v) for k,v in self.rules.items() if k in self.newRules] # new rules must come last for incremental runs, so they will override existing actions in byteSeq_to_action_dict when small changes have been made to the annotation of the same word (e.g. capitalisation-normalisation has been changed by the presence of new material)
     else: return self.rules.items()
+
+def handle_diagnose_limit(rule):
+  global diagnose,diagnose_limit
+  if diagnose and diagnose_limit and diagnose==markDown(rule):
+    diagnose_limit -= 1
+    if not diagnose_limit:
+      diagnose = False
+      diagnose_write("limit reached, suppressing further diagnostics")
 
 def generate_map():
     global corpus_to_markedDown_map, c2m_inverse
@@ -2691,10 +2702,11 @@ def generate_map():
       s=s.start()
       downLenSoFar += len(markDown(corpus_unistr[muStart:s]))
       muStart = s
-      corpus_to_markedDown_map[s] = downLenSoFar+1 # +1 as there's a unichr(1) at start of markedDown
-      c2m_inverse[downLenSoFar+1] = s
+      corpus_to_markedDown_map[s] = downLenSoFar
+      c2m_inverse[downLenSoFar] = s
       # Added optimisation: do precalc_sets as well
       # (at least catch the 1-word cases)
+      # -> this is now needed even if not ybytes
       e=corpus_unistr.find(markupEnd,s)
       if e>-1:
         e += len(markupEnd)
@@ -2702,7 +2714,7 @@ def generate_map():
         if k not in precalc_sets: precalc_sets[k]=set()
         precalc_sets[k].add(corpus_to_markedDown_map[s])
     yPriorityDic = {}
-    if ref_pri:
+    if ref_pri and ybytes:
       sys.stderr.write("yPriorityDic ... ")
       for s in re.finditer(re.escape(reference_sep+ref_pri+ref_name_end), corpus_unistr):
         s = s.start()+len(reference_sep+ref_pri+ref_name_end)
@@ -2719,7 +2731,7 @@ def generate_map():
 
 def analyse():
     global corpus_unistr
-    if ybytes: generate_map()
+    generate_map() # unconditional, not just if ybytes, now that precalc_sets is used even if not ybytes
 
     # Due to the way we handle overlaps, it's better to process the shortest phrases first, as the longer phrases will yield more rule options and therefore more likely to be able to work around any "no-overlap" constraints imposed by already-processed examples.  Something like:
     p2 = []
@@ -2729,13 +2741,11 @@ def analyse():
     phrases = [p[-1] for p in p2] ; del p2
     # (Note: if removing this sort, remove len from stats below)
     
-    markedDown = unichr(1) + markDown(corpus_unistr) + unichr(1)
-    if not reference_sep and not ybytes: del corpus_unistr # (won't need it again so free up some RAM)
-    markedUp = unichr(1) + "/".join(phrases) + unichr(1)
+    markedDown = markDown(corpus_unistr)
     if ybytes:
         global markedUp_unichars
         if yarowsky_all: markedUp_unichars = None
-        else: markedUp_unichars = set(list((u"".join(markDown(p) for p in phrases))))
+        else: markedUp_unichars = set(list(u"".join(markDown(p) for p in phrases)))
     accum = RulesAccumulator()
     covered = toCover = 0 ; phraseNo = 0
     if checkpoint:
@@ -2776,7 +2786,7 @@ def analyse():
             sys.stderr.write(progress+clear_eol)
             lastUpdate = time.time()
             phraseLastUpdate = phraseNo
-        coveredA,toCoverA = accum.addRulesForPhrase(phrases[phraseNo],markedUp,markedDown)
+        coveredA,toCoverA = accum.addRulesForPhrase(phrases[phraseNo],markedDown)
         covered += coveredA ; toCover += toCoverA
         phraseNo += 1
     sys.stderr.write("\n")
@@ -2798,7 +2808,7 @@ def golang_escape(unistr):
 
 def c_escape(unistr):
     # returns unistr encoded as outcode and escaped so can be put in C in "..."s
-    return zapTrigraphs(unistr.encode(outcode).replace('\\','\\\\').replace('"','\\"').replace('\n','\\n'))
+    return zapTrigraphs(unistr.encode(outcode).replace('\\','\\\\').replace('"','\\"').replace('\n','\\n').replace('\r','\\r')) # TODO: \r shouldn't occur, error if it does?
 def zapTrigraphs(x): return re.sub(r"\?\?([=/'()<>!-])",r'?""?\1',x) # to get rid of trigraph warnings, TODO might get a marginal efficiency increase if do it to the entire C file at once instead)
 
 def c_escapeRawBytes(s): # as it won't be valid outcode; don't want to crash any editors/viewers of the C file
@@ -2948,7 +2958,7 @@ def outputParser(rulesAndConds):
       b.addActionDictSwitch(byteSeq_to_action_dict,False)
       print "data:",repr(b.link())+"," ; del b
       print js_end
-      return
+      return # skip all of below (including no_summary etc)
     if python:
       print py_start
       b = BytecodeAssembler()
@@ -3043,7 +3053,10 @@ def outputRulesSummary(rulesAndConds):
           sys.stderr.write(("(%d of %d)" % (count,len(rulesAndConds)))+clear_eol)
           t = time.time()
         count += 1
-        toPrn = orig.encode(outcode)+"\t"+annot.encode(outcode)
+        def code(x):
+          if not x.strip(): return repr(x)
+          else: return x.encode(outcode)
+        toPrn = code(orig)+"\t"+code(annot)
         if ybytes:
             toPrn += "\t"
             if conditions:
@@ -3051,8 +3064,8 @@ def outputRulesSummary(rulesAndConds):
                   negate,conds,nbytes = conditions[:3]
                   if negate: negate=" not"
                   else: negate=""
-                  toPrn += "if"+negate+" within "+str(nbytes)+" bytes of "+" or ".join(conds).encode(outcode)
-                else: toPrn += "if near "+" or ".join(conditions).encode(outcode)
+                  toPrn += "if"+negate+" within "+str(nbytes)+" bytes of "+" or ".join(code(c) for c in conds)
+                else: toPrn += "if near "+" or ".join(code(c) for c in conditions)
         if not toPrn in omit: print (toPrn+refs(rule).encode(outcode)).replace('/*','').replace('*/','')
     sys.stderr.write("\n")
 
