@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.591 (c) 2012-15 Silas S. Brown"
+program_name = "Annotator Generator v0.592 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -90,7 +90,7 @@ parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile")
 
 parser.add_option("--manualrules",
-                  help="Filename of an optional text file (or compressed .gz or .bz2 file) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule).") # (or if there's a longer automatic match)
+                  help="Filename of an optional text file (or compressed .gz or .bz2 file) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
 
 #  =========== OUTPUT OPTIONS ==============
 
@@ -226,6 +226,9 @@ parser.add_option("--checkpoint",help="Periodically save checkpoint files in the
 
 parser.add_option("-d","--diagnose",help="Output some diagnostics for the specified word. Use this option to help answer \"why doesn't it have a rule for...?\" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).")
 parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: %default")
+parser.add_option("--diagnose-manual",
+                  action="store_true",default=False,
+                  help="Check and diagnose potential failures of --manualrules")
 parser.add_option("--diagnose-quick",
                   action="store_true",default=False,
                   help="Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics WITHOUT these disadvantages by loading a --rulesFile instead.")
@@ -308,6 +311,7 @@ if diagnose: diagnose=diagnose.decode(terminal_charset)
 diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
+if no_input and diagnose_manual: errExit("--diagnose-manual is not compatible with --no-input") # it needs the input for diagnostic purposes
 
 def nearCall(negate,conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
@@ -2444,10 +2448,11 @@ def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr):
       if ret:
         if negate: indicators = "negative indicators "
         else: indicators = "indicators "
-        indicators += '/'.join(ret)
+        if len(ret) > 30: indicators += '/'.join(ret[:30]+['...'])
+        else: indicators += '/'.join(ret)
       else: indicators = "no indicators"
       if len(pOmit) > 200: pOmit = pOmit[:200]+"..."
-      diagnose_write("tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts" % (nbytes,withAnnot_unistr,indicators,pOmit.replace(unichr(1),'/'),sum(1 for x in covered if x),len(covered)))
+      diagnose_write("tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts" % (nbytes,withAnnot_unistr,indicators,pOmit.replace(unichr(1),'/').replace('\n',"\\n"),sum(1 for x in covered if x),len(covered)))
     return negate,ret,sum(1 for x in covered if x),len(covered)
 
 def badInfo(badStarts,nonAnnot,markedDown):
@@ -2791,7 +2796,34 @@ def analyse():
         phraseNo += 1
     sys.stderr.write("\n")
     if rulesFile: accum.save()
+    if diagnose_manual: test_manual_rules(markedDown)
     return accum.rulesAndConds()
+
+def read_manual_rules():
+  if not manualrules: return
+  for l in openfile(manualrules).xreadlines():
+    if not l.strip(): continue
+    l=l.decode(incode).strip() # TODO: manualrulescode ?
+    if removeSpace: l=re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),markupEnd+markupStart,l)
+    yield l
+
+def test_manual_rules(markedDown):    
+    for l in read_manual_rules():
+      for s in re.finditer(re.escape(markupStart), l):
+        # this loop is to prevent KeyError in getOkStarts
+        s=s.start()
+        e=l.find(markupEnd,s)
+        if e>-1:
+          e += len(markupEnd)
+          k = l[s:e]
+          if k not in precalc_sets: precalc_sets[k]=set()
+      yb = []
+      if not test_rule(l,markedDown,yb) or len(yb):
+        sys.stderr.write("WARNING: Manual rule '%s' may contradict the examples\n" % (l.encode(terminal_charset),))
+        global diagnose,diagnose_limit,ybytes
+        od,odl,oy,diagnose,diagnose_limit,ybytes = diagnose,diagnose_limit,ybytes,markDown(l),0,ybytes_max
+        test_rule(l,markedDown,[])
+        diagnose,diagnose_limit,ybytes = od,odl,oy
 
 def java_escape(unistr):
   ret = []
@@ -2915,11 +2947,7 @@ def outputParser(rulesAndConds):
       if clearReannotator: reannotateDict = {} # (not if we've run the reannotator and are just doing it for the compressor)
       dummyDict = {}
       for rule,conds in rulesAndConds: addRule(rule,conds,dummyDict)
-      if not manualrules: return
-      for l in openfile(manualrules).xreadlines():
-        if not l.strip(): continue
-        l=l.decode(incode) # TODO: manualrulescode ?
-        addRule(l,[],dummyDict)
+      for l in read_manual_rules(): addRule(l,[],dummyDict)
     if reannotator:
       sys.stderr.write("Reannotating... ")
       dryRun()
@@ -2944,11 +2972,7 @@ def outputParser(rulesAndConds):
       pairs = squashFinish()
     else: pairs = ""
     for rule,conds in rulesAndConds: addRule(rule,conds,byteSeq_to_action_dict)
-    if manualrules:
-        for l in openfile(manualrules).xreadlines():
-            if not l.strip(): continue
-            l=l.decode(incode) # TODO: manualrulescode ?
-            addRule(l,[],byteSeq_to_action_dict,True)
+    for l in read_manual_rules(): addRule(l,[],byteSeq_to_action_dict,True)
     write_glossMiss(glossMiss)
     longest_rule_len = max(len(b) for b in byteSeq_to_action_dict.iterkeys())
     longest_rule_len = max(ybytes_max*2, longest_rule_len) # make sure the half-bufsize is at least ybytes_max*2, so that a read-ahead when pos is ybytes_max from the end, resulting in a shift back to the 1st half of the buffer, will still leave ybytes_max from the beginning, so yar() can look ybytes_max-wide in both directions
@@ -3003,7 +3027,6 @@ def outputParser(rulesAndConds):
         print "/* Tab-delimited rules summary not yet implemented with reannotator option */"
         return
     print "/* Tab-delimited summary of the rules:"
-    if manualrules: print "  (not including manual rules)"
     outputRulesSummary(rulesAndConds)
     print "*/"
 
@@ -3067,6 +3090,9 @@ def outputRulesSummary(rulesAndConds):
                   toPrn += "if"+negate+" within "+str(nbytes)+" bytes of "+" or ".join(code(c) for c in conds)
                 else: toPrn += "if near "+" or ".join(code(c) for c in conditions)
         if not toPrn in omit: print (toPrn+refs(rule).encode(outcode)).replace('/*','').replace('*/','')
+    if ybytes: extraTab='\t'
+    else: extraTab = ''
+    for l in read_manual_rules(): print (markDown(l)+'\t'+annotationOnly(l)+extraTab+'\t--manualrules '+manualrules).encode(outcode)
     sys.stderr.write("\n")
 
 def isatty(f): return hasattr(f,"isatty") and f.isatty()
