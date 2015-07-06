@@ -2448,11 +2448,18 @@ def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr):
       if ret:
         if negate: indicators = "negative indicators "
         else: indicators = "indicators "
-        if len(ret) > 30: indicators += '/'.join(ret[:30]+['...'])
+        if len(ret) > 30: indicators=str(len(ret))+" "+indicators # +'/'.join(ret[:30]+['...'])
         else: indicators += '/'.join(ret)
       else: indicators = "no indicators"
       if len(pOmit) > 200: pOmit = pOmit[:200]+"..."
-      diagnose_write("tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts" % (nbytes,withAnnot_unistr,indicators,pOmit.replace(unichr(1),'/').replace('\n',"\\n"),sum(1 for x in covered if x),len(covered)))
+      if all(covered): notCovered = ""
+      else:
+        if negate: strs = badStrs
+        else: strs = okStrs
+        notCovered = [strs[i] for i in xrange(len(covered)) if not covered[i]]
+        if len(notCovered) > 10: notCovered = notCovered[:10]+["..."]
+        notCovered = " (not "+'/'.join(notCovered).replace('\n',"\\n")+")"
+      diagnose_write("tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts%s" % (nbytes,withAnnot_unistr,indicators,pOmit.replace(unichr(1),'/').replace('\n',"\\n"),sum(1 for x in covered if x),len(covered),notCovered))
     return negate,ret,sum(1 for x in covered if x),len(covered)
 
 def badInfo(badStarts,nonAnnot,markedDown):
