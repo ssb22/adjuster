@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.592 (c) 2012-15 Silas S. Brown"
+program_name = "Annotator Generator v0.593 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -133,7 +133,7 @@ parser.add_option("--maxrefs",default=3,
 
 parser.add_option("--norefs",
                   action="store_true",default=False,
-                  help="Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (omitting references makes summary generation faster).  This option is automatically turned on if --no-input is specified.")
+                  help="Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if --no-input is specified.") # the speed difference is not so great as of v0.593, but needed anyway if --no-input is set
 
 parser.add_option("--newlines-reset",
                   action="store_false",
@@ -1065,6 +1065,7 @@ android_src = r"""
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" >
 <activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+<intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>
 </activity></application></manifest>
 ---------------------- cut here ----------------------
     7. Copy new AndroidManifest.xml to the bin/ directory
@@ -1148,6 +1149,7 @@ public class MainActivity extends Activity {
                 d.show();
             }
             @android.webkit.JavascriptInterface public String getClip() { return readClipboard(); }
+            @android.webkit.JavascriptInterface public String getSentText() { return sentText; }
         }
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         browser.setWebViewClient(new WebViewClient() {
@@ -1165,8 +1167,14 @@ public class MainActivity extends Activity {
         browser.getSettings().setDefaultFixedFontSize(size);
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         runTimerLoop();
-        browser.loadUrl("%%ANDROID-URL%%");
+        Intent intent=getIntent();
+        if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
+        	sentText = intent.getStringExtra(Intent.EXTRA_TEXT);
+        	if (sentText != null) browser.loadUrl("javascript:document.write(ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;'))");
+        }
+        if (sentText == null) browser.loadUrl("%%ANDROID-URL%%");
     }
+    String sentText = null;
     static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title)","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); var wk=navigator.userAgent.indexOf('WebKit/');if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'} d.rubyScriptAdded=1 })","var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
     android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
@@ -2641,9 +2649,7 @@ class RulesAccumulator:
           yBytesRet = []
           if not test_rule(rule,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i],markedDown): # re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So we now re-test before removal.
             self.rejectedRules.add(rule)
-            if not ybytes:
-              try: self.rulesAsWordlists.remove(rulesAsWordlists[i])
-              except: pass
+            if not ybytes: self.rulesAsWordlists.discard(rulesAsWordlists[i])
             del rulesAsWordlists[i] ; del self.rules[rule]
             continue
           self.newRules.add(rule) # still current - add to newRules now to save calling test_rule again
@@ -3055,18 +3061,32 @@ if norefs:
   def refs(rule): return ""
 else:
   def refs(rule):
-    ret = [] ; s = 0
-    while len(ret) < maxrefs and s>=0:
-      i = corpus_unistr.find(rule,s)
-      if i<0: break
-      rS = corpus_unistr.rfind(reference_sep,s,i)
-      if rS >= 0:
-        rS += len(reference_sep)
-        rE = corpus_unistr.find(ref_name_end,rS,i)
-        if rE >= 0:
-          app = corpus_unistr[rS:rE]
-          if not app in ret: ret.append(app)
-      s = corpus_unistr.find(reference_sep,i)
+    global refMap
+    try: refMap
+    except:
+      refMap = [(m.end(),m.group(1)) for m in re.finditer(re.escape(reference_sep)+"(.*?)"+re.escape(ref_name_end), corpus_unistr)]
+      i = 0
+      while True:
+        if i+1 >= len(refMap): break
+        if refMap[i][1] == refMap[i+1][1]: del refMap[i+1]
+        else: i += 1
+    rmPos = 0 ; ret = []
+    okStarts = getOkStarts(rule)
+    while len(ret) < maxrefs and rmPos < len(refMap):
+      s = refMap[rmPos][0] ; i = -1
+      while i < s and okStarts:
+        i = min(okStarts) ; okStarts.remove(i)
+        i = c2m_inverse[i]
+      if i < s: break
+      rmE = len(refMap)-1
+      while refMap[rmE][0] > i:
+        mid = int((rmPos+rmE)/2)
+        if mid==rmPos or refMap[mid][0] > i: rmE = mid
+        else: rmPos = mid
+      rmPos = rmE
+      app=refMap[rmPos][1]
+      if not app in ret: ret.append(app)
+      rmPos += 1
     if ret: return "\t"+"; ".join(ret)
     else: return ""
 
