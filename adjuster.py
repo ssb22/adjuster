@@ -2025,10 +2025,8 @@ document.write('<a href="javascript:history.go(-1)">Back to previous page</a>')
 //--></script>"""
 # (HTML5 defaults type to text/javascript, as do all pre-HTML5 browsers including NN2's 'script language="javascript"' thing, so we might as well save a few bytes)
 
-rubyCss1 = "ruby{display:inline-table;}ruby *{display: inline;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}" ; assert not '"' in rubyCss1
-# but that's no good on WebKit browsers.  Did have an after-the-fact innerHTML 'hack' to remove 'display' on WebKit (which is similar to what Wenlin uses because I sent it to them as well), but it might not always interact well with all JS on all sites, so we'd better double-up script/noscript:
-rubyScript = '<script><!--\nif(document.readyState!="complete"){var s="'+rubyCss1+'";var wk=navigator.userAgent.indexOf("WebKit/");if(wk>-1){s=s.replace(/display[^;]*;/g,"");var v=navigator.userAgent.slice(wk+7,wk+12);if(v>=534.3&&v<535.7)s+="rt{padding-left:1ex;padding-right:1ex;}"}document.write("<style>"+s+"<\/style>")}\n//--></script><noscript><style>'+rubyCss1+'</style></noscript>'
-# (and hope nobody in webkit uses noscript, or ruby will line up wrong)
+rubyCss1 = "ruby{display:inline-table;vertical-align:bottom;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}"
+rubyScript = '<style>'+rubyCss1+'</style>'
 # And the following hack is to stop the styles in the 'noscript' and the variable (and any others) from being interpreted if an HTML document with this processing is accidentally referenced as a CSS source (which can mess up ruby):
 rubyScript = "<!-- { } @media(none) { -->" + rubyScript
 # By the way, also try to specify some nice fonts (but IE doesn't like this) :
@@ -2037,7 +2035,6 @@ rubyScript += rubyScript_fonts
 # and this goes at the END of the body:
 rubyEndScript = """
 <script><!--
-var wk=navigator.userAgent.indexOf("WebKit/");if(wk>-1 && navigator.userAgent.slice(wk+7,wk+12)>534){var rbs=document.getElementsByTagName('rb');for(var i=0;i<rbs.length;i++)rbs[i].innerHTML='&#8203;'+rbs[i].innerHTML+'&#8203;'}
 function treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!="SCRIPT" && c.nodeName!="TEXTAREA" && !(c.nodeName=="A" && c.href)) { treewalk(c); if(c.nodeName=="RUBY" && c.title && !c.onclick) c.onclick=Function("alert(this.title)") } c=c.nextSibling; } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);
 //--></script>"""
 
