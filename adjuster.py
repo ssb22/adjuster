@@ -2025,7 +2025,7 @@ document.write('<a href="javascript:history.go(-1)">Back to previous page</a>')
 //--></script>"""
 # (HTML5 defaults type to text/javascript, as do all pre-HTML5 browsers including NN2's 'script language="javascript"' thing, so we might as well save a few bytes)
 
-rubyCss1 = "ruby{display:inline-table;vertical-align:bottom;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}"
+rubyCss1 = "ruby{display:inline-table;vertical-align:bottom;-webkit-border-vertical-spacing:1px;padding-top:0.5ex;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}"
 rubyScript = '<style>'+rubyCss1+'</style>'
 # And the following hack is to stop the styles in the 'noscript' and the variable (and any others) from being interpreted if an HTML document with this processing is accidentally referenced as a CSS source (which can mess up ruby):
 rubyScript = "<!-- { } @media(none) { -->" + rubyScript

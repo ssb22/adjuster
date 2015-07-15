@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.593 (c) 2012-15 Silas S. Brown"
+program_name = "Annotator Generator v0.594 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -982,7 +982,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
     strcpy(fname,"\\c.html");
     outFile=fopen(fname,"w");
   }
-  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style id=\"ruby\">ruby { display: inline-table; vertical-align: bottom; } ruby * { display: inline; vertical-align: top; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if !IE]>-->\n<style>rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n");
+  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style id=\"ruby\">ruby { display: inline-table; vertical-align: bottom; -webkit-border-vertical-spacing: 1px; padding-top: 0.5ex; } ruby * { display: inline; vertical-align: top; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if !IE]>-->\n<style>rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n");
   p=pOrig; copyP=p;
   matchAll();
   free(pOrig);
@@ -1175,7 +1175,7 @@ public class MainActivity extends Activity {
         if (sentText == null) browser.loadUrl("%%ANDROID-URL%%");
     }
     String sentText = null;
-    static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title)","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;vertical-align:bottom;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })","var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
+    static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title)","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;vertical-align:bottom;-webkit-border-vertical-spacing:1px;padding-top:0.5ex;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })","var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
     android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
     @android.annotation.TargetApi(19)
@@ -2379,10 +2379,10 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
         if covered==toCover and len(ret)==1:
           if may_take_time: sys.stderr.write(" - using 1 indicator, negate=%s\n" % repr(negate))
           return (negate,ret,nbytes) # a single indicator that covers everything will be better than anything else we'll find
-        append((-covered,len(ret),nbytes,negate,toCover,ret)) # (1st 4 of these are the sort keys: maximum coverage, THEN minimum num indicators for the same coverage, THEN minimum nbytes (TODO: problems of very large nbytes might outweigh having more indicators; break if found 100% coverage by N?), THEN avoid negate)
+        append((-int(covered*100/toCover),len(ret),nbytes,negate,toCover,ret)) # (1st 4 of these are the sort keys: maximum coverage to nearest 1%, THEN minimum num indicators for the same coverage, THEN minimum nbytes (TODO: problems of very large nbytes might outweigh having more indicators; break if found 100% coverage by N?), THEN avoid negate)
         # TODO: try finding an OR-combination of indicators at *different* proximity lengths ?
       retList.sort()
-      if nonAnnot==diagnose: diagnose_write("Best coverage is %d/%d" % (-retList[0][0],retList[0][-2]))
+      if nonAnnot==diagnose: diagnose_write("Best coverage is %d%% of %d" % (-retList[0][0],retList[0][-2]))
       negate,ret = retList[0][-3],retList[0][-1]
       distance = retList[0][2]
     else:
