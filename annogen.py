@@ -2344,14 +2344,14 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     # now check for markedDown matches that *don't* have withAnnot_unistr
     badStarts = getBadStarts(nonAnnot,markedDown,okStarts)
     if not badStarts:
-      if nonAnnot==diagnose: diagnose_write("%s always works" % (withAnnot_unistr,))
+      if nonAnnot==diagnose: diagnose_write("%s has no badStarts" % (withAnnot_unistr,))
       return True # rule always works, no Yarowsky indicators needed
     if can_be_default and len(okStarts) > len(badStarts) and len(nonAnnot)==1:
       if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len=1 rule" % (withAnnot_unistr,))
       return True # duplicate of code below (can test for this case early before reducing-down badStarts)
     badStarts = getReallyBadStarts(badStarts,nonAnnot) # see its comments (ignore some badStarts)
     if not badStarts:
-      if nonAnnot==diagnose: diagnose_write("%s always works if we ignore probably-irrelevant badStarts" % (withAnnot_unistr,))
+      if nonAnnot==diagnose: diagnose_write("%s has only probably-irrelevant badStarts" % (withAnnot_unistr,))
       return True
     # Now, if it's right more often than not:
     if can_be_default and len(okStarts) > len(badStarts):
@@ -2433,7 +2433,7 @@ def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr):
     nRet = [] ; nAppend=nRet.append
     negate = None # not yet set
     stuffToCheck = [(okStrs,pAppend,pCovered,unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))] # a generator and associated parameters for positive indicators
-    if len(okStrs) > len(badStrs): stuffToCheck.append((badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s)))) # and for negative indicators, if it seems badStrs are in the minority (TODO: smaller minority?  we'll try a string from each generator in turn, stopping if we find one that covers everything; that way we're hopefully more likely to finish early if one of the two is going to quickly give a string that matches everything, but TODO is this always so optimal in other cases?  especially if there are far more negative indicators than positive ones, in which case it's unlikely to end up being a "many matches and only a few special exceptions" situation, and checking through ALL the negative indicators is a lot of work for comparatively little benefit; TODO: also have 'if len(nAppend) > SOME_THRESHOLD and len(stuffToCheck)==2: del stuffToCheck[1] # give up on negative indicators if too many' ? )
+    if len(okStrs) > len(badStrs) or not okStrs: stuffToCheck.append((badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s)))) # and for negative indicators, if it seems badStrs are in the minority (or if not okStrs, which is for test_manual_rules) (TODO: smaller minority?  we'll try a string from each generator in turn, stopping if we find one that covers everything; that way we're hopefully more likely to finish early if one of the two is going to quickly give a string that matches everything, but TODO is this always so optimal in other cases?  especially if there are far more negative indicators than positive ones, in which case it's unlikely to end up being a "many matches and only a few special exceptions" situation, and checking through ALL the negative indicators is a lot of work for comparatively little benefit; TODO: also have 'if len(nAppend) > SOME_THRESHOLD and len(stuffToCheck)==2: del stuffToCheck[1] # give up on negative indicators if too many' ? )
     while stuffToCheck and negate==None:
       for i in range(len(stuffToCheck)):
         strs,append,covered,generator = stuffToCheck[i]
