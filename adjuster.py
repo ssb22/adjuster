@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.198 (c) 2012-15 Silas S. Brown"
+program_name = "Web Adjuster v0.199 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -472,7 +472,7 @@ def preprocessOptions():
         codeChanges.append(tuple(ccLines[:3]))
         ccLines = ccLines[3:]
     if options.real_proxy: options.open_proxy=True
-    if not options.password and not options.open_proxy: errExit("Please set a password, or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)\n")
+    if not options.password and not options.open_proxy and not options.submitPath=='/': errExit("Please set a password, or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)\n") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
     if options.htmlFilter and '#' in options.htmlFilter and not len(options.htmlFilter.split('#'))+1 == len(options.htmlFilterName.split('#')): errExit("Wrong number of #s in htmlFilterName for this htmlFilter setting")
     if not options.publicPort:
         options.publicPort = options.port
@@ -905,6 +905,15 @@ def httpfetch(url,**kwargs):
         if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
         try: resp = urllib2.urlopen(req,timeout=60)
         except urllib2.HTTPError, e: resp = e
+        except Exception, e: # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
+            class Resp:
+                def getcode(self): return 500
+                def info(self):
+                    class H:
+                        def get(self,h,d): return d
+                    r = H() ; r.headers = [] ; return r
+                def read(self): return str(e)
+            resp = Resp()
         class Empty: pass
         r = Empty()
         r.code = resp.getcode()
@@ -1399,7 +1408,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                         if filterNo+1 < len(fNames):
                             title=fNames[filterNo+1]
                     elif options.htmlFilterName:
-                        title=options.htmlFilter
+                        title=options.htmlFilterName
                     if title: title += " on current page" # because page won't be visible while choosing bookmarks, unlike on desktops
                     else: title=theSys+" bookmarklet - Web Adjuster" # will be the default name of the bookmark
                     # TODO: we say txt[0]+'z' in the instructions to display on another device below, but if there are enough filters to get up to 'z' then the title on the other device will be whatever THAT filter is; might be better to just use txt in that situation
@@ -2045,7 +2054,7 @@ def bookmarklet(submit_url):
     if not options.submitBookmarklet: return ""
     if not options.htmlFilterName: names=['filter']
     elif '#' in options.htmlFilter: names=options.htmlFilterName.split('#')[1:]
-    else: names = [options.htmlFilter]
+    else: names = [options.htmlFilterName]
     if len(names)>1: plural="s"
     else: plural=""
     class C:
@@ -2070,15 +2079,17 @@ def quote_for_JS_doublequotes(s): return s.replace("\\","\\\\").replace('"',"\\\
 def bookmarkletMainScript(jsonPostUrl,forceSameWindow):
     if forceSameWindow: xtra = "if(c.target=='_blank') c.removeAttribute('target'); "
     else: xtra = ""
+    # HTMLSizeChanged in the below calls callback the NEXT time HTML size is changed, and then stops checking.  The expectation is that HTMLSizeChanged will be called again to set up change monitoring again after the callback has made its own modifications.
+    # innerHTML size will usually change if there's a JS popup etc (TODO: could periodically do a full scan anyway, on the off-chance that some JS change somehow keeps length the same); sizeChangedLoop is an ID so we can stop our checking loop if for any reason HTMLSizeChanged is called again while we're still checking (e.g. user restarts the bookmarklet, or callback is called by MutationObserver - we assume JS runs only one callback at a time).
+    # MutationObserver gives faster response times when supported, but might not respond to ALL events on all browsers, so we keep the size check as well.
     return r"""var leaveTags=%s,stripTags=%s;
 function HTMLSizeChanged(callback) {
-  // innerHTML size will usually change if there's a JS popup etc (TODO: could periodically do a full scan anyway, on the off-chance that some JS change somehow keeps length the same)
-  if(typeof window.sizeChangedLoop=="undefined") window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; // (we stop our loop if user restarts the bookmarklet and it starts another)
+  if(typeof window.sizeChangedLoop=="undefined") window.sizeChangedLoop=0; var me=++window.sizeChangedLoop;
   var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r };
   var curLen=getLen(window),
-    stFunc=function(){if(window.sizeChangedLoop==me) window.setTimeout(tFunc,1000)},
-    tFunc=function(){if(getLen(window)==curLen) stFunc(); else callback()};
-  stFunc()
+    stFunc=function(){window.setTimeout(tFunc,1000)},
+    tFunc=function(){if(window.sizeChangedLoop==me){if(getLen(window)==curLen) stFunc(); else callback()}};
+  stFunc(); var m=window.MutationObserver||window.WebKitMutationObserver; if(m) new m(function(mut,obs){if(mut[0].type=="childList"){obs.disconnect();if(window.sizeChangedLoop==me)callback()}}).observe(document.body,{childList:true,subtree:true})
 }
 var texts,tLen,oldTexts,otPtr,replacements;
 function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }
