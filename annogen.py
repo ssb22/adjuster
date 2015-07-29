@@ -1063,7 +1063,7 @@ android_src = r"""
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-sdk android:minSdkVersion="1" android:targetSdkVersion="19" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" >
-<activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" >
+<activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleInstance" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
 <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>
 </activity></application></manifest>
@@ -1167,12 +1167,18 @@ public class MainActivity extends Activity {
         browser.getSettings().setDefaultFixedFontSize(size);
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         runTimerLoop();
-        Intent intent=getIntent();
-        if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
-        	sentText = intent.getStringExtra(Intent.EXTRA_TEXT);
-        	if (sentText != null) browser.loadUrl("javascript:document.write(ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;'))");
-        }
+        handleIntent(getIntent());
         if (sentText == null) browser.loadUrl("%%ANDROID-URL%%");
+    }
+    @Override
+    public void onNewIntent(Intent intent) {
+        super.onNewIntent(intent); handleIntent(intent);
+    }
+    void handleIntent(Intent intent) {
+        if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
+            sentText = intent.getStringExtra(Intent.EXTRA_TEXT);
+            if (sentText != null) browser.loadUrl("javascript:document.close();document.write(ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;'))");
+        }
     }
     String sentText = null;
     static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title)","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;vertical-align:bottom;-webkit-border-vertical-spacing:1px;padding-top:0.5ex;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })","var nv=ssb_local_annotator.annotate(c.nodeValue,inLink); if(nv!=c.nodeValue) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
@@ -1180,15 +1186,15 @@ public class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     @android.annotation.TargetApi(19)
     void runTimerLoop() {
-    	if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
-   		theTimer = new android.os.Handler();
-    		theTimer.postDelayed(new Runnable() {
-    			@Override
-    			public void run() {
-            		browser.evaluateJavascript(js_common+"AnnotIfLenChanged()",null);
-            		theTimer.postDelayed(this,1000);
-    			}
-    		},0);
+        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
+           theTimer = new android.os.Handler();
+            theTimer.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    browser.evaluateJavascript(js_common+"AnnotIfLenChanged()",null);
+                    theTimer.postDelayed(this,1000);
+                }
+            },0);
         }
     }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
