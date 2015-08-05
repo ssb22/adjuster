@@ -2137,16 +2137,17 @@ function walk(n,document) {
     case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!="_adjust0") walk(c,document); %sbreak;
     case 3:
       if (%s) {
+          var cnv = c.nodeValue.replace(/\u200b/g,''); // for some sites that use zero-width spaces between words that can upset some annotators (TODO: document, and add to Python version also)
           var i=otPtr;
-          while (i<oldTexts.length && oldTexts[i]!=c.nodeValue) i++;
+          while (i<oldTexts.length && oldTexts[i]!=cnv) i++;
           if(i<replacements.length) {
             var newNode=document.createElement("span");
             newNode.className="_adjust0";
             n.replaceChild(newNode, c);
             newNode.innerHTML=replacements[i]; otPtr=i;
           } else if (tLen < %d) {
-            texts[texts.length]=c.nodeValue;
-            tLen += c.nodeValue.length;
+            texts[texts.length]=cnv;
+            tLen += cnv.length;
           } else return; // will deal with rest next pass
       }
     }
