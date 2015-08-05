@@ -1229,7 +1229,7 @@ var curClip="";
 function update() {
 var newClip = ssb_local_annotator.getClip();
 if (newClip != curClip) {
-  document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\u200b/g,'');
   curClip = newClip;
 } window.setTimeout(update,1000) } update(); </script>
 </body></html>"""
