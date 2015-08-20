@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.199 (c) 2012-15 Silas S. Brown"
+program_name = "Web Adjuster v0.199a (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1416,7 +1416,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                     sharp = "<li>You should see a sharp sign (#). If you don't, you might have to scroll a little to the right to get it into view. When you see the sharp sign, press immediately to the right of it. (This can be difficult, depending on your eyesight and the size of your fingers. You must put the text cursor <em>immediately</em> to the right of that sharp. Keep trying until you get it in <em>exactly</em> the right place.)<li>Use the backspace key to delete everything up to and including the sharp. The code should now start with the word <tt>javascript</tt>.<li>"
                     if txt[0]=='i': i0 += "Press Menu (centre square button below) and Bookmark, to bookmark <b>this</b> page<li>Change the name if you want, and press Done<li>Press Bookmarks (one to the right of menu)<li>Press Edit (bottom left)<li>Find the bookmark you made and press it<li>Long-press the <em>second</em> line to get the selection menu on it<li>Press Select<li>Gently drag the left-most marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"Done\" three times to come back here."
                     else: i0 += "Press Menu and Save to Bookmarks, to bookmark <b>this</b> page<li>Change the label if you want, but <b>do not</b> press OK<li>Long-press the <em>second</em> line to get the selection on it<li>Gently drag the marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"OK\" to come back here."
-                    return self.doResponse2(htmlhead(title)+i0+"<li>The bookmarklet is now ready for use. Go to whatever page you want to use it on, and select it from the bookmarks to use it.</ol></body></html>",False,False) # DON'T do_html_process if it puts filter selectors up - that could be confusing on a screen that's associated with a particular filter
+                    return self.doResponse2(htmlhead(title)+i0+"<li>The bookmarklet is now ready for use. Go to whatever page you want to use it on, and select it from the bookmarks to use it.</ol></body></html>","noFilterOptions",False)
             txt = zlib.decompressobj().decompress(base64.b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
             self.request.uri = "%s (input not logged, len=%d)" % (options.submitPath,len(txt))
         else: txt = self.request.arguments.get("i",None)
@@ -1429,7 +1429,7 @@ document.write(' (Ctrl-Enter) | <a href="javascript:history.go(-1)">Back</a>')
 onKeyDown="if((event.ctrlKey||event.metaKey) && (event.keyCode==13 || event.which==13)) document.forms[0].submit(); else return true;">
 </textarea></form>%s<script><!--
 document.forms[0].i.focus()
-//--></script></body></html>""" % (htmlhead("Upload Text - Web Adjuster").replace("<body>",""),options.submitPath,bookmarklet("http://"+self.request.host+options.submitPath))),True,False)
+//--></script></body></html>""" % (htmlhead("Upload Text - Web Adjuster").replace("<body>",""),options.submitPath,bookmarklet("http://"+self.request.host+options.submitPath))),"noFilterOptions",False)
         if type(txt) == list: # came from the POST form
             txt = txt[0].strip()
             # On at least some browsers (e.g. some Safari versions), clicking one of our JS reload links after the POST text has been shown will reload the form (instead of re-submitting the POST text) and can scroll to an awkward position whether the code below calls focus() or not.  Could at least translate to GET if it's short enough (don't want to start storing things on the adjuster machine - that would require a shared database if load-balancing)
@@ -1923,7 +1923,7 @@ document.forms[0].i.focus()
         # has been run) - now add scripts etc, and render
         canRender = options.render and (do_html_process or (do_json_process and options.htmlJson)) and not self.checkBrowser(options.renderOmit)
         jsCookieString = ';'.join(self.request.headers.get_list("Cookie"))
-        if do_html_process: body = html_additions(body,self.cssAndAttrsToAdd(),self.checkBrowser(options.cssNameReload),self.cookieHostToSet(),jsCookieString,canRender,self.cookie_host(),self.is_password_domain)
+        if do_html_process: body = html_additions(body,self.cssAndAttrsToAdd(),self.checkBrowser(options.cssNameReload),self.cookieHostToSet(),jsCookieString,canRender,self.cookie_host(),self.is_password_domain,not do_html_process=="noFilterOptions") # noFilterOptions is used by bookmarklet code (to avoid confusion between filter options on current screen versus bookmarklets)
         callback = lambda out,err:self.doResponse3(out)
         if canRender and not "adjustNoRender=1" in jsCookieString:
             if do_html_process: func = find_text_in_HTML
@@ -2069,7 +2069,7 @@ def bookmarklet(submit_url):
     # TODO: The following nested quoting is horrible.
     # Is there an Obfuscated Python+Javascript contest? :)
     # (_IHQ_ = 'InnerHtmlQuote', is also checked for in preprocessOptions)
-    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPad|iPhone/),a=n.match(/Android/),c="",t=0,j="javascript:",u="var r=new XMLHttpRequest();r.open(\'GET\',\''+submit_url+'",v="\',false);r.send();eval(r.responseText)"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var b=d.body;var fs=d.createElement(\'frameset\'),h=d.createElement(\'html\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(b.firstChild)h.appendChild(b.removeChild(b.firstChild));b.appendChild(fs);window.doneMasterFrame=1;window.setTimeout(function(){if(!window.frames[0].document.body.innerHTML){var d=document;var b=d.body;while(b.firstChild)b.removeChild(b.firstChild);while(h.firstChild)b.appendChild(h.removeChild(h.firstChild));alert(\'The bookmarklet cannot annotate the whole site because your browser does not seem to have the frames loophole it needs. Falling back to annotating this page only. (To avoid this message in future, install the not Plus bookmarklet.)\')}},1000)}"+u+"B";u=j+u+"b";if(i||a){t="'+submit_url+'"+(i?"i":"a");u="#"+u;u2="#"+u2}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a)?"On "+(i?"iOS":"Android")+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;Basic bookmarklet'+plural+' (to process <b>one page</b> when activated): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'. Advanced bookmarklet'+plural+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural+'</a></span>').replace('@]@','"')+'")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
+    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPad|iPhone/),a=n.match(/Android/),c="",t=0,j="javascript:",u="var r=new XMLHttpRequest();r.open(\'GET\',\''+submit_url+'",v="\',false);r.send();eval(r.responseText)"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var b=d.body;var fs=d.createElement(\'frameset\'),h=d.createElement(\'html\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(b.firstChild)h.appendChild(b.removeChild(b.firstChild));b.appendChild(fs);window.doneMasterFrame=1;window.setTimeout(function(){if(!window.frames[0].document.body.innerHTML){var d=document;var b=d.body;while(b.firstChild)b.removeChild(b.firstChild);while(h.firstChild)b.appendChild(h.removeChild(h.firstChild));alert(\'The bookmarklet cannot annotate the whole site because your browser does not seem to have the frames loophole it needs. Falling back to annotating this page only. (To avoid this message in future, install the not Plus bookmarklet.)\')}},1000)}"+u+"B";u=j+u+"b";if(i||a){t="'+submit_url+'"+(i?"i":"a");u="#"+u;u2="#"+u2}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a)?"On "+(i?"iOS":"Android")+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;<span class=noIOS>Basic bookmarklet'+plural+' (to process <b>one page</b> when activated): </span>'+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'<span class=noIOS>. Advanced bookmarklet'+plural+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'</span>&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural+'</a></span>').replace('@]@','"')+'");if(i) document.write("<style>.noIOS{display:none;visibility:hidden}</style>")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
     # 'loophole': https://bugzilla.mozilla.org/show_bug.cgi?id=1123694 (+ 'seem to' because I don't know if the timeout value is enough; however we don't want it to hang around too long) (don't do else h=null if successful because someone else may hv used that var?)
     # 'resetting the current page': so you lose anything you typed in text boxes etc
     # (DO hide bookmarklets by default, because don't want to confuse users if they're named the same as the immediate-action filter selections at the bottom of the page)
@@ -2153,7 +2153,7 @@ function walk(n,document) {
     }
     c=cNext;
   }
-}adjusterScan()""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),jsonPostUrl,addRubyScript(),xtra,options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize)
+}adjusterScan();%s""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),jsonPostUrl,addRubyScript(),xtra,options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize,rubyEndScript[rubyEndScript.index("<!--")+4:rubyEndScript.rindex("//-->")]) # TODO: rubyEndScript optional? (needed only if the filter is likely to use ruby)
 def addRubyScript():
     if not options.headAppendRuby: return ""
     # rScript = rubyScript # doesn't work, fall back on:
@@ -2459,7 +2459,8 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
     parser.out.append(htmlStr[parser.lastStart:])
     if type(htmlStr)==type(u""):
         return latin1decode(u"".join(parser.out))
-    else: return "".join(parser.out)
+    try: return "".join(parser.out)
+    except UnicodeDecodeError: raise Exception("This should never happen: how did some of parser.out become Unicode when we were working in byte strings? repr: "+repr(parser.out))
 
 def lxmlEncodeTag(tag,att):
     def encAtt(a,v):
@@ -2828,7 +2829,7 @@ def detect_renderCheck(): return r"""(document.getElementsByTagName && function(
 #  do NOT use fffd, it's sometimes displayed differently to other unrenderable characters
 # Works even in Opera Mini, which must somehow communicate the client's font metrics to the proxy
 
-def html_additions(html,(cssToAdd,attrsToAdd),slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain):
+def html_additions(html,(cssToAdd,attrsToAdd),slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain,addHtmlFilterOptions):
     # Additions to make to HTML only (not on HTML embedded in JSON)
     # called from doResponse2 if do_html_process is set
     if html.startswith("<?xml"): link_close = " /"
@@ -2869,7 +2870,7 @@ if(document.getElementById && !%s && document.readyState!='complete') document.w
         else: # no cssName: stylesheet always on
           headAppend += '<link rel="stylesheet" type="text/css" href="%s"%s>' % (cssToAdd,link_close)
           if attrsToAdd and slow_CSS_switch: html=addCssHtmlAttrs(html,attrsToAdd)
-    if options.htmlFilterName and options.htmlFilter:
+    if options.htmlFilterName and options.htmlFilter and addHtmlFilterOptions:
         if '#' in options.htmlFilter: bodyAppend1 = reloadSwitchJSMultiple("adjustNoFilter",jsCookieString,True,options.htmlFilterName.split("#"),cookieHostToSet,cookieExpires) # (better put the multi-switch at the start of the options; it might be the most-used option.  Put it into bodyAppend1: we don't want the word "Off" to be misread as part of the next option string, seeing as the word before it was probably not "On", unlike normal reloadSwitchJS switches)
         else: bodyAppend += reloadSwitchJS("adjustNoFilter",jsCookieString,True,options.htmlFilterName,cookieHostToSet,cookieExpires) # (after the CSS if it's only an on/off)
     if canRender:
