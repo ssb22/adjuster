@@ -183,7 +183,7 @@ parser.add_option("--golang",
                   help="Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on AppEngine.")
 
 parser.add_option("--reannotator",
-                  help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  (If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text.)  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
+                  help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text, and if prefixed by ## it will be given text#annotation.  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
 # (Could just get the reannotator to post-process the 1st annotator's output, but that might be slower than generating an altered annotator with it)
 
 #  =========== ANALYSIS OPTIONS ==============
@@ -2897,7 +2897,8 @@ def matchingAction(rule,glossDic,glossMiss):
     gloss = glossDic.get((text_unistr,annotation_unistr),glossDic.get(text_unistr,None))
     if gloss: gloss = gloss.replace('&','&amp;').replace('"','&quot;') # because it'll be in a title= attribute
     if reannotator:
-      if reannotator[0]=='#': toAdd=annotation_unistr
+      if reannotator.startswith('##'): toAdd = text_unistr + '#' + annotation_unistr
+      elif reannotator[0]=='#': toAdd=annotation_unistr
       else: toAdd = text_unistr
       if toAdd in reannotateDict: annotation_unistr = reannotateDict[toAdd]
       else: toReannotateSet.add(toAdd)
@@ -2972,11 +2973,12 @@ def outputParser(rulesAndConds):
     if reannotator:
       sys.stderr.write("Reannotating... ")
       dryRun()
-      if reannotator[0]=='#': cmd=reannotator[1:]
+      if reannotator.startswith('##'): cmd=reannotator[2:]
+      elif reannotator[0]=='#': cmd=reannotator[1:]
       else: cmd = reannotator
       cin,cout = os.popen2(cmd)
       global toReannotateSet, reannotateDict
-      l = [ll for ll in toReannotateSet if ll and not "\n" in ll]
+      l = [ll for ll in toReannotateSet if ll and not "\n" in ll] # TODO: handle the case where "\n" is in ll?  (shouldn't happen in 'sensible' annotators)
       cin.write("\n".join(l).encode(outcode)+"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
       l2 = cout.read().decode(outcode).splitlines() # TODO: ditto?
       del cin,cout,cmd
