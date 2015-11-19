@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# TermLayout v0.11 (c) 2014 Silas S. Brown
+# TermLayout v0.12 (c) 2014-2015 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -680,7 +680,7 @@ screenWidth = screenDim('COLUMNS')
 
 def htmlPreprocess(h):
     hl = h.lower()
-    for tag1,tag2 in [('<!--','-->'),('<script','</script>'),('<style','</style>')]:
+    for tag1,tag2 in [('<!--','-->'),('<script','</script>'),('<style','</style>'),('<head','</head>')]:
         s = 0
         while True:
             s = hl.find(tag1,s)
