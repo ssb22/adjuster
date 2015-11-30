@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.199a (c) 2012-15 Silas S. Brown"
+program_name = "Web Adjuster v0.2 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -68,9 +68,9 @@ define("user",help="The user name to run as, instead of root. This is for Unix m
 define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with real_proxy.")
 define("password",help="The password. If this is set, nobody can connect without specifying ?p= followed by this password. It will then be sent to them as a cookie so they don't have to enter it every time. Notes: (1) If wildcard_dns is False and you have multiple domains in host_suffix, then the password cookie will have to be set on a per-domain basis. (2) On a shared server you probably don't want to specify this on the command line where it can be seen by process-viewing tools; use a configuration file instead.")
 define("password_domain",help="The domain entry in host_suffix to which the password applies. For use when wildcard_dns is False and you have several domains in host_suffix, and only one of them (perhaps the one with an empty default_site) is to be password-protected, with the others public. If this option is used then prominentNotice (if set) will not apply to the passworded domain. You may put the password on two or more domains by separating them with slash (/).") # prominentNotice not apply: on the assumption that those who know the password understand what the tool is
-define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * when this is ignored and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
+define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * when this is ignored and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
 define("open_proxy",default=False,help="Whether or not to allow running with no password. Off by default as a safeguard against accidentally starting an open proxy.")
-define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separated list of regular expressions specifying URLs that are not allowed to be fetched unless --real-proxy is in effect. Browsers requesting a URL that contains any of these will be redirected to the original site. Use for example if you want people to go direct when posting their own content to a particular site (this is of only limited use if your server also offers access to any other site on the Web, but it might be useful when that's not the case).")
+define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separated list of regular expressions specifying URLs that are not allowed to be fetched unless --real-proxy is in effect. Browsers requesting a URL that contains any of these will be redirected to the original site. Use for example if you want people to go direct when posting their own content to a particular site (this is of only limited use if your server also offers access to any other site on the Web, but it might be useful when that's not the case). Include ^https in the list to prevent Web Adjuster from fetching HTTPS pages for adjustment and return over normal HTTP. This access is enabled by default now that many sites use HTTPS for public pages that don't really need to be secure, just to get better placement on some search engines, but if sending confidential information to the site then beware you are trusting the Web Adjuster machine and your connection to it, plus its certificate verification might not be as thorough as your browser's.")
 define("real_proxy",default=False,help="Whether or not to accept requests with original domains like a \"real\" HTTP proxy.  Warning: this bypasses the password and implies open_proxy.  Off by default.")
 define("via",default=True,help="Whether or not to update the Via: and X-Forwarded-For: HTTP headers when forwarding requests") # (Via is "must" in RFC 2616)
 define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.")
@@ -87,7 +87,7 @@ define("host_suffix",default=getfqdn_default,help="The last part of the domain n
 # TODO at lower priority: empty (item in) host_suffix to match ALL (unknown) hosts, including IP hosts and no Host: header.  Fetch the corresponding default_site (empty means use cookies), and adjust it USING THE HOST SPECIFIED BY THE BROWSER to rewrite the links.  This could be useful if setting up an adjuster with NO domain name (IP only).  Could periodically upload our public IP to a separate static website via FTP/SSH/etc in case dynamic DNS is not reliable.  But if IP address has to change then all cookies would be 'lost'.  Also, if no password is set then IP-based "webserver probes" could cause us to send malicious-looking traffic to default_site.
 # TODO: Could do different hosts on different ports, which might also be useful if you have a domain name but only one.  Would have to check for cookie sharing (or just say "do this only if you don't mind it"); fasterServer would have to forward to same as incoming port.  Might be a problem if some users' firewalls disallow outgoing Web traffic to non-standard ports.
 # (In the current code, setting host_suffix to a public IP address should work: most browsers set Host: to the IP if requesting a URL by IP, and then the IP will be used in rewrites if it's the first thing specified for its corresponding default_site.  But adjuster will need to be reconfigured and restarted on every change of the public IP.)
-define("default_site",help="The site to fetch from if nothing is specified before host_suffix. If this is omitted then the user is given a URL box when that happens.")
+define("default_site",help="The site to fetch from if nothing is specified before host_suffix, e.g. example.org (add .0 at the end to specify an HTTPS connection, but see the 'prohibit' option). If default_site is omitted then the user is given a URL box when no site is specified.") # using .0 here rather than https:// prefix because / is a separator: see the host_suffix help text (TODO: change the separator? but don't break existing installations)
 define("own_server",help="Where to find your own web server. This can be something like localhost:1234 or 192.168.0.2:1234. If it is set, then any request that does not match host_suffix will be passed to that server to deal with, unless real_proxy is in effect. You can use this option to put your existing server on the same public port without much reconfiguration. Note: the password option will NOT password-protect your own_server. (You might gain a little responsiveness if you instead set up nginx or similar to direct incoming requests appropriately; see comments in adjuster.py for example nginx settings.)")
 # without much reconfiguration: might just need to change which port number it listens on.
 # Alternatively you could set nginx (or similar) to reverse-proxy the host_suffix domains to the adjuster, e.g.:
@@ -124,7 +124,7 @@ heading("General adjustment options")
 define("default_cookies",help="Semicolon-separated list of name=value cookies to send to all remote sites, for example to set preferences. Any cookies that the browser itself sends will take priority over cookies in this list. Note that these cookies are sent to ALL sites. You can set a cookie only on a specific browser by putting (browser-string) before the cookie name, e.g. (iPad)x=y will set x=y only if 'iPad' occurs in the browser string (to match more than one browser-string keyword, you have to specify the cookie multiple times).") # TODO: site-specific option
 # TODO: sets of adjustments can be switched on and off at a /__settings URL ?  or leave it to the injected JS
 define("headAppend",help="Code to append to the HEAD section of every HTML document that has a BODY. Use for example to add your own stylesheet links and scripts. Not added to documents that lack a BODY such as framesets.")
-define("headAppendCSS",help="URL of a stylesheet for headAppend.  This option automatically generates the LINK REL=... markup for it, and also tries to delete the string '!important' from other stylesheets, to emulate setting this stylesheet as a user CSS.  You can also include one or more 'fields' in the URL, by marking them with %s and following the URL with options e.g. http://example.org/style%s-%s.css;1,2,3;A,B will allow combinations like style1-A.css or style3-B.css; in this case appropriate selectors are provided with the URL box (values may optionally be followed by = and a description), and any visitors who have not set their options will be redirected to the URL box to do so.") # TODO: fill in a default URL in the URL box when doing this ?
+define("headAppendCSS",help="URL of a stylesheet for headAppend.  This option automatically generates the LINK REL=... markup for it, and also tries to delete the string '!important' from other stylesheets, to emulate setting this stylesheet as a user CSS.  You can also include one or more 'fields' in the URL, by marking them with %s and following the URL with options e.g. http://example.org/style%s-%s.css;1,2,3;A,B will allow combinations like style1-A.css or style3-B.css; in this case appropriate selectors are provided with the URL box (values may optionally be followed by = and a description), and any visitors who have not set their options will be redirected to the URL box to do so.")
 define("protectedCSS",help="A regular expression matching URLs of stylesheets with are \"protected\" from having their '!important' strings deleted by headAppendCSS's logic. This can be used for example if you are adding scripts to allow the user to choose alternate CSS files in place of headAppendCSS, and you wish the alternate CSS files to have the same status as the one supplied in headAppendCSS.")
 define("cssName",help="A name for the stylesheet specified in headAppendCSS, such as \"High Contrast\".  If cssName is set, then the headAppendCSS stylesheet will be marked as \"alternate\", with Javascript links at the bottom of the page for browsers that lack their own CSS switching options.  If cssName begins with a * then the stylesheet is switched on by default; if cssName is not set then the stylesheet (if any) is always on.")
 define("cssNameReload",multiple=True,default="IEMobile 6,IEMobile 7,IEMobile 8,Opera Mini,Opera Mobi,rekonq",help="List of (old) browsers that require alternate code for the cssName option, which is slower as it involves reloading the page on CSS switches.  Use this if the CSS switcher provided by cssName does nothing on your browser.") # Opera Mini sometimes worked and sometimes didn't; maybe there were regressions at their proxy; JS switcher needs network traffic anyway on Opera Mini so we almost might as well use the reloading version (but in Spring 2014 they started having trouble with reload() AS WELL, see cssReload_cookieSuffix below)
@@ -152,7 +152,7 @@ define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted we
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page.")
 
 heading("External processing options")
-define("htmlFilter",help="External program(s) to run to filter every HTML document. If more than one program is specified separated by # then the user will be given a choice (see htmlFilterName option). Any shell command can be used; its standard input will get the HTML (or the plain text if htmlText is set), and it should send the new version to standard output. Multiple copies of each program might be run at the same time to serve concurrent requests. UTF-8 character encoding is used. If you are not able to run external programs then you could use a back-end server (specify an http:// URL and input is POSTed in the request body) or a Python function (specify * followed by the function name, and inject the function into the adjuster module from a wrapper script; the function is run in the serving thread).") # (so try to make it fast, although this is not quite so essential in WSGI mode; if you're in WSGI mode then I suggest getting the function to import any large required modules on-demand)
+define("htmlFilter",help="External program(s) to run to filter every HTML document. If more than one program is specified separated by # then the user will be given a choice (see htmlFilterName option). Any shell command can be used; its standard input will get the HTML (or the plain text if htmlText is set), and it should send the new version to standard output. Multiple copies of each program might be run at the same time to serve concurrent requests. UTF-8 character encoding is used. If you are not able to run external programs then you could use a back-end server (specify an http:// or https:// URL and input is POSTed in the request body) or a Python function (specify * followed by the function name, and inject the function into the adjuster module from a wrapper script; the function is run in the serving thread).") # (so try to make it fast, although this is not quite so essential in WSGI mode; if you're in WSGI mode then I suggest getting the function to import any large required modules on-demand)
 define("htmlFilterName",help="A name for the task performed by htmlFilter. If this is set, the user will be able to switch it on and off from the browser via a cookie and some Javascript links at the bottom of HTML pages. If htmlFilter lists two or more options, htmlFilterName should list the same number plus one (again separated by #); the first is the name of the entire category (for example \"filters\"), and the user can choose between any one of them or none at all (hence the number of options is one more than the number of filters); if this yields more than 3 options then all but the first two are hidden behind a \"More\" option on some browsers.") # TODO: non-Javascript fallback for the switcher
 define("htmlJson",default=False,help="Try to detect HTML strings in JSON responses and feed them to htmlFilter. This can help when using htmlFilter with some AJAX-driven sites. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple HTML strings in the same JSON response will be given to it separated by newlines, and the newlines of the output determine which fragment to put back where. (If you combine htmlJson with htmlText, the external program will see text in HTML in JSON as well as text in HTML, but it won't see text in HTML in JSON in HTML.)")
 define("htmlText",default=False,help="Causes the HTML to be parsed, and only the text parts (not the markup) will be sent to htmlFilter. Useful to save doing HTML parsing in the external program. The external program is still allowed to include HTML markup in its output. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple text strings will be given to it separated by newlines, and the newlines of the output determine which modified string to put back where.")
@@ -380,6 +380,17 @@ def dedot(domain):
     if len(d2) > 63: return domain # because RFC 1035 puts a 63-byte limit on each label (so our cross-domain preferences cookies can't work on very long domains, TODO document this?)
     else: return d2
 def redot(domain): return domain.replace("--","@MINUS@").replace("-",".").replace("@MINUS@","-")
+
+def protocolAndHost(realHost):
+    # HTTPS hack: host ends with .0 = use HTTPS instead of HTTP
+    # (the dot will be represented as a hyphen by dedot/redot,
+    # but some servers e.g. GAE can't cope with any part of the
+    # wildcard domain ending with a hyphen, so add the 0;
+    # TODO: change this if ICANN come out with numerical TLDs)
+    if realHost.endswith(".0"): return "https://",realHost[:-2]
+    else: return "http://",realHost
+def protocolWithHost(realHost):
+    x,y = protocolAndHost(realHost) ; return x+y
 
 def changeConfigDirectory(fname):
     fdir,ffile = os.path.split(fname)
@@ -789,11 +800,11 @@ class BrowserLogger:
     req=req.request
     if hasattr(req,"suppress_logging"): return
     if req.method not in the_supported_methods and not options.logUnsupported: return
-    if req.method=="CONNECT" or req.uri.startswith("http://"): host="" # URI will have everything
+    if req.method=="CONNECT" or req.uri.startswith("http://") or req.uri.startswith("https://"): host="" # URI will have everything
     elif hasattr(req,"suppress_logger_host_convert"): host = req.host
     else: host=convert_to_real_host(req.host,ch)
     if host==-1: host=req.host # for own_server (but this shouldn't happen as it was turned into a CONNECT; we don't mind not logging own_server because it should do so itself)
-    elif host: host="http://"+host
+    elif host: host=protocolWithHost(host)
     # elif host==0: host="http://"+ch # e.g. adjusting one of the ownServer_if_not_root pages (TODO: uncomment this?)
     else: host=""
     browser = req.headers.get('User-Agent',None)
@@ -1090,6 +1101,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
 
     def addToHeader(self,header,toAdd):
         val = self.request.headers.get(header,"")
+        if (", "+val).endswith(", "+toAdd): return # seems we're running inside a software stack that already added it
         if val: val += ", "
         self.request.headers[header] = val+toAdd
 
@@ -1189,15 +1201,15 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     
     def handle_URLbox_query(self,v):
         self.set_htmlonly_cookie()
-        if v.startswith("https://"): return self.redirect(v) # for now (if someone pastes an SSL URL into the box by mistake)
-        if not v.startswith("http://"):
+        if not (v.startswith("http://") or v.startswith("https://")):
             if ' ' in v or not '.' in v: v=getSearchURL(v)
             else: v="http://"+v
-        if not options.wildcard_dns:
-            i = len("http://") ; j = i
+        if not options.wildcard_dns: # need to use cookie_host
+            j = i = v.index('/')+2 # after the http:// or https://
             while j<len(v) and v[j] in string.letters+string.digits+'.-': j += 1
-            v2 = v[i:j]
-            ch = self.cookie_host(checkURL=False)
+            v2 = v[i:j] # the hostname we want to request
+            if v[i-4]=='s': v2 += '.0' # HTTPS hack (see protocolAndHost)
+            ch = self.cookie_host(checkURL=False) # current cookie hostname
             if convert_to_requested_host(v2,ch)==v2: # can't do it without changing cookie_host
                 if enable_adjustDomainCookieName_URL_override:
                     # do it by URL so they can bookmark it (that is if it doesn't immediately redirect)
@@ -1280,7 +1292,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def handleGoAway(self,realHost):
         if not options.renderOmitGoAway or not self.checkBrowser(options.renderOmit): return False
         # TODO: option to redirect immediately without this message?  (but then we'd be supplying a general redirection service, which might have issues of its own)
-        if realHost: msg = ' and <a href="http://%s%s">go directly to the original site</a>' % (realHost,self.request.uri)
+        if realHost: msg = ' and <a href="%s%s">go directly to the original site</a>' % (protocolWithHost(realHost),self.request.uri)
         else: msg = ''
         self.add_nocache_headers()
         self.write("%s<h1>You don't need this!</h1>This installation of Web Adjuster has been set up to change certain characters into pictures, for people using old computers that don't know how to display them themselves. However, <em>you</em> seem to be using equipment that is <noscript>either </noscript>definitely capable of showing these characters by itself<noscript>, or else wouldn't be able to show the pictures anyway<!-- like Lynx --></noscript>. Please save our bandwidth for those who really need it%s. Thank you.</body></html>" % (htmlhead("Web Adjuster"),msg))
@@ -1350,7 +1362,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def serve_URLbox(self):
         if not options.wildcard_dns: self.clearUnrecognisedCookies() # TODO: optional?
         self.addCookieFromURL()
-        self.doResponse2(urlbox_html(self.htmlOnlyMode(),self.cssOptionsHtml()),True,False) # TODO: run htmlFilter on it also? (render etc will be done by doResponse2)
+        self.doResponse2(urlbox_html(self.htmlOnlyMode(),self.cssOptionsHtml(),self.getArg("q") or self.getArg("d")),True,False) # TODO: run htmlFilter on it also? (render etc will be done by doResponse2)
 
     def serve_mailtoPage(self):
         uri = self.request.uri[len(options.mailtoPath):].replace('%%+','%') # we encode % as %%+ to stop browsers and transcoders from arbitrarily decoding e.g. %26 to &
@@ -1563,7 +1575,7 @@ document.forms[0].i.focus()
                   elif maybeRobots: return self.serveRobots()
                   else: options.auth_error = "auth_error set incorrectly (own_server not set)" # see auth_error help (TODO: is it really a good idea to say this HERE?)
               elif maybeRobots: return self.serveRobots()
-              elif options.auth_error.startswith("http://"): return self.redirect(options.auth_error)
+              elif options.auth_error.startswith("http://") or options.auth_error.startswith("https://"): return self.redirect(options.auth_error)
               if options.auth_error.startswith("*"): auth_error = options.auth_error[1:]
               else:
                   self.set_status(401)
@@ -1592,7 +1604,7 @@ document.forms[0].i.focus()
             if v: return self.handle_URLbox_query(v)
             else: return self.serve_URLbox()
         if maybeRobots: return self.serveRobots()
-        if self.needCssCookies(): return self.redirect("http://"+hostSuffix()+publicPortStr()+"/") # go to the URL box - need to set more options (TODO: keep the host+URL they put as the box's default contents?)
+        if self.needCssCookies(): return self.redirect("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri)) # go to the URL box - need to set more options
         self.addCookieFromURL() # for cookie_host
         converterFlags = []
         for opt,suffix,ext,fmt in [
@@ -1605,8 +1617,9 @@ document.forms[0].i.focus()
                 self.request.uri = self.request.uri[:-len(suffix)]
                 converterFlags.append(True)
             else: converterFlags.append(False)
+        protocol,realHost = protocolAndHost(realHost)
         self.change_request_headers(realHost,isProxyRequest)
-        self.urlToFetch = "http://"+self.request.headers["Host"]+self.request.uri
+        self.urlToFetch = protocol+self.request.headers["Host"]+self.request.uri
         if not isProxyRequest and any(re.search(x,self.urlToFetch) for x in options.prohibit):
             self.restore_request_headers()
             return self.redirect(self.urlToFetch)
@@ -1623,18 +1636,26 @@ document.forms[0].i.focus()
     
     def change_request_headers(self,realHost,isProxyRequest):
         def fixDNS(val):
+            # undo our domain rewrites (for Referer and for the path part of the URL); change http://X-0 to https://X (HTTPS hack)
             if isProxyRequest: return val
-            if val.startswith("http://"): return "http://"+fixDNS(val[7:])
-            i=0
+            start = 0
+            for http in ["http://", "http%3A%2F%2F",
+                         "https://", "https%3A%2F%2F"]:
+                if val.startswith(http):
+                    start = len(http) ; break
+            i = start ; proto = val[:start]
             while i<len(val) and val[i] in string.letters+string.digits+'.-': i += 1
             if i<len(val) and val[i]==':': # port no.
                 i += 1
                 while i<len(val) and val[i] in string.digits: i += 1
-            if not i: return val
-            r=convert_to_real_host(val[:i],self.cookie_host())
+            if i==start: return val
+            r=convert_to_real_host(val[start:i],self.cookie_host())
             if r==-1: return val # shouldn't happen
             elif not r: r="" # ensure it's a string
-            return r+val[i:]
+            elif r.endswith(".0"): # undo HTTPS hack
+                r = r[:-2]
+                if proto and not proto.startswith("https"): proto=proto[:4]+'s'+proto[5:] # (TODO: what if not proto here?)
+            return proto+r+val[i:]
         if options.default_cookies:
           for defaultCookie in options.default_cookies.split(';'):
             defaultCookie = defaultCookie.strip()
@@ -1669,8 +1690,8 @@ document.forms[0].i.focus()
         for http in ["http://","http%3A%2F%2F"]: # xyz?q=http://... stuff
           if http in self.request.uri[1:]:
             u=self.request.uri.split(http)
-            for i in range(1,len(u)): u[i]=fixDNS(u[i])
-            self.request.uri=http.join(u)
+            for i in range(1,len(u)): u[i]=fixDNS(http+u[i])
+            self.request.uri="".join(u)
         self.accept_stuff = []
         for h in ['Connection','Proxy-Connection','Accept-Charset','Accept-Encoding','X-Forwarded-Host','X-Forwarded-Port','X-Forwarded-Server','X-Forwarded-Proto','X-Request-Start','Range']: # TODO: we can pass Range to remote server if and only if we guarantee not to need to change anything  (could also add If-Range and If-None-Match to the list, but these should be harmless to pass to the remote server and If-None-Match might actually help a bit in the case where the document doesn't change)
             l = self.request.headers.get_list(h)
@@ -1727,7 +1748,7 @@ document.forms[0].i.focus()
             except: pass
         if viewSource:
             def h2html(h): return "<br>".join("<b>"+txt2html(k)+"</b>: "+txt2html(v) for k,v in sorted(h.get_all()))
-            return self.doResponse2("<html><body><a href=\"#1\">Headers sent</a> | <a href=\"#2\">Headers received</a> | <a href=\"#3\">Page source</a> | <a href=\"#4\">Bottom</a> <a name=\"1\"></a><h2>Headers sent</h2>"+h2html(self.request.headers)+"<a name=\"2\"></a><h2>Headers received</h2>"+h2html(response.headers)+"<a name=\"3\"></a><h2>Page source</h2>"+txt2html(response.body)+"<hr><a name=\"4\"></a>This is "+serverName_html,True,False)
+            return self.doResponse2("<html><head><title>Source of "+ampEncode(self.urlToFetch)+" - Web Adjuster</title></head><body><a href=\"#1\">Headers sent</a> | <a href=\"#2\">Headers received</a> | <a href=\"#3\">Page source</a> | <a href=\"#4\">Bottom</a><br>Fetched "+ampEncode(self.urlToFetch)+" <h2><a name=\"1\"></a>Headers sent</h2>"+h2html(self.request.headers)+"<a name=\"2\"></a><h2>Headers received</h2>"+h2html(response.headers)+"<a name=\"3\"></a><h2>Page source</h2>"+txt2html(response.body)+"<hr><a name=\"4\"></a>This is "+serverName_html,True,False)
         headers_to_add = []
         if (do_pdftotext or do_epubtotext or do_epubtozip or do_mp3) and not response.headers.get("Location","") and response.headers.get("Content-type","").startswith("text/"):
           # We thought we were going to get a PDF etc that could be converted, but it looks like they just sent more HTML (perhaps a "which version of the PDF did you want" screen)
@@ -1741,12 +1762,12 @@ document.forms[0].i.focus()
           elif do_epubtozip and name.lower()=="content-disposition" and value.replace('"','').endswith(".epub"):
             epub = value.rfind(".epub")
             value=value[:epub]+".zip"+value[epub+5:]
-          elif "access-control-allow-origin" in name.lower(): value=domain_process(value,cookie_host,True) # might need this for JSON responses to scripts that are used on a site's other domains
+          elif "access-control-allow-origin" in name.lower(): value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https")) # might need this for JSON responses to scripts that are used on a site's other domains
           elif "location" in name.lower():
             old_value_1 = value # before domain_process
             if not isProxyRequest:
-                value=domain_process(value,cookie_host,True)
-                offsite = (value==old_value_1 and value.startswith("http://")) # i.e. domain_process didn't change it, and it's not relative
+                value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"))
+                offsite = (value==old_value_1 and (value.startswith("http://") or value.startswith("https://"))) # i.e. domain_process didn't change it, and it's not relative
             else: offsite = False # proxy requests are never "offsite"
             old_value_2 = value # after domain_process but before PDF/EPUB-etc rewrites
             if do_pdftotext: # is it still going to be pdf after the redirect?
@@ -1758,7 +1779,7 @@ document.forms[0].i.focus()
             if do_mp3:
               if value.lower().endswith(".mp3"): value += mp3lofi_suffix
             if offsite and not old_value_2==value:
-                # ouch, we're not going to be able to do it this way because it's redirecting to somewhere we can't domain-proxy for.  But we could follow the redirects ourselves to do the conversion:
+                # ouch, we're not going to be able to do it this way because it's redirecting to somewhere we can't domain-proxy for.  But we could follow the redirects ourselves to do the conversion (TODO: check options.prohibit against the redirects?) :
                 return self.sendRequest(converterFlags,viewSource,isProxyRequest,follow_redirects=True)
                 # TODO: if that sendRequest results in HTML, overriding the do_... options, the browser will end up with an incorrect idea of the current address; might want to detect this and give the user the unchanged Location: header
             # else: do_pdftotext=do_epubtotext=do_epubtozip=do_mp3=False # do not attempt to media-process any body that is sent with this Location: redirect (if it's just a copy of the URL then running it through ebook-convert might hold things up unnecessarily)
@@ -1769,7 +1790,7 @@ document.forms[0].i.focus()
                 # (The same thing can occur if offsite is False but we're redirecting to one of our other domains, hence we use the old_value_1.startswith condition instead of the 'offsite' flag; the latter is true only if NONE of our domains can do it.)
                 # (DON'T just do this for ANY offsite url when in cookie_host mode - that could mess up images and things.  (Could still mess up images etc if they're served from / with query parameters; for now we're assuming path=/ is a good condition to do this.  The whole cookie_host thing is a compromise anyway; wildcard_dns is better.))
                 if offsite: reason="which this adjuster is not currently set to adjust"
-                else: reason="which will be adjusted at %s (not here)" % (value[len("http://"):(value+"/").index('/',len("http://"))],)
+                else: reason="which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html><body>The server is redirecting you to <a href=\"%s\">%s</a> %s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
           elif "set-cookie" in name.lower():
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host)
@@ -1859,7 +1880,7 @@ document.forms[0].i.focus()
             elif self.isKindle(): runFilter(("ebook-convert \"%s\" \"%s.mobi\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)), False)
             else: runFilter(("ebook-convert \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)), False)
             return
-        if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host) # first, so filters to run and scripts to add can mention new domains without these being redirected back
+        if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host,https=self.urlToFetch.startswith("https")) # first, so filters to run and scripts to add can mention new domains without these being redirected back
         # Must also do things like 'delete' BEFORE the filters, especially if lxml is in use and might change the code so the delete patterns aren't recognised.  But do JS process BEFORE delete, as might want to pick up on something that was there originally.  (Must do it AFTER domain process though.)
         if do_js_process: body = js_process(body,self.urlToFetch)
         if not self.checkBrowser(options.deleteOmit):
@@ -2019,8 +2040,10 @@ def searchHelp():
     elif len(options.search_sites)==1: return " (or enter search terms)"
     else: return " or enter search terms, first word can be "+", ".join([x.split(None,1)[1] for x in options.search_sites])
 def htmlhead(title): return '<html><head><title>%s</title><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head><body>' % title
-def urlbox_html(htmlonly_checked,cssOpts_html):
-    r = htmlhead('Web Adjuster start page')+'<form action="/">'+options.boxPrompt+': <input type="text" name="q"><input type="submit" value="Go">'+searchHelp()+cssOpts_html # 'go' button MUST be first, before cssOpts_html, because it's the button that's hit when Enter is pressed.  (So might as well make the below focus() script unconditional even if there's cssOpts_html.  Minor problem is searchHelp() might get in the way.)
+def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
+    r = htmlhead('Web Adjuster start page')+'<form action="/">'+options.boxPrompt+': <input type="text" name="q"'
+    if default_url: r += ' value="'+default_url+'"'
+    r += '><input type="submit" value="Go">'+searchHelp()+cssOpts_html # 'go' button MUST be first, before cssOpts_html, because it's the button that's hit when Enter is pressed.  (So might as well make the below focus() script unconditional even if there's cssOpts_html.  Minor problem is searchHelp() might get in the way.)
     if htmlonly_checked: htmlonly_checked=' checked="checked"'
     else: htmlonly_checked = ""
     if options.htmlonly_mode:
@@ -2179,7 +2202,7 @@ def runFilter(cmd,text,callback,textmode=True):
     # callable such as the Renderer.  Similarly if 'cmd'
     # starts with a * then we assume the rest is the name
     # of a Python function to call on the text.  And if it
-    # starts with http:// then we assume it's a back-end
+    # starts with http(s?):// then we assume it's a back-end
     # server to query.
     if type(cmd)==type("") and cmd.startswith("*"):
         cmd = eval(cmd[1:]) # (normally a function name, but any Python expression that evaluates to a callable is OK, TODO: document this?  and incidentally if it evaluates to a string that's OK as well; the string will be given to an external command)
@@ -2188,7 +2211,7 @@ def runFilter(cmd,text,callback,textmode=True):
         # slightly more roundabout version to give watchdog ping a chance to work between cmd and callback:
         out = cmd(text)
         return IOLoop.instance().add_timeout(time.time(),lambda *args:callback(out,""))
-    elif cmd.startswith("http://"):
+    elif cmd.startswith("http://") or cmd.startswith("https://"):
         return httpfetch(cmd,method="POST",body=text,callback=lambda r:callback(r.body,""))
     def subprocess_thread():
         global helper_thread_count
@@ -2310,7 +2333,7 @@ class AddConversionLinks:
         attrsD = dict(attrs)
         if tag=="a" and attrsD.get("href",None):
             l = attrsD["href"].lower()
-            if l.startswith("http://"):
+            if l.startswith("http://") or l.startswith("https://"):
                 if not self.offsite_ok and not url_is_ours(l): return # "offsite" link, can't process (TODO: unless we send it to ourselves via an alternate syntax)
                 # TODO: (if don't implement processing the link anyway) insert explanatory text for why an alternate link wasn't provided?
             elif options.mailtoPath and l.startswith("mailto:"):
@@ -2707,36 +2730,35 @@ def find_HTML_in_JSON(jsonStr,htmlListFunc=None):
         j = k
     codeTextList.append(jsonStr[i:])
     return codeTextList
-    
-def domain_process(text,cookieHost=None,stopAtOne=False):
-    # Change the domains on appropriate http:// URLs.
+
+def domain_process(text,cookieHost=None,stopAtOne=False,https=None):
+    # Change the domains on appropriate http:// and https:// URLs.
+    # Also on // URLs using 'https' as default (if it's not None).
     # Hope that there aren't any JS-computed links where
     # the domain is part of the computation.
-    # TODO: https ?  (will need a different HTTPServer on a different port configured to HTTPS with cert and key files)
-    # TODO: what of links to alternate ports or user:password links, currently we leave them unchanged
+    # TODO: what of links to alternate ports or user:password links, currently we leave them unchanged (could use .<portNo> as an extension of the 'HTTPS hack' of .0, but allowing the public to request connects to any port could be a problem)
     # TODO: leave alone URLs in HTML text/comments and JS comments? but script overload can make it hard to judge what is and isn't text. (NB this function is also called for Location headers)
-    start=0
-    while True:
-        i = text.find("http://",start)
-        if i==-1: break
-        if "<!DOCTYPE" in text:
-            # don't touch URLs inside the doctype!
-            dtStart = text.index("<!DOCTYPE")
-            dtEnd = text.find(">",dtStart)
-            if dtStart<i<dtEnd:
-                start = dtEnd ; continue
-        if i and text[i-1].split() and text[:i].rsplit(None,1)[-1].startswith("xmlns"):
-            # don't touch this one either (xmlns="... xmlns:elementname='... etc)
-            start = i+1 ; continue
-        i += len("http://") ; j = i
-        while j<len(text) and text[j] in string.letters+string.digits+'.-': j += 1
-        if (j==len(text) or text[j] in '/?"\'') and not text[j-1] in '.-': # seems like a normal link (omit ones ending with . or - because they're likely to be part of a domain computation; such things are tricky but might be more likely to work if we DON'T touch them if it has e.g. "'test.'+domain" where "domain" is a variable that we've previously intercepted)
-            newhost = convert_to_requested_host(text[i:j],cookieHost) # "" if i==j
-            text = text[:i] + newhost + text[j:]
-            if stopAtOne: return text
-            j=i+len(newhost)
-        start = j
-    return text
+    if "<!DOCTYPE" in text:
+        # don't touch URLs inside the doctype!
+        dtStart = text.index("<!DOCTYPE")
+        dtEnd = text.find(">",dtStart)
+    else: dtStart = dtEnd = -1
+    def mFunc(m):
+        if dtStart<m.start()<dtEnd: return m.group() # avoid doctype
+        i = m.start()
+        if i and text[i-1].split() and text[:i].rsplit(None,1)[-1].startswith("xmlns"): return m.group() # avoid xmlns="... xmlns:elementname='... etc
+        protocol,oldhost = m.groups()
+        if oldhost[-1] in ".-": return m.group() # omit links ending with . or - because they're likely to be part of a domain computation; such things are tricky but might be more likely to work if we DON'T touch them if it has e.g. "'test.'+domain" where "domain" is a variable that we've previously intercepted
+        if protocol=="//":
+            if https: protocol = "https://"
+            else: protocol = "http://"
+        if protocol=="https://": oldhost += ".0" # HTTPS hack (see protocolAndHost)
+        return "http://" + convert_to_requested_host(oldhost,cookieHost) # TODO: unless using https to communicate with the adjuster itself, in which case would either have to run a server with certificates set up or make it a WSGI-etc script running on one, and if that's the case then might wish to check through the rest of the code (search http://) to ensure this would always work well
+    if stopAtOne: count=1
+    else: count=0
+    if https==None: lStart = r"https?://"
+    else: lStart = r"(?:https?://)|(?:(?<=['"+'"'+r"])//)" # 'use current protocol' links, including their use in scripts
+    return re.sub("("+lStart+r")([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)",mFunc,text,count)
 
 def cookie_domain_process(text,cookieHost=None):
     start=0
