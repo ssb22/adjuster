@@ -1575,9 +1575,8 @@ document.forms[0].i.focus()
                   elif maybeRobots: return self.serveRobots()
                   else: options.auth_error = "auth_error set incorrectly (own_server not set)" # see auth_error help (TODO: is it really a good idea to say this HERE?)
               elif maybeRobots: return self.serveRobots()
-              elif options.auth_error.startswith("http://") or options.auth_error.startswith("https://"):
-                  self.add_nocache_headers() # in case they try the exact same request again after authenticating
-                  return self.redirect(options.auth_error)
+              self.add_nocache_headers() # in case they try the exact same request again after authenticating (unlikely if they add &p=..., but they might come back to the other URL later, and refresh is particularly awkward if we redirect)
+              if options.auth_error.startswith("http://") or options.auth_error.startswith("https://"): return self.redirect(options.auth_error)
               if options.auth_error.startswith("*"): auth_error = options.auth_error[1:]
               else:
                   self.set_status(401)
