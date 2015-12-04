@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2 (c) 2012-15 Silas S. Brown"
+program_name = "Web Adjuster v0.201 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1604,7 +1604,9 @@ document.forms[0].i.focus()
             if v: return self.handle_URLbox_query(v)
             else: return self.serve_URLbox()
         if maybeRobots: return self.serveRobots()
-        if self.needCssCookies(): return self.redirect("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri)) # go to the URL box - need to set more options
+        if self.needCssCookies():
+            self.add_nocache_headers() # please don't cache this redirect!  otherwise user might not be able to leave the URL box after:
+            return self.redirect("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri)) # go to the URL box - need to set more options
         self.addCookieFromURL() # for cookie_host
         converterFlags = []
         for opt,suffix,ext,fmt in [
