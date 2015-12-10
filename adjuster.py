@@ -1176,7 +1176,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def serveRobots(self):
         self.add_header("Content-Type","text/plain")
         self.write("User-agent: *\nDisallow: /\n")
-        self.myfinish()
+        self.myfinish() ; return True # for handleGoAway
 
     def serveImage(self,img):
         if not options.renderLog:
@@ -1289,8 +1289,9 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         logging.info("ip_messages: done "+self.request.remote_ip)
         self.myfinish() ; return True
 
-    def handleGoAway(self,realHost):
+    def handleGoAway(self,realHost,maybeRobots):
         if not options.renderOmitGoAway or not self.checkBrowser(options.renderOmit): return False
+        if maybeRobots: return self.serveRobots() # regardless of which browser header it presents
         # TODO: option to redirect immediately without this message?  (but then we'd be supplying a general redirection service, which might have issues of its own)
         if realHost: msg = ' and <a href="%s%s">go directly to the original site</a>' % (protocolWithHost(realHost),self.request.uri)
         else: msg = ''
@@ -1585,7 +1586,7 @@ document.forms[0].i.focus()
               return self.myfinish()
         # Authentication is now OK
         fixServerHeader(self)
-        if self.handleGoAway(realHost): return
+        if self.handleGoAway(realHost,maybeRobots): return
         # Now check if it's an image request:
         _olduri = self.request.uri
         self.request.uri=urllib.unquote(self.request.uri)
