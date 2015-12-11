@@ -15,11 +15,9 @@ program_name = "Annotator Generator v0.594 (c) 2012-15 Silas S. Brown"
 # limitations under the License.
 
 # If you want to compare this code to old versions, the old
-# versions are being kept on SourceForge's E-GuideDog SVN repository
-# http://sourceforge.net/p/e-guidedog/code/HEAD/tree/ssb22/adjuster/
+# versions are being kept in the E-GuideDog SVN repository on
+# http://svn.code.sf.net/p/e-guidedog/code/ssb22/adjuster
 # although some early ones are missing.
-# To check out the repository, you can do:
-# svn co http://svn.code.sf.net/p/e-guidedog/code/ssb22/adjuster
 
 from optparse import OptionParser
 parser = OptionParser()

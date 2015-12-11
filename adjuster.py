@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.201 (c) 2012-15 Silas S. Brown"
+program_name = "Web Adjuster v0.202 (c) 2012-15 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,11 +15,9 @@ program_name = "Web Adjuster v0.201 (c) 2012-15 Silas S. Brown"
 # limitations under the License.
 
 # If you want to compare this code to old versions, the old
-# versions are being kept on SourceForge's E-GuideDog SVN repository
-# http://sourceforge.net/p/e-guidedog/code/HEAD/tree/ssb22/adjuster/
+# versions are being kept in the E-GuideDog SVN repository on
+# http://svn.code.sf.net/p/e-guidedog/code/ssb22/adjuster
 # although some early ones are missing.
-# To check out the repository, you can do:
-# svn co http://svn.code.sf.net/p/e-guidedog/code/ssb22/adjuster
 
 import sys,os
 twoline_program_name = program_name+"\nLicensed under the Apache License, Version 2.0\n"
@@ -73,6 +71,7 @@ define("open_proxy",default=False,help="Whether or not to allow running with no 
 define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separated list of regular expressions specifying URLs that are not allowed to be fetched unless --real-proxy is in effect. Browsers requesting a URL that contains any of these will be redirected to the original site. Use for example if you want people to go direct when posting their own content to a particular site (this is of only limited use if your server also offers access to any other site on the Web, but it might be useful when that's not the case). Include ^https in the list to prevent Web Adjuster from fetching HTTPS pages for adjustment and return over normal HTTP. This access is enabled by default now that many sites use HTTPS for public pages that don't really need to be secure, just to get better placement on some search engines, but if sending confidential information to the site then beware you are trusting the Web Adjuster machine and your connection to it, plus its certificate verification might not be as thorough as your browser's.")
 define("real_proxy",default=False,help="Whether or not to accept requests with original domains like a \"real\" HTTP proxy.  Warning: this bypasses the password and implies open_proxy.  Off by default.")
 define("via",default=True,help="Whether or not to update the Via: and X-Forwarded-For: HTTP headers when forwarding requests") # (Via is "must" in RFC 2616)
+define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP header when forwarding requests, as a courtesy to site administrators who wonder what's happening in their logs (and don't log Via: etc)")
 define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.")
 
 define("upstream_proxy",help="address:port of a proxy to send our requests through, such as a caching proxy to reduce load on websites (putting this upstream of the adjuster should save the site from having to re-serve pages when adjuster settings are changed). This proxy (if set) is used for normal requests, but not for ip_query_url options, own_server, fasterServer or HTTPS requests.") # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies.
@@ -243,7 +242,7 @@ define("renderSize",default=20,help="The height (in pixels) to use for the chara
 define("renderPath",default="/@_",help="The location on every adjusted website to put the character-set renderer's images, if enabled. This must be made up of URL-safe characters starting with a / and should be a short path that is unlikely to occur on normal websites.")
 define("renderFormat",default="png",help="The file format of the images to be created by the character-set renderer if it is enabled, for example 'png' or 'jpeg'.")
 define("renderRange",multiple=True,help="The lowest and highest Unicode values to be given to the character-set renderer if it is enabled. For example 3000:A6FF for most Chinese characters. Multiple ranges are allowed. Any characters NOT in one of the ranges will be passed to the browser to render. If the character-set renderer is enabled without renderRange being set, then ALL text will be rendered to images.")
-define("renderOmit",multiple=True,default="iPhone,iPad,Android,Macintosh,Windows NT 6,Windows Phone OS,Lynx/2",help="A list of platforms that do not need the character-set renderer. If any of these strings occur in the user-agent then the character set renderer is turned off even if it is otherwise enabled, on the assumption that these platforms either have enough fonts already, or wouldn't show the rendered images anyway.") # (Win: Vista=6.0 7=6.1 8=6.2 reportedly don't need language packs for display) (Lynx: being careful by specifying /2 to try to avoid false positives; don't list w3m as some versions can do graphics; not sure about Links/ELinks etc)
+define("renderOmit",multiple=True,default="iPhone,iPad,Android,Macintosh,Windows NT 6,Windows NT 10,Windows Phone OS,Lynx/2",help="A list of platforms that do not need the character-set renderer. If any of these strings occur in the user-agent then the character set renderer is turned off even if it is otherwise enabled, on the assumption that these platforms either have enough fonts already, or wouldn't show the rendered images anyway.") # (Win: Vista=6.0 7=6.1 8=6.2 reportedly don't need language packs for display) (Lynx: being careful by specifying /2 to try to avoid false positives; don't list w3m as some versions can do graphics; not sure about Links/ELinks etc)
 define("renderOmitGoAway",default=False,help="If set, any browsers that match renderOmit will not be allowed to use the adjuster. This is for servers that are set to do character rendering only and do not have enough bandwidth for people who don't need this function and just want a proxy.") # (See also the extended syntax of the headAppendCSS option, which forces all users to choose a stylesheet, especially if cssName is not set; that might be useful if the server's sole purpose is to add stylesheets and you don't want to provide a straight-through service for non-stylesheet users.)
 define("renderCheck",help="If renderOmit does not apply to the browser, it might still be possible to check for native character-set support via Javascript. renderCheck can be set to the Unicode value of a character to be checked (try 802F for complete Chinese support); if the browser reports its width differently from known unprintable characters, we assume it won't need our renderer.") # 802F shouldn't create false positives in environments that support only GB2312, only Big5, only SJIS or only KSC instead of all Chinese. It does have GB+ and Big5+ codes (and also demonstrates that we want a hex number). If browser's "unprintable character" glyph happens to be the same width as renderCheck anyway then we could have a false negative, but that's better than a false positive and the user can still switch it off manually if renderName is left set.
 define("renderNChar",default=1,help="The maximum number of characters per image to be given to the character-set renderer if it is enabled. Keeping this low means the browser cache is more likely to be able to re-use images, but some browsers might struggle if there are too many separate images. Don't worry about Unicode \"combining diacritic\" codes: any found after a character that is to be rendered will be included with it without counting toward the renderNChar limit and without needing to be in renderRange.")
@@ -1090,8 +1089,7 @@ class RequestForwarder(RequestHandler):
         self.clear_header("Content-Type")
         self.add_header("Content-Type","text/html")
         self.inProgress_has_run = True # doResponse2 may set a callback for render, so can't set _finished yet, but do need to set something so txtCallback knows not to write the actual text into this response (TODO could do a "first one there gets it" approach, but it's unlikely to be needed)
-        if self.checkBrowser(["IEMobile 6","IEMobile 7","Opera Mobi"]): warn="<h3>WARNING: Your browser might not save this file</h3>You are using a browser which has been known to try to display text attachments in its own window using very small print, giving no option to save to a file. You might get better results in IEMobile 8+ or Opera Mini (although the latter may have a more limited range of font sizes in the browser itself)." # TODO: make this warning configurable?  See comment after set_header("Content-Disposition",...) below for details
-        else: warn=""
+        warn=self.checkBrowser(["IEMobile 6","IEMobile 7","Opera Mobi"],"<h3>WARNING: Your browser might not save this file</h3>You are using {B}, which has been known to try to display text attachments in its own window using very small print, giving no option to save to a file. You might get better results in IEMobile 8+ or Opera Mini (although the latter may have a more limited range of font sizes in the browser itself).") # TODO: make this warning configurable?  See comment after set_header("Content-Disposition",...) below for details
         self.doResponse2(("""%s<h1>File conversion in progress</h1>The result should start downloading soon. If it does not, try <script><!--
 document.write('<a href="javascript:location.reload(true)">refreshing this page</a>')
 //--></script><noscript>refreshing this page</noscript>.%s%s<hr>This is %s</body></html>""" % (htmlhead("File conversion in progress"),backScript,warn,serverName_html)),True,False)
@@ -1290,13 +1288,15 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         self.myfinish() ; return True
 
     def handleGoAway(self,realHost,maybeRobots):
-        if not options.renderOmitGoAway or not self.checkBrowser(options.renderOmit): return False
+        if not options.renderOmitGoAway: return False
+        browser = self.checkBrowser(options.renderOmit)
+        if not browser: return False
         if maybeRobots: return self.serveRobots() # regardless of which browser header it presents
         # TODO: option to redirect immediately without this message?  (but then we'd be supplying a general redirection service, which might have issues of its own)
         if realHost: msg = ' and <a href="%s%s">go directly to the original site</a>' % (protocolWithHost(realHost),self.request.uri)
         else: msg = ''
         self.add_nocache_headers()
-        self.write("%s<h1>You don't need this!</h1>This installation of Web Adjuster has been set up to change certain characters into pictures, for people using old computers that don't know how to display them themselves. However, <em>you</em> seem to be using equipment that is <noscript>either </noscript>definitely capable of showing these characters by itself<noscript>, or else wouldn't be able to show the pictures anyway<!-- like Lynx --></noscript>. Please save our bandwidth for those who really need it%s. Thank you.</body></html>" % (htmlhead("Web Adjuster"),msg))
+        self.write("%s<h1>You don't need this!</h1>This installation of Web Adjuster has been set up to change certain characters into pictures, for people using old computers that don't know how to display them themselves. However, <em>you</em> seem to be using %s, which is <noscript>either </noscript>definitely capable of showing these characters by itself<noscript>, or else wouldn't be able to show the pictures anyway<!-- like Lynx --></noscript>. Please save our bandwidth for those who really need it%s. Thank you.</body></html>" % (htmlhead("Web Adjuster"),browser,msg))
         self.myfinish() ; return True
 
     def needCssCookies(self):
@@ -1708,6 +1708,7 @@ document.forms[0].i.focus()
             if v.startswith("HTTP/"): v=v[5:]
             self.addToHeader("Via",v+" "+convert_to_via_host(self.request.host)+" ("+viaName+")")
             self.addToHeader("X-Forwarded-For",self.request.remote_ip)
+        if options.uavia: self.addToHeader("User-Agent","via "+convert_to_via_host(self.request.host)+" ("+viaName+")")
     def restore_request_headers(self): # restore the ones Tornado might use (Connection etc)
         if not hasattr(self,"accept_stuff"): return # haven't called change_request_headers (probably means this is user input)
         for k,v in self.accept_stuff: self.request.headers[k]=v
@@ -1990,10 +1991,12 @@ document.forms[0].i.focus()
             if not options.logRedirectFiles: self.request.suppress_logging = True
             self.redirect(self.urlToFetch)
     def isKindle(self): return options.epubtotext and self.checkBrowser(["Kindle"]) and self.checkBrowser(["Linux"]) # (don't do it if epubtotext is false as might want epubtozip links only; TODO: some reports say Kindle Fire in Silk mode doesn't mention "Kindle" in user-agent)
-    def checkBrowser(self,blist):
+    def checkBrowser(self,blist,warn="{B}"):
         assert type(blist)==list # (if it's a string we don't know if we should check for just that string or if we should .split() it on something)
         ua = self.request.headers.get("User-Agent","")
-        return any(b in ua for b in blist)
+        for b in blist:
+            if b in ua: return warn.replace("{B}",b)
+        return ""
 
 class SynchronousRequestForwarder(RequestForwarder):
    def get(self, *args, **kwargs):     return self.doReq()
