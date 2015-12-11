@@ -1174,7 +1174,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def serveRobots(self):
         self.add_header("Content-Type","text/plain")
         self.write("User-agent: *\nDisallow: /\n")
-        self.myfinish() ; return True # for handleGoAway
+        self.myfinish()
 
     def serveImage(self,img):
         if not options.renderLog:
@@ -1291,7 +1291,9 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         if not options.renderOmitGoAway: return False
         browser = self.checkBrowser(options.renderOmit)
         if not browser: return False
-        if maybeRobots: return self.serveRobots() # regardless of which browser header it presents
+        if maybeRobots:
+            self.serveRobots() # regardless of which browser header it presents
+            return True # do NOT shorten this by making serveRobots return True: it must return None due to other uses
         # TODO: option to redirect immediately without this message?  (but then we'd be supplying a general redirection service, which might have issues of its own)
         if realHost: msg = ' and <a href="%s%s">go directly to the original site</a>' % (protocolWithHost(realHost),self.request.uri)
         else: msg = ''
