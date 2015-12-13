@@ -2052,6 +2052,7 @@ def htmlhead(title): return '<html><head><title>%s</title><meta name="mobileopti
 def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
     r = htmlhead('Web Adjuster start page')+'<form action="/">'+options.boxPrompt+': <input type="text" name="q"'
     if default_url: r += ' value="'+default_url+'"'
+    else: r += ' placeholder="http://"' # HTML5 (Firefox 4, Opera 11, MSIE 10, etc)
     r += '><input type="submit" value="Go">'+searchHelp()+cssOpts_html # 'go' button MUST be first, before cssOpts_html, because it's the button that's hit when Enter is pressed.  (So might as well make the below focus() script unconditional even if there's cssOpts_html.  Minor problem is searchHelp() might get in the way.)
     if htmlonly_checked: htmlonly_checked=' checked="checked"'
     else: htmlonly_checked = ""
