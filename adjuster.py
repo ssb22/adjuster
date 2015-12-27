@@ -1387,7 +1387,10 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 if '&' in smsLink:
                     smsLink="[Before sending this text, replace -amp- with an ampersand. This substitution has been done in case your phone isn't compliant with RFC 5724.] "+smsLink.replace('&',' -amp- ')
                     # RFC 5724 shows we ought to get away with ampersands encoded as %26, but on Windows Mobile (Opera or IE) we don't; the SMS is truncated at that point.  TODO: whitelist some other platforms? (test with <a href="sms:?body=test1%26test2">this</a>)
-                smsLink = '<br><a href="sms:?body=%s">Send as SMS (text message)</a>' % urllib.quote(rm_u8punc(smsLink))
+                if self.checkBrowser(["iPhone OS 4","iPhone OS 5","iPhone OS 6","iPhone OS 7"]): sep = ';'
+                elif self.checkBrowser(["iPhone OS 8","iPhone OS 9"]): sep = '&'
+                else: sep = '?'
+                smsLink = '<br><a href="sms:'+sep+'body=%s">Send as SMS (text message)</a>' % urllib.quote(rm_u8punc(smsLink))
                 if self.checkBrowser(["Windows Mobile"]): # TODO: others? configurable?
                     # browsers may also have this problem with EMAIL
                     uri = uri.replace("%26","%20-amp-%20")
