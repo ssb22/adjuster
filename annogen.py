@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.594 (c) 2012-15 Silas S. Brown"
+program_name = "Annotator Generator v0.595 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -536,6 +536,15 @@ while(*s) {
     return byteStr
 else: decompress_func = ""
 
+additional_js_instructions = r"""
+If you need to inject additional Javascript into sites to
+fix things, set the ANNOGEN_EXTRA_JS environment variable
+before running Annotator Generator to (re)generate this
+file.  Make sure it ends with a semicolon (or the close
+brace at the end of an 'if', 'for' or 'while' block).  It
+will be run before each scan for new text to annotate.
+"""
+
 if ios:
   c_preamble = r"""/*
 
@@ -550,7 +559,7 @@ Tested on an iOS 6.1 simulator in Xcode 4.6 on Mac OS 10.7
 Swipe left to go back (as in Safari).
 If your pages refer to clip://anything then that
 link will show and annotate the local clipboard.
-
+"""+additional_js_instructions+r"""
 */
 
 #import <UIKit/UIKit.h>
@@ -849,7 +858,7 @@ c_end += r"""  while(!FINISHED) {
 
 jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;vertical-align:bottom;-webkit-border-vertical-spacing:1px;padding-top:0.5ex;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>'; d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })"
 
-def jsAnnot(alertStr,xtra1,xtra2,annotScan,case3): return "var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } " + alertStr + " }; "+xtra1+" function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { "+xtra2+"all_frames_docs(function(d){walk(d,d,false)}) }; function annotScan() {"+annotScan+"}; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var ps = c.previousSibling, cNext = c.nextSibling; function isTxt(n) {return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"+r"\\"+"s*$/)}; if (c.nodeType==1 && (c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"+r"\\"+"s*$/))))) && isTxt(cNext) && isTxt(ps)) { n.removeChild(c); cNext.previousSibling.nodeValue += cNext.nodeValue; n.removeChild(cNext); cNext = ps } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&!!c.href)); break; case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"+case3+"} } c=cNext } }"
+def jsAnnot(alertStr,xtra1,xtra2,annotScan,case3): return "var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } " + alertStr + " }; "+xtra1+" function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { "+xtra2+"all_frames_docs(function(d){walk(d,d,false)}) }; function annotScan() {"+os.environ.get("ANNOGEN_EXTRA_JS","")+annotScan+"}; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var ps = c.previousSibling, cNext = c.nextSibling; function isTxt(n) {return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"+r"\\"+"s*$/)}; if (c.nodeType==1 && (c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"+r"\\"+"s*$/))))) && isTxt(cNext) && isTxt(ps)) { n.removeChild(c); cNext.previousSibling.nodeValue += cNext.nodeValue; n.removeChild(cNext); cNext = ps } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&!!c.href)); break; case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"+case3+"} } c=cNext } }"
 
 if ios:
   c_end += r"""
@@ -1113,6 +1122,7 @@ android_src = r"""
        to via --android=file:///android_asset/FILENAME
        where FILENAME is the name of your HTML file.
        A clipboard viewer is placed in clipboard.html.
+"""+additional_js_instructions+r"""
 */
 
 package %%JPACKAGE%%;
@@ -1144,9 +1154,17 @@ public class MainActivity extends Activity {
             MainActivity act;
             @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) { String r=new %%JPACKAGE%%.Annotator(t).result(); if(!inLink) r=r.replaceAll("<ruby title=\"","<ruby onclick=\"annotPopAll(this)\" title=\""); return r; }
             @android.webkit.JavascriptInterface public void alert(String t,String a) {
-                android.app.AlertDialog d = new android.app.AlertDialog.Builder(act).create();
-                d.setTitle(t); d.setMessage(a); // don't add setButton, difficulty in API 1 (and can just click outside the dialog to clear). (TODO: would be nice if it could pop up somewhere near the word that was touched)
-                d.show();
+                class DialogTask implements Runnable {
+                    String tt,aa;
+                    DialogTask(String t,String a) { tt=t; aa=a; }
+                    public void run() {
+                        android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
+                        d.setTitle(tt); d.setMessage(aa);
+                        d.setNegativeButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
+                        d.create().show();
+                    }
+                }
+                act.runOnUiThread(new DialogTask(t,a));
             }
             @android.webkit.JavascriptInterface public String getClip() { return readClipboard(); }
             @android.webkit.JavascriptInterface public String getSentText() { return sentText; }
