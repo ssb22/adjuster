@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.202 (c) 2012-15 Silas S. Brown"
+program_name = "Web Adjuster v0.203 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1692,7 +1692,7 @@ document.forms[0].i.focus()
             if v:
                 self.original_referer = v
                 v = fixDNS(v)
-                if v in ["http://","http:///"]:
+                if v in ["","http://","http:///"]:
                     # it must have come from the URL box
                     del self.request.headers["Referer"]
                 else: self.request.headers["Referer"] = v
@@ -1975,7 +1975,7 @@ document.forms[0].i.focus()
         # for options.redirectFiles: it looks like we have a "no processing necessary" request that we can tell the browser to get from the real site.  But just confirm it's not a mis-named HTML document.
         body = self.request.body
         if not body: body = None
-        if hasattr(self,"original_referer"): self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers["Referer"]
+        if hasattr(self,"original_referer"): self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers.get("Referer","") # we'll send the request with the user's original Referer, to check it still works
         ph,pp = upstream_proxy_host, upstream_proxy_port
         httpfetch(self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # same TODO as above
@@ -1984,7 +1984,9 @@ document.forms[0].i.focus()
                   callback=lambda r:self.headResponse(r),follow_redirects=True)
     def headResponse(self,response):
         self.restore_request_headers()
-        if hasattr(self,"original_referer"): self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers["Referer"]
+        if hasattr(self,"original_referer"): # undo the change made above, in case it goes to sendRequest below
+            self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers.get("Referer","")
+            if not self.request.headers.get("Referer",""): del self.request.headers["Referer"] # This line is relevant only if change_request_headers deleted it, i.e. the original request came from the URL box.  Why would anybody type a URL that fits options.redirectFiles?  3 reasons I can think of: (1) website has odd naming for its CGI scripts; (2) person is using privacy software that doesn't remove Referer but does truncate it; (2) person is trying to (mis)use the adjuster to retrieve a file by proxy w/out realising redirectFiles is set (this would get 500 server error on v0.202 but just a redirect on v0.203)
         might_need_processing_after_all = True
         for name,value in response.headers.get_all():
           if name.lower()=="content-type":
