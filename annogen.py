@@ -540,9 +540,10 @@ additional_js_instructions = r"""
 If you need to inject additional Javascript into sites to
 fix things, set the ANNOGEN_EXTRA_JS environment variable
 before running Annotator Generator to (re)generate this
-file.  Make sure it ends with a semicolon (or the close
-brace at the end of an 'if', 'for' or 'while' block).  It
-will be run before each scan for new text to annotate.
+file.  Make sure it ends with a semicolon, or the closing
+brace of an 'if', 'for', 'while' or 'try..catch' (the
+latter is probably a good idea).  The snippet will be run
+before each scan for new text to annotate.
 """
 
 if ios:
