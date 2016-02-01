@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.203 (c) 2012-16 Silas S. Brown"
+program_name = "Web Adjuster v0.204 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1480,7 +1480,7 @@ document.forms[0].i.focus()
     def serve_err(self,err):
         self.set_status(500)
         self.add_header("Content-Type","text/plain")
-        # logging.error(err+' '+repr(self.request.body))
+        logging.error("Bookmarklet error: "+err) # +' '+repr(self.request.body)
         self.write(err) ; self.myfinish()
     def serve_bookmarklet_json(self,filterNo):
         self.add_header("Access-Control-Allow-Origin","*")
@@ -1491,6 +1491,8 @@ document.forms[0].i.focus()
             self.write("OK") ; return self.myfinish()
         try: l = json.loads(self.request.body)
         except: return self.serve_err("Bad JSON")
+        for i in xrange(len(l)):
+            if l[i]=='': l[i] = u'' # shouldn't get this (TODO: fix in bookmarkletMainScript? e.g. if submitBookmarkletFilterJS can match empty strings, or conversion to 'cnv' makes it empty, anything else?), but if we do, don't let it trip up the 'wrong data structue' below
         if not (type(l)==list and all((type(i)==type(u"") and not chr(0) in i) for i in l)): return self.serve_err("Wrong data structure")
         codeTextList = []
         for i in l:
