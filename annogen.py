@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.595 (c) 2012-16 Silas S. Brown"
+program_name = "Annotator Generator v0.596 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -305,6 +305,9 @@ try:
   import locale
   terminal_charset = locale.getdefaultlocale()[1]
 except: terminal_charset = "utf-8"
+try: import urlparse
+except:
+  if os.environ.get("ANNOGEN_ANDROID_URLS"): errExit("Need urlparse module for ANNOGEN_ANDROID_URLS") # unless we re-implement
 if diagnose: diagnose=diagnose.decode(terminal_charset)
 diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
@@ -1038,6 +1041,8 @@ int main(int argc,char*argv[]) {
 
 # ANDROID: setDefaultTextEncodingName("utf-8") is included as it might be needed if you include file:///android_asset/ URLs in your app (files put into assets/) as well as remote URLs.  (If including ONLY file URLs then you don't need to set the INTERNET permission in Manifest, but then you might as well pre-annotate the files and use a straightforward static HTML app like http://people.ds.cam.ac.uk/ssb22/gradint/html2apk.html )
 # Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list)
+additional_intents=''.join(('\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" android:pathPrefix="%s" /></intent-filter>'%(urlparse.urlparse(x).scheme,urlparse.urlparse(x).netloc,urlparse.urlparse(x).path)) for x in os.environ.get("ANNOGEN_ANDROID_URLS","").split())
+if additional_intents and "?" in os.environ["ANNOGEN_ANDROID_URLS"]: errExit("Can't include '?' queries in ANNOGEN_ANDROID_URLS (it and anything after it would be ignored)")
 android_src = r"""
 /* COMPILING
    ---------
@@ -1075,7 +1080,7 @@ android_src = r"""
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" >
 <activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleInstance" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
-<intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>
+<intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>"""+additional_intents+r"""
 </activity></application></manifest>
 ---------------------- cut here ----------------------
     7. Copy new AndroidManifest.xml to the bin/ directory
@@ -1124,6 +1129,10 @@ android_src = r"""
        where FILENAME is the name of your HTML file.
        A clipboard viewer is placed in clipboard.html.
 """+additional_js_instructions+r"""
+       You can also set ANNOGEN_ANDROID_URLS to a
+       whitespace-separated list of URL prefixes to
+       offer to be a browser for.  For example,
+       ANNOGEN_ANDROID_URLS="http://example.com http://example.org/documents"
 */
 
 package %%JPACKAGE%%;
@@ -1186,18 +1195,20 @@ public class MainActivity extends Activity {
         browser.getSettings().setDefaultFixedFontSize(size);
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         runTimerLoop();
-        handleIntent(getIntent());
-        if (sentText == null) browser.loadUrl("%%ANDROID-URL%%");
+        if (!handleIntent(getIntent())) browser.loadUrl("%%ANDROID-URL%%");
     }
     @Override
     public void onNewIntent(Intent intent) {
         super.onNewIntent(intent); handleIntent(intent);
     }
-    void handleIntent(Intent intent) {
+    boolean handleIntent(Intent intent) {
         if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
             sentText = intent.getStringExtra(Intent.EXTRA_TEXT);
-            if (sentText != null) browser.loadUrl("javascript:document.close();document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>'+ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace('\\n','<br>')+'</body>')");
+            if (sentText == null) return false;
+            browser.loadUrl("javascript:document.close();document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>'+ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace('\\n','<br>')+'</body>')");
         }
+        else if (Intent.ACTION_VIEW.equals(intent.getAction())) browser.loadUrl(intent.getData().toString());
+        else return false; return true;
     }
     String sentText = null;
     static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title)","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); "+jsAddRubyCss,"var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
