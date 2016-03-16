@@ -1208,7 +1208,10 @@ public class MainActivity extends Activity {
             if (sentText == null) return false;
             browser.loadUrl("javascript:document.close();document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>'+ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace('\\n','<br>')+'</body>')");
         }
-        else if (Intent.ACTION_VIEW.equals(intent.getAction())) browser.loadUrl(intent.getData().toString());
+        else if (Intent.ACTION_VIEW.equals(intent.getAction())) {
+            browser.loadUrl("javascript:document.close();document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>Loading, please wait...</body>')"); // to avoid misunderstanding if there's already a page there and user thinks it's not working
+            browser.loadUrl(intent.getData().toString());
+        }
         else return false; return true;
     }
     String sentText = null;
