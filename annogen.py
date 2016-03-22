@@ -2563,9 +2563,6 @@ def within_Nbytes(markedDown,matchEndPos,nbytes):
     # Assumes multibyte codes are self-synchronizing, i.e. if you start in the middle of a multibyte sequence, the first valid character will be the start of the next sequence, ok for utf-8 but TODO might not be the case for some codes
     return markedDown[max(0,matchEndPos-nbytes):matchEndPos].encode(outcode)[-nbytes:].decode(outcode,'ignore')+markedDown[matchEndPos:matchEndPos+nbytes].encode(outcode)[:nbytes].decode(outcode,'ignore')
 
-def occurrences(haystack,needle):
-  # Returns number of occurrences of 'needle' in 'haystack', needs to be fast (TODO: can we do better than this?)
-  return len(re.findall(re.escape(needle),haystack))
 def test_rule(withAnnot_unistr,markedDown,yBytesRet):
     # Tests to see if the rule withAnnot_unistr is
     # ALWAYS right in the examples, i.e.
@@ -2583,7 +2580,7 @@ def test_rule(withAnnot_unistr,markedDown,yBytesRet):
         yBytesRet.append(ybr) # (negate, list of indicators, nbytes)
         return True
     phrase = markDown(withAnnot_unistr)
-    ret = occurrences(markedDown,phrase) == len(getOkStarts(withAnnot_unistr))
+    ret = markedDown.count(phrase) == len(getOkStarts(withAnnot_unistr))
     if diagnose and diagnose==phrase:
       diagnose_write("occurrences(%s)==occurrences(%s) = %s" % (phrase,withAnnot_unistr,ret))
     return ret
