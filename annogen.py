@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.596 (c) 2012-16 Silas S. Brown"
+program_name = "Annotator Generator v0.597 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -81,6 +81,8 @@ parser.add_option("-w", "--annot-whitespace",
                   action="store_true",
                   default=False,
                   help="Don't try to normalise the use of whitespace and hyphenation in the example annotations.  Normally the analyser will try to do this, to reduce the risk of missing possible rules due to minor typographical variations.") # TODO: can this be extended to the point where the words 'try to' can be deleted ?  see comments
+parser.add_option("--keep-whitespace",
+                  help="Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the --annot-whitespace option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).")
 
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz or .bz2 file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
@@ -308,6 +310,7 @@ except: terminal_charset = "utf-8"
 try: import urlparse
 except:
   if os.environ.get("ANNOGEN_ANDROID_URLS"): errExit("Need urlparse module for ANNOGEN_ANDROID_URLS") # unless we re-implement
+if keep_whitespace: keep_whitespace = set(keep_whitespace.decode(terminal_charset).split(','))
 if diagnose: diagnose=diagnose.decode(terminal_charset)
 diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
@@ -2285,7 +2288,7 @@ def normalise():
       def add(self,x,y):
         if diagnose and diagnose in x: diagnose_write("Replacer.add(%s,%s)" % (x,y))
         self.dic[x] = y
-        if len(self.dic)==1500: # limit the size of each batch - needed on some Pythons (e.g. Mac: 2000 usually works, but occasionally still throws "OverflowError: regular expression code size limit exceeded", so try 1500; TODO: catch and bisect when necessary?)
+        if len(self.dic)==1500: # limit the size of each batch - needed on some Pythons (e.g. Mac OS 10.7: 2000 usually works, but occasionally still throws "OverflowError: regular expression code size limit exceeded", so try 1500; TODO: catch and bisect when necessary?)
           self.flush()
       def flush(self):
         if not self.dic: return
@@ -2305,7 +2308,7 @@ def normalise():
             # To simplify rules, make it always lower.
             w = wl
             if hTry: hTry.add(w.replace('-',''))
-      if annot_whitespace: return w,None
+      if annot_whitespace or (keep_whitespace and markDown(w) in keep_whitespace): return w,None
       if not re.search(wspPattern,w): return w,hTry
       nowsp = re.sub(wspPattern,"",w)
       if not capitalisation and not nowsp.lower()==nowsp and nowsp.lower() in allWords: nowsp = nowsp.lower()
