@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.597 (c) 2012-16 Silas S. Brown"
+program_name = "Annotator Generator v0.598 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1150,7 +1150,7 @@ import android.os.Bundle;
 import android.view.KeyEvent;
 public class MainActivity extends Activity {
     @SuppressLint("SetJavaScriptEnabled")
-    @android.annotation.TargetApi(3) // for conditional setBuiltInZoomControls below
+    @android.annotation.TargetApi(7) // 7 for setAppCachePath (3 for setBuiltInZoomControls); not called if less
     @SuppressWarnings("deprecation") // for conditional SDK below
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -1161,6 +1161,10 @@ public class MainActivity extends Activity {
         // ---------------------------------------------
         setContentView(R.layout.activity_main);
         browser = (WebView)findViewById(R.id.browser);
+        // ---------------------------------------------
+        // Delete the following long line if you DON'T want caching (Android 2.1+); caching is useful for persistence if app is removed from memory and then switched back to while user is offline
+        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheMaxSize(10*1048576) /* if API==7 i.e. exactly Android 2.1 (deprecated in API 8) */ ; browser.getSettings().setAppCacheEnabled(true); }
+        // ---------------------------------------------
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
         class A {
@@ -1199,6 +1203,7 @@ public class MainActivity extends Activity {
         browser.getSettings().setDefaultFixedFontSize(size);
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         runTimerLoop();
+        if (savedInstanceState!=null) browser.restoreState(savedInstanceState); else
         if (!handleIntent(getIntent())) browser.loadUrl("%%ANDROID-URL%%");
     }
     @Override
@@ -1251,6 +1256,7 @@ public class MainActivity extends Activity {
         }
         return "";
     }
+    @Override protected void onSaveInstanceState(Bundle outState) { browser.saveState(outState); }
     WebView browser;
 }
 """
