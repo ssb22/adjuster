@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.205 (c) 2012-16 Silas S. Brown"
+program_name = "Web Adjuster v0.206 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -369,6 +369,8 @@ def convert_to_requested_host(real_host,cookie_host=None):
         if real_host == i:
             return hostSuffix(n)+port
         n += 1
+    elif not options.wildcard_dns and real_host == cookie_host:
+        return hostSuffix(0)+port # no default_site, cookie_host everywhere
     if not options.wildcard_dns: return real_host # leave the proxy
     else: return dedot(real_host)+"."+hostSuffix()+port
 
@@ -1207,19 +1209,19 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         if not options.wildcard_dns: # need to use cookie_host
             j = i = v.index('/')+2 # after the http:// or https://
             while j<len(v) and v[j] in string.letters+string.digits+'.-': j += 1
-            v2 = v[i:j] # the hostname we want to request
-            if v[i-4]=='s': v2 += '.0' # HTTPS hack (see protocolAndHost)
+            wanted_host = v[i:j]
+            if v[i-4]=='s': wanted_host += '.0' # HTTPS hack (see protocolAndHost)
             ch = self.cookie_host(checkURL=False) # current cookie hostname
-            if convert_to_requested_host(v2,ch)==v2: # can't do it without changing cookie_host
+            if convert_to_requested_host(wanted_host,ch)==wanted_host: # can't do it without changing cookie_host
                 if enable_adjustDomainCookieName_URL_override:
                     # do it by URL so they can bookmark it (that is if it doesn't immediately redirect)
                     # (TODO: option to also include the password in this link so it can be passed it around?  and also in the 'back to URL box' link?  but it would be inconsistent because not all links can do that, unless we consistently 302-redirect everything so that they do, but that would reduce the efficiency of the browser's HTTP fetches.  Anyway under normal circumstances we probably won't want users accidentally spreading include-password URLs)
-                    v = addArgument(v,adjust_domain_cookieName+'='+urllib.quote(v2))
-                else: self.add_header("Set-Cookie",adjust_domain_cookieName+"="+urllib.quote(v2)+"; Path=/; Expires="+cookieExpires) # (DON'T do this unconditionally, convert_to_requested_host above might see we already have another fixed domain for it)
+                    v = addArgument(v,adjust_domain_cookieName+'='+urllib.quote(wanted_host))
+                else: self.add_header("Set-Cookie",adjust_domain_cookieName+"="+urllib.quote(wanted_host)+"; Path=/; Expires="+cookieExpires) # (DON'T do this unconditionally, convert_to_requested_host above might see we already have another fixed domain for it)
                 # (TODO: if convert_to_requested_host somehow returns a *different* non-default_site domain, that cookie will be lost.  Might need to enforce max 1 non-default_site domain.)
-            else: v2 = ch
-        else: v2=None # not needed if wildcard_dns
-        self.redirect(domain_process(v,v2,True))
+            else: wanted_host = ch
+        else: wanted_host=None # not needed if wildcard_dns
+        self.redirect(domain_process(v,wanted_host,True))
 
     def handleFullLocation(self):
         # HTTP 1.1 spec says ANY request can be of form http://...., not just a proxy request.  The differentiation of proxy/not-proxy depends on what host is requested.  So rewrite all http://... requests to HTTP1.0-style host+uri requests.
