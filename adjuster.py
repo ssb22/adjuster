@@ -1536,8 +1536,8 @@ document.forms[0].i.focus()
 
     def doReq(self):
         debuglog("doReq "+self.request.uri)
-        if wsgi_mode and self.request.path==os.environ.get("SCRIPT_NAME",'0')+os.environ.get("PATH_INFO","") and 'SCRIPT_URL' in os.environ:
-            # workaround for wsgiref limitation when used with htaccess redirects
+        if wsgi_mode and self.request.path==urllib.quote(os.environ.get("SCRIPT_NAME",'0')+os.environ.get("PATH_INFO","")) and 'SCRIPT_URL' in os.environ:
+            # workaround for Tornado 2.x limitation when used with htaccess redirects
             self.request.path = os.environ['SCRIPT_URL']
             self.request.uri = self.request.path
             if "QUERY_STRING" in os.environ: self.request.uri += '?'+os.environ["QUERY_STRING"]
