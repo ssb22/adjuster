@@ -582,7 +582,7 @@ def make_WSGI_application():
     options.own_server = "" # for now, until we get forwardFor to work (TODO, and update the above list of ignored options accordingly)
     import tornado.wsgi
     handlers = [("(.*)",SynchronousRequestForwarder)]
-    if options.staticDocs: handlers.insert(0,static_handler()) # (the staticDocs option is probably not really needed in a WSGI environment if we're behind a wrapper that can also list static URIs, but keeping it anyway might be a convenience for configuration-porting)
+    if options.staticDocs: handlers.insert(0,static_handler()) # (the staticDocs option is probably not really needed in a WSGI environment if we're behind a wrapper that can also list static URIs, but keeping it anyway might be a convenience for configuration-porting; TODO: warn that this won't work with htaccess redirect and SCRIPT_URL thing)
     return tornado.wsgi.WSGIApplication(handlers)
 
 def main():
@@ -1536,6 +1536,11 @@ document.forms[0].i.focus()
 
     def doReq(self):
         debuglog("doReq "+self.request.uri)
+        if wsgi_mode and self.request.path==os.environ.get("SCRIPT_NAME",'0')+os.environ.get("PATH_INFO","") and 'SCRIPT_URL' in os.environ:
+            # workaround for wsgiref limitation when used with htaccess redirects
+            self.request.path = os.environ['SCRIPT_URL']
+            self.request.uri = self.request.path
+            self.request.query = os.environ.get("QUERY_STRING","")
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
             elif self.request.uri=="/ping": return self.answerPing(False)
