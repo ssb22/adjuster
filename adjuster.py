@@ -1540,7 +1540,7 @@ document.forms[0].i.focus()
             # workaround for wsgiref limitation when used with htaccess redirects
             self.request.path = os.environ['SCRIPT_URL']
             self.request.uri = self.request.path
-            self.request.query = os.environ.get("QUERY_STRING","")
+            if "QUERY_STRING" in os.environ: self.request.uri += '?'+os.environ["QUERY_STRING"]
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
             elif self.request.uri=="/ping": return self.answerPing(False)
