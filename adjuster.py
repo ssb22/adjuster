@@ -1539,6 +1539,7 @@ document.forms[0].i.focus()
         if wsgi_mode and self.request.path==urllib.quote(os.environ.get("SCRIPT_NAME","")+os.environ.get("PATH_INFO","")) and 'SCRIPT_URL' in os.environ:
             # workaround for Tornado 2.x limitation when used with htaccess redirects
             self.request.uri = self.request.path = os.environ['SCRIPT_URL']
+            if os.environ.get("QUERY_STRING","") == "" and "REDIRECT_QUERY_STRING" in os.environ: self.request.arguments = urlparse.parse_qs(os.environ["REDIRECT_QUERY_STRING"])
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
             elif self.request.uri=="/ping": return self.answerPing(False)
