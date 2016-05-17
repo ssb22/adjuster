@@ -1787,7 +1787,7 @@ document.forms[0].i.focus()
             epub = value.rfind(".epub")
             value=value[:epub]+".zip"+value[epub+5:]
           elif "access-control-allow-origin" in name.lower(): value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https")) # might need this for JSON responses to scripts that are used on a site's other domains
-          elif "location" in name.lower():
+          elif "location" in name.lower(): # TODO: do we need to delete this header if response.code not in [301,302,303,307] ?
             old_value_1 = value # before domain_process
             if not isProxyRequest:
                 value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"))
@@ -1803,24 +1803,18 @@ document.forms[0].i.focus()
             if do_mp3:
               if value.lower().endswith(".mp3"): value += mp3lofi_suffix
             if offsite and not old_value_2==value:
-                # ouch, we're not going to be able to do it this way because it's redirecting to somewhere we can't domain-proxy for.  But we could follow the redirects ourselves to do the conversion (TODO: check options.prohibit against the redirects?) :
+                # redirecting to somewhere we can't domain-proxy for, but we could follow the redirects ourselves to do the conversion (TODO: check options.prohibit against the redirects?) :
                 return self.sendRequest(converterFlags,viewSource,isProxyRequest,follow_redirects=True)
                 # TODO: if that sendRequest results in HTML, overriding the do_... options, the browser will end up with an incorrect idea of the current address; might want to detect this and give the user the unchanged Location: header
-            # else: do_pdftotext=do_epubtotext=do_epubtozip=do_mp3=False # do not attempt to media-process any body that is sent with this Location: redirect (if it's just a copy of the URL then running it through ebook-convert might hold things up unnecessarily)
-            # -> actually, don't need to process the body AT ALL (doing so and adding our scripts etc is only bloat), we can do our own brief redirect.  But not yet, because we might have to set cookies first.
-            else: doRedirect = value # TODO: do we need to check if response.code is in [301,302,303,307] before accepting a Location: ?
+            else: doRedirect = value
             if cookie_host and self.request.path=="/" and old_value_1.startswith("http") and not (old_value_1.startswith("http://"+cookie_host+"/") or (cookie_host.endswith(".0") and old_value_1.startswith("https://"+cookie_host[:-2]+"/"))):
                 # This'll be a problem.  If the user is requesting / and the site's trying to redirect off-site, how do we know that the user isn't trying to get back to the URL box (having forgotten to clear the cookie) and now can't possibly do so because / always results in an off-site Location redirect ?
-                # (The same thing can occur if offsite is False but we're redirecting to one of our other domains, hence we use the old_value_1.startswith condition instead of the 'offsite' flag; the latter is true only if NONE of our domains can do it.)
                 # (DON'T just do this for ANY offsite url when in cookie_host mode - that could mess up images and things.  (Could still mess up images etc if they're served from / with query parameters; for now we're assuming path=/ is a good condition to do this.  The whole cookie_host thing is a compromise anyway; wildcard_dns is better.))
-                if offsite: reason=" which this adjuster is not currently set to adjust"
-                else:
-                    adjustedAt = value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)]
-                    if adjustedAt.endswith(".0"):
-                        # not a redirect to another adjuster, but quirk of the HTTPS hack in combination with cookie_host
-                        value = "http://" + hostSuffix(0)+publicPortStr() + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # back to URL box, and act as though this had been typed in
-                        reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
-                    else: reason=" which will be adjusted at %s (not here)" % (adjustedAt,)
+                if offsite:
+                    # as cookie_host has been set, we know we CAN do this request if it were typed in directly....
+                    value = "http://" + hostSuffix(0)+publicPortStr() + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
+                    reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
+                else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
           elif "set-cookie" in name.lower():
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host)
@@ -2794,7 +2788,9 @@ def domain_process(text,cookieHost=None,stopAtOne=False,https=None):
             if https: protocol = "https://"
             else: protocol = "http://"
         if protocol=="https://": oldhost += ".0" # HTTPS hack (see protocolAndHost)
-        return "http://" + convert_to_requested_host(oldhost,cookieHost) # TODO: unless using https to communicate with the adjuster itself, in which case would either have to run a server with certificates set up or make it a WSGI-etc script running on one, and if that's the case then might wish to check through the rest of the code (search http://) to ensure this would always work well
+        newHP = "http://" + convert_to_requested_host(oldhost,cookieHost) # TODO: unless using https to communicate with the adjuster itself, in which case would either have to run a server with certificates set up or make it a WSGI-etc script running on one, and if that's the case then might wish to check through the rest of the code (search http://) to ensure this would always work well
+        if newHP.endswith(".0"): return m.group() # undo HTTPS hack if we have no wildcard_dns and convert_to_requested_host sent that URL off-site
+        return newHP
     if stopAtOne: count=1
     else: count=0
     if https==None: lStart = r"https?://"
