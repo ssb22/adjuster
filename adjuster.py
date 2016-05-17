@@ -1537,7 +1537,7 @@ document.forms[0].i.focus()
     def doReq(self):
         debuglog("doReq "+self.request.uri)
         if wsgi_mode and self.request.path==urllib.quote(os.environ.get("SCRIPT_NAME","")+os.environ.get("PATH_INFO","")) and 'SCRIPT_URL' in os.environ:
-            # workaround for Tornado 2.x limitation when used with htaccess redirects
+            # workaround for Tornado 2.x limitation when used with CGI and htaccess redirects
             self.request.uri = self.request.path = os.environ['SCRIPT_URL']
             if os.environ.get("QUERY_STRING","") == "" and "REDIRECT_QUERY_STRING" in os.environ: self.request.arguments = urlparse.parse_qs(os.environ["REDIRECT_QUERY_STRING"])
         if self.request.headers.get("User-Agent","")=="ping":
@@ -1954,7 +1954,7 @@ document.forms[0].i.focus()
             runFilter("lame --quiet --mp3input -m m --abr %d - -o -" % options.bitrate,body,callback,False) # -m m = mono (TODO: optional?)
         else: callback(body,"")
     def getHtmlFilter(self,filterNo=None):
-        if not options.htmlFilterName: return None
+        if not options.htmlFilterName: return options.htmlFilter # unconditional
         if filterNo and '#' in options.htmlFilter:
             return options.htmlFilter.split('#')[filterNo]
         anf = self.getCookie("adjustNoFilter")
