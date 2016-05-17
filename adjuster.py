@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.206 (c) 2012-16 Silas S. Brown"
+program_name = "Web Adjuster v0.207 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1787,7 +1787,7 @@ document.forms[0].i.focus()
             epub = value.rfind(".epub")
             value=value[:epub]+".zip"+value[epub+5:]
           elif "access-control-allow-origin" in name.lower(): value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https")) # might need this for JSON responses to scripts that are used on a site's other domains
-          elif "location" in name.lower(): # TODO: do we need to delete this header if response.code not in [301,302,303,307] ?
+          elif name.lower()=="location": # but NOT Content-Location.  TODO: do we need to delete this header if response.code not in [301,302,303,307] ?
             old_value_1 = value # before domain_process
             if not isProxyRequest:
                 value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"))
@@ -1812,7 +1812,7 @@ document.forms[0].i.focus()
                 # (DON'T just do this for ANY offsite url when in cookie_host mode - that could mess up images and things.  (Could still mess up images etc if they're served from / with query parameters; for now we're assuming path=/ is a good condition to do this.  The whole cookie_host thing is a compromise anyway; wildcard_dns is better.)  Can however do it if adjust_domain_cookieName is in the arguments, since this should mean a URL has just been typed in.)
                 if offsite:
                     # as cookie_host has been set, we know we CAN do this request if it were typed in directly....
-                    value = "http://" + hostSuffix(0)+publicPortStr() + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
+                    value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
@@ -2808,6 +2808,7 @@ def cookie_domain_process(text,cookieHost=None):
         while j<len(text) and not text[j]==';': j += 1
         newhost = convert_to_requested_host(text[i:j],cookieHost)
         if ':' in newhost: newhost=newhost[:newhost.index(':')] # apparently you don't put the port number, see comment in authenticates_ok
+        if newhost==text[i:j] and cookieHost and cookieHost.endswith(text[i:j]): newhost = convert_to_requested_host(cookieHost,cookieHost) # cookie set server.example.org instead of www.server.example.org; we can deal with that
         text = text[:i] + newhost + text[j:]
         j=i+len(newhost)
         start = j
