@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.207 (c) 2012-16 Silas S. Brown"
+program_name = "Web Adjuster v0.208 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -291,7 +291,7 @@ define("ownServer_useragent_ip",default=False,help="If own_server is set, and th
 define("ipNoLog",multiple=True,help="A comma-separated list of IP addresses which can use the adjuster without being logged. If your network has a \"friendly probing\" service then you might want to use this to stop it filling up the logs.  (Any tracebacks it causes will still be logged however.)")
 define("squashLogs",default=True,help="Try to remove some duplicate information from consecutive log entries, to make logs easier to check. You might want to set this to False if you plan to use automatic search tools on the logs.") # (word 'some' is important as not all duplicate info is guaranteed to be removed)
 define("whois",default=False,help="Try to log the Internet service provider for each IP address in the logs.  Requires the 'whois' program.  The extra information is written as separate log entries when it becomes available, and not for recent duplicate IPs or IPs that do not submit valid requests.")
-define("errorHTML",default="Adjuster error has been logged",help="What to say when an uncaught exception (due to a misconfiguration or programming error) has been logged. HTML markup is allowed in this message.")
+define("errorHTML",default="Adjuster error has been logged",help="What to say when an uncaught exception (due to a misconfiguration or programming error) has been logged. HTML markup is allowed in this message. If you want the traceback itself (in a 'pre' block) for debugging, include {traceback} in the message.") # TODO: this currently requires Tornado 2.1+ (document this? see TODO in write_error)
 define("logDebug",default=False,help="Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules.")
 # and continuing into the note below:
 if not tornado:
@@ -951,6 +951,14 @@ rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Enco
 class RequestForwarder(RequestHandler):
     
     def get_error_html(self,status,**kwargs): return htmlhead("Web Adjuster error")+options.errorHTML+"</body></html>"
+    def write_error(self,status,**kwargs):
+        msg = self.get_error_html(status,**kwargs)
+        if "{traceback}" in msg and 'exc_info' in kwargs:
+            import traceback
+            msg = msg.replace("{traceback}","<pre>"+ampEncode("".join(traceback.format_exception(*kwargs["exc_info"])))+"</pre>")
+            # TODO: what about substituting for {traceback} on pre-2.1 versions of Tornado that relied on get_error_html and put the error into sys.exc_info()?  (need to check their source to see how reliable the traceback is in this case; post-2.1 versions re-raise it from write_error itself)
+        self.write(msg)
+        self.finish()
 
     def cookie_host(self,checkReal=True,checkURL=True):
         # for cookies telling us what host the user wants
