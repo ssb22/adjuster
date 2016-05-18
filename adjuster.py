@@ -1841,8 +1841,7 @@ document.forms[0].i.focus()
         added = {'set-cookie':1} # might have been set by authenticates_ok
         for name,value in headers_to_add:
           value = value.replace("\t"," ") # needed for some servers
-          
-          elif name.lower() in added: self.add_header(name,value)
+          if name.lower() in added: self.add_header(name,value)
           else: self.set_header(name,value) # overriding any Tornado default
           added[name.lower()]=1
         if doRedirect:
