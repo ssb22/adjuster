@@ -79,7 +79,7 @@ define("upstream_proxy",help="address:port of a proxy to send our requests throu
 define("ip_messages",help="Messages or blocks for specific IP address ranges (IPv4 only).  Format is ranges|message|ranges|message etc, where ranges are separated by commas; can be individual IPs, or ranges in either 'network/mask' or 'min-max' format; the first matching range-set is selected.  If a message starts with * then its ranges are blocked completely (rest of message, if any, is sent as the only reply to any request), otherwise message is shown on a 'click-through' page (requires Javascript and cookies).  If the message starts with a hyphen (-) then it is considered a minor edit of earlier messages and is not shown to people who selected `do not show again' even if they did this on a different version of the message.  Messages may include HTML.")
 
 heading("DNS and website settings")
-define("host_suffix",default=getfqdn_default,help="The last part of the domain name. For example, if the user wishes to change www.example.com and should do so by visiting www.example.com.adjuster.example.org, then host_suffix is adjuster.example.org. If you do not have a wildcard domain then you can still adjust one site by setting wildcard_dns to False, host_suffix to your non-wildcard domain, and default_site to the site you wish to adjust. If you have more than one non-wildcard domain, you can set wildcard_dns to False, host_suffix to all your domains separated by slash (/), and default_site to the sites these correspond to, again separated by slash (/); if two or more domains share the same default_site then the first is preferred in links and the others are assumed to be for backward compatibility. If wildcard_dns is False and default_site is empty (or if it's a /-separated list and one of its items is empty), then the corresponding host_suffix gives a URL box and sets its domain in a cookie (and adds a link at the bottom of pages to clear this and return to the URL box), but this should be done only as a last resort: you can browse only one domain at a time at that host_suffix (links and HTTP redirects to other domains will leave the adjuster), and the sites you visit at that host_suffix might be able to see some of each other's cookies etc (leaking privacy) although the URL box page will try to clear site cookies.")
+define("host_suffix",default=getfqdn_default,help="The last part of the domain name. For example, if the user wishes to change www.example.com and should do so by visiting www.example.com.adjuster.example.org, then host_suffix is adjuster.example.org. If you do not have a wildcard domain then you can still adjust one site by setting wildcard_dns to False, host_suffix to your non-wildcard domain, and default_site to the site you wish to adjust. If you have more than one non-wildcard domain, you can set wildcard_dns to False, host_suffix to all your domains separated by slash (/), and default_site to the sites these correspond to, again separated by slash (/); if two or more domains share the same default_site then the first is preferred in links and the others are assumed to be for backward compatibility. If wildcard_dns is False and default_site is empty (or if it's a /-separated list and one of its items is empty), then the corresponding host_suffix gives a URL box and sets its domain in a cookie (and adds a link at the bottom of pages to clear this and return to the URL box), but this should be done only as a last resort: you can browse only one domain at a time at that host_suffix; links and HTTP redirects to other domains will leave the adjuster, and this can negatively affect sites that use auxiliary domains for scripts etc and check Referer (unless you ensure these auxiliary domains are listed elsewhere in default_site). Also, the sites you visit at that host_suffix might be able to see some of each other's cookies etc (leaking privacy) although the URL box page will try to clear site cookies.")
 # ("preferred" / "backward compatibility" thing: can be useful if old domain has become unreliable, or if "preferred" domain is actually a URL-path-forwarding service with a memorable name which redirects browsers to an actual domain that's less memorable, and you want the memorable domain to be used in links etc, although in this case you might still get the less-memorable domain in the address bar)
 # TODO: (two or more domains pointing to the same default_site) "preferred" / "backward compatibility" thing above: or, add an option to periodically check which of our domains are actually 'up' and move them to the front of the host_suffix / default_site list; that way we don't have to guess ahead of time which one is more reliable and should be preferred.
 # Could also do 'use the currently-requested host if it's appropriate', but what if there's a *set* of sites we adjust and we need to try to rewrite cross-site links to be in the same set of domains as the one the browser is requesting - maybe it's best to leave the "preferred" DNS to the config or the periodic check.
@@ -1069,7 +1069,7 @@ class RequestForwarder(RequestHandler):
 
     def redirect(self,redir,status=301):
         self.set_status(status)
-        for h in ["Location","Content-Location","Content-Type","Content-Language"]: self.clear_header(h) # so redirect() can be called AFTER a site's headers are copied in
+        for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # so redirect() can be called AFTER a site's headers are copied in
         self.add_header("Location",redir)
         self.add_header("Content-Type","text/html")
         self.write('<html><body><a href="%s">Redirect</a></body></html>' % redir.replace('&','&amp;').replace('"','&quot;'))
@@ -1780,14 +1780,14 @@ document.forms[0].i.focus()
         cookie_host = self.cookie_host()
         doRedirect = ""
         for name,value in response.headers.get_all():
-          if name.lower() in ["connection","content-length","content-encoding","transfer-encoding","etag","server","alternate-protocol","strict-transport-security"]: continue # we'll do our own connection type etc (but don't include "Date" in this list: if the remote server includes a Date it would be useful to propagate that as a reference for its Age headers etc, TODO: unless remote server is broken? see also comment in fixServerHeader re having no Date by default)
+          if name.lower() in ["connection","content-length","content-encoding","transfer-encoding","etag","server","alternate-protocol","strict-transport-security","content-location"]: continue # we'll do our own connection type etc (but don't include "Date" in this list: if the remote server includes a Date it would be useful to propagate that as a reference for its Age headers etc, TODO: unless remote server is broken? see also comment in fixServerHeader re having no Date by default).  Many servers' Content-Location is faulty; it DOESN'T necessarily provide the new base href; it might be relative; it might be identical to the actual URL fetched; many browsers ignore it anyway
           # TODO: WebSocket (and Microsoft SM) gets the client to say 'Connection: Upgrade' with a load of Sec-WebSocket-* headers, check what Tornado does with that
           if (do_pdftotext or do_epubtotext) and name.lower() in ["content-disposition","content-type"]: continue # we're re-doing these also
           elif do_epubtozip and name.lower()=="content-disposition" and value.replace('"','').endswith(".epub"):
             epub = value.rfind(".epub")
             value=value[:epub]+".zip"+value[epub+5:]
           elif "access-control-allow-origin" in name.lower(): value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https")) # might need this for JSON responses to scripts that are used on a site's other domains
-          elif name.lower()=="location": # but NOT Content-Location.  TODO: do we need to delete this header if response.code not in [301,302,303,307] ?
+          elif name.lower()=="location": # TODO: do we need to delete this header if response.code not in [301,302,303,307] ?
             old_value_1 = value # before domain_process
             if not isProxyRequest:
                 value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"))
@@ -1838,7 +1838,8 @@ document.forms[0].i.focus()
         added = {'set-cookie':1} # might have been set by authenticates_ok
         for name,value in headers_to_add:
           value = value.replace("\t"," ") # needed for some servers
-          if name.lower() in added: self.add_header(name,value)
+          
+          elif name.lower() in added: self.add_header(name,value)
           else: self.set_header(name,value) # overriding any Tornado default
           added[name.lower()]=1
         if doRedirect:
