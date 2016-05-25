@@ -1424,7 +1424,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         self.request.suppress_logger_host_convert = True
         if self.request.uri=="/favicon.ico":
             # avoid logging favicon.ico tracebacks when submitPath=="/"
-            self.set_status(400) ; self.myfinish() ; return True
+            self.set_status(400) ; self.myfinish() ; return
         if len(self.request.uri) > len(options.submitPath):
             txt = self.request.uri[len(options.submitPath):]
             if len(txt)==2 and options.submitBookmarklet:
