@@ -1765,7 +1765,7 @@ document.forms[0].i.focus()
         do_domain_process = do_html_process = do_js_process = True
         do_json_process = do_css_process = False
         charset = "utf-8" # by default
-        if not response.code or response.code==599:
+        if response==None or not response.code or response.code==599:
             # (some Tornado versions don't like us copying a 599 response)
             try: error = str(response.error)
             except: error = "Gateway timeout or something"
