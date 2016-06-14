@@ -1639,7 +1639,7 @@ document.forms[0].i.focus()
         if maybeRobots: return self.serveRobots()
         if self.needCssCookies():
             self.add_nocache_headers() # please don't cache this redirect!  otherwise user might not be able to leave the URL box after:
-            return self.redirect("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri)) # go to the URL box - need to set more options
+            return self.redirect("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
         self.addCookieFromURL() # for cookie_host
         converterFlags = []
         for opt,suffix,ext,fmt in [
