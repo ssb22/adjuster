@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.598 (c) 2012-16 Silas S. Brown"
+program_name = "Annotator Generator v0.599 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -3146,7 +3146,14 @@ def outputRulesSummary(rulesAndConds):
     if summary_omit: omit=set(openfile(summary_omit).read().splitlines())
     else: omit=[]
     count = 1 ; t = time.time()
-    for annot,orig,rule,conditions in sorted([(annotationOnly(r),markDown(r),r,c) for r,c in rulesAndConds]): # sorted so diff is possible between 2 summaries, but TODO: if incremental, some rules might now have been overridden by newer ones, so we might want to see the original order (rules listed later take priority in byteSeq_to_action_dict)
+    # If incremental or manualrules, some rules might now have been overridden by newer ones.  Rules listed later take priority in byteSeq_to_action_dict.  This should remove earlier duplicate (markedDown,conds) combinations from the summary:
+    d = {}
+    for r,c in rulesAndConds:
+      d[(markDown(r),repr(c))] = (r,c)
+    # Now sort so diff is possible between 2 summaries:
+    d = sorted((annotationOnly(r),markDown(r),r,c) for r,c in d.values())
+    # Can now do the summary:
+    for annot,orig,rule,conditions in d:
         if time.time() >= t + 2:
           sys.stderr.write(("(%d of %d)" % (count,len(rulesAndConds)))+clear_eol)
           t = time.time()
