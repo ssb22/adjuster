@@ -688,7 +688,7 @@ For running on Windows desktop or WINE, compile with:
 
   i386-mingw32-gcc annoclip.c -o annoclip.exe
 
-For running on Windows Mobile (but not Windows Phone),
+For running on Windows Mobile 2003SE, 5, 6, 6.1 or 6.5,
 compile with:
 
   arm-cegcc-gcc annoclip.c -D_WINCE -Os -o annoclip-WM.exe
@@ -1494,7 +1494,14 @@ handlers:
   script: _go_app
 
 Then test with: goapp serve
-(then POST to localhost:8080, e.g. as a backend server in Web Adjuster)
+(and POST to localhost:8080, e.g. via Web Adjuster --htmlFilter="http://localhost:8080")
+
+(To deploy with Web Adjuster also on GAE, you'll need 2 different GAE instances, because
+although you could add Web Adjuster on the SAME one - put adjuster's app.yaml into a
+python-api.yaml with "module: pythonapi" - there will be the issue of how to set the
+URL handlers while making sure that Golang's has priority if it's an exception to .*
+- unless you want to port the whole of Web Adjuster to Golang and integrate it into your
+annotator that way.)
 
  */
 

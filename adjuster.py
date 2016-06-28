@@ -579,6 +579,9 @@ def make_WSGI_application():
     for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         if eval('options.'+opt):
             sys.stderr.write("Warning: '%s' option may not work in WSGI mode\n" % opt)
+    if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
+        options.pdfepubkeep=0 ; options.waitpage = False
+        sys.stderr.write("Warning: pdfepubkeep and waitpage may not work in WSGI mode; clearing them\n") # both rely on one process doing all requests (not guaranteed in WSGI mode), and both rely on ioloop's add_timeout being FULLY functional
     options.own_server = "" # for now, until we get forwardFor to work (TODO, and update the above list of ignored options accordingly)
     import tornado.wsgi
     handlers = [("(.*)",SynchronousRequestForwarder)]
@@ -2253,8 +2256,8 @@ def runFilter(cmd,text,callback,textmode=True):
     if type(cmd)==type("") and cmd.startswith("*"):
         cmd = eval(cmd[1:]) # (normally a function name, but any Python expression that evaluates to a callable is OK, TODO: document this?  and incidentally if it evaluates to a string that's OK as well; the string will be given to an external command)
     if not type(cmd)==type(""):
-        # return callback(cmd(text),"")
-        # slightly more roundabout version to give watchdog ping a chance to work between cmd and callback:
+        if wsgi_mode: return callback(cmd(text),"")
+        # else use a slightly more roundabout version to give watchdog ping a chance to work between cmd and callback:
         out = cmd(text)
         return IOLoop.instance().add_timeout(time.time(),lambda *args:callback(out,""))
     elif cmd.startswith("http://") or cmd.startswith("https://"):
