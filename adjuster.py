@@ -1932,7 +1932,7 @@ document.forms[0].i.focus()
         # OK to change the code now:
         adjustList = []
         if do_html_process:
-          if self.htmlOnlyMode(): adjustList.append(StripJSEtc())
+          if self.htmlOnlyMode(): adjustList.append(StripJSEtc(self.urlToFetch))
           elif options.upstream_guard:
             # don't let upstream scripts get confused by our cookies (e.g. if the site is running Web Adjuster as well)
             # TODO: do it in script files also?
@@ -2423,6 +2423,7 @@ def add_conversion_links(h,offsite_ok,isKindle):
 class StripJSEtc:
     # TODO: HTML_adjust_svc might need to do handle_entityref and handle_charref to catch those inside scripts etc
     # TODO: change any "[if IE" at the start of comments (in case anyone using affected versions of IE wants to use this mode))
+    def __init__(self,url): self.url = url
     def init(self,parser):
         self.parser = parser
         self.suppressing = False
@@ -2432,6 +2433,7 @@ class StripJSEtc:
             return True
         elif tag in ['script','style']:
             self.suppressing = True ; return True
+        elif tag=="body": self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(self.url),self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
         else: return self.suppressing or tag in ['link','noscript']
         # TODO: remove style= attribute on other tags? (or only if it refers to a URL?)
         # TODO: what about event handler attributes, and javascript: URLs
