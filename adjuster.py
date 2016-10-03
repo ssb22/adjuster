@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.209 (c) 2012-16 Silas S. Brown"
+program_name = "Web Adjuster v0.21 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -2919,6 +2919,18 @@ def detect_renderCheck(): return r"""(document.getElementsByTagName && function(
 #  do NOT use fffd, it's sometimes displayed differently to other unrenderable characters
 # Works even in Opera Mini, which must somehow communicate the client's font metrics to the proxy
 
+def htmlFind(html,markup):
+    # basically html.lower().find(markup), but we need to be
+    # aware of things like Tencent's <!--headTrap<body></body><head></head><html></html>-->
+    # preferably without running a slow full parser
+    r = html.lower().find(markup)
+    if r<0: return r
+    c = html.find("<!--")
+    if c<0 or c>r: return r
+    # If gets here, we might have a headTrap situation
+    def blankOut(m): return " "*(m.end()-m.start())
+    return re.sub("<!--.*?-->",blankOut,html,flags=re.DOTALL).lower().find(markup) # TODO: improve efficiency of this? (blankOut doesn't need to go through the entire document)
+
 def html_additions(html,(cssToAdd,attrsToAdd),slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain,addHtmlFilterOptions):
     # Additions to make to HTML only (not on HTML embedded in JSON)
     # called from doResponse2 if do_html_process is set
@@ -3010,20 +3022,20 @@ if(document.getElementById) {
     # (Above code works around a bug in MSIE 9 by setting the cookie BEFORE doing the removeChild.  Otherwise the cookie does not persist.)
     if options.headAppendRuby: bodyAppend += rubyEndScript
     if headAppend:
-        i=html.lower().find("</head")
+        i=htmlFind(html,"</head")
         if i==-1: # no head section?
             headAppend = "<head>"+headAppend+"</head>"
-            i=html.lower().find("<body")
+            i=htmlFind(html,"<body")
             if i==-1: # no body section either?
-                i=html.lower().find("<html")
+                i=htmlFind(html,"<html")
                 if i > -1: i = html.find('>',i)
                 if i==-1: i=html.find('>')
                 i += 1 # 0 if we're still -1, else past the '>'
         html = html[:i]+headAppend+html[i:]
     if bodyPrepend:
-        i=html.lower().find("<body")
-        if i==-1: i = html.lower().find("</head")
-        if i==-1: i = html.lower().find("<html")
+        i=htmlFind(html,"<body")
+        if i==-1: i = htmlFind(html,"</head")
+        if i==-1: i = htmlFind(html,"<html")
         if i>-1:
             i=html.find(">",i)
             if i>-1: html=html[:i+1]+bodyPrepend+html[i+1:]
@@ -3045,7 +3057,7 @@ if(document.getElementById) {
     return html
 
 def addCssHtmlAttrs(html,attrsToAdd):
-   i=html.lower().find("<body")
+   i=htmlFind(html,"<body")
    if i==-1: return html # TODO: what of HTML documents that lack <body> (and frameset), do we add one somewhere? (after any /head ??)
    i += 5 # after the "<body"
    j = html.find('>', i)

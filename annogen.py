@@ -306,7 +306,8 @@ if java or javascript or python or c_sharp or ios or ndk or golang:
 try:
   import locale
   terminal_charset = locale.getdefaultlocale()[1]
-except: terminal_charset = "utf-8"
+except: terminal_charset = None
+if not terminal_charset: terminal_charset = "utf-8"
 try: import urlparse
 except:
   if os.environ.get("ANNOGEN_ANDROID_URLS"): errExit("Need urlparse module for ANNOGEN_ANDROID_URLS") # unless we re-implement
