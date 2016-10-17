@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.21 (c) 2012-16 Silas S. Brown"
+program_name = "Web Adjuster v0.22 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1524,7 +1524,7 @@ document.forms[0].i.focus()
             codeTextList.append(i.encode('utf-8'))
         def callback(out,err):
             self.add_header("Content-Type","application/json")
-            self.write(json.dumps([i.decode('utf-8') for i in out[1:].split(chr(0))]))
+            self.write(json.dumps([i.decode('utf-8','replace') for i in out[1:].split(chr(0))])) # 'replace' here because we don't want utf-8 errors to time-out the entire request (although hopefully the filter WON'T produce utf-8 errors...)
             self.finish()
         runFilterOnText(self.getHtmlFilter(filterNo),codeTextList,callback)
 
