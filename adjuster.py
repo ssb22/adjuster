@@ -1774,7 +1774,7 @@ document.forms[0].i.focus()
             try: error = str(response.error)
             except: error = "Gateway timeout or something"
             if "incorrect data check" in error and not hasattr(self,"avoid_gzip") and enable_gzip:
-                # Some versions of the GWAN server can send NULL bytes at the end of gzip data.  Retry without requesting gzip.
+                # Some versions of the GWAN server can send NUL bytes at the end of gzip data.  Retry without requesting gzip.
                 self.avoid_gzip = True
                 return self.sendRequest(converterFlags,viewSource,isProxyRequest,False)
             tryFetch = self.urlToFetch
@@ -2190,13 +2190,9 @@ function adjusterScan() {
     r.open("POST",%s"%s",false);
     r.send(JSON.stringify(texts));
     replacements = JSON.parse(r.responseText);
-    if (replacements.length > texts.length) {
-      if(!window.errorAlerted) { alert("The filter server gave too many strings. I'm ignoring some and hoping for the best. Some text might be incorrect."); window.errorAlerted=1; }
-      replacements = replacements.slice(0,texts.length);
-    }
-    if (replacements.length==texts.length) {
+    if (replacements.length >= texts.length) {
       oldTexts = texts; tw0();
-    } else break; /* TODO: handle as error? */
+    } else break; // TODO: handle as error?
     %s
   }
   HTMLSizeChanged(adjusterScan)
@@ -2334,7 +2330,7 @@ def runFilterOnText(cmd,codeTextList,callback,escape=False,separator=None):
                 elif replacements==None: r.append(maybeEsc(i))
                 else:
                     cl = countItems(["",i]) # >= 1 (site might already use separator)
-                    r.append(maybeEsc(separator.join(rpl.replace(chr(0),"&lt;NULL&gt;") for rpl in replacements[rLine:rLine+cl]))) # there shouldn't be any chr(0)s in the o/p, but if there are, don't let them confuse things
+                    r.append(maybeEsc(separator.join(rpl.replace(chr(0),"&lt;NUL&gt;") for rpl in replacements[rLine:rLine+cl]))) # there shouldn't be any chr(0)s in the o/p, but if there are, don't let them confuse things
                     rLine += cl
             elif codeAlso: r.append(maybeEsc(i))
             isTxt = not isTxt
