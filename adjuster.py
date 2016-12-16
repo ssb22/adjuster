@@ -948,7 +948,11 @@ def fixServerHeader(i):
     try: i.clear_header("Date") # Date is added by Tornado 3; HTTP 1.1 says it's mandatory but then says don't put it if you're a clockless server (which we might be I suppose) so it seems leaving it out is OK especially if not specifying Age etc, and leaving it out saves bytes.  But if the REMOTE server specifies a Date then we should probably pass it on (see comments in doResponse below)
     except: pass # (ok if "Date" wasn't there)
 
-rmServerHeaders = set(["connection","content-length","content-encoding","transfer-encoding","etag","content-md5","server","alternate-protocol","strict-transport-security","content-location"]) # server headers to remove.  We'll do our own connection type etc (but don't include "Date" in this list: if the remote server includes a Date it would be useful to propagate that as a reference for its Age headers etc, TODO: unless remote server is broken? see also comment in fixServerHeader re having no Date by default).  Many servers' Content-Location is faulty; it DOESN'T necessarily provide the new base href; it might be relative; it might be identical to the actual URL fetched; many browsers ignore it anyway
+rmServerHeaders = set([
+    # server headers to remove.  We'll do our own connection type etc (but don't include "Date" in this list: if the remote server includes a Date it would be useful to propagate that as a reference for its Age headers etc, TODO: unless remote server is broken? see also comment in fixServerHeader re having no Date by default).  Many servers' Content-Location is faulty; it DOESN'T necessarily provide the new base href; it might be relative; it might be identical to the actual URL fetched; many browsers ignore it anyway
+    "connection","content-length","content-encoding","transfer-encoding","etag","content-md5","server","alternate-protocol","strict-transport-security","content-location",
+    "x-associated-content", # should NOT be sent to browser (should be interpreted by a server's SPDY/push module) but somebody might misread the specs (at least one Wikipedia editor did)
+]) 
 # TODO: WebSocket (and Microsoft SM) gets the client to say 'Connection: Upgrade' with a load of Sec-WebSocket-* headers, check what Tornado does with that
 rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Encoding','X-Forwarded-Host','X-Forwarded-Port','X-Forwarded-Server','X-Forwarded-Proto','X-Request-Start','Range','TE','Upgrade'] # TODO: we can pass Range to remote server if and only if we guarantee not to need to change anything  (could also add If-Range and If-None-Match to the list, but these should be harmless to pass to the remote server and If-None-Match might actually help a bit in the case where the document doesn't change)
 
@@ -1801,7 +1805,13 @@ document.forms[0].i.focus()
           elif do_epubtozip and name.lower()=="content-disposition" and value.replace('"','').endswith(".epub"):
             epub = value.rfind(".epub")
             value=value[:epub]+".zip"+value[epub+5:]
-          elif "access-control-allow-origin" in name.lower(): value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https")) # might need this for JSON responses to scripts that are used on a site's other domains
+          elif name.lower() in [
+                  # Remote-server headers that need URLs rewriting (except Set-Cookie and Location which are handled separately below).
+                  # (DON'T just say "all headers except some whitelist": somebody might put DTD URIs (or server/proxy documentation references) into headers and we want to leave those alone)
+                  "access-control-allow-origin", # better rewrite this for JSON responses to scripts that are used on a site's other domains
+                  "link", # RFC 5988 equivalent to link elements in body; includes preloads; might want to adjust the resulting CSS or scripts (especially if the server won't support a fetch from a browser that supplies us as Referer)
+                  # "x-associated-content" # see comment in rmServerHeaders
+                  ]: value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"))
           elif name.lower()=="location": # TODO: do we need to delete this header if response.code not in [301,302,303,307] ?
             old_value_1 = value # before domain_process
             if not isProxyRequest:
