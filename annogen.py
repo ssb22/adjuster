@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6 (c) 2012-16 Silas S. Brown"
+program_name = "Annotator Generator v0.61 (c) 2012-16 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -100,7 +100,7 @@ parser.add_option("--no-input",
                   action="store_true",default=False,
                   help="Don't actually read the input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change).")
 
-parser.add_option("--c-filename",default=tempfile.gettempdir()+os.sep+"annotator.c",help="Where to write the C program if standard output is not connected to a pipe. Defaults to annotator.c in the system temporary directory (the program might be large, especially if Yarowsky indicators are not used, so it's best not to use a server home directory where you might have limited quota). If standard output is connected to a pipe, then this option is ignored and C code is written to the pipe instead.")
+parser.add_option("--c-filename",default="",help="Where to write the C program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.")
 
 parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
 # If compiling an experimental annotator quickly, you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc.
@@ -237,14 +237,24 @@ parser.add_option("--time-estimate",
                   action="store_true",default=False,
                   help="Estimate time to completion.  The code to do this is unreliable and is prone to underestimate.  If you turn it on, its estimate is displayed at the end of the status line as days, hours or minutes.") # Unreliable because the estimate assumes 'phrases per minute' will remain constant on average, whereas actually it will decrease because the more complex phrases are processed last
 
-sys.stderr.write(program_name+"\n") # not sys.stdout, because may or may not be showing --help (and anyway might want to process the help text for website etc)
+parser.add_option("--single-core",
+                  action="store_true",default=False,
+                  help="Use only one CPU core even when others are available. (If this option is not set, multiple cores are used if a 'futures' or 'mpi4py.futures' package is installed; this currently requires --checkpoint and is used only for large collocation checks in limited circumstances.  MPI is not currently likely to achieve much speed increase, but concurrent.futures is.)") # (limited circumstances: namely, words that occur in length-1 phrases)
+
+main = (__name__ == "__main__")
+if main: sys.stderr.write(program_name+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
+# else STILL parse options (if we're being imported for parallel processing)
 options, args = parser.parse_args()
 globals().update(options.__dict__)
 
 sys.setcheckinterval(32767) # won't be using threads or signals, so don't have to check for them very often
 import gc ; gc.disable() # should be OK if we don't create cycles (TODO: run gc.collect() manually after init, just in case?)
 
-if primitive and ybytes: sys.stderr.write("Warning: primitive will override ybytes\n")
+def warn(msg):
+  if main: sys.stderr.write("Warning: "+msg+"\n")
+  # else it should have already been written
+
+if primitive and ybytes: warn("primitive will override ybytes\n")
 if ybytes: ybytes=int(ybytes)
 if ybytes_max: ybytes_max=int(ybytes_max)
 else: ybytes_max = ybytes
@@ -255,6 +265,7 @@ maxrefs = int(maxrefs)
 ymax_threshold = int(ymax_threshold)
 if not golang: golang = ""
 def errExit(msg):
+  assert main # bad news if this happens in non-main module
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
 if android and not (java or ndk): errExit('You must set --java=/path/to/src//name/of/package or --ndk=name.of.package when using --android')
@@ -265,6 +276,9 @@ if java:
   if not '//' in java: errExit("--java must include a // to separate the first part of the path from the package name")
   jPackage=java.rsplit('//',1)[1].replace('/','.')
   if 'NewFunc' in jPackage: errExit("Currently unable to include the string 'NewFunc' in your package due to an implementation detail in annogen's search/replace operations")
+def isatty(f): return hasattr(f,"isatty") and f.isatty()
+if not c_filename and isatty(sys.stdout): # assumed false when run under MPI
+  c_filename = tempfile.gettempdir()+os.sep+"annotator.c"
 if java or javascript or python or c_sharp or golang:
     if ios: errExit("--ios not yet implemented in C#, Java, JS, Python or Go; please use C (it becomes Objective-C)")
     if ndk: errExit("--ndk requires the output language to be C")
@@ -274,7 +288,8 @@ if java or javascript or python or c_sharp or golang:
     if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript, Python, C# or Go")
     if compress: errExit("compress not yet implemented for the Java, Javascript, Python, C# or Go versions") # (and it would probably slow down JS/Python too much if it were)
     if java:
-      for f in os.listdir(java):
+      if main:
+       for f in os.listdir(java):
         if f.endswith(".java"): os.remove(java+os.sep+f)
       c_filename = java+os.sep+"Annotator.java"
     elif c_filename.endswith(".c"):
@@ -296,8 +311,8 @@ elif ndk:
 if zlib:
   del zlib ; import zlib ; data_driven = True
   if javascript: errExit("--zlib is not yet implemented in Javascript") # C or Python for now
-  if windows_clipboard: sys.stderr.write("WARNING: --zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
-  if ios: sys.stderr.write("WARNING: --zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)\n")
+  if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
+  if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
 if data_driven and (c_sharp or java or golang): errExit("--data-driven is not yet implemented in C#, Java or Go")
 elif javascript or python: data_driven = True
 additional_compact_opcodes = data_driven and not (python or javascript) # currently implemented only in the C version of the data-driven runtime
@@ -495,6 +510,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
 if compress:
   squashStrings = set() ; squashReplacements = []
   def squashFinish():
+    assert main, "squashFinish sets globals"
     global squashStrings # so can set it to "done" at end
     tokens = set()
     for s in squashStrings: tokens.update(list(s))
@@ -641,18 +657,22 @@ static size_t outWriteLen,outWritePtr;
 #define FINISHED (!(*readPtr))
 
 static void OutWriteStr(const char *s) {
-  size_t l = strlen(s);
-  while (outWritePtr+l > outWriteLen) {
-    outWriteLen *= 2;
-    outBytes = realloc(outBytes,outWriteLen); // TODO: check non-NULL
+  size_t l = strlen(s), newLen = outWriteLen;
+  while (outWritePtr+l > newLen) newLen *= 2;
+  if (newLen > outWriteLen) {
+    char *ob2 = realloc(outBytes,newLen);
+    if (!ob2) return; /* This check is meaningless if the kernel overcommits, but I don't know if that's true on (all versions of) Android. */
+    outBytes = ob2; outWriteLen = newLen;
   }
   memcpy(outBytes+outWritePtr, s, l);
   outWritePtr += l;
 }
 static void OutWriteByte(char c) {
   if (outWritePtr >= outWriteLen) {
-    outWriteLen *= 2;
-    outBytes = realloc(outBytes,outWriteLen); // TODO: check non-NULL
+    size_t newLen = outWriteLen * 2;
+    char *ob2 = realloc(outBytes,newLen);
+    if (!ob2) return; /* This check is meaningless if the kernel overcommits, but I don't know if that's true on (all versions of) Android. */
+    outBytes = ob2; outWriteLen = newLen;
   }
   outBytes[outWritePtr++] = c;
 }
@@ -672,11 +692,11 @@ JNIEXPORT jstring JNICALL Java_%PACKAGE%_MainActivity_jniAnnotate(JNIEnv *env, j
   startPtr=(char*)(*env)->GetStringUTFChars(env,jIn,NULL);
   readPtr = startPtr; writePtr = startPtr;
   outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
-  outBytes = malloc(outWriteLen); // TODO: check non-NULL
-  outWritePtr = 0;
-  matchAll();
+  outBytes = malloc(outWriteLen);
+  if(outBytes) { outWritePtr = 0; matchAll(); }
   (*env)->ReleaseStringUTFChars(env,jIn,startPtr);
-  OutWriteByte(0);
+  if(outBytes) OutWriteByte(0);
+  else return (*env)->NewStringUTF(env,"out of memory"); /* which it might or might not be able to do.  This check is meaningless if the kernel overcommits, but I don't know if that's true on (all versions of) Android. */
   jstring ret=(*env)->NewStringUTF(env,outBytes);
   free(outBytes); return ret;
 }
@@ -2256,10 +2276,47 @@ def checkpoint_exit(doIt=1):
   try: open(checkpoint+os.sep+"ExitASAP")
   except: return
   if doIt:
+    assert main, "Only annogen's main module should call checkpoint_exit with doIt=1"
     os.remove(checkpoint+os.sep+"ExitASAP")
     sys.stderr.write("\nExitASAP found: exit\n")
     raise SystemExit
   else: return True
+def read_checkpoint():
+  t = pickle.Unpickler(open(checkpoint+os.sep+'checkpoint','rb')).load()
+  sys.stderr.write("Checkpoint loaded from %d phrases\n" % t[0])
+  return t
+def write_checkpoint(t):
+  pickle.Pickler(open(checkpoint+os.sep+'checkpoint-NEW','wb'),-1).dump(t) # better write to checkpoint-NEW, in case we reboot or have an OS-level "Out of memory" condition *while* checkpointing
+  try: os.rename(checkpoint+os.sep+'checkpoint-NEW',checkpoint+os.sep+'checkpoint')
+  except OSError: # OS can't do it atomically?
+    try: os.remove(checkpoint+os.sep+'checkpoint')
+    except OSError: pass
+    try: os.rename(checkpoint+os.sep+'checkpoint-NEW',checkpoint+os.sep+'checkpoint')
+    except OSError: pass
+  checkpoint_exit()
+
+def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,lastUpdate,phraseLastCheckpoint,lastCheckpoint,coverP,nRej,startTime):
+  phraseSec = (phraseNo-phraseLastUpdate)*1.0/(time.time()-lastUpdate)
+  if phraseSec < 100:
+    phraseSecS = "%.1f" % phraseSec
+  else: phraseSecS = "%d" % int(phraseSec)
+  progress = "%s phrase/sec (%d%%/#w=%d) rules=%d cover=%d%%" % (phraseSecS,int(100.0*phraseNo/numPhrases),wordsThisPhrase,nRules,coverP)
+  if warn_yarowsky: progress += (" rej=%d" % nRej)
+  if time_estimate:
+    if phraseNo-phraseLastCheckpoint < 10: phraseMin = phraseSec*60 # current 'instantaneous' speed
+    else: phraseMin = (phraseNo-phraseLastCheckpoint)*60/(time.time()-lastCheckpoint) # longer-term average
+    minsLeft = (numPhrases-phraseNo)/phraseMin
+    if minsLeft>60*24: progress += " %dd+" % int(minsLeft/60/24)
+    elif minsLeft>60: progress += " %dh+" % int(minsLeft/60)
+    elif minsLeft: progress += " %dmin+" % minsLeft
+    # (including the + because this is liable to be an underestimate; see comment after the --time-estimate option)
+  if len(progress) + 14 < screenWidth:
+    progress += " (at %02d:%02d:%02d" % time.localtime()[3:6] # clock time: might be useful for checking if it seems stuck
+    if len(progress) + 17 < screenWidth and not clear_eol == "  \r": # (being able to fit this in can be intermittent)
+      elapsed = time.time() - startTime
+      progress += ", aRun=%d:%02d:%02d" % (elapsed/3600,(elapsed%3600)/60,elapsed%60)
+    progress += ")"
+  sys.stderr.write(progress+clear_eol)
 
 def normalise():
     if capitalisation and annot_whitespace: return
@@ -2270,16 +2327,13 @@ def normalise():
         corpus_unistr = f.read().decode('utf-8')
         return
       except: # if re-generating 'normalised', will also need to regenerate 'map' and 'checkpoint' if present
+        assert main, "normalise checkpoint not readable in non-main module"
         try: os.remove(checkpoint+os.sep+'map')
         except: pass
         try: os.remove(checkpoint+os.sep+'checkpoint')
         except: pass
+    else: assert main, "normalise called in non-main module and checkpoint isn't even set"
     sys.stderr.write("Normalising...")
-    def getAllWords():
-     allWords = set()
-     for phrase in splitWords(corpus_unistr,phrases=True):
-        allWords.update(splitWords(phrase))
-     return allWords
     allWords = getAllWords()
     if removeSpace:
      corpus_unistr = re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),markupEnd+markupStart,corpus_unistr) # so getOkStarts works consistently if corpus has some space-separated and some not
@@ -2307,13 +2361,13 @@ def normalise():
       def add(self,x,y):
         if diagnose and diagnose in x: diagnose_write("Replacer.add(%s,%s)" % (x,y))
         self.dic[x] = y
-        if len(self.dic)==1500: # limit the size of each batch - needed on some Pythons (e.g. Mac OS 10.7: 2000 usually works, but occasionally still throws "OverflowError: regular expression code size limit exceeded", so try 1500; TODO: catch and bisect when necessary?)
-          self.flush()
+        if not (len(self.dic)%1500): sys.stderr.write('.') # try this instead
       def flush(self):
         if not self.dic: return
         global corpus_unistr
-        corpus_unistr = re.sub('|'.join(re.escape(k) for k in self.dic.iterkeys()),lambda k:self.dic[k.group(0)],corpus_unistr) # (stackoverflow suggestion)
-        sys.stderr.write(".")
+        for exp in orRegexes(re.escape(k) for k in self.dic.iterkeys()):
+          sys.stderr.write(';')
+          corpus_unistr = re.sub(exp,lambda k:self.dic[k.group(0)],corpus_unistr)
         self.dic = {}
     rpl = Replacer() ; rpl.cu_nosp = None
     def normWord(w):
@@ -2374,6 +2428,19 @@ def normalise():
     sys.stderr.write(" done\n")
     if checkpoint: open(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8'))
     checkpoint_exit()
+def getAllWords():
+  allWords = set()
+  for phrase in splitWords(corpus_unistr,phrases=True):
+    allWords.update(splitWords(phrase))
+  return allWords
+def orRegexes(escaped_keys):
+  escaped_keys = list(escaped_keys) # don't just iterate
+  try: yield re.compile('|'.join(escaped_keys))
+  except OverflowError: # regex too big (e.g. default Python on Mac OS 10.7 i.e. Python 2.7.1 (r271:86832, Jul 31 2011, 19:30:53); probably some Windows versions also; does not affect Mac HomeBrew's Python 2.7.12)
+    ek = escaped_keys[:len(escaped_keys)/2]
+    for r in orRegexes(ek): yield r
+    ek = escaped_keys[len(ek):]
+    for r in orRegexes(ek): yield r
 
 if mreverse: mdStart,mdEnd,aoStart,aoEnd = markupMid,markupEnd,markupStart,markupMid
 else: mdStart,mdEnd,aoStart,aoEnd = markupStart,markupMid,markupMid,markupEnd
@@ -2388,39 +2455,40 @@ def different_ways_of_splitting(chars,numWords):
   for spAt in range(spAt_try1,0,-1) + range(spAt_try1+1, len(chars)-numWords+1):
     for r in different_ways_of_splitting(chars[spAt:],numWords-1): yield [chars[:spAt]]+r
 
-def yarowsky_indicators(withAnnot_unistr,markedDown):
-    # returns True if rule always works (or in majority of cases with ymajority), or lists enough indicators to cover example instances and returns (negate, list, nbytes), or just list if empty.
+def yarowsky_indicators(withAnnot_unistr,canBackground):
+    # yields True if rule always works (or in majority of cases with ymajority), or lists enough indicators to cover example instances and yields (negate, list, nbytes), or just list if empty.
     # (If too few indicators can be found, will list the ones it can, or empty if no clearly-distinguishable indicators can be found within ybytes of end of match.)
+    # yield "backgrounded" = task has been backgrounded; .next() collects result
     nonAnnot=markDown(withAnnot_unistr)
     if nonAnnot in yPriorityDic: # TODO: enforce len==1 ?
         if yPriorityDic[nonAnnot] == withAnnot_unistr:
             # we want this case to be the default (TODO: can't we just put it straight into the rules when making yPriorityDic, and skip this?  although I'm not sure if that would give much of a speedup, as the phrase/sec count tends to go into the thousands anyway when it's processing a yPriorityDic section)
             if nonAnnot==diagnose: diagnose_write("yPriorityDic forces %s" % (withAnnot_unistr,))
-            return True
+            yield True ; return
         else:
           if nonAnnot==diagnose: diagnose_write("yPriorityDic forbids default %s" % (withAnnot_unistr,))
           can_be_default = False # another is default, don't make this one default even if it occurs more
     else: can_be_default = True
-    # First, find positions in markedDown which match withAnnot_unistr in corpus_unistr
+    # First, find positions in corpus_markedDown which match withAnnot_unistr in corpus_unistr
     okStarts = getOkStarts(withAnnot_unistr)
-    # now check for markedDown matches that *don't* have withAnnot_unistr
-    badStarts = getBadStarts(nonAnnot,markedDown,okStarts)
+    # now check for corpus_markedDown matches that *don't* have withAnnot_unistr
+    badStarts = getBadStarts(nonAnnot,okStarts)
     if not badStarts:
       if nonAnnot==diagnose: diagnose_write("%s has no badStarts" % (withAnnot_unistr,))
-      return True # rule always works, no Yarowsky indicators needed
+      yield True ; return # rule always works, no Yarowsky indicators needed
     if can_be_default and len(okStarts) > len(badStarts) and len(nonAnnot)==1:
       if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len=1 rule" % (withAnnot_unistr,))
-      return True # duplicate of code below (can test for this case early before reducing-down badStarts)
+      yield True ; return # duplicate of code below (can test for this case early before reducing-down badStarts)
     badStarts = getReallyBadStarts(badStarts,nonAnnot) # see its comments (ignore some badStarts)
     if not badStarts:
       if nonAnnot==diagnose: diagnose_write("%s has only probably-irrelevant badStarts" % (withAnnot_unistr,))
-      return True
+      yield True ; return
     # Now, if it's right more often than not:
     if can_be_default and len(okStarts) > len(badStarts):
         # could we have this as a "default" rule, with the other cases as exceptions that will be found first?
         if len(nonAnnot)==1:
           if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len=1 rule after removing irrelevant badStarts" % (withAnnot_unistr,))
-          return True # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
+          yield True ; return # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
         # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default unless can be sure about it
         # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without positive indicators it should do so
         # Check for no "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
@@ -2431,16 +2499,20 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
         llen = len(mdStart)+len(nonAnnot)
         if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+("("+re.escape(mdEnd)+"((?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?").join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
           if nonAnnot==diagnose: diagnose_write("%s is default by majority-case rule after checking for dangerous overlaps etc" % (withAnnot_unistr,))
-          return True
-    may_take_time = len(okStarts) > 1000
-    if may_take_time: sys.stderr.write("\nLarge collocation check (%s has %d matches + %s), could take some time....  \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),len(okStarts),badInfo(badStarts,nonAnnot,markedDown)))
+          yield True ; return
+    run_in_background = canBackground and len(okStarts) > 500 and executor # TODO: is this 500 threshold correct?
+    may_take_time = canBackground and len(okStarts) > 1000
+    if may_take_time: sys.stderr.write("\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),len(okStarts),badInfo(badStarts,nonAnnot),cond(run_in_background,"backgrounding","could take some time")))
+    if run_in_background:
+      job = executor.submit(yarowsky_indicators_wrapped,withAnnot_unistr) # recalculate the above on the other CPU in preference to passing, as memory might not be shared
+      yield "backgrounded" ; yield job.result() ; return
     if ybytes_max > ybytes and (not ymax_threshold or len(nonAnnot) <= ymax_threshold):
       retList = [] ; append=retList.append
       for nbytes in range(ybytes,ybytes_max+1,ybytes_step):
-        negate,ret,covered,toCover = tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr)
+        negate,ret,covered,toCover = tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr)
         if covered==toCover and len(ret)==1:
           if may_take_time: sys.stderr.write(" - using 1 indicator, negate=%s\n" % repr(negate))
-          return (negate,ret,nbytes) # a single indicator that covers everything will be better than anything else we'll find
+          yield (negate,ret,nbytes) ; return # a single indicator that covers everything will be better than anything else we'll find
         append((-int(covered*100/toCover),len(ret),nbytes,negate,toCover,ret)) # (1st 4 of these are the sort keys: maximum coverage to nearest 1%, THEN minimum num indicators for the same coverage, THEN minimum nbytes (TODO: problems of very large nbytes might outweigh having more indicators; break if found 100% coverage by N?), THEN avoid negate)
         # TODO: try finding an OR-combination of indicators at *different* proximity lengths ?
       retList.sort()
@@ -2448,7 +2520,7 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
       negate,ret = retList[0][-3],retList[0][-1]
       distance = retList[0][2]
     else:
-      negate,ret = tryNBytes(ybytes_max,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr)[:2]
+      negate,ret = tryNBytes(ybytes_max,nonAnnot,badStarts,okStarts,withAnnot_unistr)[:2]
       if ybytes < ybytes_max: distance = ybytes_max
       else: distance = None # all the same anyway
     if not ret and warn_yarowsky: sys.stderr.write("Couldn't find ANY Yarowsky-like indicators for %s   \n" % (withAnnot_unistr.encode(terminal_charset,'replace'))) # (if nonAnnot==diagnose, this'll be reported by tryNBytes below)
@@ -2456,18 +2528,17 @@ def yarowsky_indicators(withAnnot_unistr,markedDown):
     # TODO: if partially but not completely covered, shouldn't entirely count the word as 'covered' in analyse()
     elif ret and may_take_time: sys.stderr.write(" - using %d indicators, negate=%s\n" % (len(ret),repr(negate)))
     if not ret or (not distance and not negate):
-      return ret
+      yield ret
     else:
       if not distance: distance = ybytes_max
-      return negate,ret,distance
+      yield negate,ret,distance
+def yarowsky_indicators_wrapped(withAnnot_unistr):
+    return yarowsky_indicators(withAnnot_unistr,False).next()
 def getOkStarts(withAnnot_unistr):
     if withAnnot_unistr in precalc_sets: return precalc_sets[withAnnot_unistr]
-    # else: return set(corpus_to_markedDown_map[s.start()] for s in re.finditer(re.escape(withAnnot_unistr), corpus_unistr))
-    # if large corpus, the following might be faster
-    # (precalc_sets has all 1-word cases; can use that)
     walen = len(withAnnot_unistr)
     return set(x for x in precalc_sets[splitWords(withAnnot_unistr).next()] if corpus_unistr[c2m_inverse[x]:c2m_inverse[x]+walen]==withAnnot_unistr)
-def getBadStarts(nonAnnot,markedDown,okStarts): return set(x.start() for x in re.finditer(re.escape(nonAnnot),markedDown) if not x.start() in okStarts)
+def getBadStarts(nonAnnot,okStarts): return set(x.start() for x in re.finditer(re.escape(nonAnnot),corpus_markedDown) if not x.start() in okStarts)
 def getReallyBadStarts(badStarts,nonAnnot):
     # Some of the badStarts can be ignored on the grounds that they should be picked up by other rules first: any where the nonAnnot match does not start at the start of a word (the rule matching the word starting earlier should get there first), and any where it starts at the start of a word that is longer than its own first word (the longest-first ordering should take care of this).  So keep only the ones where it starts at the start of a word and that word is no longer than len(nonAnnot).
     reallyBadStarts = [] ; append=reallyBadStarts.append
@@ -2481,10 +2552,10 @@ def getReallyBadStarts(badStarts,nonAnnot):
       if e-s > nonAnnotLen: continue # this word is too long, should be matched by a longer rule 1st
       append(b) # to reallyBadStarts
     return reallyBadStarts
-def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr):
+def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr):
     # try to find either positive or negative Yarowsky-like indicators, whichever gives a smaller set.  Negative indicators might be useful if there are many matches and only a few special exceptions (TODO: but put in an option to avoid checking for them as per v0.57 and below? although I'm not sure what application would have to be that careful but still use Yarowsky-like indicators)
     # (Negative indicators are used only if they cover 100% of the exceptions - see below re negate==None)
-    def bytesAround(start): return within_Nbytes(markedDown,start+len(nonAnnot),nbytes)
+    def bytesAround(start): return within_Nbytes(start+len(nonAnnot),nbytes)
     okStrs=list(set(bytesAround(s) for s in okStarts))
     badStrs=list(set(bytesAround(s) for s in badStarts))
     pOmit = unichr(1).join(badStrs) # omit anything that occurs in this string from +ve indicators
@@ -2532,14 +2603,18 @@ def tryNBytes(nbytes,markedDown,nonAnnot,badStarts,okStarts,withAnnot_unistr):
       diagnose_write("tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts%s" % (nbytes,withAnnot_unistr,indicators,pOmit.replace(unichr(1),'/').replace('\n',"\\n"),sum(1 for x in covered if x),len(covered),notCovered))
     return negate,ret,sum(1 for x in covered if x),len(covered)
 
-def badInfo(badStarts,nonAnnot,markedDown):
+def cond(a,b,c):
+  if a: return b
+  else: return c
+
+def badInfo(badStarts,nonAnnot):
   ret = "%d false positive" % len(badStarts)
   if not len(badStarts)==1: ret += "s"
   if len(badStarts) > yarowsky_debug: return ret
   for wordStart in badStarts:
    wordEnd = wordStart + len(nonAnnot)
    contextStart,contextEnd=max(0,wordStart-5),wordEnd+5
-   toRead = markedDown
+   toRead = corpus_markedDown
    # but can we report it from the original corpus_unistr?
    if wordStart in c2m_inverse and wordEnd in c2m_inverse:
     toRead = corpus_unistr
@@ -2580,12 +2655,12 @@ def unique_substrings(texts,allowedChars,omitFunc,valueFunc):
         for v,k in l: yield k
         length += 1
 
-def within_Nbytes(markedDown,matchEndPos,nbytes):
+def within_Nbytes(matchEndPos,nbytes):
     # return the Unicode characters within nbytes of matchEndPos, assuming the encoding will be outcode.  Used for the Yarowsky-like functions.
     # Assumes multibyte codes are self-synchronizing, i.e. if you start in the middle of a multibyte sequence, the first valid character will be the start of the next sequence, ok for utf-8 but TODO might not be the case for some codes
-    return markedDown[max(0,matchEndPos-nbytes):matchEndPos].encode(outcode)[-nbytes:].decode(outcode,'ignore')+markedDown[matchEndPos:matchEndPos+nbytes].encode(outcode)[:nbytes].decode(outcode,'ignore')
+    return corpus_markedDown[max(0,matchEndPos-nbytes):matchEndPos].encode(outcode)[-nbytes:].decode(outcode,'ignore')+corpus_markedDown[matchEndPos:matchEndPos+nbytes].encode(outcode)[:nbytes].decode(outcode,'ignore')
 
-def test_rule(withAnnot_unistr,markedDown,yBytesRet):
+def test_rule(withAnnot_unistr,yBytesRet,canBackground=None):
     # Tests to see if the rule withAnnot_unistr is
     # ALWAYS right in the examples, i.e.
     # the number of occurrences of its marked-down text
@@ -2594,18 +2669,24 @@ def test_rule(withAnnot_unistr,markedDown,yBytesRet):
     # marked-up version.
     # (If we deal only in rules that ALWAYS work, we can
     # build them up incrementally without "cross-talk")
-    if primitive: return True
+    # yield "backgrounded" = task has been backgrounded; .next() collects result (nb we default to NOT canBackground, as test_rule is called from several places of which ONE can handle backgrounding)
+    if primitive:
+      yield True ; return
     if ybytes:
         # Doesn't have to be always right, but put the indicators in yBytesRet
-        ybr = yarowsky_indicators(withAnnot_unistr,markedDown)
-        if ybr==True or not ybr: return ybr
+        ybrG = yarowsky_indicators(withAnnot_unistr,canBackground)
+        ybr = ybrG.next()
+        if ybr == "backgrounded":
+          yield ybr ; ybr = ybrG.next()
+        if ybr==True or not ybr:
+          yield ybr ; return
         yBytesRet.append(ybr) # (negate, list of indicators, nbytes)
-        return True
+        yield True ; return
     phrase = markDown(withAnnot_unistr)
-    ret = markedDown.count(phrase) == len(getOkStarts(withAnnot_unistr))
+    ret = corpus_markedDown.count(phrase) == len(getOkStarts(withAnnot_unistr))
     if diagnose and diagnose==phrase:
       diagnose_write("occurrences(%s)==occurrences(%s) = %s" % (phrase,withAnnot_unistr,ret))
-    return ret
+    yield ret
 
 def all_possible_rules(words,covered):
     # Iterate over ALL possible rules derived from the
@@ -2649,7 +2730,7 @@ def wspJoin(l):
   if removeSpace: return "".join(l)
   else: return " ".join(l)
 
-def potentially_bad_overlap(rulesAsWordlists,newRuleAsWords,markedDown):
+def potentially_bad_overlap(rulesAsWordlists,newRuleAsWords):
     # Allow overlaps only if rule(s) being overlapped are
     # entirely included within newRule.  Otherwise could
     # get problems generating closures of overlaps.
@@ -2664,7 +2745,7 @@ def potentially_bad_overlap(rulesAsWordlists,newRuleAsWords,markedDown):
             if not (ruleAsWordlist[-overlapSize:] == newRuleAsWords[:overlapSize] or newRuleAsWords[-overlapSize:] == ruleAsWordlist[:overlapSize]): continue
             if not allow_overlaps: return True
             # Test to see if the examples "allow" this potentially-bad overlap
-            def overlapOK(rAW): return not markDown(wspJoin(rAW)) in markedDown
+            def overlapOK(rAW): return not markDown(wspJoin(rAW)) in corpus_markedDown
             if (ruleAsWordlist[-overlapSize:] == newRuleAsWords[:overlapSize] and not overlapOK(ruleAsWordlist[:-overlapSize]+newRuleAsWords)) or (newRuleAsWords[-overlapSize:] == ruleAsWordlist[:overlapSize] and not overlapOK(newRuleAsWords[:-overlapSize]+ruleAsWordlist)): return True
 
 def longerStartsOrEndsWithTheShorter(l1,l2):
@@ -2681,11 +2762,11 @@ class RulesAccumulator:
     self.amend_rules = False
     if rulesFile: self.load()
   def save(self):
-    sys.stderr.write("Pickling rules to %s... " % rulesFile)
+    sys.stderr.write("\nPickling rules to %s... " % rulesFile)
     f = openfile(rulesFile,'wb')
     pickle.Pickler(f,-1).dump((self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists,self.seenPhrases))
     # (don't save self.rejectedRules, there might be better clues next time)
-    f.close() ; sys.stderr.write("done\n")
+    f.close() ; sys.stderr.write("done")
   def load(self):
     if not os.path.isfile(rulesFile):
       sys.stderr.write("%s does not exist, starting with blank rules\n" % rulesFile)
@@ -2696,7 +2777,7 @@ class RulesAccumulator:
     sys.stderr.write("done\n")
     self.amend_rules = True
     self.newRules = set()
-  def remove_old_rules(self,words,markedDown): # for incremental runs - removes previously-discovered rules that would have been suggested by this new phrase but that no longer 'work' with the rest of the corpus due to alterations elsewhere.  DOES NOT remove old rules that are not suggested by any phrase in the corpus because the phrases that suggested them have been removed or changed (TODO: might want an option for that, although fundamentally you shouldn't be relying on incremental runs if you're making a lot of changes to the corpus)
+  def remove_old_rules(self,words): # for incremental runs - removes previously-discovered rules that would have been suggested by this new phrase but that no longer 'work' with the rest of the corpus due to alterations elsewhere.  DOES NOT remove old rules that are not suggested by any phrase in the corpus because the phrases that suggested them have been removed or changed (TODO: might want an option for that, although fundamentally you shouldn't be relying on incremental runs if you're making a lot of changes to the corpus)
     for w in set(words):
       rulesAsWordlists = self.rulesAsWordlists_By1stWord.get(w,[])
       i=0
@@ -2706,7 +2787,7 @@ class RulesAccumulator:
         rule = wspJoin(rulesAsWordlists[i])
         if rule not in self.newRules and checkCoverage(rulesAsWordlists[i],words,[False]*len(words)): # rule would apply to the new phrase
           yBytesRet = []
-          if not test_rule(rule,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i],markedDown): # re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So we now re-test before removal.
+          if not test_rule(rule,yBytesRet).next() or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i]): # re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So we now re-test before removal.
             self.rejectedRules.add(rule)
             if not ybytes: self.rulesAsWordlists.discard(rulesAsWordlists[i])
             del rulesAsWordlists[i] ; del self.rules[rule]
@@ -2714,27 +2795,35 @@ class RulesAccumulator:
           self.newRules.add(rule) # still current - add to newRules now to save calling test_rule again
           if len(yBytesRet): self.rules[rule] = yBytesRet[0] # overriding what it was before (since we've re-done test_rule for it, which might have returned a new set of Yarowsky-like indicators for the new version of the corpus)
         i += 1
-  def addRulesForPhrase(self,phrase,markedDown):
+  def addRulesForPhrase(self,phrase,canBackground=False):
     if phrase in self.seenPhrases or (diagnose_quick and diagnose):
       # if diagnose and (diagnose_quick or self.amend_rules) and mdStart+diagnose+mdEnd in phrase: pass # look at it again for diagnostics.  But do we accept a diagnose that spans multiple words?  should be pointed out by --diagnose-quick below if uncommented
       if diagnose and (diagnose_quick or self.amend_rules) and diagnose in markDown(phrase): pass # this version accepts diagnose of multiple words (and might also let some phrases through where it matches on an overlap)
-      else: return 0,0 # TODO: document that this means the total 'covered' figure in the progress status is AFTER phrase de-duplication (otherwise we'd have to look up what the previous values were last time we saw it - no point doing that just for a quick statistic)
+      else:
+        yield 0,0 ; return # TODO: document that this means the total 'covered' figure in the progress status is AFTER phrase de-duplication (otherwise we'd have to look up what the previous values were last time we saw it - no point doing that just for a quick statistic)
     self.seenPhrases.add(phrase)
     words = filter(lambda x:markDown(x).strip(),splitWords(phrase)) # filter out any that don't have base text (these will be input glitches, TODO: verify the annotation text is also just whitespace, warn if not)
-    if not words: return 0,0
+    if not words:
+      yield 0,0 ; return
     covered = [False]*len(words)
     # first see how much is covered by existing rules
     # (don't have to worry about the order, as we've been
     # careful about overlaps)
-    if self.amend_rules: self.remove_old_rules(words,markedDown) # NB if yignore this might not remove all, but still removes all that affect checkCoverage below
+    if self.amend_rules: self.remove_old_rules(words) # NB if yignore this might not remove all, but still removes all that affect checkCoverage below
     for w in set(words):
       for ruleAsWordlist in self.rulesAsWordlists_By1stWord.get(w,[]):
-        if checkCoverage(ruleAsWordlist,words,covered) and all(covered): return len(covered),len(covered) # no new rules needed
+        if checkCoverage(ruleAsWordlist,words,covered) and all(covered):
+          yield len(covered),len(covered) ; return # no new rules needed
     for ruleAsWordlist in all_possible_rules(words,covered):
         rule = wspJoin(ruleAsWordlist) ; yBytesRet = []
         if rule in self.rejectedRules: continue
         if rule in self.rules: continue # this can still happen even now all_possible_rules takes 'covered' into account, because the above checkCoverage assumes the rule won't be applied in a self-overlapping fashion, whereas all_possible_rules makes no such assumption (TODO: fix this inconsistency?)
-        if not test_rule(rule,markedDown,yBytesRet) or potentially_bad_overlap(self.rulesAsWordlists,ruleAsWordlist,markedDown):
+        rGen = test_rule(rule,yBytesRet,canBackground)
+        r = rGen.next()
+        if r=="backgrounded":
+          yield r ; r = rGen.next()
+        del rGen
+        if not r or potentially_bad_overlap(self.rulesAsWordlists,ruleAsWordlist):
             self.rejectedRules.add(rule) # so we don't waste time evaluating it again (TODO: make sure rejectedRules doesn't get too big?)
             continue
         cc = checkCoverage(ruleAsWordlist,words,covered) # changes 'covered'
@@ -2746,10 +2835,11 @@ class RulesAccumulator:
         self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]].append(ruleAsWordlist)
         if self.amend_rules: self.newRules.add(rule)
         handle_diagnose_limit(rule)
-        if all(covered): return len(covered),len(covered)
+        if all(covered):
+          yield len(covered),len(covered) ; return
     # If get here, failed to completely cover the phrase.
     # ruleAsWordlist should be set to the whole-phrase rule.
-    return sum(1 for x in covered if x),len(covered)
+    yield sum(1 for x in covered if x),len(covered)
   def rulesAndConds(self):
     if self.amend_rules: return [(k,v) for k,v in self.rules.items() if not k in self.newRules] + [(k,v) for k,v in self.rules.items() if k in self.newRules] # new rules must come last for incremental runs, so they will override existing actions in byteSeq_to_action_dict when small changes have been made to the annotation of the same word (e.g. capitalisation-normalisation has been changed by the presence of new material)
     else: return self.rules.items()
@@ -2771,6 +2861,7 @@ def generate_map():
         corpus_to_markedDown_map,c2m_inverse,precalc_sets,yPriorityDic = pickle.Unpickler(f).load()
         return
       except: pass
+    assert main, "Only main should generate corpus map"
     sys.stderr.write("Generating corpus map... ")
     corpus_to_markedDown_map = {} ; c2m_inverse = {}
     precalc_sets = {}
@@ -2806,69 +2897,90 @@ def generate_map():
     if checkpoint: pickle.Pickler(open(checkpoint+os.sep+'map','wb'),-1).dump((corpus_to_markedDown_map,c2m_inverse,precalc_sets,yPriorityDic))
     checkpoint_exit()
 
-def analyse():
-    global corpus_unistr
-    generate_map() # unconditional, not just if ybytes, now that precalc_sets is used even if not ybytes
+def setup_parallelism():
+    if single_core or not checkpoint: return # parallelise only if checkpoint (otherwise could have trouble sharing the normalised corpus etc) TODO: document that checkpoint also affects this
+    try:
+      import os, commands
+      commands.getoutput(
+        "ps -p " + str(os.getpid()) + " -o args") \
+        .index("-m mpi4py.futures") # ValueError if not found
+      import mpi4py.futures # mpi4py v2.1+
+      return mpi4py.futures.MPIPoolExecutor()
+    except: pass
+    try:
+      import concurrent.futures # sudo pip install futures (2.7 backport of 3.2 standard library)
+      import multiprocessing
+      num_cpus = multiprocessing.cpu_count()
+      if num_cpus >= 2: return concurrent.futures.ProcessPoolExecutor(num_cpus-1) # leave one for the CPU-heavy control task
+    except: pass
 
+def get_phrases():
+    global _gp_cache
+    try: return _gp_cache
+    except: pass
     # Due to the way we handle overlaps, it's better to process the shortest phrases first, as the longer phrases will yield more rule options and therefore more likely to be able to work around any "no-overlap" constraints imposed by already-processed examples.  Something like:
     p2 = []
     for p in splitWords(corpus_unistr,phrases=True):
       p2.append((min([len(p.split(markupStart)),len(p.split(markupMid)),len(p.split(markupEnd))]),len(p2),p))
-    p2.sort() # by length, then by original position
-    phrases = [p[-1] for p in p2] ; del p2
-    # (Note: if removing this sort, remove len from stats below)
-    
-    markedDown = markDown(corpus_unistr)
+    p2.sort() # by length, then by original position (note: if removing this sort, remove wordsThisPhrase from status_update)
+    phrases = [] ; wordLen = None
+    for p in p2:
+      if not wordLen == p[0]:
+        wordLen = p[0]
+        phrases.append(wordLen-1) # because it's a .split length (really want an actual count, but it only has to be roughly right in this instance and splitLen-1 will do for speed)
+      phrases.append(p[-1])
+    _gp_cache = phrases ; return phrases
+
+def setup_other_globals():
+    global corpus_markedDown
+    corpus_markedDown = markDown(corpus_unistr)
     if ybytes:
         global markedUp_unichars
         if yarowsky_all: markedUp_unichars = None
-        else: markedUp_unichars = set(list(u"".join(markDown(p) for p in phrases)))
+        else: markedUp_unichars = set(list(u"".join(markDown(p) for p in get_phrases() if not type(p)==int)))
+
+def analyse():
     accum = RulesAccumulator()
-    covered = toCover = 0 ; phraseNo = 0
+    covered = 0 # number of phrases we managed to 'cover' with our rules
+    toCover = 0 # number of phrases we TRIED to cover (==covered if 100%)
+    phraseNo = 0 ; wordLen = None
     if checkpoint:
-      try:
-        phraseNo,covered,toCover,accum.__dict__ = pickle.Unpickler(open(checkpoint+os.sep+'checkpoint','rb')).load()
-        sys.stderr.write("Checkpoint loaded from %d phrases\n" % phraseNo)
+      try: phraseNo,wordLen,covered,toCover,accum.__dict__ = read_checkpoint()
       except: pass
     phraseLastUpdate = phraseLastCheckpoint = phraseNo
-    lastUpdate = lastCheckpoint = time.time()
+    lastUpdate = lastCheckpoint = startTime = time.time()
+    backgrounded = [] ; phrases = get_phrases()
     while phraseNo < len(phrases):
+        if type(phrases[phraseNo])==int:
+          wordLen = phrases[phraseNo]
+          for b in backgrounded: # flush (TODO: duplicate code)
+            coveredA,toCoverA = b.next()
+            covered += coveredA ; toCover += toCoverA
+          backgrounded = []
+          phraseNo += 1 ; continue
         if toCover:
           if checkpoint and (checkpoint_exit(0) or time.time() >= lastCheckpoint + 1000): # TODO: configurable?
-            pickle.Pickler(open(checkpoint+os.sep+'checkpoint-NEW','wb'),-1).dump((phraseNo,covered,toCover,accum.__dict__)) # better write to checkpoint-NEW, in case we reboot or have an OS-level "Out of memory" condition *while* checkpointing
-            try: os.rename(checkpoint+os.sep+'checkpoint-NEW',checkpoint+os.sep+'checkpoint')
-            except OSError: # OS can't do it atomically?
-              try: os.remove(checkpoint+os.sep+'checkpoint')
-              except OSError: pass
-              try: os.rename(checkpoint+os.sep+'checkpoint-NEW',checkpoint+os.sep+'checkpoint')
-              except OSError: pass
-            checkpoint_exit()
-            lastCheckpoint = time.time()
-            phraseLastCheckpoint = phraseNo
+            sys.stderr.write("Checkpointing..."+clear_eol)
+            for b in backgrounded: # flush (TODO: duplicate code)
+              coveredA,toCoverA = b.next()
+              covered += coveredA ; toCover += toCoverA
+            backgrounded = []
+            write_checkpoint((phraseNo,wordLen,covered,toCover,accum.__dict__))
+            lastCheckpoint = time.time() ; phraseLastCheckpoint = phraseNo
           if time.time() >= lastUpdate + 2:
-            phraseSec = (phraseNo-phraseLastUpdate)*1.0/(time.time()-lastUpdate)
-            if phraseSec < 100:
-              phraseSecS = "%.1f" % phraseSec
-            else: phraseSecS = "%d" % int(phraseSec)
-            progress = "%s phrase/sec (%d%%/#w=%d) rules=%d cover=%d%%" % (phraseSecS,int(100.0*phraseNo/len(phrases)),len([w for w in splitWords(phrases[phraseNo])]),len(accum.rules),int(100.0*covered/toCover))
-            if warn_yarowsky: progress += (" rej=%d" % len(accum.rejectedRules))
-            if time_estimate:
-              if phraseNo-phraseLastCheckpoint < 10: phraseMin = phraseSec*60 # current 'instantaneous' speed
-              else: phraseMin = (phraseNo-phraseLastCheckpoint)*60/(time.time()-lastCheckpoint) # longer-term average
-              minsLeft = (len(phrases)-phraseNo)/phraseMin
-              if minsLeft>60*24: progress += " %dd+" % int(minsLeft/60/24)
-              elif minsLeft>60: progress += " %dh+" % int(minsLeft/60)
-              elif minsLeft: progress += " %dmin+" % minsLeft
-              # (including the + because this is liable to be an underestimate; see comment after the --time-estimate option)
-            sys.stderr.write(progress+clear_eol)
-            lastUpdate = time.time()
-            phraseLastUpdate = phraseNo
-        coveredA,toCoverA = accum.addRulesForPhrase(phrases[phraseNo],markedDown)
-        covered += coveredA ; toCover += toCoverA
+            status_update(phraseNo,len(phrases),wordLen,len(accum.rules),phraseLastUpdate,lastUpdate,phraseLastCheckpoint,lastCheckpoint,int(100.0*covered/toCover),len(accum.rejectedRules),startTime)
+            lastUpdate = time.time() ; phraseLastUpdate = phraseNo
+        aRules = accum.addRulesForPhrase(phrases[phraseNo],wordLen==1) # TODO: we're saying canBackground only if wordLen==1 because longer phrases can be backgrounded only if they're guaranteed not to have mutual effects; do we want to look into when we can do that?  (and update the help text for --single-core if changing)
+        arr = aRules.next()
+        if arr=="backgrounded": backgrounded.append(aRules)
+        else:
+          coveredA,toCoverA = arr
+          covered += coveredA ; toCover += toCoverA
         phraseNo += 1
-    sys.stderr.write("\n")
+    for b in backgrounded: b.next() # flush
+    del backgrounded
     if rulesFile: accum.save()
-    if diagnose_manual: test_manual_rules(markedDown)
+    if diagnose_manual: test_manual_rules()
     return accum.rulesAndConds()
 
 def read_manual_rules():
@@ -2879,7 +2991,7 @@ def read_manual_rules():
     if removeSpace: l=re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),markupEnd+markupStart,l)
     yield l
 
-def test_manual_rules(markedDown):    
+def test_manual_rules():
     for l in read_manual_rules():
       for s in re.finditer(re.escape(markupStart), l):
         # this loop is to prevent KeyError in getOkStarts
@@ -2890,11 +3002,11 @@ def test_manual_rules(markedDown):
           k = l[s:e]
           if k not in precalc_sets: precalc_sets[k]=set()
       yb = []
-      if not test_rule(l,markedDown,yb) or len(yb):
-        sys.stderr.write("WARNING: Manual rule '%s' may contradict the examples\n" % (l.encode(terminal_charset),))
+      if not test_rule(l,yb).next() or len(yb):
+        sys.stderr.write("\nWARNING: Manual rule '%s' may contradict the examples" % (l.encode(terminal_charset),))
         global diagnose,diagnose_limit,ybytes
         od,odl,oy,diagnose,diagnose_limit,ybytes = diagnose,diagnose_limit,ybytes,markDown(l),0,ybytes_max
-        test_rule(l,markedDown,[])
+        test_rule(l,[]).next()
         diagnose,diagnose_limit,ybytes = od,odl,oy
 
 def java_escape(unistr):
@@ -3052,58 +3164,58 @@ def outputParser(rulesAndConds):
     longest_rule_len += ybytes_max # because buffer len is 2*longest_rule_len, we shift half of it when (readPtr-bufStart +ybytes >= bufLen) and we don't want this shift to happen when writePtr-bufStart = Half_Bufsize-1 and readPtr = writePtr + Half_Bufsize-1 (TODO: could we get away with max(0,ybytes_max-1) instead? but check how this interacts with the line below; things should be safe as they are now).  This line's correction was missing in Annogen v0.599 and below, which could therefore occasionally emit code that, when running from stdin, occasionally replaced one of the document's bytes with an undefined byte (usually 0) while emitting correct annotation for the original byte.  (This could result in bad UTF-8 that crashed the bookmarklet feature of Web Adjuster v0.21 and below.)
     longest_rule_len = max(ybytes_max*2, longest_rule_len) # make sure the half-bufsize is at least ybytes_max*2, so that a read-ahead when pos is ybytes_max from the end, resulting in a shift back to the 1st half of the buffer, will still leave ybytes_max from the beginning, so yar() can look ybytes_max-wide in both directions
     if javascript:
-      print js_start
+      outfile.write(js_start+"\n")
       b = BytecodeAssembler()
       b.addActionDictSwitch(byteSeq_to_action_dict,False)
-      print "data:",repr(b.link())+"," ; del b
-      print js_end
+      outfile.write("data: "+repr(b.link())+",\n")
+      del b ; outfile.write(js_end+"\n")
       return # skip all of below (including no_summary etc)
     if python:
-      print py_start
+      outfile.write(py_start+"\n")
       b = BytecodeAssembler()
       b.addActionDictSwitch(byteSeq_to_action_dict,False)
-      print "data=",repr(b.link()) ; del b
-      if zlib: print "import zlib; data=zlib.decompress(data)"
-      print py_end
+      outfile.write("data="+repr(b.link())+"\n") ; del b
+      if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
+      outfile.write(py_end+"\n")
       return
     if java: start = java_src.replace("%%JPACKAGE%%",jPackage)
     elif c_sharp: start = cSharp_start
     elif golang: start = golang_start
     else: start = c_start
-    print start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max)).replace("%%PAIRS%%",pairs)
+    outfile.write(start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max)).replace("%%PAIRS%%",pairs)+"\n")
     if data_driven:
       b = BytecodeAssembler()
       b.addActionDictSwitch(byteSeq_to_action_dict,False)
       ddrivn = b.link()
       if zlib: data = "origData"
       else: data = "data"
-      print "static unsigned char "+data+"[]=\""+c_escapeRawBytes(ddrivn)+'\";'
-      if zlib: print c_zlib.replace('%%ORIGLEN%%',str(b.origLen)).replace('%%ZLIBLEN%%',str(len(ddrivn))) # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
-      del b,ddrivn ; print c_datadrive
+      outfile.write("static unsigned char "+data+"[]=\""+c_escapeRawBytes(ddrivn)+'\";\n')
+      if zlib: outfile.write(c_zlib.replace('%%ORIGLEN%%',str(b.origLen)).replace('%%ZLIBLEN%%',str(len(ddrivn)))+"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
+      del b,ddrivn ; outfile.write(c_datadrive+"\n")
     else:
       subFuncL = []
       ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
       if java:
         for f in subFuncL: open(java+os.sep+f[f.index("class ")+6:].split(None,1)[0]+".java","w").write(f)
         open(java+os.sep+"topLevelMatch.java","w").write("\n".join(ret))
-      elif golang: print "\n".join(subFuncL + ret).replace(';\n','\n') # (this 'elif' line is not really necessary but it might save someone getting worried about too many semicolons)
-      else: print "\n".join(subFuncL + ret)
+      elif golang: outfile.write("\n".join(subFuncL + ret).replace(';\n','\n')+"\n") # (this 'elif' line is not really necessary but it might save someone getting worried about too many semicolons)
+      else: outfile.write("\n".join(subFuncL+ret)+"\n")
       del subFuncL,ret
     if android and not ndk:
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace("%%JPACK2%%",jPackage.replace('.','/')).replace('%%ANDROID-URL%%',android))
       open(java.rsplit('//',1)[0]+"/../assets/clipboard.html",'w').write(android_clipboard)
-    if c_sharp: print cSharp_end
-    elif golang: print golang_end
-    elif not java: print c_end
-    print
+    if c_sharp: outfile.write(cSharp_end+"\n")
+    elif golang: outfile.write(golang_end+"\n")
+    elif not java: outfile.write(c_end+"\n")
+    outfile.write("\n")
     del byteSeq_to_action_dict
     if no_summary: return
     if reannotator:
-        print "/* Tab-delimited rules summary not yet implemented with reannotator option */"
+        outfile.write("/* Tab-delimited rules summary not yet implemented with reannotator option */\n")
         return
-    print "/* Tab-delimited summary of the rules:"
+    outfile.write("/* Tab-delimited summary of the rules:\n")
     outputRulesSummary(rulesAndConds)
-    print "*/"
+    outfile.write("*/\n")
 
 def write_glossMiss(glossMiss):
   if not glossmiss: return
@@ -3185,21 +3297,17 @@ def outputRulesSummary(rulesAndConds):
                   else: negate=""
                   toPrn += "if"+negate+" within "+str(nbytes)+" bytes of "+" or ".join(code(c) for c in conds)
                 else: toPrn += "if near "+" or ".join(code(c) for c in conditions)
-        if not toPrn in omit: print (toPrn+refs(rule).encode(outcode)).replace('/*','').replace('*/','')
+        if not toPrn in omit: outfile.write((toPrn+refs(rule).encode(outcode)).replace('/*','').replace('*/','')+"\n")
     if ybytes: extraTab='\t'
     else: extraTab = ''
-    for l in read_manual_rules(): print (markDown(l)+'\t'+annotationOnly(l)+extraTab+'\t--manualrules '+manualrules).encode(outcode)
+    for l in read_manual_rules(): outfile.write((markDown(l)+'\t'+annotationOnly(l)+extraTab+'\t--manualrules '+manualrules).encode(outcode)+"\n")
     sys.stderr.write("\n")
 
-def isatty(f): return hasattr(f,"isatty") and f.isatty()
-    
 if isatty(sys.stdout):
     if summary_only:
-        sys.stderr.write("WARNING: Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'\n")
+        warn("Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'")
         c_filename = None
-    elif not java: sys.stderr.write("stdout is not piped, so writing to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
-elif java: sys.stderr.write("Warning: although stdout seems to be piped, nothing will be written to it because --java is in effect\n")
-else: c_filename = None
+    elif not java and main: sys.stderr.write("Writing to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
 def openfile(fname,mode='r'):
     if fname.endswith(".gz"):
@@ -3228,15 +3336,21 @@ clear_eol = "  \r" # hope 2 spaces enough to overwrite old (don't want to risk g
 reverse_on,reverse_off = " **","** "
 diagnose_colon = "Diagnose: "
 def diagnose_write(s): sys.stderr.write(diagnose_colon+s.encode(terminal_charset,'replace')+'\n')
+try: screenWidth = int(os.environ['COLUMNS'])
+except:
+  import struct, fcntl, termios
+  try: screenWidth = struct.unpack('hh',fcntl.ioctl(sys.stderr,termios.TIOCGWINSZ,'xxxx'))[1]
+  except: screenWidth = 45 # conservative
 
-if checkpoint:
+if checkpoint and main:
   try: os.mkdir(checkpoint)
   except: pass
 
-set_title("annogen")
-if no_input:
-  rulesAndConds = RulesAccumulator().rulesAndConds() # should load rulesFile
-else:
+if main:
+ set_title("annogen")
+ if no_input:
+   rulesAndConds = RulesAccumulator().rulesAndConds() # should load rulesFile
+ else:
   if infile: infile=openfile(infile)
   else:
     infile = sys.stdin
@@ -3248,20 +3362,29 @@ else:
   else: suppress = False
   normalise()
   if diagnose and not suppress and not diagnose in corpus_unistr: diagnose_write(diagnose+" was in the corpus before normalisation, but not after") # (if running from a checkpoint, might want to rm normalised and redo the diagnose)
-  rulesAndConds = analyse()
+  generate_map() ; setup_other_globals()
+  executor = setup_parallelism()
+  try: rulesAndConds = analyse()
+  finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
+  del _gp_cache
+else: # not main: set up corpus globals for parallel funcs:
+  try: corpus_unistr # if we fork()d, we may already have it
+  except NameError:
+    normalise() # should get corpus_unistr from checkpoint
+    generate_map() # similarly this should just be a read
+    setup_other_globals() # might do a bit more work, but probably faster than copying if we're not on the same machine
+  setup_parallelism() # TODO: is this call really needed?
 
-stdout_old = sys.stdout # in case of cProfile, see below
-if c_filename: sys.stdout = open(c_filename,"w")
-if summary_only: outputRulesSummary(rulesAndConds)
-else: outputParser(rulesAndConds)
-del rulesAndConds
-sys.stderr.write("Done\n")
-if c_filename:
-    sys.stdout.close()
-    sys.stdout = stdout_old # in case running with python -m cProfile or something
-    if c_compiler:
-      cmd = c_compiler # should include any -o option
-      if zlib: cmd += " -lz" # TODO: is this always correct on all platforms? (although user can always simply redirect the C to a file and compile separately)
-      cmd += " \""+c_filename+"\""
-      sys.stderr.write(cmd+"\n")
-      sys.exit(os.system(cmd))
+if main:
+ if c_filename: outfile = open(c_filename,"w")
+ else: outfile = sys.stdout
+ if summary_only: outputRulesSummary(rulesAndConds)
+ else: outputParser(rulesAndConds)
+ del rulesAndConds
+ outfile.close() ; sys.stderr.write("Done\n")
+ if c_filename and c_compiler:
+    cmd = c_compiler # should include any -o option
+    if zlib: cmd += " -lz" # TODO: is this always correct on all platforms? (although user can always simply redirect the C to a file and compile separately)
+    cmd += " \""+c_filename+"\""
+    sys.stderr.write(cmd+"\n")
+    sys.exit(os.system(cmd))
