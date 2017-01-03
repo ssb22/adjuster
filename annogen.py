@@ -2432,7 +2432,7 @@ def getAllWords():
   allWords = set()
   for phrase in splitWords(corpus_unistr,phrases=True):
     allWords.update(splitWords(phrase))
-  return allWords
+  return allWords # do NOT cache (is called either side of the normaliser)
 def orRegexes(escaped_keys):
   escaped_keys = list(escaped_keys) # don't just iterate
   try: yield re.compile('|'.join(escaped_keys))
@@ -2915,13 +2915,14 @@ def setup_parallelism():
     except: pass
 
 def get_phrases():
+    # Returns a list of phrases in processing order, with length-numbers inserted in the list.  Caches its result.
     global _gp_cache
     try: return _gp_cache
     except: pass
     # Due to the way we handle overlaps, it's better to process the shortest phrases first, as the longer phrases will yield more rule options and therefore more likely to be able to work around any "no-overlap" constraints imposed by already-processed examples.  Something like:
     p2 = []
     for p in splitWords(corpus_unistr,phrases=True):
-      p2.append((min([len(p.split(markupStart)),len(p.split(markupMid)),len(p.split(markupEnd))]),len(p2),p))
+      p2.append((min([len(p.split(markupStart)),len(p.split(markupMid)),len(p.split(markupEnd))]),len(p2),p)) # no need for splitWords(phrase) just to get len, but we do need the min-of-3 for robustness against the occasional markup error
     p2.sort() # by length, then by original position (note: if removing this sort, remove wordsThisPhrase from status_update)
     phrases = [] ; wordLen = None
     for p in p2:
