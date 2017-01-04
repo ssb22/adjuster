@@ -240,9 +240,6 @@ parser.add_option("--time-estimate",
 parser.add_option("--single-core",
                   action="store_true",default=False,
                   help="Use only one CPU core even when others are available. (If this option is not set, multiple cores are used if a 'futures' or 'mpi4py.futures' package is installed; this currently requires --checkpoint and is used only for large collocation checks in limited circumstances.  MPI is not currently likely to achieve much speed increase, but concurrent.futures is.)") # (limited circumstances: namely, words that occur in length-1 phrases)
-parser.add_option("--force-mpi",
-                  action="store_true",default=False,
-                  help="For testing MPI setups, force use of MPI and print the traceback if it doesn't work, instead of silently falling back to non-MPI.")
 
 main = (__name__ == "__main__")
 if main: sys.stderr.write(program_name+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
@@ -2901,8 +2898,6 @@ def generate_map():
     if checkpoint: pickle.Pickler(open(checkpoint+os.sep+'map','wb'),-1).dump((corpus_to_markedDown_map,c2m_inverse,precalc_sets,yPriorityDic))
     checkpoint_exit()
 
-if force_mpi and single_core: errExit("You cannot specify --force-mpi with --single-core")
-if force_mpi and not checkpoint: errExit("--force-mpi currently requires --checkpoint")
 def setup_parallelism():
     if single_core or not checkpoint: return # parallelise only if checkpoint (otherwise could have trouble sharing the normalised corpus etc) TODO: document that checkpoint also affects this
     try:
@@ -2912,8 +2907,7 @@ def setup_parallelism():
         .index("-m mpi4py.futures") # ValueError if not found
       import mpi4py.futures # mpi4py v2.1+
       return mpi4py.futures.MPIPoolExecutor()
-    except:
-      if force_mpi: raise
+    except ValueError: pass # but raise all other exceptions: if we're being run within mpi4py.futures then we want to know about MPI problems
     try:
       import concurrent.futures # sudo pip install futures (2.7 backport of 3.2 standard library)
       import multiprocessing
