@@ -2537,7 +2537,7 @@ def yarowsky_indicators_wrapped(withAnnot_unistr):
 def getOkStarts(withAnnot_unistr):
     if withAnnot_unistr in precalc_sets: return precalc_sets[withAnnot_unistr]
     walen = len(withAnnot_unistr)
-    return set(x for x in precalc_sets[splitWords(withAnnot_unistr).next()] if corpus_unistr[c2m_inverse[x]:c2m_inverse[x]+walen]==withAnnot_unistr)
+    return set(x for x in precalc_sets[splitWords(withAnnot_unistr).next()] if corpus_unistr[m2c_map[x]:m2c_map[x]+walen]==withAnnot_unistr)
 def getBadStarts(nonAnnot,okStarts): return set(x.start() for x in re.finditer(re.escape(nonAnnot),corpus_markedDown) if not x.start() in okStarts)
 def getReallyBadStarts(badStarts,nonAnnot):
     # Some of the badStarts can be ignored on the grounds that they should be picked up by other rules first: any where the nonAnnot match does not start at the start of a word (the rule matching the word starting earlier should get there first), and any where it starts at the start of a word that is longer than its own first word (the longest-first ordering should take care of this).  So keep only the ones where it starts at the start of a word and that word is no longer than len(nonAnnot).
@@ -2545,7 +2545,7 @@ def getReallyBadStarts(badStarts,nonAnnot):
     nonAnnotLen = len(mdStart+nonAnnot+mdEnd)
     theRe = re.compile(re.escape(mdStart+nonAnnot[0])+".*?"+re.escape(mdEnd))
     for b in badStarts:
-      try: s = c2m_inverse[b]
+      try: s = m2c_map[b]
       except KeyError: continue # it wasn't the start of a word (only start positions are in that map)
       m=theRe.search(corpus_unistr, s) # will either start at s, or after it if mreverse
       s,e = m.start(),m.end()
@@ -2616,15 +2616,15 @@ def badInfo(badStarts,nonAnnot):
    contextStart,contextEnd=max(0,wordStart-5),wordEnd+5
    toRead = corpus_markedDown
    # but can we report it from the original corpus_unistr?
-   if wordStart in c2m_inverse and wordEnd in c2m_inverse:
+   if wordStart in m2c_map and wordEnd in m2c_map:
     toRead = corpus_unistr
-    wordStart,wordEnd = c2m_inverse[wordStart],c2m_inverse[wordEnd]
+    wordStart,wordEnd = m2c_map[wordStart],m2c_map[wordEnd]
     newCStart,newCEnd = contextStart,contextEnd
-    while newCStart not in c2m_inverse and newCStart >= contextStart-5: newCStart-=1
-    while newCEnd not in c2m_inverse and newCEnd<contextEnd+5: newCEnd+=1
-    if newCStart in c2m_inverse: contextStart = c2m_inverse[newCStart]
+    while newCStart not in m2c_map and newCStart >= contextStart-5: newCStart-=1
+    while newCEnd not in m2c_map and newCEnd<contextEnd+5: newCEnd+=1
+    if newCStart in m2c_map: contextStart = m2c_map[newCStart]
     else: contextStart = max(0,wordStart - 15) # This might cut across markup, but better that than failing to report the original corpus and making it look like the words might not have "lined up" when actually they did.  Might also just cut into surrounding non-markup text (if the above loop simply couldn't find anything near enough because such text was in the way).
-    if newCEnd in c2m_inverse: contextEnd = c2m_inverse[newCEnd]
+    if newCEnd in m2c_map: contextEnd = m2c_map[newCEnd]
     else: contextEnd = wordEnd + 15 # ditto
    ret += (u" (%s%s%s%s%s)" % (toRead[contextStart:wordStart],reverse_on,toRead[wordStart:wordEnd],reverse_off,toRead[wordEnd:contextEnd])).replace("\n","\\n").replace("\r","\\r").encode(terminal_charset,'replace')
   return ret
@@ -2853,24 +2853,22 @@ def handle_diagnose_limit(rule):
       diagnose_write("limit reached, suppressing further diagnostics")
 
 def generate_map():
-    global c2m_inverse, precalc_sets, yPriorityDic
+    global m2c_map, precalc_sets, yPriorityDic
     if checkpoint:
       try:
         f=open(checkpoint+os.sep+'map','rb')
-        c2m_inverse,precalc_sets,yPriorityDic = pickle.Unpickler(f).load()
+        m2c_map,precalc_sets,yPriorityDic = pickle.Unpickler(f).load()
         return
       except: pass
     assert main, "Only main should generate corpus map"
     sys.stderr.write("Generating corpus map... ")
-    corpus_to_markedDown_map = {} ; c2m_inverse = {}
-    precalc_sets = {}
+    m2c_map = {} ; precalc_sets = {}
     muStart = downLenSoFar = 0
     for s in re.finditer(re.escape(markupStart), corpus_unistr):
       s=s.start()
       downLenSoFar += len(markDown(corpus_unistr[muStart:s]))
       muStart = s
-      corpus_to_markedDown_map[s] = downLenSoFar
-      c2m_inverse[downLenSoFar] = s
+      m2c_map[downLenSoFar] = s
       # Added optimisation: do precalc_sets as well
       # (at least catch the 1-word cases)
       # -> this is now needed even if not ybytes
@@ -2879,7 +2877,7 @@ def generate_map():
         e += len(markupEnd)
         k = corpus_unistr[s:e]
         if k not in precalc_sets: precalc_sets[k]=set()
-        precalc_sets[k].add(corpus_to_markedDown_map[s])
+        precalc_sets[k].add(downLenSoFar)
     yPriorityDic = {}
     if ref_pri and ybytes:
       sys.stderr.write("yPriorityDic ... ")
@@ -2893,7 +2891,7 @@ def generate_map():
           if diagnose==wd: diagnose_write("yPriorityDic[%s] = %s" % (wd,w))
           yPriorityDic[wd] = w
     sys.stderr.write("done\n")
-    if checkpoint: pickle.Pickler(open(checkpoint+os.sep+'map','wb'),-1).dump((c2m_inverse,precalc_sets,yPriorityDic))
+    if checkpoint: pickle.Pickler(open(checkpoint+os.sep+'map','wb'),-1).dump((m2c_map,precalc_sets,yPriorityDic))
     checkpoint_exit()
 
 def setup_parallelism():
@@ -3250,7 +3248,7 @@ else:
       s = refMap[rmPos][0] ; i = -1
       while i < s and okStarts:
         i = min(okStarts) ; okStarts.remove(i)
-        i = c2m_inverse[i]
+        i = m2c_map[i]
       if i < s: break
       rmE = len(refMap)-1
       while refMap[rmE][0] > i:
