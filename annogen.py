@@ -25,11 +25,6 @@ import sys,os,os.path,tempfile,time,re
 if not "mac" in sys.platform and not "darwin" in sys.platform and ("win" in sys.platform or "mingw32" in sys.platform): exe=".exe" # Windows, Cygwin, etc
 else: exe=""
 
-try: import cPickle as pickle
-except:
-  try: import pickle
-  except: pickle = None
-
 #  =========== INPUT OPTIONS ==============
 
 parser.add_option("--infile",
@@ -2282,6 +2277,10 @@ def checkpoint_exit(doIt=1):
     sys.stderr.write("\nExitASAP found: exit\n")
     raise SystemExit
   else: return True
+try: import cPickle as pickle
+except:
+  try: import pickle
+  except: pickle = None
 def read_checkpoint():
   t = pickle.Unpickler(open(checkpoint+os.sep+'checkpoint','rb')).load()
   sys.stderr.write("Checkpoint loaded from %d phrases\n" % t[0])
@@ -2854,12 +2853,11 @@ def handle_diagnose_limit(rule):
       diagnose_write("limit reached, suppressing further diagnostics")
 
 def generate_map():
-    global corpus_to_markedDown_map, c2m_inverse
-    global precalc_sets, yPriorityDic
+    global c2m_inverse, precalc_sets, yPriorityDic
     if checkpoint:
       try:
         f=open(checkpoint+os.sep+'map','rb')
-        corpus_to_markedDown_map,c2m_inverse,precalc_sets,yPriorityDic = pickle.Unpickler(f).load()
+        c2m_inverse,precalc_sets,yPriorityDic = pickle.Unpickler(f).load()
         return
       except: pass
     assert main, "Only main should generate corpus map"
@@ -2895,7 +2893,7 @@ def generate_map():
           if diagnose==wd: diagnose_write("yPriorityDic[%s] = %s" % (wd,w))
           yPriorityDic[wd] = w
     sys.stderr.write("done\n")
-    if checkpoint: pickle.Pickler(open(checkpoint+os.sep+'map','wb'),-1).dump((corpus_to_markedDown_map,c2m_inverse,precalc_sets,yPriorityDic))
+    if checkpoint: pickle.Pickler(open(checkpoint+os.sep+'map','wb'),-1).dump((c2m_inverse,precalc_sets,yPriorityDic))
     checkpoint_exit()
 
 def setup_parallelism():
