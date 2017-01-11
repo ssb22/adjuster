@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.61 (c) 2012-16 Silas S. Brown"
+program_name = "Annotator Generator v0.62 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -234,9 +234,9 @@ parser.add_option("--time-estimate",
 
 parser.add_option("--single-core",
                   action="store_true",default=False,
-                  help="Use only one CPU core even when others are available. (If this option is not set, multiple cores are used if a 'futures' or 'mpi4py.futures' package is installed; this currently requires --checkpoint and is used only for large collocation checks in limited circumstances.  MPI is not currently likely to achieve much speed increase, but concurrent.futures is.)") # (limited circumstances: namely, words that occur in length-1 phrases)
+                  help="Use only one CPU core even when others are available. (If this option is not set, multiple cores are used if a 'futures' or 'mpi4py.futures' package is installed; this currently requires --checkpoint and is used only for large collocation checks in limited circumstances.)") # namely, words that occur in length-1 phrases
 
-main = (__name__ == "__main__")
+main = (__name__ == "__main__" and not os.environ.get("OMPI_COMM_WORLD_RANK","0").replace("0",""))
 if main: sys.stderr.write(program_name+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
 # else STILL parse options (if we're being imported for parallel processing)
 options, args = parser.parse_args()
@@ -2533,6 +2533,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
       if not distance: distance = ybytes_max
       yield negate,ret,distance
 def yarowsky_indicators_wrapped(withAnnot_unistr):
+    check_globals_are_set_up()
     return yarowsky_indicators(withAnnot_unistr,False).next()
 def getOkStarts(withAnnot_unistr):
     if withAnnot_unistr in precalc_sets: return precalc_sets[withAnnot_unistr]
@@ -2936,6 +2937,12 @@ def setup_other_globals():
         global markedUp_unichars
         if yarowsky_all: markedUp_unichars = None
         else: markedUp_unichars = set(list(u"".join(markDown(p) for p in get_phrases() if not type(p)==int)))
+def check_globals_are_set_up(): # for use during parallelism
+  try: corpus_unistr # if we fork()d, we may already have it
+  except NameError:
+    normalise() # should get corpus_unistr from checkpoint
+    generate_map() # similarly this should just be a read
+    setup_other_globals() # might do a bit more work, but probably faster than copying if we're not on the same machine
 
 def analyse():
     accum = RulesAccumulator()
@@ -3001,7 +3008,7 @@ def test_manual_rules():
           if k not in precalc_sets: precalc_sets[k]=set()
       yb = []
       if not test_rule(l,yb).next() or len(yb):
-        sys.stderr.write("\nWARNING: Manual rule '%s' may contradict the examples" % (l.encode(terminal_charset),))
+        sys.stderr.write("\nWARNING: Manual rule '%s' may contradict the examples. " % (l.encode(terminal_charset),))
         global diagnose,diagnose_limit,ybytes
         od,odl,oy,diagnose,diagnose_limit,ybytes = diagnose,diagnose_limit,ybytes,markDown(l),0,ybytes_max
         test_rule(l,[]).next()
@@ -3365,13 +3372,6 @@ if main:
   try: rulesAndConds = analyse()
   finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
   del _gp_cache
-else: # not main: set up corpus globals for parallel funcs:
-  try: corpus_unistr # if we fork()d, we may already have it
-  except NameError:
-    normalise() # should get corpus_unistr from checkpoint
-    generate_map() # similarly this should just be a read
-    setup_other_globals() # might do a bit more work, but probably faster than copying if we're not on the same machine
-  setup_parallelism() # TODO: is this call really needed?
 
 if main:
  if c_filename: outfile = open(c_filename,"w")
