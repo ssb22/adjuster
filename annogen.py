@@ -2,6 +2,8 @@
 
 program_name = "Annotator Generator v0.62 (c) 2012-17 Silas S. Brown"
 
+# See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
+
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -70,7 +72,7 @@ parser.add_option("-s", "--spaces",
 parser.add_option("-c", "--capitalisation",
                   action="store_true",
                   default=False,
-                  help="Don't try to normalise capitalisation in the input.  Normally, to simplify the rules, the analyser will try to remove start-of-sentence capitals in annotations, so that the only remaining words with capital letters are the ones that are ALWAYS capitalised such as names.  (That's not perfect: it's possible that some words will always be capitalised just because they happen to never occur mid-sentence in the examples.)  If this option is used, the analyser will instead try to \"learn\" how to predict the capitalisation of ALL words (including start of sentence words) from their contexts.") # TODO: make the C program put the sentence capitals back
+                  help="Don't try to normalise capitalisation in the input.  Normally, to simplify the rules, the analyser will try to remove start-of-sentence capitals in annotations, so that the only remaining words with capital letters are the ones that are ALWAYS capitalised such as names.  (That's not perfect: some words might always be capitalised just because they never occur mid-sentence in the examples.)  If this option is used, the analyser will instead try to \"learn\" how to predict the capitalisation of ALL words (including start of sentence words) from their contexts.") # TODO: make the C program put the sentence capitals back
 
 parser.add_option("-w", "--annot-whitespace",
                   action="store_true",
@@ -217,7 +219,7 @@ parser.add_option("--max-words",default=0,
 # TODO: optionally (especially if NOT using Yarowsky) do an additional pass (after discovering all other rules) and turn whole phrases that are not completely covered by other rules into whole-phrase rules, if it doesn't conflict 1 phrase w. anothr of equal priority; shld be ok if no overlap, overlaps wld *sometimes* be ok suggest a len threshold
 
 parser.add_option("--checkpoint",help="Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.")
-# (Condor can checkpoint an application on Win/Mac/Linux but is awkward to set up.  Various Linux and BSD application checkpoint approaches also exist; another option is virtualisation.)
+# (Condor can checkpoint an application on Win/Mac/Linux but is awkward to set up.  Various Linux and BSD application checkpoint approaches also exist, and virtual machines can have their state saved.  On the other hand the physical machine might have a 'hibernate' option which is easier.)
 
 parser.add_option("-d","--diagnose",help="Output some diagnostics for the specified word. Use this option to help answer \"why doesn't it have a rule for...?\" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).")
 parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: %default")
@@ -2289,8 +2291,7 @@ def write_checkpoint(t):
   pickle.Pickler(open(checkpoint+os.sep+'checkpoint-NEW','wb'),-1).dump(t) # better write to checkpoint-NEW, in case we reboot or have an OS-level "Out of memory" condition *while* checkpointing
   try: os.rename(checkpoint+os.sep+'checkpoint-NEW',checkpoint+os.sep+'checkpoint')
   except OSError: # OS can't do it atomically?
-    try: os.remove(checkpoint+os.sep+'checkpoint')
-    except OSError: pass
+    rm_f(checkpoint+os.sep+'checkpoint')
     try: os.rename(checkpoint+os.sep+'checkpoint-NEW',checkpoint+os.sep+'checkpoint')
     except OSError: pass
   checkpoint_exit()
@@ -2310,12 +2311,12 @@ def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,la
     elif minsLeft>60: progress += " %dh+" % int(minsLeft/60)
     elif minsLeft: progress += " %dmin+" % minsLeft
     # (including the + because this is liable to be an underestimate; see comment after the --time-estimate option)
-  if len(progress) + 14 < screenWidth:
-    progress += " (at %02d:%02d:%02d" % time.localtime()[3:6] # clock time: might be useful for checking if it seems stuck
-    if len(progress) + 17 < screenWidth and not clear_eol == "  \r": # (being able to fit this in can be intermittent)
+    if len(progress) + 14 < screenWidth:
+     progress += " (at %02d:%02d:%02d" % time.localtime()[3:6] # clock time: might be useful for checking if it seems stuck
+     if len(progress) + 20 < screenWidth and not clear_eol == "  \r": # (being able to fit this in can be intermittent)
       elapsed = time.time() - startTime
-      progress += ", aRun=%d:%02d:%02d" % (elapsed/3600,(elapsed%3600)/60,elapsed%60)
-    progress += ")"
+      progress += ", analyse=%d:%02d:%02d" % (elapsed/3600,(elapsed%3600)/60,elapsed%60)
+     progress += ")"
   sys.stderr.write(progress+clear_eol)
 
 def normalise():
@@ -2323,15 +2324,13 @@ def normalise():
     global corpus_unistr
     if checkpoint:
       try:
-        f=open(checkpoint+os.sep+'normalised','rb')
+        f=open_try_bz2(checkpoint+os.sep+'normalised','rb')
         corpus_unistr = f.read().decode('utf-8')
         return
       except: # if re-generating 'normalised', will also need to regenerate 'map' and 'checkpoint' if present
         assert main, "normalise checkpoint not readable in non-main module"
-        try: os.remove(checkpoint+os.sep+'map')
-        except: pass
-        try: os.remove(checkpoint+os.sep+'checkpoint')
-        except: pass
+        rm_f(checkpoint+os.sep+'map.bz2') ; rm_f(checkpoint+os.sep+'map')
+        rm_f(checkpoint+os.sep+'checkpoint')
     else: assert main, "normalise called in non-main module and checkpoint isn't even set"
     sys.stderr.write("Normalising...")
     allWords = getAllWords()
@@ -2426,7 +2425,7 @@ def normalise():
       if not w==w2: rpl.add(w,w2)
     rpl.flush()
     sys.stderr.write(" done\n")
-    if checkpoint: open(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8'))
+    if checkpoint: open_try_bz2(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8'))
     checkpoint_exit()
 def getAllWords():
   allWords = set()
@@ -2857,7 +2856,7 @@ def generate_map():
     global m2c_map, precalc_sets, yPriorityDic
     if checkpoint:
       try:
-        f=open(checkpoint+os.sep+'map','rb')
+        f=open_try_bz2(checkpoint+os.sep+'map','rb')
         m2c_map,precalc_sets,yPriorityDic = pickle.Unpickler(f).load()
         return
       except: pass
@@ -2892,7 +2891,7 @@ def generate_map():
           if diagnose==wd: diagnose_write("yPriorityDic[%s] = %s" % (wd,w))
           yPriorityDic[wd] = w
     sys.stderr.write("done\n")
-    if checkpoint: pickle.Pickler(open(checkpoint+os.sep+'map','wb'),-1).dump((m2c_map,precalc_sets,yPriorityDic))
+    if checkpoint: pickle.Pickler(open_try_bz2(checkpoint+os.sep+'map','wb'),-1).dump((m2c_map,precalc_sets,yPriorityDic))
     checkpoint_exit()
 
 def setup_parallelism():
@@ -2986,7 +2985,7 @@ def analyse():
     del backgrounded
     if rulesFile: accum.save()
     if diagnose_manual: test_manual_rules()
-    return accum.rulesAndConds()
+    return sorted(accum.rulesAndConds()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
 
 def read_manual_rules():
   if not manualrules: return
@@ -3320,6 +3319,12 @@ def openfile(fname,mode='r'):
     elif fname.endswith(".bz2"):
         import bz2 ; return bz2.BZ2File(fname,mode)
     else: return open(fname,mode)
+def open_try_bz2(fname,mode='r'): # use .bz2 iff available (for checkpoints)
+  try: return openfile(fname+".bz2",mode)
+  except: return openfile(fname,mode)
+def rm_f(fname):
+  try: os.remove(fname)
+  except OSError: pass
 
 import atexit
 def set_title(t):
@@ -3374,7 +3379,7 @@ if main:
   del _gp_cache
 
 if main:
- if c_filename: outfile = open(c_filename,"w")
+ if c_filename: outfile = openfile(c_filename,"w")
  else: outfile = sys.stdout
  if summary_only: outputRulesSummary(rulesAndConds)
  else: outputParser(rulesAndConds)
