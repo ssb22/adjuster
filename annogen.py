@@ -97,7 +97,7 @@ parser.add_option("--no-input",
                   action="store_true",default=False,
                   help="Don't actually read the input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change).")
 
-parser.add_option("--c-filename",default="",help="Where to write the C program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.")
+parser.add_option("--c-filename",default="",help="Where to write the C program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
 
 parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
 # If compiling an experimental annotator quickly, you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc.
@@ -236,7 +236,7 @@ parser.add_option("--time-estimate",
 
 parser.add_option("--single-core",
                   action="store_true",default=False,
-                  help="Use only one CPU core even when others are available. (If this option is not set, multiple cores are used if a 'futures' or 'mpi4py.futures' package is installed; this currently requires --checkpoint and is used only for large collocation checks in limited circumstances.)") # namely, words that occur in length-1 phrases
+                  help="Use only one CPU core even when others are available. (If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is currently used only for large collocation checks in limited circumstances.)") # namely, words that occur in length-1 phrases
 
 main = (__name__ == "__main__" and not os.environ.get("OMPI_COMM_WORLD_RANK","0").replace("0",""))
 if main: sys.stderr.write(program_name+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
@@ -2896,14 +2896,21 @@ def generate_map():
 
 def setup_parallelism():
     if single_core or not checkpoint: return # parallelise only if checkpoint (otherwise could have trouble sharing the normalised corpus etc) TODO: document that checkpoint also affects this
+    import commands
     try:
-      import os, commands
       commands.getoutput(
         "ps -p " + str(os.getpid()) + " -o args") \
         .index("-m mpi4py.futures") # ValueError if not found
       import mpi4py.futures # mpi4py v2.1+
       return mpi4py.futures.MPIPoolExecutor()
     except ValueError: pass # but raise all other exceptions: if we're being run within mpi4py.futures then we want to know about MPI problems
+    try:
+      commands.getoutput(
+        "ps -p " + str(os.getpid()) + " -o args") \
+        .index("-m scoop") # ValueError if not found
+      import scoop.futures
+      return scoop.futures # submit() is at module level
+    except ValueError: pass
     try:
       import concurrent.futures # sudo pip install futures (2.7 backport of 3.2 standard library)
       import multiprocessing
