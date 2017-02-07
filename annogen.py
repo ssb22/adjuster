@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.62 (c) 2012-17 Silas S. Brown"
+program_name = "Annotator Generator v0.621 (c) 2012-17 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -2895,7 +2895,7 @@ def generate_map():
     checkpoint_exit()
 
 def setup_parallelism():
-    if single_core or not checkpoint: return # parallelise only if checkpoint (otherwise could have trouble sharing the normalised corpus etc) TODO: document that checkpoint also affects this
+    if single_core or not checkpoint: return # parallelise only if checkpoint (otherwise could have trouble sharing the normalised corpus and map etc)
     import commands
     try:
       commands.getoutput(
@@ -2944,9 +2944,12 @@ def setup_other_globals():
         if yarowsky_all: markedUp_unichars = None
         else: markedUp_unichars = set(list(u"".join(markDown(p) for p in get_phrases() if not type(p)==int)))
 def check_globals_are_set_up(): # for use during parallelism
+  global corpus_unistr
   try: corpus_unistr # if we fork()d, we may already have it
   except NameError:
-    normalise() # should get corpus_unistr from checkpoint
+    normalise() # should get corpus_unistr from checkpoint,
+    try: corpus_unistr # unless we're NOT normalising,
+    except: corpus_unistr = openfile(infile).read().decode(incode) # in which case we have to load the corpus from scratch (it won't be stdin)
     generate_map() # similarly this should just be a read
     setup_other_globals() # might do a bit more work, but probably faster than copying if we're not on the same machine
 
@@ -3381,6 +3384,7 @@ if main:
   if diagnose and not suppress and not diagnose in corpus_unistr: diagnose_write(diagnose+" was in the corpus before normalisation, but not after") # (if running from a checkpoint, might want to rm normalised and redo the diagnose)
   generate_map() ; setup_other_globals()
   executor = setup_parallelism()
+  if executor and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8')) # normalise won't have done it and the other nodes will need it (TODO: unless we're doing concurrent.futures with fork)
   try: rulesAndConds = analyse()
   finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
   del _gp_cache
