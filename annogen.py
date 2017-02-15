@@ -2911,7 +2911,7 @@ def setup_parallelism():
         "ps -p " + str(os.getpid()) + " -o args") \
         .index("-m mpi4py.futures") # ValueError if not found
       import mpi4py.futures # mpi4py v2.1+
-      import mpi4py.MPI ; assert mpi4py.MPI.COMM_WORLD.size > 1, "mpi4py thinks world size is 1: likely a symptom of incorrectly-configured MPI.  Did you compile mpi4py using the same setup (e.g. MPICH or OpenMPI) as you are running?  mpi4py's config is: "+repr(mpi4py.get_config())
+      import mpi4py.MPI, mpi4py ; assert mpi4py.MPI.COMM_WORLD.size > 1, "mpi4py says world size is 1: likely a symptom of incorrectly-configured MPI.  Did you compile mpi4py using the same setup (e.g. MPICH or OpenMPI) as you are running?  mpi4py's config is: "+repr(mpi4py.get_config())
       return mpi4py.futures.MPIPoolExecutor()
     except ValueError: pass # but raise all other exceptions: if we're being run within mpi4py.futures then we want to know about MPI problems
     try:
