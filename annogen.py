@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.621 (c) 2012-17 Silas S. Brown"
+program_name = "Annotator Generator v0.622 (c) 2012-17 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1202,7 +1202,16 @@ public class MainActivity extends Activity {
                     public void run() {
                         android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
                         d.setTitle(tt); d.setMessage(aa);
-                        d.setNegativeButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
+                        d.setNegativeButton("Copy",new android.content.DialogInterface.OnClickListener() {
+                                @android.annotation.TargetApi(11)
+                                public void onClick(android.content.DialogInterface dialog,int id) {
+                                        String text=tt+" "+aa;
+                                if(Integer.valueOf(android.os.Build.VERSION.SDK) < android.os.Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
+                                        ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(text);
+                                else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(text,text));
+                                }
+                        });
+                        d.setPositiveButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
                         d.create().show();
                     }
                 }
