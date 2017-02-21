@@ -2830,7 +2830,7 @@ def domain_process(text,cookieHost=None,stopAtOne=False,https=None):
     else: count=0
     if https==None: lStart = r"https?://"
     else: lStart = r"(?:https?://)|(?:(?<=['"+'"'+r"])//)" # 'use current protocol' links, including their use in scripts
-    return re.sub("("+lStart+r")([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)",mFunc,text,count)
+    return re.sub("("+lStart+r")([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)",mFunc,text,count) # TODO: what about embedded IPv6 addresses i.e. \[[0-9a-fA-F:]*\] in place of hostnames (and what should we rewrite them to?)  Hopefully rare as such sites wouldn't be usable by IPv4-only users (although somebody might have IPv6-specific versions of their pages/servers).  If making Web Adjuster IPv6 ready, also need to check all instances of using ':' to split host from port as this won't be the case if host is '[' + IPv6 + ']'
 
 def cookie_domain_process(text,cookieHost=None):
     start=0
