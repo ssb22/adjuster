@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.22 (c) 2012-16 Silas S. Brown"
+program_name = "Web Adjuster v0.23 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -147,6 +147,7 @@ define("viewsource",default=False,help="Provide a \"view source\" option. If set
 define("htmlonly_mode",default=True,help="Provide a checkbox allowing the user to see pages in \"HTML-only mode\", stripping out most images, scripts and CSS; this might be a useful fallback for very slow connections if a site's pages bring in many external files and the browser cannot pipeline its requests. The checkbox is displayed by the URL box, not at the bottom of every page.") # if no pipeline, a slow UPLINK can be a problem, especially if many cookies have to be sent with each request for a js/css/gif/etc.
 # (and if wildcard_dns=False and we're domain multiplexing, our domain can accumulate a lot of cookies, causing requests to take more uplink bandwidth, TODO: do something about this?)
 # Above says "most" not "all" because some stripping not finished (see TODO comments) and because some scripts/CSS added by Web Adjuster itself are not stripped
+define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support POST forms (which makes your 'session' on the site likely to break if you submit one) or Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If accepting requests like a \"real\" proxy, htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.")
 define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted website to put a special redirection page to handle mailto: links, showing the user the contents of the link first (in case a mail client is not set up). This must be made up of URL-safe characters starting with a / and should be a path that is unlikely to occur on normal websites and that does not conflict with renderPath. If this option is empty, mailto: links are not changed. (Currently, only plain HTML mailto: links are changed by this function; Javascript-computed ones are not.)")
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page.")
 
@@ -554,6 +555,9 @@ def preprocessOptions():
         else: sp = options.ssh_proxy
         if ':' in sp: allowConnectHost,allowConnectPort=sp.rsplit(':',1)
         else: allowConnectHost,allowConnectPort = sp,"22"
+    if options.PhantomJS:
+        if not options.htmlonly_mode: errExit("PhantomJS requires htmlonly_mode")
+        init_webdriver()
 
 def serverControl():
     if options.install:
@@ -923,25 +927,44 @@ def httpfetch(url,**kwargs):
         if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
         try: resp = urllib2.urlopen(req,timeout=60)
         except urllib2.HTTPError, e: resp = e
-        except Exception, e: # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
-            class Resp:
-                def getcode(self): return 500
-                def info(self):
-                    class H:
-                        def get(self,h,d): return d
-                    r = H() ; r.headers = [] ; return r
-                def read(self): return str(e)
-            resp = Resp()
-        class Empty: pass
-        r = Empty()
-        r.code = resp.getcode()
-        class H:
-            def __init__(self,info): self.info = info
-            def get(self,h,d): return self.info.get(h,d)
-            def get_all(self): return [h.replace('\n','').split(': ',1) for h in self.info.headers]
-        r.headers = H(resp.info())
-        r.body = resp.read()
+        except Exception, e: resp = wrapError(e) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
+        r = wrapResponse(resp.getcode(),resp.info(),resp.read())
     callback(r)
+def wrapError(e):
+    class Resp:
+        def getcode(self): return 500
+        def info(self):
+            class H:
+                def get(self,h,d): return d
+            r = H() ; r.headers = [] ; return r
+        def read(self): return str(e)
+    return Resp()
+def wrapResponse(code,headers,body):
+    class Empty: pass
+    r = Empty()
+    r.code = code
+    class H:
+        def __init__(self,info): self.info = info
+        def get(self,h,d): return self.info.get(h,d)
+        def get_all(self):
+            if hasattr(self.info,"headers"):
+                return [h.replace('\n','').split(': ',1) for h in self.info.headers]
+            else: return self.info.get_all()
+    r.headers = H(headers) ; r.body = body ; return r
+def webdriver_fetch(url): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
+    import tornado.httputil
+    if not theWebDriver.current_url == url:
+        theWebDriver.get(url) # waits for onload
+        if not theWebDriver.current_url == url: # redirected
+            return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),"")
+        time.sleep(1) # in case of additional events
+    return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
+def init_webdriver():
+    from selenium import webdriver
+    global theWebDriver
+    theWebDriver = webdriver.PhantomJS(service_args=['--ssl-protocol=any'])
+    theWebDriver.set_window_size(1024, 768)
+    import atexit ; atexit.register(theWebDriver.quit)
 
 def fixServerHeader(i):
     i.set_header("Server",serverName) # TODO: in "real" proxy mode, "Server" might not be the most appropriate header to set for this
@@ -1219,7 +1242,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 if htmlonly_mode: val="1"
                 else: val="0"
                 self.setCookie_with_dots(htmlmode_cookie_name+"="+val)
-    def htmlOnlyMode(self): return options.htmlonly_mode and htmlmode_cookie_name+"=1" in ';'.join(self.request.headers.get_list("Cookie"))
+    def htmlOnlyMode(self,isProxyRequest=False): return options.htmlonly_mode and (htmlmode_cookie_name+"=1" in ';'.join(self.request.headers.get_list("Cookie")) or (isProxyRequest and options.PhantomJS))
     
     def handle_URLbox_query(self,v):
         self.set_htmlonly_cookie()
@@ -1757,7 +1780,8 @@ document.forms[0].i.focus()
         body = self.request.body
         if not body: body = None # required by some Tornado versions
         ph,pp = upstream_proxy_host, upstream_proxy_port
-        httpfetch(self.urlToFetch,
+        if options.PhantomJS and self.htmlOnlyMode(isProxyRequest) and not body and not follow_redirects: self.doResponse(webdriver_fetch(self.urlToFetch),converterFlags,viewSource,isProxyRequest)
+        else: httpfetch(self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # Tornado's default is usually something like 20 seconds each; be more generous to slow servers (TODO: customise?)
                   proxy_host=ph, proxy_port=pp,
                   use_gzip=enable_gzip and not hasattr(self,"avoid_gzip"),
@@ -1880,11 +1904,8 @@ document.forms[0].i.focus()
         if not body: return self.myfinish() # might just be a redirect (TODO: if it's not, set type to text/html and report error?)
         if do_html_process:
             # Normalise the character set
-            charset2,tagStart,tagEnd = get_httpequiv_charset(body)
-            if charset2:
-                charset=charset2 # override server header (TODO: is this always correct?)
-                body = body[:tagStart]+body[tagEnd:] # delete that META tag because we're changing the charset
-            if body.startswith('<?xml version="1.0" encoding'): body = '<?xml version="1.0"'+body[body.find("?>"):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
+            charset2, body = get_and_remove_httpequiv_charset(body)
+            if charset2: charset=charset2 # override server header (TODO: is this always correct?)
             if charset=="gb2312": charset="gb18030" # 18030 is a superset of 2312, and some pages say 2312 for backward compatibility with old software when they're actually 18030 (most Chinese software treats both as equivalent, but not all Western software does)
             try: "".decode(charset)
             except: charset="latin-1" # ?? (unrecognised charset name)
@@ -1950,7 +1971,7 @@ document.forms[0].i.focus()
         # OK to change the code now:
         adjustList = []
         if do_html_process:
-          if self.htmlOnlyMode(): adjustList.append(StripJSEtc(self.urlToFetch))
+          if self.htmlOnlyMode(isProxyRequest): adjustList.append(StripJSEtc(self.urlToFetch,isProxyRequest))
           elif options.upstream_guard:
             # don't let upstream scripts get confused by our cookies (e.g. if the site is running Web Adjuster as well)
             # TODO: do it in script files also?
@@ -2387,6 +2408,12 @@ def get_httpequiv_charset(htmlStr):
     except Finished,e: return e.charset,e.tagStart,e.tagEnd
     return None,None,None
 
+def get_and_remove_httpequiv_charset(body):
+    charset,tagStart,tagEnd = get_httpequiv_charset(body)
+    if charset: body = body[:tagStart]+body[tagEnd:]
+    if body.startswith('<?xml version="1.0" encoding'): body = '<?xml version="1.0"'+body[body.find("?>"):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
+    return charset, body
+
 pdftotext_suffix = epubtotext_suffix = ".TxT" # TODO: what if a server uses .pdf.TxT or .epub.TxT ?
 mp3lofi_suffix = "-lOfI.mP3"
 epubtozip_suffix = ".ZiP" # TODO: what if a server uses .epub.ZiP ?
@@ -2442,7 +2469,8 @@ def add_conversion_links(h,offsite_ok,isKindle):
 class StripJSEtc:
     # TODO: HTML_adjust_svc might need to do handle_entityref and handle_charref to catch those inside scripts etc
     # TODO: change any "[if IE" at the start of comments (in case anyone using affected versions of IE wants to use this mode))
-    def __init__(self,url): self.url = url
+    def __init__(self,url,transparent):
+        self.url,self.transparent = url,transparent
     def init(self,parser):
         self.parser = parser
         self.suppressing = False
@@ -2452,7 +2480,8 @@ class StripJSEtc:
             return True
         elif tag in ['script','style']:
             self.suppressing = True ; return True
-        elif tag=="body": self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(self.url),self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
+        elif tag=="body":
+            if not self.transparent: self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(self.url),self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
         else: return self.suppressing or tag in ['link','noscript']
         # TODO: remove style= attribute on other tags? (or only if it refers to a URL?)
         # TODO: what about event handler attributes, and javascript: URLs
