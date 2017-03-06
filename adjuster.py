@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.23 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.231 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -975,7 +975,9 @@ rmServerHeaders = set([
     # server headers to remove.  We'll do our own connection type etc (but don't include "Date" in this list: if the remote server includes a Date it would be useful to propagate that as a reference for its Age headers etc, TODO: unless remote server is broken? see also comment in fixServerHeader re having no Date by default).  Many servers' Content-Location is faulty; it DOESN'T necessarily provide the new base href; it might be relative; it might be identical to the actual URL fetched; many browsers ignore it anyway
     "connection","content-length","content-encoding","transfer-encoding","etag","content-md5","server","alternate-protocol","strict-transport-security","content-location",
     "x-associated-content", # should NOT be sent to browser (should be interpreted by a server's SPDY/push module) but somebody might misread the specs (at least one Wikipedia editor did)
-]) 
+    "content-security-policy","x-webkit-csp","x-content-security-policy", # sorry but if we're adjusting the site by adding our own scripts/styles we are likely to be broken by a CSP that restricts which of these we're allowed to do. (Even if we adjust the domains listed on those headers, what if our scripts rely on injecting inline code?)  Sites shouldn't *depend* on CSP to prevent XSS: it's just a belt-and-braces that works only in recent browsers.  Hopefully our added styles etc will break the XSS-introduced ones if we hit a lazy site.
+    "vary", # we replace it with Vary: * because our adjustments may depend on cookies and user agents
+])
 # TODO: WebSocket (and Microsoft SM) gets the client to say 'Connection: Upgrade' with a load of Sec-WebSocket-* headers, check what Tornado does with that
 rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Encoding','X-Forwarded-Host','X-Forwarded-Port','X-Forwarded-Server','X-Forwarded-Proto','X-Request-Start','Range','TE','Upgrade'] # TODO: we can pass Range to remote server if and only if we guarantee not to need to change anything  (could also add If-Range and If-None-Match to the list, but these should be harmless to pass to the remote server and If-None-Match might actually help a bit in the case where the document doesn't change)
 
@@ -1892,6 +1894,7 @@ document.forms[0].i.focus()
                 elif name=='Content-Disposition':
                     headers_to_add.remove((name,value))
         added = {'set-cookie':1} # might have been set by authenticates_ok
+        headers_to_add.append(('Vary','*'))
         for name,value in headers_to_add:
           value = value.replace("\t"," ") # needed for some servers
           if name.lower() in added: self.add_header(name,value)
@@ -2123,7 +2126,7 @@ def searchHelp():
     else: return " or enter search terms, first word can be "+", ".join([x.split(None,1)[1] for x in options.search_sites])
 def htmlhead(title): return '<html><head><title>%s</title><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head><body>' % title
 def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
-    r = htmlhead('Web Adjuster start page')+'<form action="/">'+options.boxPrompt+': <input type="text" name="q"'
+    r = htmlhead('Web Adjuster start page')+'<form action="/"><label for="q">'+options.boxPrompt+'</label>: <input type="text" id="q" name="q"'
     if default_url: r += ' value="'+default_url+'"'
     else: r += ' placeholder="http://"' # HTML5 (Firefox 4, Opera 11, MSIE 10, etc)
     r += '><input type="submit" value="Go">'+searchHelp()+cssOpts_html # 'go' button MUST be first, before cssOpts_html, because it's the button that's hit when Enter is pressed.  (So might as well make the below focus() script unconditional even if there's cssOpts_html.  Minor problem is searchHelp() might get in the way.)
@@ -2131,7 +2134,7 @@ def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
     else: htmlonly_checked = ""
     if options.htmlonly_mode:
         if not r.endswith("</p>"): r += "<br>"
-        r += '<input type="checkbox" name="pr"'+htmlonly_checked+'> HTML-only mode'
+        r += '<input type="checkbox" id="pr" name="pr"'+htmlonly_checked+'> <label for="pr">HTML-only mode</label>'
     r += '</form><script><!--\ndocument.forms[0].q.focus();\n//--></script>'
     if options.urlbox_extra_html: r += options.urlbox_extra_html
     return r+'</body></html>'
