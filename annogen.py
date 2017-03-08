@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.622 (c) 2012-17 Silas S. Brown"
+program_name = "Annotator Generator v0.623 (c) 2012-17 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -238,6 +238,8 @@ parser.add_option("--single-core",
                   action="store_true",default=False,
                   help="Use only one CPU core even when others are available. (If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is currently used only for large collocation checks in limited circumstances.)") # namely, words that occur in length-1 phrases
 
+parser.add_option("-p","--status-prefix",help="Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running")
+
 main = (__name__ == "__main__" and not os.environ.get("OMPI_COMM_WORLD_RANK","0").replace("0",""))
 if main: sys.stderr.write(program_name+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
 # else STILL parse options (if we're being imported for parallel processing)
@@ -325,6 +327,8 @@ try: import urlparse
 except:
   if os.environ.get("ANNOGEN_ANDROID_URLS"): errExit("Need urlparse module for ANNOGEN_ANDROID_URLS") # unless we re-implement
 if keep_whitespace: keep_whitespace = set(keep_whitespace.decode(terminal_charset).split(','))
+if status_prefix: status_prefix += ": "
+else: status_prefix = ""
 if diagnose: diagnose=diagnose.decode(terminal_charset)
 diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
@@ -2310,7 +2314,7 @@ def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,la
   if phraseSec < 100:
     phraseSecS = "%.1f" % phraseSec
   else: phraseSecS = "%d" % int(phraseSec)
-  progress = "%s phrase/sec (%d%%/#w=%d) rules=%d cover=%d%%" % (phraseSecS,int(100.0*phraseNo/numPhrases),wordsThisPhrase,nRules,coverP)
+  progress = status_prefix + "%s phrase/sec (%d%%/#w=%d) rules=%d cover=%d%%" % (phraseSecS,int(100.0*phraseNo/numPhrases),wordsThisPhrase,nRules,coverP)
   if warn_yarowsky: progress += (" rej=%d" % nRej)
   if time_estimate:
     if phraseNo-phraseLastCheckpoint < 10: phraseMin = phraseSec*60 # current 'instantaneous' speed
