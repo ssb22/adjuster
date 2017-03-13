@@ -147,7 +147,7 @@ define("viewsource",default=False,help="Provide a \"view source\" option. If set
 define("htmlonly_mode",default=True,help="Provide a checkbox allowing the user to see pages in \"HTML-only mode\", stripping out most images, scripts and CSS; this might be a useful fallback for very slow connections if a site's pages bring in many external files and the browser cannot pipeline its requests. The checkbox is displayed by the URL box, not at the bottom of every page.") # if no pipeline, a slow UPLINK can be a problem, especially if many cookies have to be sent with each request for a js/css/gif/etc.
 # (and if wildcard_dns=False and we're domain multiplexing, our domain can accumulate a lot of cookies, causing requests to take more uplink bandwidth, TODO: do something about this?)
 # Above says "most" not "all" because some stripping not finished (see TODO comments) and because some scripts/CSS added by Web Adjuster itself are not stripped
-define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support POST forms (which makes your 'session' on the site likely to break if you submit one) or Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If accepting requests like a \"real\" proxy, htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.")
+define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support POST forms (which makes your 'session' on the site likely to break if you submit one) or Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Additionally, 'Via' headers etc are not currently set.  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.")
 define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted website to put a special redirection page to handle mailto: links, showing the user the contents of the link first (in case a mail client is not set up). This must be made up of URL-safe characters starting with a / and should be a path that is unlikely to occur on normal websites and that does not conflict with renderPath. If this option is empty, mailto: links are not changed. (Currently, only plain HTML mailto: links are changed by this function; Javascript-computed ones are not.)")
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page.")
 
@@ -486,7 +486,7 @@ def preprocessOptions():
         codeChanges.append(tuple(ccLines[:3]))
         ccLines = ccLines[3:]
     if options.real_proxy: options.open_proxy=True
-    if not options.password and not options.open_proxy and not options.submitPath=='/': errExit("Please set a password, or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)\n") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
+    if not options.password and not options.open_proxy and not options.submitPath=='/' and not options.stop: errExit("Please set a password, or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)\n") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
     if options.htmlFilter and '#' in options.htmlFilter and not len(options.htmlFilter.split('#'))+1 == len(options.htmlFilterName.split('#')): errExit("Wrong number of #s in htmlFilterName for this htmlFilter setting")
     if not options.publicPort:
         options.publicPort = options.port
@@ -1244,7 +1244,8 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 if htmlonly_mode: val="1"
                 else: val="0"
                 self.setCookie_with_dots(htmlmode_cookie_name+"="+val)
-    def htmlOnlyMode(self,isProxyRequest=False): return options.htmlonly_mode and (htmlmode_cookie_name+"=1" in ';'.join(self.request.headers.get_list("Cookie")) or (isProxyRequest and options.PhantomJS))
+    def htmlOnlyMode(self,isProxyRequest=False): return options.htmlonly_mode and (htmlmode_cookie_name+"=1" in ';'.join(self.request.headers.get_list("Cookie")) or self.auto_htmlOnlyMode(isProxyRequest))
+    def auto_htmlOnlyMode(self,isProxyRequest): return options.PhantomJS and (isProxyRequest or (not options.wildcard_dns and not "" in options.default_site.split("/")))
     
     def handle_URLbox_query(self,v):
         self.set_htmlonly_cookie()
@@ -1974,7 +1975,7 @@ document.forms[0].i.focus()
         # OK to change the code now:
         adjustList = []
         if do_html_process:
-          if self.htmlOnlyMode(isProxyRequest): adjustList.append(StripJSEtc(self.urlToFetch,isProxyRequest))
+          if self.htmlOnlyMode(isProxyRequest): adjustList.append(StripJSEtc(self.urlToFetch,self.auto_htmlOnlyMode(isProxyRequest)))
           elif options.upstream_guard:
             # don't let upstream scripts get confused by our cookies (e.g. if the site is running Web Adjuster as well)
             # TODO: do it in script files also?
