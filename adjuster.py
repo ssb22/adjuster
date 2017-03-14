@@ -956,7 +956,7 @@ def webdriver_fetch(url): # single-user only! (and relies on being called only i
     if not theWebDriver.current_url == url:
         theWebDriver.get(url) # waits for onload
         if not theWebDriver.current_url == url: # redirected
-            return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),"")
+            return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),'<html><body><a href="%s">Redirect</a></body></html>' % theWebDriver.current_url.replace('&','&amp;').replace('"','&quot;'))
         time.sleep(1) # in case of additional events
     return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
 def init_webdriver():
