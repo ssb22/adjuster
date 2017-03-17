@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.231 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.232 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -138,7 +138,7 @@ define("bodyPrepend",help="Code to place at the start of the BODY section of eve
 define("prominentNotice",help="Text to add as a brief prominent notice to processed sites (may include HTML). If the browser has sufficient Javascript support, this will float relative to the browser window and will contain an 'acknowledge' button to hide it (for the current site in the current browsing session). Use prominentNotice if you need to add important information about how the page has been modified. Note: if you include Javascript document.write() code in prominentNotice, check that document.readyState is not 'complete' or you might find the document is erased on some website/browser combinations when a site script somehow causes your script to be re-run after the document stream is closed. In some rare cases you might also need to verify that document.cookie does not contain _WA_warnOK=1") # e.g. if the site does funny things with the browser cache.  Rewriting the innerHTML manipulation to appendChild doesn't fix the need to check document.readyState
 define("staticDocs",help="url#path of static documents to add to every website, e.g. /_myStatic/#/var/www (make sure the first part is something not likely to be used by the websites you visit). This can be used to supply extra Javascript (e.g. for bodyPrepend to load) if it needs to be served from the same domain. Note: staticDocs currently overrides the password and own_server options.")
 define("delete",multiple=True,help="Comma-separated list of regular expressions to delete from HTML documents. Can be used to delete selected items of Javascript and other code if it is causing trouble for your browser. Will also delete from the text of pages; use with caution.")
-define("delete_css",multiple=True,help="Comma-separated list of regular expressions to delete from CSS documents (but not inline CSS in HTML); can be used to remove, for example, dimension limits that conflict with annotations you add, as an alternative to inserting CSS overrides.")
+define("delete_css",multiple=True,help="Comma-separated list of regular expressions to delete from CSS documents (but not inline CSS in HTML); can be used to remove, for example, dimension limits that conflict with annotations you add, as an alternative to inserting CSS overrides.  In rare cases you might want to replace the deleted regexp with another, in which case you can use @@ to separate the two.")
 define("delete_doctype",default=False,help="Delete the DOCTYPE declarations from HTML pages. This option is needed to get some old Webkit browsers to apply multiple CSS files consistently.")
 define("deleteOmit",multiple=True,default="iPhone,iPad,Android,Macintosh",help="A list of browsers that do not need the delete and delete-doctype options to be applied. If any of these strings occur in the user-agent then these options are disabled for that request, on the assumption that these browsers are capable enough to cope with the \"problem\" code. Any delete-css option is still applied however.")
 define("codeChanges",help="Several lines of text specifying changes that are to be made to all HTML and Javascript code files on certain sites; use as a last resort for fixing a site's scripts. This option is best set in the configuration file and surrounded by r\"\"\"...\"\"\". The first line is a URL prefix (just \"http\" matches all), the second is a string of code to search for, and the third is a string to replace it with. Further groups of URL/search/replace lines may follow; blank lines and lines starting with # are ignored. If the 'URL prefix' starts with a * then it is instead a string to search for within the code of the document body; any documents containing this code will match; thus it's possible to write rules of the form 'if the code contains A, then replace B with C'. This processing takes place before any 'delete' option takes effect so it's possible to pick up on things that will be deleted, and it occurs after the domain rewriting so it's possible to change rewritten domains in the search/replace strings (but the URL prefix above should use the non-adjusted version).")
@@ -413,11 +413,11 @@ def changeConfigDirectory(fname):
 def errExit(msg):
     # Exit with an error message BEFORE server start
     try:
-        if options.background: logging.error(msg)
+        if not istty(): logging.error(msg)
         # in case run from crontab w/out output (and e.g. PATH not set properly)
         # (but don't do this if not options.background, as log_to_stderr is likely True and it'll be more cluttered than the simple sys.stderr.write below)
     except: pass # options or logging not configured yet
-    sys.stderr.write(msg)
+    sys.stderr.write(msg+"\n")
     sys.exit(1)
 
 def parse_command_line(final):
@@ -425,9 +425,21 @@ def parse_command_line(final):
         tornado.options.parse_command_line()
     else: tornado.options.parse_command_line(final=final)
 def parse_config_file(cfg, final): # similarly
+    check_config_file(cfg)
     if not tornado.options.parse_config_file.func_defaults: # Tornado 2.x
         tornado.options.parse_config_file(cfg)
     else: tornado.options.parse_config_file(cfg,final=final)
+def check_config_file(cfg):
+    # (why doesn't Tornado do this by default?  catch
+    # capitalisation and spelling errors etc)
+    try:
+        options = tornado.options.options._options
+        from tornado.util import exec_in
+    except: return
+    d = {} ; exec_in(open(cfg,'rb').read(),d,d)
+    for k in d.keys():
+        if not k in options and type(d[k]) in [str,unicode,list,bool,int]: # (allow functions etc)
+            errExit("Unrecognised global '%s' in configuration file '%s'" % (k,cfg))
 
 def readOptions():
     # Reads options from command line and/or config files
@@ -440,7 +452,7 @@ def readOptions():
         oldDir = os.getcwd()
         config2 = changeConfigDirectory(config)
         try: open(config2)
-        except: errExit("Cannot open configuration file %s (current directory is %s)\n" % (config2,os.getcwd()))
+        except: errExit("Cannot open configuration file %s (current directory is %s)" % (config2,os.getcwd()))
         parse_config_file(config2,False)
         configsDone.add((config,oldDir))
     parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files)
@@ -474,7 +486,7 @@ def preprocessOptions():
     upstream_proxy_host = upstream_proxy_port = None
     if options.upstream_proxy:
         try: import pycurl
-        except ImportError: errExit("upstream_proxy requires pycurl (try sudo pip install pycurl)\n")
+        except ImportError: errExit("upstream_proxy requires pycurl (try sudo pip install pycurl)")
         if not ':' in options.upstream_proxy: options.upstream_proxy += ":80"
         upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':')
         upstream_proxy_port = int(upstream_proxy_port)
@@ -482,17 +494,17 @@ def preprocessOptions():
     if options.codeChanges:
       ccLines = [x for x in options.codeChanges.split("\n") if x and not x.startswith("#")]
       while ccLines:
-        if len(ccLines)<3: errExit("codeChanges must be a multiple of 3 lines (see --help)\n")
+        if len(ccLines)<3: errExit("codeChanges must be a multiple of 3 lines (see --help)")
         codeChanges.append(tuple(ccLines[:3]))
         ccLines = ccLines[3:]
     if options.real_proxy: options.open_proxy=True
-    if not options.password and not options.open_proxy and not options.submitPath=='/' and not options.stop: errExit("Please set a password, or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)\n") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
+    if not options.password and not options.open_proxy and not options.submitPath=='/' and not options.stop: errExit("Please set a password, or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
     if options.htmlFilter and '#' in options.htmlFilter and not len(options.htmlFilter.split('#'))+1 == len(options.htmlFilterName.split('#')): errExit("Wrong number of #s in htmlFilterName for this htmlFilter setting")
     if not options.publicPort:
         options.publicPort = options.port
     if options.submitBookmarkletDomain and not options.publicPort==80: errExit("submitBookmarkletDomain option requires public port to be 80 (and HTTPS-capable on port 443)")
-    if options.pdftotext and not "pdftotext version" in os.popen4("pdftotext -h")[1].read(): errExit("pdftotext command does not seem to be usable\nPlease install it, or unset the pdftotext option\n")
-    if options.epubtotext and not "calibre" in os.popen4("ebook-convert -h")[1].read(): errExit("ebook-convert command does not seem to be usable\nPlease install calibre, or unset the epubtotext option\n")
+    if options.pdftotext and not "pdftotext version" in os.popen4("pdftotext -h")[1].read(): errExit("pdftotext command does not seem to be usable\nPlease install it, or unset the pdftotext option")
+    if options.epubtotext and not "calibre" in os.popen4("ebook-convert -h")[1].read(): errExit("ebook-convert command does not seem to be usable\nPlease install calibre, or unset the epubtotext option")
     global extensions
     if options.extensions:
         extensions = __import__(options.extensions)
@@ -502,7 +514,7 @@ def preprocessOptions():
         extensions = E()
     global ownServer_regexp
     if options.ownServer_regexp:
-        if not options.own_server: errExit("Cannot set ownServer_regexp if own_sever is not set\n")
+        if not options.own_server: errExit("Cannot set ownServer_regexp if own_sever is not set")
         ownServer_regexp = re.compile(options.ownServer_regexp)
     else: ownServer_regexp = None
     global ipMatchingFunc
@@ -597,7 +609,7 @@ def main():
     handlers = [(r"(.*)",RequestForwarder,{})]
     if options.staticDocs: handlers.insert(0,static_handler())
     application = Application(handlers,log_function=accessLog,gzip=True)
-    if not hasattr(application,"listen"): errExit("Your version of Tornado is too old.  Please install version 2.x.\n")
+    if not hasattr(application,"listen"): errExit("Your version of Tornado is too old.  Please install version 2.x.")
     if fork_before_listen and options.background:
         sys.stderr.write("%sChild will listen on port %d\n(can't report errors here as this system needs early fork)\n" % (twoline_program_name,options.port)) # (need some other way of checking it really started)
         unixfork()
@@ -702,8 +714,9 @@ def workaround_raspbian_IPv6_bug():
                 options.address = "0.0.0.0" # use IPv4 only
                 return
 
+def istty(): return hasattr(sys.stderr,"isatty") and sys.stderr.isatty()
 def set_title(t):
-  if not (hasattr(sys.stderr,"isatty") and sys.stderr.isatty()): return
+  if not istty(): return
   import atexit
   if t: atexit.register(set_title,"")
   term = os.environ.get("TERM","")
@@ -1971,7 +1984,10 @@ document.forms[0].i.focus()
                 body=re.sub("^<![dD][oO][cC][tT][yY][pP][eE][^>]*>","",body,1)
         if do_css_process:
             for d in options.delete_css:
-                body=re.sub(d,"",body)
+                if '@@' in d:
+                    s,r = d.split('@@',1)
+                    body = re.sub(s,r,body)
+                else: body=re.sub(d,"",body)
         # OK to change the code now:
         adjustList = []
         if do_html_process:
