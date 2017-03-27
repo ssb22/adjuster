@@ -1178,7 +1178,7 @@ import android.os.Bundle;
 import android.view.KeyEvent;
 public class MainActivity extends Activity {
     @SuppressLint("SetJavaScriptEnabled")
-    @android.annotation.TargetApi(7) // 7 for setAppCachePath (3 for setBuiltInZoomControls); not called if less
+    @android.annotation.TargetApi(19) // 19 for setWebContentsDebuggingEnabled; 7 for setAppCachePath; 3 for setBuiltInZoomControls (but only API 1 is required)
     @SuppressWarnings("deprecation") // for conditional SDK below
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -1193,6 +1193,7 @@ public class MainActivity extends Activity {
         // Delete the following long line if you DON'T want caching (Android 2.1+); caching is useful for persistence if app is removed from memory and then switched back to while user is offline
         if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheMaxSize(10*1048576) /* if API==7 i.e. exactly Android 2.1 (deprecated in API 8) */ ; browser.getSettings().setAppCacheEnabled(true); }
         // ---------------------------------------------
+        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) WebView.setWebContentsDebuggingEnabled(true); // so you can use chrome://inspect in desktop Chromium when connected via USB to Android 4.4+
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
         class A {
