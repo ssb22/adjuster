@@ -969,7 +969,7 @@ def webdriver_fetch(url): # single-user only! (and relies on being called only i
     if not theWebDriver.current_url == url:
         theWebDriver.get(url) # waits for onload
         if not theWebDriver.current_url == url: # redirected
-            return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),'<html><body><a href="%s">Redirect</a></body></html>' % theWebDriver.current_url.replace('&','&amp;').replace('"','&quot;'))
+            return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % theWebDriver.current_url.replace('&','&amp;').replace('"','&quot;'))
         time.sleep(1) # in case of additional events
     return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
 def init_webdriver():
@@ -1130,7 +1130,7 @@ class RequestForwarder(RequestHandler):
         for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # so redirect() can be called AFTER a site's headers are copied in
         self.add_header("Location",redir)
         self.add_header("Content-Type","text/html")
-        self.write('<html><body><a href="%s">Redirect</a></body></html>' % redir.replace('&','&amp;').replace('"','&quot;'))
+        self.write('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % redir.replace('&','&amp;').replace('"','&quot;'))
         self.myfinish()
         
     def add_nocache_headers(self):
@@ -1880,7 +1880,7 @@ document.forms[0].i.focus()
                     value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
-                return self.doResponse2(("<html><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
+                return self.doResponse2(("<html lang=\"en\"><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
           elif "set-cookie" in name.lower():
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host)
             for ckName in upstreamGuard: value=value.replace(ckName,ckName+"1")
@@ -1900,7 +1900,7 @@ document.forms[0].i.focus()
             elif do_html_process: headers_to_add[-1]=((name,value+"; charset=utf-8")) # ditto (don't leave as latin-1)
           # TODO: if there's no content-type header, send one anyway, with a charset
         self.set_status(response.code) # (not before here! as might return doResponse2 above which will need status 200.  Redirect without Location gets "unknown error 0x80072f76" on IEMobile 6.)
-        if response.code >= 400 and response.body and response.body[:6].lower()=="<html>": # some content distribution networks are misconfigured to serve their permission error messages with the Content-Type and Content-Disposition headers of the original file, so the browser won't realise it's HTML to be displayed if you try to fetch the link directly.  This should work around it (but should rarely be needed now that headResponse() is also 'aware' of this problem for redirectFiles)
+        if response.code >= 400 and response.body and response.body[:5].lower()=="<html": # some content distribution networks are misconfigured to serve their permission error messages with the Content-Type and Content-Disposition headers of the original file, so the browser won't realise it's HTML to be displayed if you try to fetch the link directly.  This should work around it (but should rarely be needed now that headResponse() is also 'aware' of this problem for redirectFiles)
             for name,value in headers_to_add:
                 if name=='Content-Type' and not 'text/html' in value:
                     headers_to_add.remove((name,value))
