@@ -147,7 +147,7 @@ define("viewsource",default=False,help="Provide a \"view source\" option. If set
 define("htmlonly_mode",default=True,help="Provide a checkbox allowing the user to see pages in \"HTML-only mode\", stripping out most images, scripts and CSS; this might be a useful fallback for very slow connections if a site's pages bring in many external files and the browser cannot pipeline its requests. The checkbox is displayed by the URL box, not at the bottom of every page.") # if no pipeline, a slow UPLINK can be a problem, especially if many cookies have to be sent with each request for a js/css/gif/etc.
 # (and if wildcard_dns=False and we're domain multiplexing, our domain can accumulate a lot of cookies, causing requests to take more uplink bandwidth, TODO: do something about this?)
 # Above says "most" not "all" because some stripping not finished (see TODO comments) and because some scripts/CSS added by Web Adjuster itself are not stripped
-define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support POST forms (which makes your 'session' on the site likely to break if you submit one) or Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Additionally, 'Via' headers etc are not currently set.  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.")
+define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support POST forms (which makes your 'session' on the site likely to break if you submit one) or Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Additionally, 'Via' headers etc are not currently set.  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot (optionally with dimensions e.g. .screenshot-640x480 but this doesn't work in all PhantomJS versions)")
 define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted website to put a special redirection page to handle mailto: links, showing the user the contents of the link first (in case a mail client is not set up). This must be made up of URL-safe characters starting with a / and should be a path that is unlikely to occur on normal websites and that does not conflict with renderPath. If this option is empty, mailto: links are not changed. (Currently, only plain HTML mailto: links are changed by this function; Javascript-computed ones are not.)")
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page.")
 
@@ -964,18 +964,26 @@ def wrapResponse(code,headers,body):
                 return [h.replace('\n','').split(': ',1) for h in self.info.headers]
             else: return self.info.get_all()
     r.headers = H(headers) ; r.body = body ; return r
-def webdriver_fetch(url): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
+def webdriver_fetch(url,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
     import tornado.httputil
-    if not theWebDriver.current_url == url:
+    try: currentUrl = theWebDriver.current_url
+    except: currentUrl = None # PhantomJS Issue #13114: unconditional reload for now
+    if not currentUrl == url:
         theWebDriver.get(url) # waits for onload
-        if not theWebDriver.current_url == url: # redirected
+        try: currentUrl = theWebDriver.current_url
+        except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
+        if not currentUrl == url: # redirected
             return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % theWebDriver.current_url.replace('&','&amp;').replace('"','&quot;'))
         time.sleep(1) # in case of additional events
-    return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
+    if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),theWebDriver.get_screenshot_as_png())
+    else: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
 def init_webdriver():
     from selenium import webdriver
     global theWebDriver
     theWebDriver = webdriver.PhantomJS(service_args=['--ssl-protocol=any'])
+    try: is_v2 = theWebDriver.capabilities['version'].startswith("2.")
+    except: is_v2 = False
+    if is_v2: sys.stderr.write("WARNING: You may be affected by PhantomJS issue #13114.\nTry downgrading your PhantomJS to version 1.9.8\n") # TODO: can we tell PhantomJS to go back through our proxy (recognise it or use a separate loop) so Content-Security-Policy is removed?
     theWebDriver.set_window_size(1024, 768)
     import atexit ; atexit.register(theWebDriver.quit)
 
@@ -1059,14 +1067,28 @@ class RequestForwarder(RequestHandler):
 
     def checkViewsource(self):
         # if URI ends with .viewsource, return True and take it out of the URI and all arguments (need to do this before further processing)
-        if not options.viewsource or not self.request.uri.endswith(".viewsource"): return False
-        self.request.uri = self.request.uri[:-len(".viewsource")]
-        if not self.request.method.lower() in ['get','head']: return True # TODO: unless arguments are taken from both url AND body in that case
+        # - and in PhantomJS mode, recognise .screenshot-640x480 etc too and return "screenshot"
+        if not options.viewsource: return False
+        if self.request.uri.endswith(".viewsource"):
+            toRemove = ".viewsource"
+        else:
+            if not options.PhantomJS: return False
+            if self.request.uri.endswith(".screenshot"):
+                toRemove = ".screenshot"
+            else:
+                m = re.match(r".*\.screenshot-([0-9]+)x([0-9]+)$",self.request.uri)
+                if not m: return False
+                theWebDriver.set_window_size(int(m.group(1)), int(m.group(2)))
+                toRemove = self.request.uri[self.request.uri.rindex(".screenshot"):]
+        self.request.uri = self.request.uri[:-len(toRemove)]
+        if toRemove==".viewsource": ret = True
+        else: ret = "screenshot"
+        if not self.request.method.lower() in ['get','head']: return ret # TODO: unless arguments are taken from both url AND body in that case
         for k,argList in self.request.arguments.items():
-            if argList and argList[-1].endswith(".viewsource"):
-                argList[-1]=argList[-1][:-len(".viewsource")]
+            if argList and argList[-1].endswith(toRemove):
+                argList[-1]=argList[-1][:-len(toRemove)]
                 break
-        return True
+        return ret
     
     def cookieHostToSet(self):
         # for the Domain= field of cookies
@@ -1796,7 +1818,7 @@ document.forms[0].i.focus()
         body = self.request.body
         if not body: body = None # required by some Tornado versions
         ph,pp = upstream_proxy_host, upstream_proxy_port
-        if options.PhantomJS and self.htmlOnlyMode(isProxyRequest) and not body and not follow_redirects: self.doResponse(webdriver_fetch(self.urlToFetch),converterFlags,viewSource,isProxyRequest)
+        if options.PhantomJS and self.htmlOnlyMode(isProxyRequest) and not body and not follow_redirects: self.doResponse(webdriver_fetch(self.urlToFetch,viewSource=="screenshot"),converterFlags,viewSource==True,isProxyRequest)
         else: httpfetch(self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # Tornado's default is usually something like 20 seconds each; be more generous to slow servers (TODO: customise?)
                   proxy_host=ph, proxy_port=pp,
