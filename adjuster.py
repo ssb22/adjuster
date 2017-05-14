@@ -520,11 +520,13 @@ def preprocessOptions():
     global ipMatchingFunc
     if options.ip_messages: ipMatchingFunc=ipv4ranges_func(options.ip_messages)
     else: ipMatchingFunc = None
-    global submitPathIgnorePassword
+    global submitPathIgnorePassword, submitPathForTest
     if options.submitPath and options.submitPath.startswith('*'):
         submitPathIgnorePassword = True
         options.submitPath = options.submitPath[1:]
     else: submitPathIgnorePassword = False
+    submitPathForTest = options.submitPath
+    if submitPathForTest and submitPathForTest[-1]=="?": submitPathForTest = submitPathForTest[:-1] # for CGI mode: putting the ? in tells adjuster to ADD a ? before any parameters, but does not require it to be there for the base submit URL (but don't do this if not submitPathForTest because it might not be a string)
     if options.submitPath and not options.htmlText: errExit("submitPath only really makes sense if htmlText is set (or do you want users to submit actual HTML?)") # TODO: allow this? also with submitBookmarklet ??
     if not options.submitPath: options.submitBookmarklet = False
     if options.submitBookmarklet and '_IHQ_' in options.submitPath: errExit("For implementation reasons, you cannot have the string _IHQ_ in submitPath when submitBookmarklet is on.") # Sorry.  See TODO in 'def bookmarklet'
@@ -1619,8 +1621,13 @@ document.forms[0].i.focus()
         debuglog("doReq "+self.request.uri)
         if wsgi_mode and self.request.path==urllib.quote(os.environ.get("SCRIPT_NAME","")+os.environ.get("PATH_INFO","")) and 'SCRIPT_URL' in os.environ:
             # workaround for Tornado 2.x limitation when used with CGI and htaccess redirects
-            self.request.uri = self.request.path = os.environ['SCRIPT_URL']
-            if os.environ.get("QUERY_STRING","") == "" and "REDIRECT_QUERY_STRING" in os.environ: self.request.arguments = urlparse.parse_qs(os.environ["REDIRECT_QUERY_STRING"])
+            self.request.uri = os.environ['SCRIPT_URL']
+            qs = os.environ.get("QUERY_STRING","")
+            if not qs: qs = os.environ.get("REDIRECT_QUERY_STRING","")
+            if qs:
+                self.request.uri += "?"+qs
+                self.request.arguments = urlparse.parse_qs(qs)
+            self.request.path = self.request.uri
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
             elif self.request.uri=="/ping": return self.answerPing(False)
@@ -1670,7 +1677,7 @@ document.forms[0].i.focus()
                 else: colPort=":"+str(options.publicPort)
                 return self.redirect("http://"+dedot(host[:-len(ohs)])+ohs+colPort+self.request.uri)
           # Now OK to check authentication:
-          if not self.authenticates_ok(host) and not (submitPathIgnorePassword and self.request.uri.startswith(options.submitPath)):
+          if not self.authenticates_ok(host) and not (submitPathIgnorePassword and self.request.uri.startswith(submitPathForTest)):
               if options.auth_error=="http://":
                   if options.own_server: return self.forwardFor(options.own_server)
                   elif maybeRobots: return self.serveRobots()
@@ -1694,7 +1701,7 @@ document.forms[0].i.focus()
         if img: return self.serveImage(img)
         # Not an image:
         if options.mailtoPath and self.request.uri.startswith(options.mailtoPath): return self.serve_mailtoPage()
-        if options.submitPath and self.request.uri.startswith(options.submitPath): return self.serve_submitPage()
+        if options.submitPath and self.request.uri.startswith(submitPathForTest): return self.serve_submitPage()
         self.request.uri = _olduri
         if not realHost: # default_site(s) not set
             if options.own_server and options.ownServer_if_not_root and len(self.request.path)>1: return self.forwardFor(options.own_server)
