@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.233 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.234 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -999,7 +999,7 @@ rmServerHeaders = set([
     "connection","content-length","content-encoding","transfer-encoding","etag","content-md5","server","alternate-protocol","strict-transport-security","content-location",
     "x-associated-content", # should NOT be sent to browser (should be interpreted by a server's SPDY/push module) but somebody might misread the specs (at least one Wikipedia editor did)
     "content-security-policy","x-webkit-csp","x-content-security-policy", # sorry but if we're adjusting the site by adding our own scripts/styles we are likely to be broken by a CSP that restricts which of these we're allowed to do. (Even if we adjust the domains listed on those headers, what if our scripts rely on injecting inline code?)  Sites shouldn't *depend* on CSP to prevent XSS: it's just a belt-and-braces that works only in recent browsers.  Hopefully our added styles etc will break the XSS-introduced ones if we hit a lazy site.
-    "vary", # we replace it with Vary: * because our adjustments may depend on cookies and user agents
+    "vary", # we modify this (see code)
 ])
 # TODO: WebSocket (and Microsoft SM) gets the client to say 'Connection: Upgrade' with a load of Sec-WebSocket-* headers, check what Tornado does with that
 rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Encoding','X-Forwarded-Host','X-Forwarded-Port','X-Forwarded-Server','X-Forwarded-Proto','X-Request-Start','Range','TE','Upgrade'] # TODO: we can pass Range to remote server if and only if we guarantee not to need to change anything  (could also add If-Range and If-None-Match to the list, but these should be harmless to pass to the remote server and If-None-Match might actually help a bit in the case where the document doesn't change)
@@ -1866,6 +1866,8 @@ document.forms[0].i.focus()
         if (do_pdftotext or do_epubtotext or do_epubtozip or do_mp3) and not response.headers.get("Location","") and response.headers.get("Content-type","").startswith("text/"):
           # We thought we were going to get a PDF etc that could be converted, but it looks like they just sent more HTML (perhaps a "which version of the PDF did you want" screen)
           do_pdftotext=do_epubtotext=do_epubtozip=do_mp3=False
+        vary = response.headers.get("Vary","")
+        if vary: vary += ", "
         cookie_host = self.cookie_host()
         doRedirect = ""
         for name,value in response.headers.get_all():
@@ -1937,7 +1939,7 @@ document.forms[0].i.focus()
                 elif name=='Content-Disposition':
                     headers_to_add.remove((name,value))
         added = {'set-cookie':1} # might have been set by authenticates_ok
-        headers_to_add.append(('Vary','*'))
+        headers_to_add.append(('Vary',vary+'Cookie, User-Agent')) # can affect adjuster settings (and just saying 'Vary: *' can sometimes be ignored on Android 4.4)
         for name,value in headers_to_add:
           value = value.replace("\t"," ") # needed for some servers
           if name.lower() in added: self.add_header(name,value)
