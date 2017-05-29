@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.624 (c) 2012-17 Silas S. Brown"
+program_name = "Annotator Generator v0.625 (c) 2012-17 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -84,7 +84,7 @@ parser.add_option("--keep-whitespace",
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz or .bz2 file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 parser.add_option("--glossmiss",
-                  help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile")
+                  help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
 
 parser.add_option("--manualrules",
                   help="Filename of an optional text file (or compressed .gz or .bz2 file) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
@@ -1201,7 +1201,7 @@ public class MainActivity extends Activity {
         class A {
             public A(MainActivity act) { this.act = act; }
             MainActivity act;
-            @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) { String r=new %%JPACKAGE%%.Annotator(t).result(); if(!inLink) r=r.replaceAll("<ruby title=\"","<ruby onclick=\"annotPopAll(this)\" title=\""); return r; }
+            @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) { String r=new %%JPACKAGE%%.Annotator(t).result(); if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPopAll(this)\""); return r; } // if we have a Copy button, it's convenient to put this on ALL ruby elements, not just ones with title
             @android.webkit.JavascriptInterface public void alert(String t,String a) {
                 class DialogTask implements Runnable {
                     String tt,aa;
@@ -1263,7 +1263,7 @@ public class MainActivity extends Activity {
         else return false; return true;
     }
     String sentText = null;
-    static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title)","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); "+jsAddRubyCss,"var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
+    static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); "+jsAddRubyCss,"var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
     android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
     @android.annotation.TargetApi(19)
@@ -3256,7 +3256,10 @@ def write_glossMiss(glossMiss):
   gm = openfile(glossmiss,'wb')
   count = 1 ; t = time.time() ; prndProg=False
   for w in sorted(list(glossMiss)):
-    gm.write((w+refs(w)+'\n').encode(incode)) # TODO: glosscode ? glossMissCode ??
+    try: num = str(len(getOkStarts(w)))+'\t'
+    except: num = '?\t' # num occurrences in e.g.s
+    a,b = markDown(w),annotationOnly(w)
+    if a and b: gm.write((num+a+"\t"+b+refs(w)+'\n').encode(incode)) # TODO: glosscode ? glossMissCode ??
     if time.time() >= t + 2:
       sys.stderr.write(("(%d of %d)" % (count,len(glossMiss)))+clear_eol)
       t = time.time() ; prndProg = True
@@ -3278,7 +3281,8 @@ else:
         if refMap[i][1] == refMap[i+1][1]: del refMap[i+1]
         else: i += 1
     rmPos = 0 ; ret = []
-    okStarts = getOkStarts(rule)
+    try: okStarts = getOkStarts(rule)
+    except: return "" # KeyError can happen in some incremental-run glossMiss situations: just omit that reference in the debug file
     while len(ret) < maxrefs and rmPos < len(refMap):
       s = refMap[rmPos][0] ; i = -1
       while i < s and okStarts:
