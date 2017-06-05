@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.234 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.235 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separate
 define("real_proxy",default=False,help="Whether or not to accept requests with original domains like a \"real\" HTTP proxy.  Warning: this bypasses the password and implies open_proxy.  Off by default.")
 define("via",default=True,help="Whether or not to update the Via: and X-Forwarded-For: HTTP headers when forwarding requests") # (Via is "must" in RFC 2616)
 define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP header when forwarding requests, as a courtesy to site administrators who wonder what's happening in their logs (and don't log Via: etc)")
-define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.") # TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, often because sites log their "Referer" headers and --redirectFiles can cause the browser to send in-adjuster Referer headers to the site for image requests (--renderOmitGoAway can also result in Referer headers: that one could be addressed by redirecting to an 'air lock' URL before providing the link out to the site, but the problem with --redirectFiles would remain))
+define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.") # TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, see comments in request_no_external_referer)
 
 define("upstream_proxy",help="address:port of a proxy to send our requests through, such as a caching proxy to reduce load on websites (putting this upstream of the adjuster should save the site from having to re-serve pages when adjuster settings are changed). This proxy (if set) is used for normal requests, but not for ip_query_url options, own_server, fasterServer or HTTPS requests.") # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies.
 
@@ -148,6 +148,7 @@ define("htmlonly_mode",default=True,help="Provide a checkbox allowing the user t
 # (and if wildcard_dns=False and we're domain multiplexing, our domain can accumulate a lot of cookies, causing requests to take more uplink bandwidth, TODO: do something about this?)
 # Above says "most" not "all" because some stripping not finished (see TODO comments) and because some scripts/CSS added by Web Adjuster itself are not stripped
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support POST forms (which makes your 'session' on the site likely to break if you submit one) or Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Additionally, 'Via' headers etc are not currently set.  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot (optionally with dimensions e.g. .screenshot-640x480 but this doesn't work in all PhantomJS versions)")
+define("PhantomJS_UA",help="Custom user-agent string for PhantomJS when it's in use")
 define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted website to put a special redirection page to handle mailto: links, showing the user the contents of the link first (in case a mail client is not set up). This must be made up of URL-safe characters starting with a / and should be a path that is unlikely to occur on normal websites and that does not conflict with renderPath. If this option is empty, mailto: links are not changed. (Currently, only plain HTML mailto: links are changed by this function; Javascript-computed ones are not.)")
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page, to place the suggested subject and/or body into a draft SMS message instead of an email.")
 
@@ -272,6 +273,7 @@ define("machineName",help="A name for the current machine to insert into the \"S
 define("redirectFiles",default=False,help="If, when not functioning as a \"real\" HTTP proxy, a URL is received that looks like it requires no processing on our part (e.g. an image or downloadable file that the user does not want converted), and if this is confirmed via a HEAD request to the remote server, then redirect the browser to fetch it directly and not via Web Adjuster. This takes bandwidth off the adjuster server, and should mean faster downloads, especially from sites that are better connected than the adjuster machine. However it might not work with sites that restrict \"deep linking\". (As a precaution, the confirmatory HEAD request is sent with a non-adjusted Referer header to simulate what the browser would send if fetching directly. If this results in an HTML \"Referer denied\" message then Web Adjuster will proxy the request in the normal way. This precaution might not detect ALL means of deep-linking denial though.)") # e.g. cookie-based, or serving an image but not the real one.  But it works with Akamai-based assets servers as of 2013-09 (but in some cases you might be able to use codeChanges to point these requests back to the site's original server instead of the Akamai one, if the latter just mirrors the former which is still available, and therefore save having to proxy the images.  TODO: what if you can't do that but you can run another service on a higher bandwidth machine that can cache them, but can't run the adjuster on the higher-bandwidth machine; can we redirect?)
 # If adjuster machine is running on a home broadband connection, don't forget the "uplink" speed of that broadband is likely to be lower than the "downlink" speed; the same should not be the case of a site running at a well-connected server farm.  There's also extra delay if Web Adjuster has to download files first (which might be reduced by implementing streaming).  Weighed against this is the extra overhead the browser has of repeating its request elsewhere, which could be an issue if the file is small and the browser's uplink is slow; in that case fetching it ourselves might be quicker than having the browser repeat the request; see TODO comment elsewhere about minimum content length before redirectFiles.
 # TODO: for Referer problems in redirectFiles, if we're not on HTTPS, could redirect to an HTTPS page (on a separate private https server, or https://www.google.com/url/?q= but they might add checks) which then redirs to the target HTTP page, but that might not strip Referer on MSIE 7 etc, may have to whitelist browsers+versions for it, or test per-request but that wld lead to 4 redirects per img instead of 2 although cld cache (non-empty) ok-browser-strings (and hold up other requests from same browser until we know or have timed out ??); do this only if sendHead returns false but sendHead with proper referer returns ok (and cache a few sites where this is the case so don't have to re-test) ??  also it might not work in places where HTTPS is forbidden
+# TODO: redirectFiles could call request_no_external_referer and test with blank Referer instead of non-adjusted Referer, but we'd have to figure out some way of verifying that the browser actually supports 'Referrer-Policy: same-origin' before doing this
 
 define("upstream_guard",default=True,help="Modify scripts and cookies sent by upstream sites so they do not refer to the cookie names that our own scripts use. This is useful if you chain together multiple instances of Web Adjuster, such as for testing another installation without coming out of your usual proxy. If however you know that this instance will not be pointed to another, you can set upstream_guard to False to save some processing.")
 define("skipLinkCheck",multiple=True,help="Comma-separated list of regular expressions specifying URLs to which we won't try to add or modify links for the pdftotext, epubtotext, epubtozip, askBitrate or mailtoPath options.  This processing can take some time on large index pages with thousands of links; if you know that none of them are PDF, EPUB, MP3 or email links, or if you don't mind not processing any that are, then it saves time to skip this step for those pages.") # TODO: it would be nice to have a 'max links on the page' limit as an alternative to a list of URL patterns
@@ -320,9 +322,7 @@ def hostSuffix(n=0):
         return options.host_suffix.split("/")[n]
     return ""
 def defaultSite(n=0):
-    if options.default_site:
-        return options.default_site.split("/")[n]
-    return ""
+    return options.default_site.split("/")[n]
 
 def convert_to_real_host(requested_host,cookie_host=None):
     # Converts the host name requested by the user into the
@@ -346,15 +346,14 @@ def convert_to_real_host(requested_host,cookie_host=None):
     if options.own_server: return -1
     else: return defaultSite()
 def convert_to_via_host(requested_host):
-    if requested_host:
-      port=":"+str(options.publicPort) # the port to advertise
-      orig_requested_host = requested_host
-      if requested_host.endswith(port): requested_host=requested_host[:-len(port)]
-      if options.publicPort==80: port=""
-      for h in options.host_suffix.split("/"):
-        if (requested_host == h and options.default_site) or requested_host.endswith("."+h): return h+port
-    if options.wildcard_dns and not '/' in options.host_suffix: return options.host_suffix+port
-    return "somewhere" # ?
+    if not requested_host: requested_host = "" # ?
+    port=":"+str(options.publicPort) # the port to advertise
+    orig_requested_host = requested_host
+    if requested_host.endswith(port): requested_host=requested_host[:-len(port)]
+    if options.publicPort==80: port=""
+    for h in options.host_suffix.split("/"):
+      if (requested_host == h and options.default_site) or requested_host.endswith("."+h): return h+port
+    return options.host_suffix+port
 def publicPortStr():
     if options.publicPort==80: return ""
     else: return ":"+str(options.publicPort)
@@ -569,6 +568,8 @@ def preprocessOptions():
         else: sp = options.ssh_proxy
         if ':' in sp: allowConnectHost,allowConnectPort=sp.rsplit(':',1)
         else: allowConnectHost,allowConnectPort = sp,"22"
+    if not options.default_site: options.default_site = ""
+    # (so we can .split it even if it's None or something)
     if options.PhantomJS:
         if not options.htmlonly_mode: errExit("PhantomJS requires htmlonly_mode")
         init_webdriver()
@@ -979,13 +980,21 @@ def webdriver_fetch(url,asScreenshot): # single-user only! (and relies on being 
         time.sleep(1) # in case of additional events
     if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),theWebDriver.get_screenshot_as_png())
     else: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
-def init_webdriver():
+def _get_new_webdriver():
     from selenium import webdriver
-    global theWebDriver
-    theWebDriver = webdriver.PhantomJS(service_args=['--ssl-protocol=any'])
+    sa = ['--ssl-protocol=any']
+    if options.PhantomJS_UA:
+      try:
+        from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+        dc = dict(DesiredCapabilities.PHANTOMJS) ; dc["phantomjs.page.settings.userAgent"]=options.PhantomJS_UA
+        return webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
+      except: sys.stderr.write("Warning: could not set PhantomJS_UA; leaving as default\n")
+    return webdriver.PhantomJS(service_args=sa)
+def init_webdriver():
+    global theWebDriver ; theWebDriver = _get_new_webdriver()
     try: is_v2 = theWebDriver.capabilities['version'].startswith("2.")
     except: is_v2 = False
-    if is_v2: sys.stderr.write("WARNING: You may be affected by PhantomJS issue #13114.\nTry downgrading your PhantomJS to version 1.9.8\n") # TODO: can we tell PhantomJS to go back through our proxy (recognise it or use a separate loop) so Content-Security-Policy is removed?
+    if is_v2: sys.stderr.write("\nWARNING: You may be affected by PhantomJS issue #13114.\nRelative links may be wrong after a redirect if the site sets Content-Security-Polity.\nTry downgrading your PhantomJS to version 1.9.8\n\n") # TODO: can we tell PhantomJS to go back through our proxy (recognise it or use a separate loop) so Content-Security-Policy is removed?
     theWebDriver.set_window_size(1024, 768)
     import atexit ; atexit.register(theWebDriver.quit)
 
@@ -1156,7 +1165,20 @@ class RequestForwarder(RequestHandler):
         self.add_header("Content-Type","text/html")
         self.write('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % redir.replace('&','&amp;').replace('"','&quot;'))
         self.myfinish()
-        
+
+    def request_no_external_referer(self):
+        # Not all browsers implement this, but we can ask.
+        # Some sites publically log their Referer headers,
+        # so if an adjusted page needs to link directly to a
+        # non-adjusted page then we could end up with a
+        # 'deep link' in a public log, which bad robots (that
+        # ignore our robots.txt) might try to crawl.  Try to
+        # stop this from happening by politely asking the
+        # browser to suppress Referer in this case.
+        # (For --renderOmitGoAway, we could redirect to an
+        # 'air lock' URL before providing the link out to the
+        # site, but that wouldn't help with --redirectFiles)
+        self.add_header("Referrer-Policy","same-origin")
     def add_nocache_headers(self):
         self.add_header("Pragma","no-cache")
         self.add_header("Vary","*")
@@ -1281,7 +1303,11 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 if htmlonly_mode: val="1"
                 else: val="0"
                 self.setCookie_with_dots(htmlmode_cookie_name+"="+val)
-    def htmlOnlyMode(self,isProxyRequest=False): return options.htmlonly_mode and (htmlmode_cookie_name+"=1" in ';'.join(self.request.headers.get_list("Cookie")) or self.auto_htmlOnlyMode(isProxyRequest))
+    def htmlOnlyMode(self,isProxyRequest=False):
+        if not options.htmlonly_mode: return False
+        if hasattr(self.request,"old_cookie"): ck = self.request.old_cookie # so this can be called between change_request_headers and restore_request_headers, e.g. at the start of send_request for PhantomJS mode
+        else: ck = ';'.join(self.request.headers.get_list("Cookie"))
+        return htmlmode_cookie_name+"=1" in ck or self.auto_htmlOnlyMode(isProxyRequest)
     def auto_htmlOnlyMode(self,isProxyRequest): return options.PhantomJS and (isProxyRequest or (not options.wildcard_dns and not "" in options.default_site.split("/")))
     
     def handle_URLbox_query(self,v):
@@ -1382,7 +1408,9 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             self.serveRobots() # regardless of which browser header it presents
             return True # do NOT shorten this by making serveRobots return True: it must return None due to other uses
         # TODO: option to redirect immediately without this message?  (but then we'd be supplying a general redirection service, which might have issues of its own)
-        if realHost: msg = ' and <a href="%s%s">go directly to the original site</a>' % (protocolWithHost(realHost),self.request.uri)
+        if realHost:
+            msg = ' and <a rel="noreferrer" href="%s%s">go directly to the original site</a>' % (protocolWithHost(realHost),self.request.uri)
+            self.request_no_external_referer()
         else: msg = ''
         self.add_nocache_headers()
         self.write("%s<h1>You don't need this!</h1>This installation of Web Adjuster has been set up to change certain characters into pictures, for people using old computers that don't know how to display them themselves. However, <em>you</em> seem to be using %s, which is <noscript>either </noscript>definitely capable of showing these characters by itself<noscript>, or else wouldn't be able to show the pictures anyway<!-- like Lynx --></noscript>. Please save our bandwidth for those who really need it%s. Thank you.</body></html>" % (htmlhead("Web Adjuster"),browser,msg))
@@ -2026,7 +2054,7 @@ document.forms[0].i.focus()
         # OK to change the code now:
         adjustList = []
         if do_html_process:
-          if self.htmlOnlyMode(isProxyRequest): adjustList.append(StripJSEtc(self.urlToFetch,self.auto_htmlOnlyMode(isProxyRequest)))
+          if self.htmlOnlyMode(isProxyRequest): adjustList.append(StripJSEtc(self.urlToFetch,transparent=self.auto_htmlOnlyMode(isProxyRequest)))
           elif options.upstream_guard:
             # don't let upstream scripts get confused by our cookies (e.g. if the site is running Web Adjuster as well)
             # TODO: do it in script files also?
@@ -2182,6 +2210,7 @@ def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
     if default_url: r += ' value="'+default_url+'"'
     else: r += ' placeholder="http://"' # HTML5 (Firefox 4, Opera 11, MSIE 10, etc)
     r += '><input type="submit" value="Go">'+searchHelp()+cssOpts_html # 'go' button MUST be first, before cssOpts_html, because it's the button that's hit when Enter is pressed.  (So might as well make the below focus() script unconditional even if there's cssOpts_html.  Minor problem is searchHelp() might get in the way.)
+    if enable_adjustDomainCookieName_URL_override and not options.wildcard_dns and "" in options.default_site.split("/"): r += '<input type="hidden" name="%s" value="%s">' % (adjust_domain_cookieName,adjust_domain_none) # so you can get back to the URL box via the Back button as long as you don't reload
     if htmlonly_checked: htmlonly_checked=' checked="checked"'
     else: htmlonly_checked = ""
     if options.htmlonly_mode:
@@ -2536,7 +2565,9 @@ class StripJSEtc:
         elif tag in ['script','style']:
             self.suppressing = True ; return True
         elif tag=="body":
-            if not self.transparent: self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(self.url),self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
+            if not self.transparent:
+                self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a rel="noreferrer" href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(self.url),self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
+                # TODO: call request_no_external_referer() on the RequestForwarder as well? (may need a parameter for it)
         else: return self.suppressing or tag in ['link','noscript']
         # TODO: remove style= attribute on other tags? (or only if it refers to a URL?)
         # TODO: what about event handler attributes, and javascript: URLs
@@ -3091,10 +3122,10 @@ if(!%s && %s) { document.cookie='adjustNoRender=1;domain=%s;expires=%s;path=/';d
     if cookie_host:
         if enable_adjustDomainCookieName_URL_override: bodyAppend += r"""<script><!--
 if(!%s&&document.readyState!='complete')document.write('<a href="http://%s/?%s=%s">Back to URL box<\/a>')
-//--></script><noscript><a href="http://%s/?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet,adjust_domain_cookieName,adjust_domain_none,cookieHostToSet,adjust_domain_cookieName,adjust_domain_none)
+//--></script><noscript><a href="http://%s/?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr(),adjust_domain_cookieName,adjust_domain_none,cookieHostToSet+publicPortStr(),adjust_domain_cookieName,adjust_domain_none)
         else: bodyAppend += r"""<script><!--
 if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';if(location.href==\'http://%s/\')location.reload(true);else location.href=\'http://%s/?nocache=\'+Math.random()">Back to URL box<\/a>')
-//--></script>""" % (detect_iframe,adjust_domain_cookieName,adjust_domain_none,cookieExpires,cookieHostToSet,cookieHostToSet) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
+//--></script>""" % (detect_iframe,adjust_domain_cookieName,adjust_domain_none,cookieExpires,cookieHostToSet+publicPortStr(),cookieHostToSet+publicPortStr()) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
     if options.headAppend: headAppend += options.headAppend
     if options.headAppendRuby: bodyPrepend += rubyScript
     if options.prominentNotice and not is_password_domain:
