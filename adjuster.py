@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.235 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.236 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -147,9 +147,6 @@ define("viewsource",default=False,help="Provide a \"view source\" option. If set
 define("htmlonly_mode",default=True,help="Provide a checkbox allowing the user to see pages in \"HTML-only mode\", stripping out most images, scripts and CSS; this might be a useful fallback for very slow connections if a site's pages bring in many external files and the browser cannot pipeline its requests. The checkbox is displayed by the URL box, not at the bottom of every page.") # if no pipeline, a slow UPLINK can be a problem, especially if many cookies have to be sent with each request for a js/css/gif/etc.
 # (and if wildcard_dns=False and we're domain multiplexing, our domain can accumulate a lot of cookies, causing requests to take more uplink bandwidth, TODO: do something about this?)
 # Above says "most" not "all" because some stripping not finished (see TODO comments) and because some scripts/CSS added by Web Adjuster itself are not stripped
-define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support POST forms (which makes your 'session' on the site likely to break if you submit one) or Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot (optionally with dimensions e.g. .screenshot-640x480 but this doesn't work in all PhantomJS versions)")
-define("PhantomJS_UA",help="Custom user-agent string for PhantomJS when it's in use")
-define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: proxy PhantomJS's requests and return a fake image?
 define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted website to put a special redirection page to handle mailto: links, showing the user the contents of the link first (in case a mail client is not set up). This must be made up of URL-safe characters starting with a / and should be a path that is unlikely to occur on normal websites and that does not conflict with renderPath. If this option is empty, mailto: links are not changed. (Currently, only plain HTML mailto: links are changed by this function; Javascript-computed ones are not.)")
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page, to place the suggested subject and/or body into a draft SMS message instead of an email.")
 
@@ -167,6 +164,13 @@ define("submitBookmarklet",default=True,help="If submitPath is set, and if brows
 define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",help="A Javascript expression that evaluates true if a DOM text node 'c' should be processed by the 'bookmarklet' Javascript when submitPath and submitBookmarklet are set. To process ALL text, set this option to c.nodeValue.length, but if your htmlFilter will not change certain kinds of text then you can make the Javascript run more efficiently by not processing these (quote the expression carefully). The default setting will not process text that is all ASCII.") # + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8. (Previously said "To process ALL text, simply set this option to 'true'", but that can have odd effects on some sites' empty nodes. Saying c.nodeValue.length for now; c.nodeValue.match(/[^\s]/) might be better but needs more quoting explanation. Could change bookmarkletMainScript so it alters the DOM only if replacements[i] != oldTexts[i], c.f. annogen's android code, but that would mean future passes would re-send all the unchanged nodes cluttering the XMLHttpRequests especially if they fill a chunk - annogen version has the advantage of immediate local processing)
 define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate number of characters at a time that the 'bookmarklet' Javascript will send to the server if submitPath and submitBookmarklet are set. Setting this too high could impair browser responsiveness, but too low will be inefficient with bandwidth and pages will take longer to finish.")
 define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.") # e.g. example.rhcloud.com (although that does introduce the disadvantage of tying bookmarklet installations to the current URLs of the OpenShift service rather than your own domain)
+
+heading("Javascript execution options")
+define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
+define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms.")
+define("PhantomJS_UA",help="Custom user-agent string for PhantomJS when it's in use")
+define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: proxy PhantomJS's requests and return a fake image?
+define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
 
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
@@ -618,21 +622,8 @@ def main():
         sys.stderr.write("%sChild will listen on port %d\n(can't report errors here as this system needs early fork)\n" % (twoline_program_name,options.port)) # (need some other way of checking it really started)
         unixfork()
     workaround_raspbian_IPv6_bug()
-    for portTry in [5,4,3,2,1,0]:
-      try:
-          application.listen(options.port,options.address)
-          break
-      except socket.error, e:
-        if not "already in use" in e.strerror: raise
-        # Maybe the previous server is taking a while to stop
-        if portTry:
-            time.sleep(0.5) ; continue
-        # tried 6 times over 3 seconds, can't open the port
-        if options.browser:
-            # there's probably another adjuster instance, in which case we probably want to let the browser open a new window and let our listen() fail
-            dropPrivileges()
-            runBrowser()
-        raise
+    listen_on_port(application,options.port,options.address,options.browser)
+    # TODO: open alternate port/address combinations if desired, with False in 3rd argument (but tornadoweb doesn't provide any way of telling which port the request came in on)
     if options.watchdog:
         watchdog = open("/dev/watchdog", 'w')
     dropPrivileges()
@@ -705,6 +696,21 @@ def static_handler():
     class OurStaticFileHandler(StaticFileHandler):
         def set_extra_headers(self,path): fixServerHeader(self)
     return (url+"(.*)",OurStaticFileHandler,{"path":path,"default_filename":"index.html"})
+
+def listen_on_port(application,port,address,browser):
+    for portTry in [5,4,3,2,1,0]:
+      try: return application.listen(port,address)
+      except socket.error, e:
+        if not "already in use" in e.strerror: raise
+        # Maybe the previous server is taking a while to stop
+        if portTry:
+            time.sleep(0.5) ; continue
+        # tried 6 times over 3 seconds, can't open the port
+        if browser:
+            # there's probably another adjuster instance, in which case we probably want to let the browser open a new window and let our listen() fail
+            dropPrivileges()
+            runBrowser()
+        raise
 
 def workaround_raspbian_IPv6_bug():
     """Some versions of Raspbian apparently boot with IPv6 enabled but later don't configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However,if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
@@ -968,11 +974,33 @@ def wrapResponse(code,headers,body):
                 return [h.replace('\n','').split(': ',1) for h in self.info.headers]
             else: return self.info.get_all()
     r.headers = H(headers) ; r.body = body ; return r
-def webdriver_fetch(url,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
+
+class WebdriverRunner:
+    def __init__(self):
+        self.thread_running = False
+        self.theWebDriver = get_new_webdriver()
+    def fetch(self,url,body,asScreenshot,callback):
+        if self.thread_running: # allow only one at once
+            IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.fetch(url,asScreenshot,callback))
+            return
+        self.thread_running = True
+        threading.Thread(target=wd_fetch,args=(url,body,asScreenshot,callback,self)).start()
+def wd_fetch(url,body,asScreenshot,callback,manager):
+    global helper_thread_count
+    helper_thread_count += 1
+    r = _wd_fetch(manager.theWebDriver,url,body,asScreenshot)
+    manager.thread_running = False
+    IOLoop.instance().add_callback(lambda *args:callback(r))
+    helper_thread_count -= 1
+def _wd_fetch(theWebDriver,url,body,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
     import tornado.httputil
     try: currentUrl = theWebDriver.current_url
     except: currentUrl = None # PhantomJS Issue #13114: unconditional reload for now
-    if not currentUrl == url:
+    if body or not currentUrl == url:
+        if body:
+            theWebDriver.get("about:blank") # ensure no race condition with current page's XMLHttpRequests
+            global webdriver_body_to_send
+            webdriver_body_to_send = body
         theWebDriver.get(url) # waits for onload
         try: currentUrl = theWebDriver.current_url
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
@@ -981,25 +1009,55 @@ def webdriver_fetch(url,asScreenshot): # single-user only! (and relies on being 
         time.sleep(1) # in case of additional events, XMLHttpRequest async loading, etc (TODO: can we monitor what js is being fetched and see if it does in fact contain any of this?)
     if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),theWebDriver.get_screenshot_as_png())
     else: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
-def _get_new_webdriver():
+def _get_new_webdriver(firstTime=True):
     from selenium import webdriver
     sa = ['--ssl-protocol=any']
+    # sa.append('--ignore-ssl-errors=true')
+    if options.PhantomJS_reproxy: sa.append('--proxy=127.0.0.1:%d' % options.port) # must be 127.0.0.1, not just 'localhost', as we check self.request.remote_ip=="127.0.0.1" later, and IPv6 would make that check more complicated
+    elif options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
     try: from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
     except:
-        sys.stderr.write("Your Selenium installation is too old to set PhantomJS custom options.\n")
+        if firstTime:
+            sys.stderr.write("Your Selenium installation is too old to set PhantomJS custom options.\n")
+            if options.PhantomJS_reproxy:
+                sys.stderr.write("This means --PhantomJS_reproxy won't work.") # because we can't set the UA string
+                sa.pop()
+                if options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
         return webdriver.PhantomJS(service_args=sa)
     dc = dict(DesiredCapabilities.PHANTOMJS)
-    if options.PhantomJS_UA: dc["phantomjs.page.settings.userAgent"]=options.PhantomJS_UA
+    if options.PhantomJS_reproxy:
+        global unique_UA
+        if firstTime: unique_UA = htmlmode_cookie_name+str(os.getpid())+password_cookie_name # to identify the PhantomJS browser when it reconnects back to the proxy from localhost
+        dc["phantomjs.page.settings.userAgent"] = unique_UA
+    elif options.PhantomJS_UA: dc["phantomjs.page.settings.userAgent"]=options.PhantomJS_UA
     if not options.PhantomJS_images: dc["phantomjs.page.settings.loadImages"]=False
-    if options.via: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?)
+    if options.via and not options.PhantomJS_reproxy: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?) (don't have to worry about this if PhantomJS_reproxy)
     return webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
-def init_webdriver():
-    global theWebDriver ; theWebDriver = _get_new_webdriver()
-    try: is_v2 = theWebDriver.capabilities['version'].startswith("2.")
-    except: is_v2 = False
-    if is_v2: sys.stderr.write("\nWARNING: You may be affected by PhantomJS issue #13114.\nRelative links may be wrong after a redirect if the site sets Content-Security-Polity.\nTry downgrading your PhantomJS to version 1.9.8\n\n") # TODO: can we tell PhantomJS to go back through our proxy (recognise it or use a separate loop) so Content-Security-Policy is removed?
-    theWebDriver.set_window_size(1024, 768)
-    import atexit ; atexit.register(theWebDriver.quit)
+def get_new_webdriver(firstTime=True):
+    wd = _get_new_webdriver()
+    if firstTime and not options.PhantomJS_reproxy:
+     try: is_v2 = wd.capabilities['version'].startswith("2.")
+     except: is_v2 = False
+     if is_v2: sys.stderr.write("\nWARNING: You may be affected by PhantomJS issue #13114.\nRelative links may be wrong after a redirect if the site sets Content-Security-Policy.\nTry --PhantomJS_reproxy, or downgrade your PhantomJS to version 1.9.8\n\n")
+    if "x" in options.PhantomJS_size:
+        w,h = options.PhantomJS_size.split("x",1)
+    else: w,h = options.PhantomJS_size,768
+    try: w,h = int(w),int(h)
+    except: w,h = 0,0
+    if not (w and h):
+        if firstTime: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.PhantomJS_size)
+        w,h = 1024,768
+    wd.set_window_size(w, h)
+    import atexit ; atexit.register(wd.quit)
+    return wd
+def init_webdriver(): # just one for now (if changing this, need to sort out webdriver_body_to_send and webdriver_via logic)
+    global theWebDriverRunner
+    theWebDriverRunner = WebdriverRunner()
+    # (if doing several, make others have firstTime = False,
+    # and may need to keep a queue-length list for choosing)
+def webdriver_fetch(url,body,asScreenshot,callback):
+    theWebDriverRunner.fetch(url,body,asScreenshot,callback)
+webdriver_body_to_send = webdriver_via = None
 
 def fixServerHeader(i):
     i.set_header("Server",serverName) # TODO: in "real" proxy mode, "Server" might not be the most appropriate header to set for this
@@ -1085,15 +1143,8 @@ class RequestForwarder(RequestHandler):
         if not options.viewsource: return False
         if self.request.uri.endswith(".viewsource"):
             toRemove = ".viewsource"
-        else:
-            if not options.PhantomJS: return False
-            if self.request.uri.endswith(".screenshot"):
-                toRemove = ".screenshot"
-            else:
-                m = re.match(r".*\.screenshot-([0-9]+)x([0-9]+)$",self.request.uri)
-                if not m: return False
-                theWebDriver.set_window_size(int(m.group(1)), int(m.group(2)))
-                toRemove = self.request.uri[self.request.uri.rindex(".screenshot"):]
+        elif options.PhantomJS and self.request.uri.endswith(".screenshot"): toRemove = ".screenshot"
+        else: return False
         self.request.uri = self.request.uri[:-len(toRemove)]
         if toRemove==".viewsource": ret = True
         else: ret = "screenshot"
@@ -1667,34 +1718,42 @@ document.forms[0].i.focus()
         if fasterServer_up:
             return self.forwardFor(options.fasterServer)
         if self.handleFullLocation(): return # if returns here, URL is invalid; if not, handleFullLocation has 'normalised' self.request.host and self.request.uri
-        if self.handleSSHTunnel(): return
-        if self.handleSpecificIPs(): return
-        # TODO: Slow down heavy users by self.request.remote_ip ?
-        if extensions.handle("http://"+self.request.host+self.request.uri,self):
-            self.request.suppress_logger_host_convert = self.request.valid_for_whois = True
-            return self.myfinish()
-        if ownServer_regexp and ownServer_regexp.match(self.request.host+self.request.uri):
-            self.request.headers["Connection"] = "close" # MUST do this (keepalive can go wrong if it subsequently fetches a URL that DOESN'T match ownServer_regexp, but comes from the same domain, and this goes to ownServer incorrectly), TODO mention it in the help text?, TODO might we occasionally need something similar for ownServer_if_not_root etc?, TODO at lower priority: if we can reasonably repeat the requests then do that insntead of using forwardFor
-            return self.forwardFor(options.own_server)
-        if cssReload_cookieSuffix and cssReload_cookieSuffix in self.request.uri:
-            ruri,rest = self.request.uri.split(cssReload_cookieSuffix,1)
-            self.setCookie_with_dots(rest)
-            return self.redirect(ruri) # so can set another
-        viewSource = self.checkViewsource()
+        isPjsUpstream = self.request.remote_ip=="127.0.0.1" and self.request.headers.get("User-Agent","")==unique_UA
+        if isPjsUpstream:
+            self.request.suppress_logging = True
+            if options.PhantomJS_UA: self.request.headers["User-Agent"] = options.PhantomJS_UA
+            else: self.request.headers["User-Agent"] = "Mozilla/5.0 AppleWebKit/999 (KHTML, like Gecko) Chrome/99 Safari/999 compatible hopefully" # what else can we do, we overwrote the default UA (if using an alternate port instead of unique_UA, would need a different RequestForwarder instance to listen on it because incoming connections don't say which port).  Could take the CLIENT's ua, but that might result in some site saying "go away Lynx users" w/out realising we have JS.
+        if not isPjsUpstream:
+            if self.handleSSHTunnel(): return
+            if self.handleSpecificIPs(): return
+            # TODO: Slow down heavy users by self.request.remote_ip ?
+            if extensions.handle("http://"+self.request.host+self.request.uri,self):
+                self.request.suppress_logger_host_convert = self.request.valid_for_whois = True
+                return self.myfinish()
+            if ownServer_regexp and ownServer_regexp.match(self.request.host+self.request.uri):
+                self.request.headers["Connection"] = "close" # MUST do this (keepalive can go wrong if it subsequently fetches a URL that DOESN'T match ownServer_regexp, but comes from the same domain, and this goes to ownServer incorrectly), TODO mention it in the help text?, TODO might we occasionally need something similar for ownServer_if_not_root etc?, TODO at lower priority: if we can reasonably repeat the requests then do that insntead of using forwardFor
+                return self.forwardFor(options.own_server)
+            if cssReload_cookieSuffix and cssReload_cookieSuffix in self.request.uri:
+                ruri,rest = self.request.uri.split(cssReload_cookieSuffix,1)
+                self.setCookie_with_dots(rest)
+                return self.redirect(ruri) # so can set another
+        viewSource = (not isPjsUpstream) and self.checkViewsource()
         self.cookieViaURL = None
-        realHost = convert_to_real_host(self.request.host,self.cookie_host(checkReal=False)) # don't need checkReal if return value will be passed to convert_to_real_host anyway
+        if isPjsUpstream: realHost = self.request.host
+        else: realHost = convert_to_real_host(self.request.host,self.cookie_host(checkReal=False)) # don't need checkReal if return value will be passed to convert_to_real_host anyway
         if realHost == -1:
             return self.forwardFor(options.own_server)
             # (TODO: what if it's keep-alive and some browser figures out our other domains are on the same IP and tries to fetch them through the same connection?  is that supposed to be allowed?)
         elif realHost==0 and options.ownServer_if_not_root: realHost=options.own_server # asking by cookie to adjust the same host, so don't forwardFor() it but fetch it normally and adjust it
-        isProxyRequest = options.real_proxy and realHost == self.request.host
+        if isPjsUpstream: isProxyRequest = "from PhantomJS"
+        else: isProxyRequest = options.real_proxy and realHost == self.request.host
         
-        self.request.valid_for_whois = True # (if options.whois, don't whois unless it gets this far, e.g. don't whois any that didn't even match "/(.*)" etc)
+        self.request.valid_for_whois = not isPjsUpstream # (if options.whois, don't whois unless it gets this far, e.g. don't whois any that didn't even match "/(.*)" etc)
 
-        maybeRobots = (not options.robots and self.request.uri=="/robots.txt") # don't actually serveRobots yet, because MIGHT want to pass it to own_server (see below)
+        maybeRobots = (not isPjsUpstream and not options.robots and self.request.uri=="/robots.txt") # don't actually serveRobots yet, because MIGHT want to pass it to own_server (see below)
         
         self.is_password_domain=False # needed by doResponse2
-        if options.password and not options.real_proxy: # whether or not open_proxy, because might still have password (perhaps on password_domain), anyway the doc for open_proxy says "allow running" not "run"
+        if options.password and not options.real_proxy and not isPjsUpstream: # whether or not open_proxy, because might still have password (perhaps on password_domain), anyway the doc for open_proxy says "allow running" not "run"
           # First ensure the wildcard part of the host is de-dotted, so the authentication cookie can be shared across hosts.
           # (This is not done if options.real_proxy because we don't want to touch the hostname for that)
           host = self.request.host
@@ -1723,17 +1782,18 @@ document.forms[0].i.focus()
               self.write(htmlhead("")+auth_error+"</body></html>")
               return self.myfinish()
         # Authentication is now OK
-        fixServerHeader(self)
-        if self.handleGoAway(realHost,maybeRobots): return
-        # Now check if it's an image request:
-        _olduri = self.request.uri
-        self.request.uri=urllib.unquote(self.request.uri)
-        img = Renderer.getImage(self.request.uri)
-        if img: return self.serveImage(img)
-        # Not an image:
-        if options.mailtoPath and self.request.uri.startswith(options.mailtoPath): return self.serve_mailtoPage()
-        if options.submitPath and self.request.uri.startswith(submitPathForTest): return self.serve_submitPage()
-        self.request.uri = _olduri
+        if not isPjsUpstream:
+          fixServerHeader(self)
+          if self.handleGoAway(realHost,maybeRobots): return
+          # Now check if it's an image request:
+          _olduri = self.request.uri
+          self.request.uri=urllib.unquote(self.request.uri)
+          img = Renderer.getImage(self.request.uri)
+          if img: return self.serveImage(img)
+          # Not an image:
+          if options.mailtoPath and self.request.uri.startswith(options.mailtoPath): return self.serve_mailtoPage()
+          if options.submitPath and self.request.uri.startswith(submitPathForTest): return self.serve_submitPage()
+          self.request.uri = _olduri
         if not realHost: # default_site(s) not set
             if options.own_server and options.ownServer_if_not_root and len(self.request.path)>1: return self.forwardFor(options.own_server)
             elif maybeRobots: return self.serveRobots()
@@ -1744,10 +1804,10 @@ document.forms[0].i.focus()
             if v: return self.handle_URLbox_query(v)
             else: return self.serve_URLbox()
         if maybeRobots: return self.serveRobots()
-        if self.needCssCookies():
+        if not isPjsUpstream and self.needCssCookies():
             self.add_nocache_headers() # please don't cache this redirect!  otherwise user might not be able to leave the URL box after:
             return self.redirect("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
-        self.addCookieFromURL() # for cookie_host
+        if not isPjsUpstream: self.addCookieFromURL() # for cookie_host
         converterFlags = []
         for opt,suffix,ext,fmt in [
             (options.pdftotext,pdftotext_suffix,".pdf","pdf"),
@@ -1755,7 +1815,7 @@ document.forms[0].i.focus()
             (options.epubtozip,epubtozip_suffix,".epub","epub"),
             (options.askBitrate,mp3lofi_suffix,".mp3",None),
             ]:
-            if opt and self.request.uri.endswith(suffix) and (self.request.uri.lower()[:-len(suffix)].endswith(ext) or guessCMS(self.request.uri,fmt)):
+            if opt and not isPjsUpstream and self.request.uri.endswith(suffix) and (self.request.uri.lower()[:-len(suffix)].endswith(ext) or guessCMS(self.request.uri,fmt)):
                 self.request.uri = self.request.uri[:-len(suffix)]
                 converterFlags.append(True)
             else: converterFlags.append(False)
@@ -1854,10 +1914,21 @@ document.forms[0].i.focus()
     
     def sendRequest(self,converterFlags,viewSource,isProxyRequest,follow_redirects):
         body = self.request.body
+        global webdriver_body_to_send,webdriver_via
+        if isProxyRequest=="from PhantomJS" and webdriver_body_to_send:
+            self.request.method,body = webdriver_body_to_send
+            webdriver_body_to_send = None
         if not body: body = None # required by some Tornado versions
         ph,pp = upstream_proxy_host, upstream_proxy_port
-        if options.PhantomJS and self.htmlOnlyMode(isProxyRequest) and not body and not follow_redirects: self.doResponse(webdriver_fetch(self.urlToFetch,viewSource=="screenshot"),converterFlags,viewSource==True,isProxyRequest)
-        else: httpfetch(self.urlToFetch,
+        if options.PhantomJS and not isProxyRequest=="from PhantomJS" and self.htmlOnlyMode(isProxyRequest) and not follow_redirects:
+            if options.via: webdriver_via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"] # else they might not be defined
+            if body: body = self.request.method, body
+            webdriver_fetch(self.urlToFetch,body,
+                            viewSource=="screenshot",
+                            callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True))
+        else:
+            if webdriver_via: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via
+            httpfetch(self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # Tornado's default is usually something like 20 seconds each; be more generous to slow servers (TODO: customise?)
                   proxy_host=ph, proxy_port=pp,
                   use_gzip=enable_gzip and not hasattr(self,"avoid_gzip"),
@@ -1866,7 +1937,7 @@ document.forms[0].i.focus()
         # (Don't have to worry about auth_username/auth_password: should just work by passing on the headers)
         # TODO: header_callback (run with each header line as it is received, and headers will be empty in the final response); streaming_callback (run with each chunk of data as it is received, and body and buffer will be empty in the final response), but how to abort a partial transfer if we realise we don't want it (e.g. large file we don't want to modify on site that doesn't mind client being redirected there directly)
 
-    def doResponse(self,response,converterFlags,viewSource,isProxyRequest):
+    def doResponse(self,response,converterFlags,viewSource,isProxyRequest,phantomJS=False):
         debuglog("doResponse "+self.request.uri)
         self.restore_request_headers()
         do_pdftotext,do_epubtotext,do_epubtozip,do_mp3 = converterFlags
@@ -1892,7 +1963,12 @@ document.forms[0].i.focus()
             except: pass
         if viewSource:
             def h2html(h): return "<br>".join("<b>"+txt2html(k)+"</b>: "+txt2html(v) for k,v in sorted(h.get_all()))
-            return self.doResponse2("<html><head><title>Source of "+ampEncode(self.urlToFetch)+" - Web Adjuster</title></head><body><a href=\"#1\">Headers sent</a> | <a href=\"#2\">Headers received</a> | <a href=\"#3\">Page source</a> | <a href=\"#4\">Bottom</a><br>Fetched "+ampEncode(self.urlToFetch)+" <h2><a name=\"1\"></a>Headers sent</h2>"+h2html(self.request.headers)+"<a name=\"2\"></a><h2>Headers received</h2>"+h2html(response.headers)+"<a name=\"3\"></a><h2>Page source</h2>"+txt2html(response.body)+"<hr><a name=\"4\"></a>This is "+serverName_html,True,False)
+            r = "<html><head><title>Source of "+ampEncode(self.urlToFetch)+" - Web Adjuster</title></head><body>"
+            if not phantomJS: r += "<a href=\"#1\">Headers sent</a> | <a href=\"#2\">Headers received</a> | <a href=\"#3\">Page source</a> | <a href=\"#4\">Bottom</a>"
+            r += "<br>Fetched "+ampEncode(self.urlToFetch)
+            if phantomJS: r += " <ul><li>using PhantomJS (see <a href=\"%s.screenshot\">screenshot</a>)</ul>" % self.urlToFetch
+            else: r += "<h2><a name=\"1\"></a>Headers sent</h2>"+h2html(self.request.headers)+"<a name=\"2\"></a><h2>Headers received</h2>"+h2html(response.headers)+"<a name=\"3\"></a>"
+            return self.doResponse2(r+"<h2>Page source</h2>"+txt2html(response.body)+"<hr><a name=\"4\"></a>This is "+serverName_html,True,False)
         headers_to_add = []
         if (do_pdftotext or do_epubtotext or do_epubtozip or do_mp3) and not response.headers.get("Location","") and response.headers.get("Content-type","").startswith("text/"):
           # We thought we were going to get a PDF etc that could be converted, but it looks like they just sent more HTML (perhaps a "which version of the PDF did you want" screen)
@@ -2038,6 +2114,8 @@ document.forms[0].i.focus()
             return
         if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host,https=self.urlToFetch.startswith("https")) # first, so filters to run and scripts to add can mention new domains without these being redirected back
         # Must also do things like 'delete' BEFORE the filters, especially if lxml is in use and might change the code so the delete patterns aren't recognised.  But do JS process BEFORE delete, as might want to pick up on something that was there originally.  (Must do it AFTER domain process though.)
+        if isProxyRequest=="from PhantomJS":
+            return self.doResponse3(body) # write & finish
         if do_js_process: body = js_process(body,self.urlToFetch)
         if not self.checkBrowser(options.deleteOmit):
             for d in options.delete:
