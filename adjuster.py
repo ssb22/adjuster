@@ -147,8 +147,9 @@ define("viewsource",default=False,help="Provide a \"view source\" option. If set
 define("htmlonly_mode",default=True,help="Provide a checkbox allowing the user to see pages in \"HTML-only mode\", stripping out most images, scripts and CSS; this might be a useful fallback for very slow connections if a site's pages bring in many external files and the browser cannot pipeline its requests. The checkbox is displayed by the URL box, not at the bottom of every page.") # if no pipeline, a slow UPLINK can be a problem, especially if many cookies have to be sent with each request for a js/css/gif/etc.
 # (and if wildcard_dns=False and we're domain multiplexing, our domain can accumulate a lot of cookies, causing requests to take more uplink bandwidth, TODO: do something about this?)
 # Above says "most" not "all" because some stripping not finished (see TODO comments) and because some scripts/CSS added by Web Adjuster itself are not stripped
-define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support POST forms (which makes your 'session' on the site likely to break if you submit one) or Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Additionally, 'Via' headers etc are not currently set.  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot (optionally with dimensions e.g. .screenshot-640x480 but this doesn't work in all PhantomJS versions)")
+define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support POST forms (which makes your 'session' on the site likely to break if you submit one) or Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot (optionally with dimensions e.g. .screenshot-640x480 but this doesn't work in all PhantomJS versions)")
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS when it's in use")
+define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: proxy PhantomJS's requests and return a fake image?
 define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted website to put a special redirection page to handle mailto: links, showing the user the contents of the link first (in case a mail client is not set up). This must be made up of URL-safe characters starting with a / and should be a path that is unlikely to occur on normal websites and that does not conflict with renderPath. If this option is empty, mailto: links are not changed. (Currently, only plain HTML mailto: links are changed by this function; Javascript-computed ones are not.)")
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page, to place the suggested subject and/or body into a draft SMS message instead of an email.")
 
@@ -977,19 +978,21 @@ def webdriver_fetch(url,asScreenshot): # single-user only! (and relies on being 
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
         if not currentUrl == url: # redirected
             return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % theWebDriver.current_url.replace('&','&amp;').replace('"','&quot;'))
-        time.sleep(1) # in case of additional events
+        time.sleep(1) # in case of additional events, XMLHttpRequest async loading, etc (TODO: can we monitor what js is being fetched and see if it does in fact contain any of this?)
     if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),theWebDriver.get_screenshot_as_png())
     else: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
 def _get_new_webdriver():
     from selenium import webdriver
     sa = ['--ssl-protocol=any']
-    if options.PhantomJS_UA:
-      try:
-        from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
-        dc = dict(DesiredCapabilities.PHANTOMJS) ; dc["phantomjs.page.settings.userAgent"]=options.PhantomJS_UA
-        return webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
-      except: sys.stderr.write("Warning: could not set PhantomJS_UA; leaving as default\n")
-    return webdriver.PhantomJS(service_args=sa)
+    try: from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+    except:
+        sys.stderr.write("Your Selenium installation is too old to set PhantomJS custom options.\n")
+        return webdriver.PhantomJS(service_args=sa)
+    dc = dict(DesiredCapabilities.PHANTOMJS)
+    if options.PhantomJS_UA: dc["phantomjs.page.settings.userAgent"]=options.PhantomJS_UA
+    if not options.PhantomJS_images: dc["phantomjs.page.settings.loadImages"]=False
+    if options.via: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?)
+    return webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
 def init_webdriver():
     global theWebDriver ; theWebDriver = _get_new_webdriver()
     try: is_v2 = theWebDriver.capabilities['version'].startswith("2.")
