@@ -309,8 +309,6 @@ if not tornado:
 
 import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,json,base64
 from HTMLParser import HTMLParser,HTMLParseError
-try: import ssl # Python 2.6+
-except: ssl = None
 
 try: # can we page the help text?
     # (Tornado 2 just calls the module-level print_help, but Tornado 3 includes some direct calls to the object's method, so we have to override the latter.  Have to use __dict__ because they override __setattr__.)
@@ -628,11 +626,16 @@ def main():
         unixfork()
     workaround_raspbian_IPv6_bug()
     listen_on_port(application,options.port,options.address,options.browser)
+    if options.real_proxy:
+        # create a modified Application that's 'aware' it's the SSL-helper version (use RequestForwarder2 & no need for staticDocs listener) :
+        listen_on_port(Application([(r"(.*)",RequestForwarder2,{})],log_function=accessLog,gzip=True),options.port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}) # must be actual 127.0.0.1, not just localhost, for the PhantomJS thing
+        extraPort = "--real-proxy SSL helper is listening on localhost:%d\n" % (options.port+1)
+    else: extraPort = ""
     # TODO: open alternate port/address combinations if desired, with False in 3rd argument (but tornadoweb doesn't provide any way of telling which port the request came in on)
     if options.watchdog:
         watchdog = open("/dev/watchdog", 'w')
     dropPrivileges()
-    sys.stderr.write("%sListening on port %d\n" % (twoline_program_name,options.port))
+    sys.stderr.write("%sListening on port %d\n%s" % (twoline_program_name,options.port,extraPort))
     if options.watchdog:
         sys.stderr.write("Writing /dev/watchdog every %d seconds\n" % options.watchdog)
         if options.watchdogWait: sys.stderr.write("(abort if unresponsive for %d seconds)\n" % options.watchdogWait)
@@ -680,6 +683,7 @@ def main():
         options.watchdog = 0 # tell any separate_thread() to stop (that thread is not counted in helper_thread_count)
         watchdog.write('V') # this MIGHT be clean exit, IF the watchdog supports it (not all of them do, so it might not be advisable to use the watchdog option if you plan to stop the server without restarting it)
         watchdog.close()
+    for v in kept_tempfiles.values(): unlink(v)
     if helper_thread_count:
         msg = "Terminating %d runaway helper threads" % (helper_thread_count,)
         # in case someone needs our port quickly.
@@ -702,9 +706,9 @@ def static_handler():
         def set_extra_headers(self,path): fixServerHeader(self)
     return (url+"(.*)",OurStaticFileHandler,{"path":path,"default_filename":"index.html"})
 
-def listen_on_port(application,port,address,browser):
+def listen_on_port(application,port,address,browser,**kwargs):
     for portTry in [5,4,3,2,1,0]:
-      try: return application.listen(port,address)
+      try: return application.listen(port,address,**kwargs)
       except socket.error, e:
         if not "already in use" in e.strerror: raise
         # Maybe the previous server is taking a while to stop
@@ -910,14 +914,6 @@ def writeAndClose(stream,data):
     # This helper function is needed for CONNECT and own_server handling because, contrary to Tornado docs, some Tornado versions (e.g. 2.3) send the last data packet in the FIRST callback of IOStream's read_until_close
     if data: stream.write(data,lambda *args:True) # ignore errors like client disconnected
     if not stream.closed(): stream.close()
-def ssl_callback(client,upstream,initialSend=None,initialExpect="\r\n\r\n"):
-    if initialSend: # for making an initial request ourselves before the client does (used when connecting to our own IP and specifying the original IP:port for future requests)
-        upstream.write(initialSend)
-        upstream.read_until(initialExpect,lambda *args:ssl_callback(client,upstream))
-        return
-    client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data))
-    upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data))
-    client.write('HTTP/1.0 200 Connection established\r\n\r\n')
 
 # Domain-setting cookie for when we have no wildcard_dns and no default_site:
 adjust_domain_cookieName = "_adjusterDN_"
@@ -1215,25 +1211,14 @@ class RequestForwarder(RequestHandler):
         upstream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
         client = self.request.connection.stream
         # See note about Tornado versions in writeAndClose
-        if False and not is_sshProxy and ssl and tornado.iostream.SSLIOStream and int(port)==443:
-            # --- NOT WORKING ---
+        if not is_sshProxy and int(port)==443:
             # We can change the host/port to ourselves
             # and adjust the SSL site (assuming this CONNECT
             # is for an SSL site)
             # This should result in a huge "no cert" warning
-            if options.address: host = options.address
-            else: host = "127.0.0.1" # needed in case it's from PhantomJS (see other comments on 127.0.0.1)
-            port = options.port # shouldn't need publicPort
-            initialRequest = "GET / HTTP/1.0\r\nConnection: keep-alive\r\nWA_UseSSL: 1\r\n\r\n"
-            if hasattr(client,"start_tls"): # Tornado 4.0+
-                client.start_tls(True).add_done_callback(lambda f: upstream.connect((host, int(port)), lambda *args:ssl_callback(f.result(),upstream,initialRequest))) # start_tls: + ssl_options=dict(certfile=duff_certfile()) ?
-                # TODO: = add_io_state TypeError; NoneType on trying to close; lynx hangs 'waiting for response'
-                return
-            else:
-                client = tornado.iostream.SSLIOStream(ssl.wrap_socket(client.socket,server_side=True,certfile=duff_certfile(),do_handshake_on_connect=False)) # client.socket is undocumented but should be there in Tornado versions before 4.0
-                # TODO: = uncaught IOError, ssl_callback sends init request and sets up, uncaught IOError
-        else: initialRequest = None
-        upstream.connect((host, int(port)), lambda *args:ssl_callback(client,upstream,initialRequest))
+            host = "127.0.0.1" # needed in case it's from PhantomJS (see other comments on 127.0.0.1)
+            port = options.port + 1 # the SSL helper
+        upstream.connect((host, int(port)), lambda *args:(client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data)),upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data)),client.write('HTTP/1.0 200 Connection established\r\n\r\n')))
       else: self.set_status(400),self.myfinish()
     def myfinish(self):
         if hasattr(self,"_finished") and self._finished: return # try to avoid "connection closed" exceptions if browser has already gone away
@@ -1426,10 +1411,6 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             if not self.request.uri: self.request.uri="/"
         elif not self.request.uri.startswith("/"): # invalid
             self.set_status(400) ; self.myfinish() ; return True
-        elif options.real_proxy and self.request.headers.get("WA_UseSSL","")=="1": # = empty response this time & future requests in the same connection should use https for upstream
-            self.request.connection.WA_UseSSL=1
-            self.request.suppress_logging = True
-            self.myfinish() ; return True
         if hasattr(self.request.connection,"WA_UseSSL"):
             if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
 
@@ -1754,7 +1735,7 @@ document.forms[0].i.focus()
         if fasterServer_up:
             return self.forwardFor(options.fasterServer)
         if self.handleFullLocation(): return # if returns here, URL is invalid; if not, handleFullLocation has 'normalised' self.request.host and self.request.uri
-        isPjsUpstream = self.request.remote_ip=="127.0.0.1" and self.request.headers.get("User-Agent","")==unique_UA
+        isPjsUpstream = options.PhantomJS_reproxy and self.request.remote_ip=="127.0.0.1" and self.request.headers.get("User-Agent","")==unique_UA
         if isPjsUpstream:
             self.request.suppress_logging = True
             if options.PhantomJS_UA: self.request.headers["User-Agent"] = options.PhantomJS_UA
@@ -2334,6 +2315,11 @@ rmHjGlInkZKbj3jEsGSxU4oKRDBM5syJgm1XYi5vPRNOUu4CXUGJAXhzJtd9teqB
         except: continue
     raise Exception("Can't write the duff certificate anywhere?")
 
+class RequestForwarder2(RequestForwarder):
+    def doReq(self):
+        self.request.connection.WA_UseSSL = True
+        RequestForwarder.doReq(self)
+
 class SynchronousRequestForwarder(RequestForwarder):
    def get(self, *args, **kwargs):     return self.doReq()
    def head(self, *args, **kwargs):    return self.doReq()
@@ -2345,7 +2331,7 @@ class SynchronousRequestForwarder(RequestForwarder):
    def connect(self, *args, **kwargs): raise Exception("CONNECT is not implemented in WSGI mode")
    def myfinish(self): pass
 
-kept_tempfiles = {} # TODO: delete any outstanding kept_tempfiles.values() on server interrupt
+kept_tempfiles = {}
 
 def addArgument(url,extraArg):
     if '#' in url: url,hashTag = url.split('#',1)
