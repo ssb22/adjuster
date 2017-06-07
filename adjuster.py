@@ -63,7 +63,7 @@ heading("Network listening and security settings")
 define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix).")
 define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.")
 define("user",help="The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.")
-define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with real_proxy.")
+define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real-proxy.")
 define("password",help="The password. If this is set, nobody can connect without specifying ?p= followed by this password. It will then be sent to them as a cookie so they don't have to enter it every time. Notes: (1) If wildcard_dns is False and you have multiple domains in host_suffix, then the password cookie will have to be set on a per-domain basis. (2) On a shared server you probably don't want to specify this on the command line where it can be seen by process-viewing tools; use a configuration file instead.")
 define("password_domain",help="The domain entry in host_suffix to which the password applies. For use when wildcard_dns is False and you have several domains in host_suffix, and only one of them (perhaps the one with an empty default_site) is to be password-protected, with the others public. If this option is used then prominentNotice (if set) will not apply to the passworded domain. You may put the password on two or more domains by separating them with slash (/).") # prominentNotice not apply: on the assumption that those who know the password understand what the tool is
 define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * when this is ignored and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
@@ -167,7 +167,7 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 
 heading("Javascript execution options")
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
-define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms.")
+define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms. This option implies --real-proxy.")
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS when it's in use")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: proxy PhantomJS's requests and return a fake image?
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
@@ -309,6 +309,8 @@ if not tornado:
 
 import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,json,base64
 from HTMLParser import HTMLParser,HTMLParseError
+try: import ssl # Python 2.6+
+except: ssl = None
 
 try: # can we page the help text?
     # (Tornado 2 just calls the module-level print_help, but Tornado 3 includes some direct calls to the object's method, so we have to override the latter.  Have to use __dict__ because they override __setattr__.)
@@ -494,6 +496,9 @@ def preprocessOptions():
         if not ':' in options.upstream_proxy: options.upstream_proxy += ":80"
         upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':')
         upstream_proxy_port = int(upstream_proxy_port)
+    if options.PhantomJS and options.PhantomJS_reproxy:
+        options.real_proxy = True
+        if options.address and options.address not in ["localhost","127.0.0.1"]: errExit("PhantomJS_reproxy requires address to be unset, localhost, or 127.0.0.1") # TODO: or add 127.0.0.1 to whatever address they specify and open a second listening port on it?
     global codeChanges ; codeChanges = []
     if options.codeChanges:
       ccLines = [x for x in [x.strip() for x in options.codeChanges.split("\n")] if x and not x.startswith("#")]
@@ -681,7 +686,7 @@ def main():
         # Most likely "runaway" thread is ip_change_command if you did a --restart shortly after the server started.
         # TODO it would be nice if the port can be released at the IOLoop.instance.stop, and make sure os.system doesn't dup any /dev/watchdog handle we might need to release, so that it's not necessary to stop the threads
         if options.background: logging.info(msg)
-        else: sys.stderr.write(msg)
+        else: sys.stderr.write(msg+"\n")
         try:
             import signal
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
@@ -903,10 +908,16 @@ set_window_onerror = False # for debugging Javascript on some mobile browsers (T
 
 def writeAndClose(stream,data):
     # This helper function is needed for CONNECT and own_server handling because, contrary to Tornado docs, some Tornado versions (e.g. 2.3) send the last data packet in the FIRST callback of IOStream's read_until_close
-    if data:
-        try: stream.write(data)
-        except IOError: pass # probably client disconnected, don't fill logs with tracebacks
+    if data: stream.write(data,lambda *args:True) # ignore errors like client disconnected
     if not stream.closed(): stream.close()
+def ssl_callback(client,upstream,initialSend=None,initialExpect="\r\n\r\n"):
+    if initialSend: # for making an initial request ourselves before the client does (used when connecting to our own IP and specifying the original IP:port for future requests)
+        upstream.write(initialSend)
+        upstream.read_until(initialExpect,lambda *args:ssl_callback(client,upstream))
+        return
+    client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data))
+    upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data))
+    client.write('HTTP/1.0 200 Connection established\r\n\r\n')
 
 # Domain-setting cookie for when we have no wildcard_dns and no default_site:
 adjust_domain_cookieName = "_adjusterDN_"
@@ -1012,8 +1023,9 @@ def _wd_fetch(theWebDriver,url,body,asScreenshot): # single-user only! (and reli
 def _get_new_webdriver(firstTime=True):
     from selenium import webdriver
     sa = ['--ssl-protocol=any']
-    # sa.append('--ignore-ssl-errors=true')
-    if options.PhantomJS_reproxy: sa.append('--proxy=127.0.0.1:%d' % options.port) # must be 127.0.0.1, not just 'localhost', as we check self.request.remote_ip=="127.0.0.1" later, and IPv6 would make that check more complicated
+    if options.PhantomJS_reproxy:
+        sa.append('--ignore-ssl-errors=true')
+        sa.append('--proxy=127.0.0.1:%d' % options.port) # must be 127.0.0.1, not just 'localhost', as we check self.request.remote_ip=="127.0.0.1" later, and IPv6 would make that check more complicated
     elif options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
     try: from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
     except:
@@ -1198,13 +1210,31 @@ class RequestForwarder(RequestHandler):
     def connect(self, *args, **kwargs):
       try: host, port = self.request.uri.split(':')
       except: host,port = None,None
-      if host and (options.real_proxy or (host,port)==(allowConnectHost,allowConnectPort)): # support tunnelling if real_proxy (but we can't adjust anything), but at any rate support ssh_proxy if set
+      is_sshProxy = (host,port)==(allowConnectHost,allowConnectPort)
+      if host and (options.real_proxy or is_sshProxy): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
         upstream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
         client = self.request.connection.stream
         # See note about Tornado versions in writeAndClose
-        upstream.connect((host, int(port)), lambda *args:(client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data)), upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data)), client.write('HTTP/1.0 200 Connection established\r\n\r\n')))
+        if False and not is_sshProxy and ssl and tornado.iostream.SSLIOStream and int(port)==443:
+            # --- NOT WORKING ---
+            # We can change the host/port to ourselves
+            # and adjust the SSL site (assuming this CONNECT
+            # is for an SSL site)
+            # This should result in a huge "no cert" warning
+            if options.address: host = options.address
+            else: host = "127.0.0.1" # needed in case it's from PhantomJS (see other comments on 127.0.0.1)
+            port = options.port # shouldn't need publicPort
+            initialRequest = "GET / HTTP/1.0\r\nConnection: keep-alive\r\nWA_UseSSL: 1\r\n\r\n"
+            if hasattr(client,"start_tls"): # Tornado 4.0+
+                client.start_tls(True).add_done_callback(lambda f: upstream.connect((host, int(port)), lambda *args:ssl_callback(f.result(),upstream,initialRequest))) # start_tls: + ssl_options=dict(certfile=duff_certfile()) ?
+                # TODO: = add_io_state TypeError; NoneType on trying to close; lynx hangs 'waiting for response'
+                return
+            else:
+                client = tornado.iostream.SSLIOStream(ssl.wrap_socket(client.socket,server_side=True,certfile=duff_certfile(),do_handshake_on_connect=False)) # client.socket is undocumented but should be there in Tornado versions before 4.0
+                # TODO: = uncaught IOError, ssl_callback sends init request and sets up, uncaught IOError
+        else: initialRequest = None
+        upstream.connect((host, int(port)), lambda *args:ssl_callback(client,upstream,initialRequest))
       else: self.set_status(400),self.myfinish()
-
     def myfinish(self):
         if hasattr(self,"_finished") and self._finished: return # try to avoid "connection closed" exceptions if browser has already gone away
         try:
@@ -1396,6 +1426,12 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             if not self.request.uri: self.request.uri="/"
         elif not self.request.uri.startswith("/"): # invalid
             self.set_status(400) ; self.myfinish() ; return True
+        elif options.real_proxy and self.request.headers.get("WA_UseSSL","")=="1": # = empty response this time & future requests in the same connection should use https for upstream
+            self.request.connection.WA_UseSSL=1
+            self.request.suppress_logging = True
+            self.myfinish() ; return True
+        if hasattr(self.request.connection,"WA_UseSSL"):
+            if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
 
     def handleSSHTunnel(self):
         if not allowConnectURL=="http://"+self.request.host+self.request.uri: return
@@ -2236,6 +2272,67 @@ document.forms[0].i.focus()
         for b in blist:
             if b in ua: return warn.replace("{B}",b)
         return ""
+
+def duff_certfile():
+    global the_duff_certfile
+    the_duff_certfile = None
+    if the_duff_certfile: return the_duff_certfile
+    for n in ['/dev/shm/dummy.pem','/tmp/dummy.pem','dummy.pem']:
+        try:
+            # Here's one I made earlier, unsigned localhost:
+            open(n,'w').write("""-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCrpSY8Ei98Vx3o
+mdksXcaPdstvlL2xhRpRO6RNyL7rMc/bJWIscOVdm8OlxTlnQghJ/TW4X5InE6+X
+dVbxGaEC3DYRcIJHvz7oD7myRD/xXbpWjPPkol4eVe2afyKeh7qJ8JQ9ayJCfFL2
+Bj/yvqjls+eBYeJ7o0txw19r8T3zuplGhTPzz0sdV66i+9vzBWT80xqgZQm0Dtrw
+09gpO3ya56JRwBIRSio6K17t4u8AFYIS+jcqApGNMeapnnopHB5ZQlopF/LApTsp
+7MYSYaUxahLhYnqZ5Y3P32rES3DLlB9y94FT6wJi80H/tLzyS647NHlQ8ZQR+vKm
+UjE//vzDAgMBAAECggEBAIeKmm7FTYo6oPuUwdIvGyUfAfbS1hjgqq+LEWv7IghI
+BYNgOe4uGHGbFxxIadQIaNNEiK9XiOoiuX44wrcRLfw8ONX8qmRNuTc3c8Q58OSA
+xyyhkdbyALCj2kUuMABP3hYfTHBTsXIfCsQMm2Ls/CKntiCNU3Oet2zWgvuSPQHB
+BBqFRCf793GcTcmifhnj4xSCNa7tBUQgaz1ZDZMP0av5u6L4jfrxKy9fb8doLYx/
+c7CwhRdhbIat51VBSMXHtl3fEQGfQnhiRLqHhzpo46kzdR0Y+sIh58aYIb3nkAa3
+Z0fkq1hPubdBejKOZquJsXHDGfqOr/0hpKZlmILdUEECgYEA5BBeXgBGZu8tVHqE
+yxO8YFGwbFqwHFSyIfegt8sYWTeh9wmBDHhqYRY5v/6iIUzLI44qjUjDXLZ1Ncyo
+4P6EPlumCy6PDW4V5/vlOScB1YSKtk6Z7H5PpsWbBvb5dUjDhV4BHlkFscGMYAZf
+8Ykd8lqHd/VYPL7JwSzreqXp920CgYEAwKuZP7R0RsUAIWFo5mNpKrJPyJU8Xbcv
+2XllaOKkSEBaAv45KQmfct4pvXOMDCnd+hS3+Fq0cWKyLJfmnBl0oljrQ00VXGaF
+XeFk+XWkmWjt7tVvMv6YRHhmdfnVdJMK8WJZL25Q56W9OX2A1WnPXctxJuKKcu2j
+jSpctOXgNu8CgYA2EU9d97C5HIDhoz4yKtag+xzZQ1K3FLk6Zkt65zI5jH/gYidu
+/mkx5SQByWtEe8E5B6482oA+TZ9SBtgOpyhQ5EdkJUCSzYNyAPzh5MaBiS+dctr4
+/yUBA53yM8EGNh7sUlHvkOlRr/IIndpHF9u6pg2xub+WfyCzpGObKxRhrQKBgGGC
+dzzWh0KJ0VcThZOUHFWPiPFrFfIYFA9scPZ0PdCTQPrizusGA7yO03EeWXKOfdlj
+Qvheb5Qy7xnChuPZvj2r4uVczcLF4BlzSTc3YuaBRGnreyvDzixZAwISPwWQpakk
+rR5kJm4WY34FFn7r3hcKL2oOnSMtQejf16t169PhAoGBAIBR/FskuCDgrS8tcSLd
+ONeipyvxLONi3eKGWeWOPiMf97szZRCgQ9cX1sQ2c3SRFASdFXV5ujij2m9MepV5
+EmpHS+6okHNIrxE01mMNV+/Y6KfZiqu9zKU5Qc2tEVaY+jE/wqMLIJsDE1pzu75t
+JHCPQWkiQD78FvYsV/d6Qa9Q
+-----END PRIVATE KEY-----
+-----BEGIN CERTIFICATE-----
+MIIDgTCCAmmgAwIBAgIJAKqlaBInju0KMA0GCSqGSIb3DQEBCwUAMFYxCzAJBgNV
+BAYTAlVLMRUwEwYDVQQHDAxEZWZhdWx0IENpdHkxHDAaBgNVBAoME0RlZmF1bHQg
+Q29tcGFueSBMdGQxEjAQBgNVBAMMCWxvY2FsaG9zdDAgFw0xNzA2MDcxNDA0NTRa
+GA8yMTE3MDUxNDE0MDQ1NFowVjELMAkGA1UEBhMCVUsxFTATBgNVBAcMDERlZmF1
+bHQgQ2l0eTEcMBoGA1UECgwTRGVmYXVsdCBDb21wYW55IEx0ZDESMBAGA1UEAwwJ
+bG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq6UmPBIv
+fFcd6JnZLF3Gj3bLb5S9sYUaUTukTci+6zHP2yViLHDlXZvDpcU5Z0IISf01uF+S
+JxOvl3VW8RmhAtw2EXCCR78+6A+5skQ/8V26Vozz5KJeHlXtmn8inoe6ifCUPWsi
+QnxS9gY/8r6o5bPngWHie6NLccNfa/E987qZRoUz889LHVeuovvb8wVk/NMaoGUJ
+tA7a8NPYKTt8mueiUcASEUoqOite7eLvABWCEvo3KgKRjTHmqZ56KRweWUJaKRfy
+wKU7KezGEmGlMWoS4WJ6meWNz99qxEtwy5QfcveBU+sCYvNB/7S88kuuOzR5UPGU
+EfryplIxP/78wwIDAQABo1AwTjAdBgNVHQ4EFgQULMiW+U9eS7LNQrXfCfRLt/kD
+p+wwHwYDVR0jBBgwFoAULMiW+U9eS7LNQrXfCfRLt/kDp+wwDAYDVR0TBAUwAwEB
+/zANBgkqhkiG9w0BAQsFAAOCAQEAgIAkEKExjnVdiYsjQ8hqCVBLaZk2+x0VoROd
+1/xZn9qAT0RsnoQ8De+xnOHxwmDMYNBQj3bIUXjc8XIUd0nZb9OYhIpj1OyggHfB
+3KECnnm/mfbtv3jB1rilUnRTknRCwyVJetOpLVEJONP/qWVSD7y2nfcQIcilWPka
+q/wcEZA7n1nzJetW6taOT/sx+E8JO2yawnvHoY7m7Zj7NIrsLCIyQlLZ0Xm/401s
+rmHjGlInkZKbj3jEsGSxU4oKRDBM5syJgm1XYi5vPRNOUu4CXUGJAXhzJtd9teqB
+8FHasZQjl5aqS0j2vPREQl6fnw4i9/sOBvgZLgw03XZXtXr6Ow==
+-----END CERTIFICATE-----
+""")
+            the_duff_certfile = n ; return n
+        except: continue
+    raise Exception("Can't write the duff certificate anywhere?")
 
 class SynchronousRequestForwarder(RequestForwarder):
    def get(self, *args, **kwargs):     return self.doReq()
