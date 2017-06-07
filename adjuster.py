@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.236 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.237 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -60,7 +60,7 @@ define("config",help="Name of the configuration file to read, if any. The proces
 define("version",help="Just print program version and exit")
 
 heading("Network listening and security settings")
-define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix).")
+define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix). If you set --real-proxy and/or --PhantomJS options, up to 3 additional unused ports will be needed immediately above this number.")
 define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.")
 define("user",help="The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.")
 define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real-proxy.")
@@ -168,7 +168,7 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 heading("Javascript execution options")
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
 define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms. This option implies --real-proxy.")
-define("PhantomJS_UA",help="Custom user-agent string for PhantomJS when it's in use")
+define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS-reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: proxy PhantomJS's requests and return a fake image?
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
 
@@ -496,7 +496,6 @@ def preprocessOptions():
         upstream_proxy_port = int(upstream_proxy_port)
     if options.PhantomJS and options.PhantomJS_reproxy:
         options.real_proxy = True
-        if options.address and options.address not in ["localhost","127.0.0.1"]: errExit("PhantomJS_reproxy requires address to be unset, localhost, or 127.0.0.1") # TODO: or add 127.0.0.1 to whatever address they specify and open a second listening port on it?
     global codeChanges ; codeChanges = []
     if options.codeChanges:
       ccLines = [x for x in [x.strip() for x in options.codeChanges.split("\n")] if x and not x.startswith("#")]
@@ -626,16 +625,20 @@ def main():
         unixfork()
     workaround_raspbian_IPv6_bug()
     listen_on_port(application,options.port,options.address,options.browser)
+    extraPorts = ""
     if options.real_proxy:
-        # create a modified Application that's 'aware' it's the SSL-helper version (use RequestForwarder2 & no need for staticDocs listener) :
-        listen_on_port(Application([(r"(.*)",RequestForwarder2,{})],log_function=accessLog,gzip=True),options.port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}) # must be actual 127.0.0.1, not just localhost, for the PhantomJS thing
-        extraPort = "--real-proxy SSL helper is listening on localhost:%d\n" % (options.port+1)
-    else: extraPort = ""
-    # TODO: open alternate port/address combinations if desired, with False in 3rd argument (but tornadoweb doesn't provide any way of telling which port the request came in on)
+        # create a modified Application that's 'aware' it's the SSL-helper version (use RequestForwarder1 & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port
+        listen_on_port(Application([(r"(.*)",RequestForwarder1,{})],log_function=accessLog,gzip=True),options.port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
+        extraPorts += "--real-proxy SSL helper is listening on localhost:%d (don't connect to it yourself)\n" % (options.port+1)
+    if options.PhantomJS_reproxy:
+        # ditto for PhantomJS (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us) - this will be the port to which PhantomJS connects for its upstream proxy
+        listen_on_port(Application([(r"(.*)",RequestForwarder2,{})],log_function=accessLog,gzip=True),options.port+2,"127.0.0.1",False)
+        listen_on_port(Application([(r"(.*)",RequestForwarder3,{})],log_function=accessLog,gzip=True),options.port+3,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
+        extraPorts += "--PhantomJS-reproxy helpers listening on localhost:%d/%d (ditto)\n" % (options.port+2,options.port+3)
     if options.watchdog:
         watchdog = open("/dev/watchdog", 'w')
     dropPrivileges()
-    sys.stderr.write("%sListening on port %d\n%s" % (twoline_program_name,options.port,extraPort))
+    sys.stderr.write("%sListening on port %d\n%s" % (twoline_program_name,options.port,extraPorts))
     if options.watchdog:
         sys.stderr.write("Writing /dev/watchdog every %d seconds\n" % options.watchdog)
         if options.watchdogWait: sys.stderr.write("(abort if unresponsive for %d seconds)\n" % options.watchdogWait)
@@ -988,7 +991,7 @@ class WebdriverRunner:
         self.theWebDriver = get_new_webdriver()
     def fetch(self,url,body,asScreenshot,callback):
         if self.thread_running: # allow only one at once
-            IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.fetch(url,asScreenshot,callback))
+            IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.fetch(url,body,asScreenshot,callback))
             return
         self.thread_running = True
         threading.Thread(target=wd_fetch,args=(url,body,asScreenshot,callback,self)).start()
@@ -1021,23 +1024,19 @@ def _get_new_webdriver(firstTime=True):
     sa = ['--ssl-protocol=any']
     if options.PhantomJS_reproxy:
         sa.append('--ignore-ssl-errors=true')
-        sa.append('--proxy=127.0.0.1:%d' % options.port) # must be 127.0.0.1, not just 'localhost', as we check self.request.remote_ip=="127.0.0.1" later, and IPv6 would make that check more complicated
+        sa.append('--proxy=127.0.0.1:%d' % (options.port+2))
     elif options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
     try: from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
     except:
         if firstTime:
             sys.stderr.write("Your Selenium installation is too old to set PhantomJS custom options.\n")
-            if options.PhantomJS_reproxy:
-                sys.stderr.write("This means --PhantomJS_reproxy won't work.") # because we can't set the UA string
-                sa.pop()
-                if options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
+            if options.PhantomJS_reproxy: sys.stderr.write("This means --PhantomJS_reproxy won't work.") # because we can't set the UA string or custom headers
+        if options.PhantomJS_reproxy:
+            sa.pop()
+            if options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
         return webdriver.PhantomJS(service_args=sa)
     dc = dict(DesiredCapabilities.PHANTOMJS)
-    if options.PhantomJS_reproxy:
-        global unique_UA
-        if firstTime: unique_UA = htmlmode_cookie_name+str(os.getpid())+password_cookie_name # to identify the PhantomJS browser when it reconnects back to the proxy from localhost
-        dc["phantomjs.page.settings.userAgent"] = unique_UA
-    elif options.PhantomJS_UA: dc["phantomjs.page.settings.userAgent"]=options.PhantomJS_UA
+    if options.PhantomJS_UA and not options.PhantomJS_UA.startswith("*"): dc["phantomjs.page.settings.userAgent"]=options.PhantomJS_UA
     if not options.PhantomJS_images: dc["phantomjs.page.settings.loadImages"]=False
     if options.via and not options.PhantomJS_reproxy: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?) (don't have to worry about this if PhantomJS_reproxy)
     return webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
@@ -1216,8 +1215,9 @@ class RequestForwarder(RequestHandler):
             # and adjust the SSL site (assuming this CONNECT
             # is for an SSL site)
             # This should result in a huge "no cert" warning
-            host = "127.0.0.1" # needed in case it's from PhantomJS (see other comments on 127.0.0.1)
+            host = "127.0.0.1"
             port = options.port + 1 # the SSL helper
+            if 'isPJS' in kwargs: port += 2 # PJS-aware SSL
         upstream.connect((host, int(port)), lambda *args:(client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data)),upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data)),client.write('HTTP/1.0 200 Connection established\r\n\r\n')))
       else: self.set_status(400),self.myfinish()
     def myfinish(self):
@@ -1735,12 +1735,11 @@ document.forms[0].i.focus()
         if fasterServer_up:
             return self.forwardFor(options.fasterServer)
         if self.handleFullLocation(): return # if returns here, URL is invalid; if not, handleFullLocation has 'normalised' self.request.host and self.request.uri
-        isPjsUpstream = options.PhantomJS_reproxy and self.request.remote_ip=="127.0.0.1" and self.request.headers.get("User-Agent","")==unique_UA
+        isPjsUpstream = hasattr(self.request.connection,'is_phantomJS')
         if isPjsUpstream:
             self.request.suppress_logging = True
-            if options.PhantomJS_UA: self.request.headers["User-Agent"] = options.PhantomJS_UA
-            else: self.request.headers["User-Agent"] = "Mozilla/5.0 AppleWebKit/999 (KHTML, like Gecko) Chrome/99 Safari/999 compatible hopefully" # what else can we do, we overwrote the default UA (if using an alternate port instead of unique_UA, would need a different RequestForwarder instance to listen on it because incoming connections don't say which port).  Could take the CLIENT's ua, but that might result in some site saying "go away Lynx users" w/out realising we have JS.
-        if not isPjsUpstream:
+            if options.PhantomJS_UA and options.PhantomJS_UA.startswith("*"): self.request.headers["User-Agent"] = options.PhantomJS_UA[1:]
+        else:
             if self.handleSSHTunnel(): return
             if self.handleSpecificIPs(): return
             # TODO: Slow down heavy users by self.request.remote_ip ?
@@ -1754,6 +1753,7 @@ document.forms[0].i.focus()
                 ruri,rest = self.request.uri.split(cssReload_cookieSuffix,1)
                 self.setCookie_with_dots(rest)
                 return self.redirect(ruri) # so can set another
+            if (self.request.host=="localhost" or self.request.host.startswith("localhost:")) and not "localhost" in options.host_suffix: return self.redirect("http://"+hostSuffix(0)+publicPortStr()+self.request.uri) # save confusion later (e.g. set 'HTML-only mode' cookie on 'localhost' but then redirect to host_suffix and cookie is lost)
         viewSource = (not isPjsUpstream) and self.checkViewsource()
         self.cookieViaURL = None
         if isPjsUpstream: realHost = self.request.host
@@ -2033,6 +2033,7 @@ document.forms[0].i.focus()
                 if offsite:
                     # as cookie_host has been set, we know we CAN do this request if it were typed in directly....
                     value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
+                    if self.htmlOnlyMode(): value += "&pr=on"
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html lang=\"en\"><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
@@ -2315,9 +2316,24 @@ rmHjGlInkZKbj3jEsGSxU4oKRDBM5syJgm1XYi5vPRNOUu4CXUGJAXhzJtd9teqB
         except: continue
     raise Exception("Can't write the duff certificate anywhere?")
 
-class RequestForwarder2(RequestForwarder):
+class RequestForwarder1(RequestForwarder):
+    # port + 1 : the SSL version for real_proxy.
     def doReq(self):
         self.request.connection.WA_UseSSL = True
+        RequestForwarder.doReq(self)
+class RequestForwarder2(RequestForwarder):
+    # port + 2 : the listener for PhantomJS_reproxy.
+    def doReq(self):
+        self.request.connection.is_phantomJS = True
+        RequestForwarder.doReq(self)
+    @asynchronous
+    def connect(self, *args, **kwargs):
+        RequestForwarder.connect(self,isPJS=True)
+class RequestForwarder3(RequestForwarder):
+    # port + 3 : the SSL version for PhantomJS_reproxy.
+    def doReq(self):
+        self.request.connection.WA_UseSSL = True
+        self.request.connection.is_phantomJS = True
         RequestForwarder.doReq(self)
 
 class SynchronousRequestForwarder(RequestForwarder):
