@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.237 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.237a (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -495,7 +495,7 @@ def preprocessOptions():
         upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':')
         upstream_proxy_port = int(upstream_proxy_port)
     if options.PhantomJS and options.PhantomJS_reproxy:
-        options.real_proxy = True
+        options.real_proxy = True # (TODO: could actually have it on the 2nd port but not the 1st; update help text)
     global codeChanges ; codeChanges = []
     if options.codeChanges:
       ccLines = [x for x in [x.strip() for x in options.codeChanges.split("\n")] if x and not x.startswith("#")]
@@ -577,9 +577,7 @@ def preprocessOptions():
         else: allowConnectHost,allowConnectPort = sp,"22"
     if not options.default_site: options.default_site = ""
     # (so we can .split it even if it's None or something)
-    if options.PhantomJS:
-        if not options.htmlonly_mode: errExit("PhantomJS requires htmlonly_mode")
-        init_webdriver()
+    if options.PhantomJS and not options.htmlonly_mode: errExit("PhantomJS requires htmlonly_mode")
 
 def serverControl():
     if options.install:
@@ -638,6 +636,7 @@ def main():
     if options.watchdog:
         watchdog = open("/dev/watchdog", 'w')
     dropPrivileges()
+    if options.PhantomJS: init_webdriver()
     sys.stderr.write("%sListening on port %d\n%s" % (twoline_program_name,options.port,extraPorts))
     if options.watchdog:
         sys.stderr.write("Writing /dev/watchdog every %d seconds\n" % options.watchdog)
