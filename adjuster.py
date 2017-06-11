@@ -60,7 +60,7 @@ define("config",help="Name of the configuration file to read, if any. The proces
 define("version",help="Just print program version and exit")
 
 heading("Network listening and security settings")
-define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix). If you set --real-proxy and/or --PhantomJS options, up to 3 additional unused ports will be needed immediately above this number.")
+define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix). For --real-proxy and related options, up to 3 additional unused ports will be needed immediately above this number: they listen only on localhost and are used for SSL helpers etc.")
 define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.")
 define("user",help="The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.")
 define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real-proxy.")
