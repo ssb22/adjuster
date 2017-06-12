@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.237b (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.238 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -307,7 +307,7 @@ if not tornado:
     print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <tt>python adjuster.py --help</tt> to see a full list of the ones available on your setup. They typically include <tt>log_file_max_size</tt>, <tt>log_file_num_backups</tt>, <tt>log_file_prefix</tt> and <tt>log_to_stderr</tt>." # and --logging=debug but that may generate a lot of entries from curl_httpclient
     raise SystemExit
 
-import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,json,base64
+import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,json,base64,htmlentitydefs
 from HTMLParser import HTMLParser,HTMLParseError
 
 try: # can we page the help text?
@@ -1011,12 +1011,15 @@ def _wd_fetch(theWebDriver,url,body,asScreenshot): # single-user only! (and reli
             theWebDriver.get("about:blank") # ensure no race condition with current page's XMLHttpRequests
             global webdriver_body_to_send
             webdriver_body_to_send = body
-        theWebDriver.get(url) # waits for onload
+        webdriver_inProgress.clear() # race condition with start of next 'get' if we haven't done about:blank, but worst case is we'll wait a bit too long for page to finish
+        theWebDriver.get(url) # waits for onload, but we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
+        for _ in xrange(40):
+            time.sleep(0.2) # unconditional first-wait hopefully long enough to catch XMLHttpRequest delayed-send, very-low-value setTimeout etc, but we don't want to wait a whole second if the page isn't GOING to make any requests (TODO: monitor the js going through the upstream proxy to see if it contains any calls to this? but we'll have to deal with PhantomJS's cache, unless set it to not cache and we cache upstream)
+            if not webdriver_inProgress: break # TODO: wait a tiny bit longer to allow processing of response? or check if the call to find_element_by_xpath below is synchronous with the page's js (still a race condition though)
         try: currentUrl = theWebDriver.current_url
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
         if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
             return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % theWebDriver.current_url.replace('&','&amp;').replace('"','&quot;'))
-        time.sleep(1) # in case of additional events, XMLHttpRequest async loading, etc (TODO: can we monitor what js is being fetched and see if it does in fact contain any of this?)
     if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),theWebDriver.get_screenshot_as_png())
     else: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
 def _get_new_webdriver(firstTime=True):
@@ -1057,11 +1060,12 @@ def get_new_webdriver(firstTime=True):
     wd.set_window_size(w, h)
     import atexit ; atexit.register(wd.quit)
     return wd
-def init_webdriver(): # just one for now (if changing this, need to sort out webdriver_body_to_send and webdriver_via logic)
-    global theWebDriverRunner
+def init_webdriver(): # just one for now (if changing this, need to sort out the logic of webdriver_body_to_send, webdriver_via and webdriver_inProgress)
+    global theWebDriverRunner, webdriver_inProgress
     theWebDriverRunner = WebdriverRunner()
     # (if doing several, make others have firstTime = False,
     # and may need to keep a queue-length list for choosing)
+    webdriver_inProgress = set()
 def webdriver_fetch(url,body,asScreenshot,callback):
     if wsgi_mode: return callback(_wd_fetch(theWebDriverRunner.theWebDriver,url,body,asScreenshot))
     theWebDriverRunner.fetch(url,body,asScreenshot,callback)
@@ -1222,11 +1226,15 @@ class RequestForwarder(RequestHandler):
         upstream.connect((host, int(port)), lambda *args:(client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data)),upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data)),client.write('HTTP/1.0 200 Connection established\r\n\r\n')))
       else: self.set_status(400),self.myfinish()
     def myfinish(self):
-        if hasattr(self,"_finished") and self._finished: return # try to avoid "connection closed" exceptions if browser has already gone away
-        try:
+        if hasattr(self,"_finished") and self._finished: pass # try to avoid "connection closed" exceptions if browser has already gone away
+        else:
+          try:
             self.finish()
             self._finished = 1 # (just in case)
-        except: pass # belt and braces (depends on Tornado version?)
+          except: pass # belt and braces (depends on Tornado version?)
+        try:
+            if hasattr(self.request.connection,'is_phantomJS'): webdriver_inProgress.remove(self.request.uri)
+        except: pass
 
     def redirect(self,redir,status=301):
         self.set_status(status)
@@ -1740,6 +1748,7 @@ document.forms[0].i.focus()
         if isPjsUpstream:
             self.request.suppress_logging = True
             if options.PhantomJS_UA and options.PhantomJS_UA.startswith("*"): self.request.headers["User-Agent"] = options.PhantomJS_UA[1:]
+            webdriver_inProgress.add(self.request.uri)
         else:
             if self.handleSSHTunnel(): return
             if self.handleSpecificIPs(): return
@@ -2734,8 +2743,7 @@ def add_conversion_links(h,offsite_ok,isKindle):
     return HTML_adjust_svc(h,[AddConversionLinks(offsite_ok,isKindle)],can_use_LXML=False) # False because we're likely dealing with a fragment inside JSON, not a complete HTML document
 
 class StripJSEtc:
-    # TODO: HTML_adjust_svc might need to do handle_entityref and handle_charref to catch those inside scripts etc
-    # TODO: change any "[if IE" at the start of comments (in case anyone using affected versions of IE wants to use this mode))
+    # TODO: change any "[if IE" at the start of comments, in case anyone using affected versions of IE wants to use this mode
     def __init__(self,url,transparent):
         self.url,self.transparent = url,transparent
     def init(self,parser):
@@ -2745,7 +2753,7 @@ class StripJSEtc:
         if tag=="img":
             self.parser.addDataFromTagHandler(dict(attrs).get("alt",""),1)
             return True
-        elif tag in ['script','style']:
+        elif tag in ['script','style'] or (tag=="noscript" and options.PhantomJS): # (in PhantomJS mode we want to suppress 'noscript' alternatives to document.write()s or we'll get both; anyway some versions of PhantomJS will ampersand-encode anything inside 'noscript' when we call find_element_by_xpath)
             self.suppressing = True ; return True
         elif tag=="body":
             if not self.transparent:
@@ -2758,7 +2766,7 @@ class StripJSEtc:
         if tag=="head":
             self.parser.addDataFromTagHandler('<meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head>',True) # TODO: document that htmlonly_mode adds this; might also want to have it when CSS is on
             return True # suppress </head> because we've done it ourselves in the above (had to or addDataFromTagHandler would have added it AFTER the closing tag)
-        if tag in ['script','style']:
+        if tag in ['script','style'] or (tag=="noscript" and options.PhantomJS):
             self.suppressing = False ; return True
         elif tag=='noscript': return True
         else: return self.suppressing
@@ -2826,6 +2834,16 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
             self.out.append(htmlStr[self.lastStart:dataStart])
             self.out.append(data)
             self.lastStart = dataStart+len(oldData)
+        def handle_entityref(self,name):
+            if any(l.handle_data('-')=="" for l in adjustList): # suppress entities when necessary, e.g. when suppressing noscript in PhantomJS-processed pages
+                dataStart = self.getBytePos()
+                self.out.append(htmlStr[self.lastStart:dataStart])
+                self.lastStart = dataStart+len(name)+2
+        def handle_charref(self,name):
+            if any(l.handle_data('-')=="" for l in adjustList): # ditto
+                dataStart = self.getBytePos()
+                self.out.append(htmlStr[self.lastStart:dataStart])
+                self.lastStart = dataStart+len(name)+3
     parser = Parser()
     for l in adjustList: l.init(parser)
     parser.out = [] ; parser.lastStart = 0
@@ -2961,7 +2979,6 @@ def latin1decode(htmlStr):
 def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in utf-8
     if options.useLXML:
         return LXML_find_text_in_HTML(htmlStr)
-    import htmlentitydefs
     class Parser(HTMLParser):
         def shouldStripTag(self,tag):
             self.ignoredLastTag = (tag.lower() in options.stripTags and (self.ignoredLastTag or self.getBytePos()==self.lastCodeStart))
@@ -2995,9 +3012,7 @@ def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in ut
             if datalen==None: datalen = len(data) # otherwise we're overriding it for entity refs etc
             self.lastCodeStart = dataStart+datalen
         def handle_entityref(self,name):
-            if name in htmlentitydefs.name2codepoint and not name in ['lt','gt','amp']:
-                self.handle_data(unichr(htmlentitydefs.name2codepoint[name]).encode('utf-8'),len(name)+2)
-            # else leave the entity ref as-is
+            if name in htmlentitydefs.name2codepoint and not name in ['lt','gt','amp']: self.handle_data(unichr(htmlentitydefs.name2codepoint[name]).encode('utf-8'),len(name)+2)
         def handle_charref(self,name):
             if name.startswith('x'): d=unichr(int(name[1:],16))
             else: d=unichr(int(name))
@@ -3027,7 +3042,6 @@ def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in ut
     return parser.codeTextList
 
 def LXML_find_text_in_HTML(htmlStr):
-    import htmlentitydefs
     class Parser:
         def shouldStripTag(self,tag):
             self.ignoredLastTag = (tag.lower() in options.stripTags and (self.ignoredLastTag or not self.out))
