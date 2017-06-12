@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.237a (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.237b (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -60,7 +60,7 @@ define("config",help="Name of the configuration file to read, if any. The proces
 define("version",help="Just print program version and exit")
 
 heading("Network listening and security settings")
-define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix). For --real-proxy and related options, up to 3 additional unused ports will be needed immediately above this number: they listen only on localhost and are used for SSL helpers etc.")
+define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix). For --real-proxy and related options, up to 3 additional unused ports are needed immediately above this number: they listen only on localhost and are used for SSL helpers etc.") # when not in WSGI mode ('CONNECT' is not supported in WSGI mode, neither is PhantomJS_reproxy)
 define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.")
 define("user",help="The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.")
 define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real-proxy.")
@@ -600,7 +600,8 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy PhantomJS_reproxy'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+        # (PhantomJS itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But PhantomJS_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt):
             sys.stderr.write("Warning: '%s' option may not work in WSGI mode\n" % opt)
     if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
@@ -1011,9 +1012,9 @@ def _wd_fetch(theWebDriver,url,body,asScreenshot): # single-user only! (and reli
             global webdriver_body_to_send
             webdriver_body_to_send = body
         theWebDriver.get(url) # waits for onload
-        try: currentUrl = theWebDriver.current_url
+        try: currentUrl = re.sub('#.*','',theWebDriver.current_url) # we have to ignore anything after a # because we have no way of knowing (here) whether the user's browser already includes the # or not (might send it into a redirect loop)
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
-        if not currentUrl == url: # redirected
+        if not currentUrl == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source)
             return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % theWebDriver.current_url.replace('&','&amp;').replace('"','&quot;'))
         time.sleep(1) # in case of additional events, XMLHttpRequest async loading, etc (TODO: can we monitor what js is being fetched and see if it does in fact contain any of this?)
     if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),theWebDriver.get_screenshot_as_png())
@@ -1062,6 +1063,7 @@ def init_webdriver(): # just one for now (if changing this, need to sort out web
     # (if doing several, make others have firstTime = False,
     # and may need to keep a queue-length list for choosing)
 def webdriver_fetch(url,body,asScreenshot,callback):
+    if wsgi_mode: return callback(_wd_fetch(theWebDriverRunner.theWebDriver,url,body,asScreenshot))
     theWebDriverRunner.fetch(url,body,asScreenshot,callback)
 webdriver_body_to_send = webdriver_via = None
 
