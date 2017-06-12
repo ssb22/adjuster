@@ -1012,9 +1012,9 @@ def _wd_fetch(theWebDriver,url,body,asScreenshot): # single-user only! (and reli
             global webdriver_body_to_send
             webdriver_body_to_send = body
         theWebDriver.get(url) # waits for onload
-        try: currentUrl = re.sub('#.*','',theWebDriver.current_url) # we have to ignore anything after a # because we have no way of knowing (here) whether the user's browser already includes the # or not (might send it into a redirect loop)
+        try: currentUrl = theWebDriver.current_url
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
-        if not currentUrl == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source)
+        if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
             return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % theWebDriver.current_url.replace('&','&amp;').replace('"','&quot;'))
         time.sleep(1) # in case of additional events, XMLHttpRequest async loading, etc (TODO: can we monitor what js is being fetched and see if it does in fact contain any of this?)
     if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),theWebDriver.get_screenshot_as_png())
@@ -1992,7 +1992,6 @@ document.forms[0].i.focus()
           # We thought we were going to get a PDF etc that could be converted, but it looks like they just sent more HTML (perhaps a "which version of the PDF did you want" screen)
           do_pdftotext=do_epubtotext=do_epubtozip=do_mp3=False
         vary = response.headers.get("Vary","")
-        if vary: vary += ", "
         cookie_host = self.cookie_host()
         doRedirect = ""
         for name,value in response.headers.get_all():
@@ -2065,7 +2064,10 @@ document.forms[0].i.focus()
                 elif name=='Content-Disposition':
                     headers_to_add.remove((name,value))
         added = {'set-cookie':1} # might have been set by authenticates_ok
-        headers_to_add.append(('Vary',vary+'Cookie, User-Agent')) # can affect adjuster settings (and just saying 'Vary: *' can sometimes be ignored on Android 4.4)
+        if not hasattr(self.request.connection,'is_phantomJS'):
+            if vary: vary += ", "
+            vary += 'Cookie, User-Agent' # can affect adjuster settings (and just saying 'Vary: *' can sometimes be ignored on Android 4.4)
+        headers_to_add.append(('Vary',vary))
         for name,value in headers_to_add:
           value = value.replace("\t"," ") # needed for some servers
           if name.lower() in added: self.add_header(name,value)
