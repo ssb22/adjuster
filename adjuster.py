@@ -167,7 +167,7 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 
 heading("Javascript execution options")
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  This is slow and limited: it does not currently support Javascript-only links etc, and it currently shares a single PhantomJS browser between all Adjuster clients, so don't do this for multiple users!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
-define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms. This option implies --real-proxy.")
+define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms. This option implies --real-proxy.") # PhantomJS_reproxy also works around issue #13114 in PhantomJS 2.x, and allows monitoring of XMLHttpRequest progress for potential early response
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS-reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: proxy PhantomJS's requests and return a fake image?
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
@@ -1013,9 +1013,11 @@ def _wd_fetch(theWebDriver,url,body,asScreenshot): # single-user only! (and reli
             webdriver_body_to_send = body
         webdriver_inProgress.clear() # race condition with start of next 'get' if we haven't done about:blank, but worst case is we'll wait a bit too long for page to finish
         theWebDriver.get(url) # waits for onload, but we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
-        for _ in xrange(40):
+        if options.PhantomJS_reproxy:
+          for _ in xrange(40):
             time.sleep(0.2) # unconditional first-wait hopefully long enough to catch XMLHttpRequest delayed-send, very-low-value setTimeout etc, but we don't want to wait a whole second if the page isn't GOING to make any requests (TODO: monitor the js going through the upstream proxy to see if it contains any calls to this? but we'll have to deal with PhantomJS's cache, unless set it to not cache and we cache upstream)
             if not webdriver_inProgress: break # TODO: wait a tiny bit longer to allow processing of response? or check if the call to find_element_by_xpath below is synchronous with the page's js (still a race condition though)
+        else: time.sleep(1) # can't do much if we're not reproxying, so just sleep 1sec and hope for the best
         try: currentUrl = theWebDriver.current_url
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
         if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
