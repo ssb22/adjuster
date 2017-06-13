@@ -166,8 +166,8 @@ define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate
 define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.") # e.g. example.rhcloud.com (although that does introduce the disadvantage of tying bookmarklet installations to the current URLs of the OpenShift service rather than your own domain)
 
 heading("Javascript execution options")
-define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  Does not currently support Javascript-only links etc, so could be a backward step on pages that hide some of their text behind a Javascript \"reveal\" button but show all of it to non-JS browsers.  Currently uses a single PhantomJS browser: beware logins etc will be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
-define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms. This option implies --real-proxy.") # PhantomJS_reproxy also works around issue #13114 in PhantomJS 2.x, and allows monitoring of XMLHttpRequest progress for potential early response
+define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  Currently uses a single PhantomJS browser: beware logins etc will be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx (but does not currently support Javascript-only buttons etc, so could be a backward step on pages that hide some of their text behind a \"reveal\" button but show all of it to non-JS browsers).  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
+define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms. This option implies --real-proxy.") # PhantomJS_reproxy also works around issue #13114 in PhantomJS 2.x, allows monitoring of XMLHttpRequest progress for potential early response, and supports Referer headers
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS-reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: proxy PhantomJS's requests and return a fake image?
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
@@ -1062,7 +1062,7 @@ def get_new_webdriver(firstTime=True):
     wd.set_window_size(w, h)
     import atexit ; atexit.register(wd.quit)
     return wd
-def init_webdriver(): # just one for now (if changing this, need to sort out the logic of webdriver_body_to_send, webdriver_via and webdriver_inProgress)
+def init_webdriver(): # just one for now (if supporting more than one, need to sort out the logic of webdriver_body_to_send, webdriver_referer, webdriver_via and webdriver_inProgress)
     global theWebDriverRunner, webdriver_inProgress
     theWebDriverRunner = WebdriverRunner()
     # (if doing several, make others have firstTime = False,
@@ -1225,6 +1225,7 @@ class RequestForwarder(RequestHandler):
             host = "127.0.0.1"
             port = options.port + 1 # the SSL helper
             if 'isPJS' in kwargs: port += 2 # PJS-aware SSL
+            debuglog("Rerouting to "+host+":"+str(port))
         upstream.connect((host, int(port)), lambda *args:(client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data)),upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data)),client.write('HTTP/1.0 200 Connection established\r\n\r\n')))
       else: self.set_status(400),self.myfinish()
     def myfinish(self):
@@ -1943,14 +1944,17 @@ document.forms[0].i.focus()
     
     def sendRequest(self,converterFlags,viewSource,isProxyRequest,follow_redirects):
         body = self.request.body
-        global webdriver_body_to_send,webdriver_via
-        if isProxyRequest=="from PhantomJS" and webdriver_body_to_send:
-            self.request.method,body = webdriver_body_to_send
-            webdriver_body_to_send = None
+        global webdriver_body_to_send,webdriver_via,webdriver_referer
+        if isProxyRequest=="from PhantomJS":
+            if webdriver_body_to_send:
+                self.request.method,body = webdriver_body_to_send
+                webdriver_body_to_send = None
+            if webdriver_referer: self.request.headers["Referer"]=webdriver_referer
         if not body: body = None # required by some Tornado versions
         ph,pp = upstream_proxy_host, upstream_proxy_port
         if options.PhantomJS and not isProxyRequest=="from PhantomJS" and self.htmlOnlyMode(isProxyRequest) and not follow_redirects:
             if options.via: webdriver_via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"] # else they might not be defined
+            webdriver_referer = self.request.headers.get("Referer","")
             if body: body = self.request.method, body
             webdriver_fetch(self.urlToFetch,body,
                             viewSource=="screenshot",
@@ -2338,14 +2342,17 @@ class RequestForwarder1(RequestForwarder):
 class RequestForwarder2(RequestForwarder):
     # port + 2 : the listener for PhantomJS_reproxy.
     def doReq(self):
+        debuglog("PhantomJS_reproxy doReq "+self.request.uri)
         self.request.connection.is_phantomJS = True
         RequestForwarder.doReq(self)
     @asynchronous
     def connect(self, *args, **kwargs):
+        debuglog("PhantomJS_reproxy CONNECT")
         RequestForwarder.connect(self,isPJS=True)
 class RequestForwarder3(RequestForwarder):
     # port + 3 : the SSL version for PhantomJS_reproxy.
     def doReq(self):
+        debuglog("PhantomJS_reproxy-SSL "+self.request.uri)
         self.request.connection.WA_UseSSL = True
         self.request.connection.is_phantomJS = True
         RequestForwarder.doReq(self)
