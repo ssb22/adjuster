@@ -167,7 +167,7 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 
 heading("Javascript execution options")
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  Currently uses a single PhantomJS browser: beware logins etc will be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx (but does not currently support Javascript-only buttons etc, so could be a backward step on pages that hide some of their text behind a \"reveal\" button but show all of it to non-JS browsers).  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
-define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms. This option implies --real-proxy.") # PhantomJS_reproxy also works around issue #13114 in PhantomJS 2.x, allows monitoring of XMLHttpRequest progress for potential early response, and supports Referer headers
+define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms, fixes its Referer headers, and monitors its AJAX for early completion.") # and works around issue #13114 in PhantomJS 2.x
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS-reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: proxy PhantomJS's requests and return a fake image?
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
@@ -494,8 +494,6 @@ def preprocessOptions():
         if not ':' in options.upstream_proxy: options.upstream_proxy += ":80"
         upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':')
         upstream_proxy_port = int(upstream_proxy_port)
-    if options.PhantomJS and options.PhantomJS_reproxy:
-        options.real_proxy = True # (TODO: could actually have it on the 2nd port but not the 1st; update help text)
     global codeChanges ; codeChanges = []
     if options.codeChanges:
       ccLines = [x for x in [x.strip() for x in options.codeChanges.split("\n")] if x and not x.startswith("#")]
@@ -1213,7 +1211,7 @@ class RequestForwarder(RequestHandler):
       try: host, port = self.request.uri.split(':')
       except: host,port = None,None
       is_sshProxy = (host,port)==(allowConnectHost,allowConnectPort)
-      if host and (options.real_proxy or is_sshProxy): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
+      if host and (options.real_proxy or ('isPJS' in kwargs) or is_sshProxy): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
         upstream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
         client = self.request.connection.stream
         # See note about Tornado versions in writeAndClose
@@ -2193,6 +2191,7 @@ document.forms[0].i.focus()
           if (do_html_process or (do_css_process and not self.urlToFetch == cssToAdd and not (options.protectedCSS and re.search(options.protectedCSS,self.urlToFetch)))) and re.search(important,body):
             if do_css_process: body=re.sub(important,"",body)
             else: adjustList.append(transform_in_selected_tag("style",lambda s:re.sub(important,"",s))) # (do_html_process must be True here)
+        if do_html_process and self.htmlOnlyMode(isProxyRequest): adjustList.append(StripStyleAttributes()) # must be last
         if adjustList: body = HTML_adjust_svc(body,adjustList)
         callback = lambda out,err:self.doResponse2(out,do_html_process,do_json_process)
         htmlFilter = self.getHtmlFilter()
@@ -2769,8 +2768,6 @@ class StripJSEtc:
                 self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a rel="noreferrer" href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(self.url),self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
                 # TODO: call request_no_external_referer() on the RequestForwarder as well? (may need a parameter for it)
         else: return self.suppressing or tag in ['link','noscript']
-        # TODO: remove style= attribute on other tags? (or only if it refers to a URL?)
-        # TODO: what about event handler attributes, and javascript: URLs
     def handle_endtag(self, tag):
         if tag=="head":
             self.parser.addDataFromTagHandler('<meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head>',True) # TODO: document that htmlonly_mode adds this; might also want to have it when CSS is on
@@ -2781,6 +2778,20 @@ class StripJSEtc:
         else: return self.suppressing
     def handle_data(self,data):
         if self.suppressing: return ""
+
+class StripStyleAttributes: # must be last in list: assumes no further processing of the tags it changes
+    def init(self,parser): self.parser = parser
+    def handle_starttag(self, tag, attrs):
+        out = [] ; found = False
+        for k,v in items(attrs):
+            if k=="style": found = True
+            else: out.append((k,v))
+        if found:
+            self.parser.addDataFromTagHandler('<'+tag+''.join(' '+a+'="'+v.replace('&','&amp;').replace('"','&quot;')+'"' for a,v in out)+'>',True) # assumes no other processing
+            return True
+        # TODO: what about event handler attributes, and javascript: URLs
+    def handle_endtag(self, tag): pass
+    def handle_data(self,data): pass
 
 def guessCMS(url,fmt):
     # (TODO: more possibilities for this?  Option to HEAD all urls and return what they resolve to? but fetch-ahead might not be a good idea on all sites)
