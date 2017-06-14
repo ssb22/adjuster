@@ -2149,6 +2149,11 @@ document.forms[0].i.focus()
         if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host,https=self.urlToFetch.startswith("https")) # first, so filters to run and scripts to add can mention new domains without these being redirected back
         # Must also do things like 'delete' BEFORE the filters, especially if lxml is in use and might change the code so the delete patterns aren't recognised.  But do JS process BEFORE delete, as might want to pick up on something that was there originally.  (Must do it AFTER domain process though.)
         if isProxyRequest=="from PhantomJS":
+            if do_html_process: # add a CSS rule to help with screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
+                i = htmlFind(body,"<head")
+                if i==-1: i=htmlFind(body,"<html")
+                if not i==-1: i = body.find('>',i)+1
+                if i: body=body[:i]+"<style>html{background:#fff}</style>"+body[i:] # setting on 'html' rather than 'body' allows body bgcolor=.  body background= is not supported in HTML5 and PhantomJS will ignore it.
             return self.doResponse3(body) # write & finish
         if do_js_process: body = js_process(body,self.urlToFetch)
         if not self.checkBrowser(options.deleteOmit):
@@ -2719,6 +2724,7 @@ class AddConversionLinks:
                 r=['<'+tag+" "]
                 for k,v in items(attrs):
                     if k.lower()=="href": v=options.mailtoPath+v[7:]
+                    # TODO: else if k.lower()=="style" and we're in htmlOnlyMode, suppress it, because StripStyleAttributes won't be called on this tag if we're passing it straight to addDataFromTagHandler
                     r.append(k+'="'+v.replace('&','&amp;').replace('"','&quot;').replace('&amp;#','&#').replace('%','%%+')+'"') # see comments in serve_mailtoPage re the %%+
                 r.append('>')
                 self.parser.addDataFromTagHandler("".join(r),True)
