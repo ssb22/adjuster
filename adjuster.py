@@ -60,15 +60,15 @@ define("config",help="Name of the configuration file to read, if any. The proces
 define("version",help="Just print program version and exit")
 
 heading("Network listening and security settings")
-define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix). For --real-proxy and related options, up to 3 additional unused ports are needed immediately above this number: they listen only on localhost and are used for SSL helpers etc.") # when not in WSGI mode ('CONNECT' is not supported in WSGI mode, neither is PhantomJS_reproxy)
+define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix); setting it to 0 disables request-processing entirely (if you want to use only the Dynamic DNS and watchdog options). For --real_proxy and related options, up to 3 additional unused ports are needed immediately above this number: they listen only on localhost and are used for SSL helpers etc.") # when not in WSGI mode ('CONNECT' is not supported in WSGI mode, neither is PhantomJS_reproxy)
 define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.")
 define("user",help="The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.")
-define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real-proxy.")
+define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real_proxy.")
 define("password",help="The password. If this is set, nobody can connect without specifying ?p= followed by this password. It will then be sent to them as a cookie so they don't have to enter it every time. Notes: (1) If wildcard_dns is False and you have multiple domains in host_suffix, then the password cookie will have to be set on a per-domain basis. (2) On a shared server you probably don't want to specify this on the command line where it can be seen by process-viewing tools; use a configuration file instead.")
 define("password_domain",help="The domain entry in host_suffix to which the password applies. For use when wildcard_dns is False and you have several domains in host_suffix, and only one of them (perhaps the one with an empty default_site) is to be password-protected, with the others public. If this option is used then prominentNotice (if set) will not apply to the passworded domain. You may put the password on two or more domains by separating them with slash (/).") # prominentNotice not apply: on the assumption that those who know the password understand what the tool is
 define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * when this is ignored and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
 define("open_proxy",default=False,help="Whether or not to allow running with no password. Off by default as a safeguard against accidentally starting an open proxy.")
-define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separated list of regular expressions specifying URLs that are not allowed to be fetched unless --real-proxy is in effect. Browsers requesting a URL that contains any of these will be redirected to the original site. Use for example if you want people to go direct when posting their own content to a particular site (this is of only limited use if your server also offers access to any other site on the Web, but it might be useful when that's not the case). Include ^https in the list to prevent Web Adjuster from fetching HTTPS pages for adjustment and return over normal HTTP. This access is enabled by default now that many sites use HTTPS for public pages that don't really need to be secure, just to get better placement on some search engines, but if sending confidential information to the site then beware you are trusting the Web Adjuster machine and your connection to it, plus its certificate verification might not be as thorough as your browser's.")
+define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separated list of regular expressions specifying URLs that are not allowed to be fetched unless --real_proxy is in effect. Browsers requesting a URL that contains any of these will be redirected to the original site. Use for example if you want people to go direct when posting their own content to a particular site (this is of only limited use if your server also offers access to any other site on the Web, but it might be useful when that's not the case). Include ^https in the list to prevent Web Adjuster from fetching HTTPS pages for adjustment and return over normal HTTP. This access is enabled by default now that many sites use HTTPS for public pages that don't really need to be secure, just to get better placement on some search engines, but if sending confidential information to the site then beware you are trusting the Web Adjuster machine and your connection to it, plus its certificate verification might not be as thorough as your browser's.")
 define("real_proxy",default=False,help="Whether or not to accept requests with original domains like a \"real\" HTTP proxy.  Warning: this bypasses the password and implies open_proxy.  Off by default.")
 define("via",default=True,help="Whether or not to update the Via: and X-Forwarded-For: HTTP headers when forwarding requests") # (Via is "must" in RFC 2616)
 define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP header when forwarding requests, as a courtesy to site administrators who wonder what's happening in their logs (and don't log Via: etc)")
@@ -168,7 +168,7 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 heading("Javascript execution options")
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  Currently uses a single PhantomJS browser: beware logins etc will be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx (but does not currently support Javascript-only buttons etc, so could be a backward step on pages that hide some of their text behind a \"reveal\" button but show all of it to non-JS browsers).  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
 define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms, fixes its Referer headers, and monitors its AJAX for early completion.") # and works around issue #13114 in PhantomJS 2.x
-define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS-reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
+define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS_reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: proxy PhantomJS's requests and return a fake image?
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
 
@@ -260,8 +260,8 @@ define("renderName",default="Fonts",help="A name for a switch that allows the us
 
 heading("Dynamic DNS options")
 define("ip_change_command",help="An optional script or other shell command to launch whenever the public IP address changes. The new IP address will be added as a parameter; ip_query_url must be set to make this work. The script can for example update any Dynamic DNS services that point to the server.")
-define("ip_query_url",help="URL that will return your current public IP address, as a line of text with no markup added. Used for the ip_change_command option. You can set up a URL by placing a CGI script on a server outside your network and having it do: echo Content-type: text/plain;echo;echo $REMOTE_ADDR")
-define("ip_query_url2",help="Optional additional URL that might sometimes return your public IP address along with other information. This can for example be a status page served by a local router (http://user:password@192.168... is accepted, and if the password is the name of an existing file then its contents are read instead). If set, the following behaviour occurs: Once ip_query_interval has passed since the last ip_query_url check, ip_query_url2 will be queried at an interval of ip_query_interval2 (which can be short), to check that the known IP is still present in its response. Once the known IP is no longer present, ip_query_url will be queried again. This arrangement can reduce the load on ip_query_url as well as providing a faster response to IP changes, while not completely trusting the local router to report the correct IP at all times. See also ip_query_aggressive if the router might report an IP change before connectivity is restored.") # (If using filename then its contents will be re-read every time the URL is used; this might be useful for example if the router password can change)
+define("ip_query_url",help="URL that will return your current public IP address, as a line of text with no markup added. Used for the ip_change_command option. You can set up a URL by placing a CGI script on a server outside your network and having it do: echo Content-type: text/plain;echo;echo $REMOTE_ADDR (but if you want your IPv4 address, ensure the adjuster machine and the outside server are not both configured for IPv6)")
+define("ip_query_url2",help="Optional additional URL that might sometimes return your public IP address along with other information. This can for example be a status page served by a local router (http://user:password@192.168... is accepted, and if the password is the name of an existing file then its contents are read instead). If set, the following behaviour occurs: Once ip_query_interval has passed since the last ip_query_url check, ip_query_url2 will be queried at an interval of ip_query_interval2 (which can be short), to check that the known IP is still present in its response. Once the known IP is no longer present, ip_query_url will be queried again. This arrangement can reduce the load on ip_query_url as well as providing a faster response to IP changes, while not completely trusting the local router to report the correct IP at all times. See also ip_query_aggressive if the router might report an IP change before connectivity is restored. You may also set ip_query_url2 to the special value 'upnp' if you want it to query a router via UPnP (miniupnpc package required).") # (If using filename then its contents will be re-read every time the URL is used; this might be useful for example if the router password can change)
 define("ip_check_interval",default=8000,help="Number of seconds between checks of ip_query_url for the ip_change_command option")
 define("ip_check_interval2",default=60,help="Number of seconds between checks of ip_query_url2 (if set), for the ip_change_command option")
 define("ip_query_aggressive",default=False,help="If a query to ip_query_url fails with a connection error or similar, keep trying again until we get a response. This is useful if the most likely reason for the error is that our ISP is down: we want to get the new IP just as soon as we're back online. However, if the error is caused by a problem with ip_query_url itself then this option can lead to excessive traffic, so use with caution. (Log entries are written when this option takes effect, and checking the logs is advisable.)")
@@ -502,10 +502,17 @@ def preprocessOptions():
         codeChanges.append(tuple(ccLines[:3]))
         ccLines = ccLines[3:]
     if options.real_proxy: options.open_proxy=True
-    if not options.password and not options.open_proxy and not options.submitPath=='/' and not options.stop: errExit("Please set a password, or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
     if options.htmlFilter and '#' in options.htmlFilter and not len(options.htmlFilter.split('#'))+1 == len(options.htmlFilterName.split('#')): errExit("Wrong number of #s in htmlFilterName for this htmlFilter setting")
+    if not options.port:
+        if wsgi_mode:
+            sys.stderr.write("Warning: port=0 won't work in WSGI mode, assuming 80\n")
+            options.port = 80
+        else:
+            options.real_proxy=options.PhantomJS_reproxy=False ; options.fasterServer=""
+            options.open_proxy = True # bypass the check
     if not options.publicPort:
         options.publicPort = options.port
+    if not options.password and not options.open_proxy and not options.submitPath=='/' and not options.stop: errExit("Please set a password, or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
     if options.submitBookmarkletDomain and not options.publicPort==80: errExit("submitBookmarkletDomain option requires public port to be 80 (and HTTPS-capable on port 443)")
     if options.pdftotext and not "pdftotext version" in os.popen4("pdftotext -h")[1].read(): errExit("pdftotext command does not seem to be usable\nPlease install it, or unset the pdftotext option")
     if options.epubtotext and not "calibre" in os.popen4("ebook-convert -h")[1].read(): errExit("ebook-convert command does not seem to be usable\nPlease install calibre, or unset the epubtotext option")
@@ -576,6 +583,10 @@ def preprocessOptions():
     if not options.default_site: options.default_site = ""
     # (so we can .split it even if it's None or something)
     if options.PhantomJS and not options.htmlonly_mode: errExit("PhantomJS requires htmlonly_mode")
+    if options.ip_query_url2=="upnp":
+        global miniupnpc ; import miniupnpc # sudo pip install miniupnpc or apt-get install python-miniupnpc
+        miniupnpc = miniupnpc.UPnP()
+        miniupnpc.discoverdelay=200
 
 def serverControl():
     if options.install:
@@ -618,25 +629,28 @@ def main():
     application = Application(handlers,log_function=accessLog,gzip=True)
     if not hasattr(application,"listen"): errExit("Your version of Tornado is too old.  Please install version 2.x.")
     if fork_before_listen and options.background:
-        sys.stderr.write("%sChild will listen on port %d\n(can't report errors here as this system needs early fork)\n" % (twoline_program_name,options.port)) # (need some other way of checking it really started)
+        sys.stderr.write(twoline_program_name)
+        if options.port: sys.stderr.write("Child will listen on port %d\n(can't report errors here as this system needs early fork)\n" % (options.port,)) # (need some other way of checking it really started)
         unixfork()
     workaround_raspbian_IPv6_bug()
-    listen_on_port(application,options.port,options.address,options.browser)
+    if options.port: listen_on_port(application,options.port,options.address,options.browser)
     extraPorts = ""
     if options.real_proxy:
         # create a modified Application that's 'aware' it's the SSL-helper version (use RequestForwarder1 & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port
         listen_on_port(Application([(r"(.*)",RequestForwarder1,{})],log_function=accessLog,gzip=True),options.port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
-        extraPorts += "--real-proxy SSL helper is listening on localhost:%d (don't connect to it yourself)\n" % (options.port+1)
+        extraPorts += "--real_proxy SSL helper is listening on localhost:%d (don't connect to it yourself)\n" % (options.port+1)
     if options.PhantomJS_reproxy:
         # ditto for PhantomJS (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us) - this will be the port to which PhantomJS connects for its upstream proxy
         listen_on_port(Application([(r"(.*)",RequestForwarder2,{})],log_function=accessLog,gzip=True),options.port+2,"127.0.0.1",False)
         listen_on_port(Application([(r"(.*)",RequestForwarder3,{})],log_function=accessLog,gzip=True),options.port+3,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
-        extraPorts += "--PhantomJS-reproxy helpers listening on localhost:%d/%d (ditto)\n" % (options.port+2,options.port+3)
+        extraPorts += "--PhantomJS_reproxy helpers listening on localhost:%d/%d (ditto)\n" % (options.port+2,options.port+3)
     if options.watchdog:
         watchdog = open("/dev/watchdog", 'w')
     dropPrivileges()
     if options.PhantomJS: init_webdriver()
-    sys.stderr.write("%sListening on port %d\n%s" % (twoline_program_name,options.port,extraPorts))
+    sys.stderr.write(twoline_program_name)
+    if options.port: sys.stderr.write("Listening on port %d\n%s" % (options.port,extraPorts))
+    else: sys.stderr.write("Not listening (--port=0 set)\n")
     if options.watchdog:
         sys.stderr.write("Writing /dev/watchdog every %d seconds\n" % options.watchdog)
         if options.watchdogWait: sys.stderr.write("(abort if unresponsive for %d seconds)\n" % options.watchdogWait)
@@ -658,7 +672,7 @@ def main():
         global ip_query_url2,ip_query_url2_user,ip_query_url2_pwd,ip_url2_pwd_is_fname
         ip_query_url2 = options.ip_query_url2
         ip_query_url2_user=ip_query_url2_pwd=ip_url2_pwd_is_fname=None
-        if ip_query_url2:
+        if ip_query_url2 and not ip_query_url2=="upnp":
             netloc = urlparse.urlparse(ip_query_url2).netloc
             if '@' in netloc:
                 auth,rest = netloc.split('@',1)
@@ -765,6 +779,7 @@ def unixfork():
     for fd in range(3): os.dup2(devnull,fd) # commenting out this line will let you see stderr after the fork (TODO debug option?)
     
 def stopOther():
+    if not options.port: errExit("Cannot use --restart or --stop with --port=0") # because the listening port is used to identify the other process (TODO: can we have a pid file or something for the case when there are no listening ports)
     import commands,signal
     out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # >/dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
     if out.startswith("lsof: unsupported"):
@@ -2149,11 +2164,11 @@ document.forms[0].i.focus()
         if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host,https=self.urlToFetch.startswith("https")) # first, so filters to run and scripts to add can mention new domains without these being redirected back
         # Must also do things like 'delete' BEFORE the filters, especially if lxml is in use and might change the code so the delete patterns aren't recognised.  But do JS process BEFORE delete, as might want to pick up on something that was there originally.  (Must do it AFTER domain process though.)
         if isProxyRequest=="from PhantomJS":
-            if do_html_process: # add a CSS rule to help with screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
+            if do_html_process: # add a CSS rule to help with PhantomJS screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
                 i = htmlFind(body,"<head")
                 if i==-1: i=htmlFind(body,"<html")
                 if not i==-1: i = body.find('>',i)+1
-                if i: body=body[:i]+"<style>html{background:#fff}</style>"+body[i:] # setting on 'html' rather than 'body' allows body bgcolor=.  body background= is not supported in HTML5 and PhantomJS will ignore it.
+                if i: body=body[:i]+"<style>html{background:#fff}</style>"+body[i:] # setting on 'html' rather than 'body' allows body bgcolor= to override.  (body background= is not supported in HTML5 and PhantomJS will ignore it anyway.)
             return self.doResponse3(body) # write & finish
         if do_js_process: body = js_process(body,self.urlToFetch)
         if not self.checkBrowser(options.deleteOmit):
@@ -3576,6 +3591,19 @@ class Dynamic_DNS_updater:
         if not ip_query_url2 or not self.currentIP:
             return self.queryIP()
         debuglog("queryLocalIP")
+        if ip_query_url2=="upnp":
+            def run():
+              try:
+                miniupnpc.discover() # every time - it might have rebooted or changed
+                miniupnpc.selectigd()
+                addr = miniupnpc.externalipaddress()
+              except: addr = ""
+              if addr == self.currentIP:
+                  IOLoop.instance().add_callback(lambda *args:self.newIP(addr)) # in case forceTime is up
+                  IOLoop.instance().add_timeout(time.time()+options.ip_check_interval2,lambda *args:self.queryLocalIP())
+              else: IOLoop.instance().add_callback(self.queryIP)
+            threading.Thread(target=run,args=()).start()
+            return
         def handleResponse(r):
             if r.error or not self.currentIP in r.body:
                 return self.queryIP()
