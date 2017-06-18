@@ -1076,16 +1076,17 @@ android_src = r"""
 /* COMPILING
    ---------
 
-   I have NOT tested this with the new "Android Studio"
-   that Google officially moved to in 2015.  Here are my
-   notes for compiling it with their older version:
+   As I've been unable to make "Android Studio" work
+   on my equipment (I'm not entirely sure why), all I
+   can offer are these instructions for compiling on the
+   older "Android Developer Tools" (ADT), which were
+   deprecated in June 2015 and the download was removed
+   in June 2017.  But in case you still have them:
 
-   1.  Install the old Android Developer Tools (ADT) from
-       http://developer.android.com/studio/tools/sdk/eclipse-adt.html
-       - You might need to increase the amount of RAM it's
-         allowed to use, e.g. put -Xmx2g into eclipse.ini
-         (be sure to remove any existing -Xmx settings
-          otherwise they might override your new setting)
+   1.  You might need to increase the amount of RAM it's
+       allowed to use, e.g. put -Xmx2g into eclipse.ini
+       (be sure to remove any existing -Xmx settings
+        otherwise they might override your new setting)
    2.  Go to File / New / Android application project
    3.  Application name = anything you want (for the phone's app menu)
        Project name = anything you want (unique on your development machine)
