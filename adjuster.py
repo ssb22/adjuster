@@ -591,7 +591,11 @@ def preprocessOptions():
 def serverControl():
     if options.install:
         current_crontab = commands.getoutput("crontab -l 2>/dev/null")
-        new_cmd = "@reboot python "+" ".join(sys.argv) # TODO: crontab-friendly quoting of special characters
+        def shell_escape(arg):
+            if re.match("^[A-Za-z0-9_=/.%+,:@-]*$",arg): return arg # no need to quote if it's entirely safe-characters (including colon: auto-complete escapes : in pathnames but that's probably in case it's used at the START of a command, where it's a built-in alias for 'true')
+            return "'"+arg.replace("'",r"'\''")+"'"
+        def cron_escape(arg): return shell_escape(arg).replace('%',r'\%')
+        new_cmd = "@reboot python "+" ".join(cron_escape(a) for a in sys.argv)
         if not new_cmd in current_crontab.replace("\r","\n").split("\n"):
             sys.stderr.write("Adding to crontab: "+new_cmd+"\n")
             if not current_crontab.endswith("\n"): current_crontab += "\n"
