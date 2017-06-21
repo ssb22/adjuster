@@ -169,7 +169,7 @@ heading("Javascript execution options")
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  Currently uses a single PhantomJS browser: beware logins etc will be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx (but does not currently support Javascript-only buttons etc, so could be a backward step on pages that hide some of their text behind a \"reveal\" button but show all of it to non-JS browsers).  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
 define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms, fixes its Referer headers, and monitors its AJAX for early completion.") # and works around issue #13114 in PhantomJS 2.x
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS_reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
-define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: proxy PhantomJS's requests and return a fake image?
+define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? but height/width wrong
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
 
 heading("Server control options")
@@ -2193,7 +2193,9 @@ document.forms[0].i.focus()
         # OK to change the code now:
         adjustList = []
         if do_html_process:
-          if self.htmlOnlyMode(isProxyRequest): adjustList.append(StripJSEtc(self.urlToFetch,transparent=self.auto_htmlOnlyMode(isProxyRequest)))
+          if self.htmlOnlyMode(isProxyRequest):
+              adjustList.append(StripJSEtc(self.urlToFetch,transparent=self.auto_htmlOnlyMode(isProxyRequest)))
+              adjustList.append(transform_in_selected_tag("style",lambda s:"",True)) # strips JS events also (TODO: what of href=javascript: links)
           elif options.upstream_guard:
             # don't let upstream scripts get confused by our cookies (e.g. if the site is running Web Adjuster as well)
             # TODO: do it in script files also?
@@ -2215,7 +2217,6 @@ document.forms[0].i.focus()
           if (do_html_process or (do_css_process and not self.urlToFetch == cssToAdd and not (options.protectedCSS and re.search(options.protectedCSS,self.urlToFetch)))) and re.search(important,body):
             if do_css_process: body=re.sub(important,"",body)
             else: adjustList.append(transform_in_selected_tag("style",lambda s:re.sub(important,"",s))) # (do_html_process must be True here)
-        if do_html_process and self.htmlOnlyMode(isProxyRequest): adjustList.append(StripStyleAttributes()) # must be last
         if adjustList: body = HTML_adjust_svc(body,adjustList)
         callback = lambda out,err:self.doResponse2(out,do_html_process,do_json_process)
         htmlFilter = self.getHtmlFilter()
@@ -2740,14 +2741,11 @@ class AddConversionLinks:
                 if not self.offsite_ok and not url_is_ours(l): return # "offsite" link, can't process (TODO: unless we send it to ourselves via an alternate syntax)
                 # TODO: (if don't implement processing the link anyway) insert explanatory text for why an alternate link wasn't provided?
             elif options.mailtoPath and l.startswith("mailto:"):
-                r=['<'+tag+" "]
+                newAttrs = []
                 for k,v in items(attrs):
-                    if k.lower()=="href": v=options.mailtoPath+v[7:]
-                    # TODO: else if k.lower()=="style" and we're in htmlOnlyMode, suppress it, because StripStyleAttributes won't be called on this tag if we're passing it straight to addDataFromTagHandler
-                    r.append(k+'="'+v.replace('&','&amp;').replace('"','&quot;').replace('&amp;#','&#').replace('%','%%+')+'"') # see comments in serve_mailtoPage re the %%+
-                r.append('>')
-                self.parser.addDataFromTagHandler("".join(r),True)
-                return True # suppress original tag
+                    if k.lower()=="href": v=options.mailtoPath+v[7:].replace('%','%%+') # see comments in serve_mailtoPage
+                    newAttrs.append((k,v))
+                return (tag,newAttrs)
             elif ":" in l and l.index(":")<l.find("/"): return # non-HTTP protocol - can't do (TODO: unless we do https, or send the link to ourselves via an alternate syntax)
             if l.endswith(".pdf") or guessCMS(l,"pdf"):
                 self.gotPDF = attrsD["href"]
@@ -2776,6 +2774,7 @@ def add_conversion_links(h,offsite_ok,isKindle):
     return HTML_adjust_svc(h,[AddConversionLinks(offsite_ok,isKindle)],can_use_LXML=False) # False because we're likely dealing with a fragment inside JSON, not a complete HTML document
 
 class StripJSEtc:
+    # Doesn't have to strip style= and on...= attributes, we'll do that separately
     # TODO: change any "[if IE" at the start of comments, in case anyone using affected versions of IE wants to use this mode
     def __init__(self,url,transparent):
         self.url,self.transparent = url,transparent
@@ -2804,20 +2803,6 @@ class StripJSEtc:
     def handle_data(self,data):
         if self.suppressing: return ""
 
-class StripStyleAttributes: # must be last in list: assumes no further processing of the tags it changes
-    def init(self,parser): self.parser = parser
-    def handle_starttag(self, tag, attrs):
-        out = [] ; found = False
-        for k,v in items(attrs):
-            if k=="style": found = True
-            else: out.append((k,v))
-        if found:
-            self.parser.addDataFromTagHandler('<'+tag+''.join(' '+a+'="'+v.replace('&','&amp;').replace('"','&quot;')+'"' for a,v in out)+'>',True) # assumes no other processing
-            return True
-        # TODO: what about event handler attributes, and javascript: URLs
-    def handle_endtag(self, tag): pass
-    def handle_data(self,data): pass
-
 def guessCMS(url,fmt):
     # (TODO: more possibilities for this?  Option to HEAD all urls and return what they resolve to? but fetch-ahead might not be a good idea on all sites)
     return fmt and options.guessCMS and "?" in url and "format="+fmt in url.lower() and not ((not fmt=="pdf") and "pdf" in url.lower())
@@ -2843,9 +2828,14 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
     if options.useLXML and can_use_LXML: return HTML_adjust_svc_LXML(htmlStr,adjustList)
     class Parser(HTMLParser):
         def handle_starttag(self, tag, att):
+            changed = False
             for l in adjustList:
-                if l.handle_starttag(tag,att):
-                    return self.suppressTag()
+                r = l.handle_starttag(tag,att)
+                if r==True: return self.suppressTag()
+                elif r: (tag,att),changed = r,True
+            if changed:
+                self.addDataFromTagHandler(encodeTag(tag,att),True)
+                return self.suppressTag() # original tag
         def suppressTag(self):
             pos = self.getBytePos()
             self.out.append(htmlStr[self.lastStart:pos])
@@ -2921,14 +2911,14 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
     try: return "".join(parser.out)
     except UnicodeDecodeError: raise Exception("This should never happen: how did some of parser.out become Unicode when we were working in byte strings? repr: "+repr(parser.out))
 
-def lxmlEncodeTag(tag,att):
+def encodeTag(tag,att):
     def encAtt(a,v):
         if v:
             v=v.replace('&','&amp;').replace('"','&quot;')
             if not re.search('[^A-Za-z_]',v): return a+'='+v # no quotes needed (TODO: option to keep it valid?)
             return a+'="'+v+'"'
         else: return a
-    return "<"+tag+"".join((" "+encAtt(a,v)) for a,v in att.items())+">"
+    return "<"+tag+"".join((" "+encAtt(a,v)) for a,v in items(att))+">"
 
 html_tags_not_needing_ends = set(['area','base','basefont','br','hr','input','img','link','meta'])
 
@@ -2938,9 +2928,10 @@ def HTML_adjust_svc_LXML(htmlStr,adjustList):
             att=dict((k,v.encode('utf-8')) for k,v in dict(att).items()) # so latin1decode doesn't pick up on it
             i = len(self.out)
             for l in adjustList:
-                if l.handle_starttag(tag,att):
-                    return # want the tag to be suppressed
-            self.out.insert(i,lxmlEncodeTag(tag,att))
+                r = l.handle_starttag(tag,att)
+                if r==True: return # suppress the tag
+                elif r: tag,att = r
+            self.out.insert(i,encodeTag(tag,att))
         def end(self, tag):
             i = len(self.out)
             for l in adjustList:
@@ -2970,26 +2961,26 @@ def items(maybeDict):
     if type(maybeDict)==dict: return maybeDict.items()
     else: return maybeDict
 
-def transform_in_selected_tag(intag,transformFunc):
+def transform_in_selected_tag(intag,transformFunc,events=False):
     # assumes intag is closed and not nested, e.g. style, although small tags appearing inside it MIGHT work
     # also assumes transformFunc doesn't need to know about entity references etc (it's called for the data between them)
+    if intag=="script": events=True # can also set events=True for style if want to strip JS events while stripping style
     class Adjustment:
         def init(self,parser):
             self.intag = False
             self.parser = parser
         def handle_starttag(self, tag, attrs):
             if tag==intag: self.intag=True
-            elif intag=="script":
-              attrsD = dict(attrs)
-              if (attrsD.get("onclick",None) and transformFunc(attrsD["onclick"]) != attrsD["onclick"]) or (attrsD.get("id",None) and transformFunc(attrsD["id"]) != attrsD["id"]): # TODO: name as well? (shouldn't be needed for our own scripts)
-                # Re-write the tag ourselves, with that attribute changed
-                r=['<'+tag+" "]
-                for k,v in items(attrs):
-                    if k in ["onclick","id"]: v = transformFunc(v)
-                    r.append(k+'="'+v.replace('&','&amp;').replace('"','&quot;')+'"')
-                r.append('>')
-                self.parser.addDataFromTagHandler("".join(r),True)
-                return True
+            elif intag in ["script","style"]:
+              changed = False ; r=[]
+              for k,v in items(attrs):
+                  if k==intag or (events and k.startswith("on")) or (intag=="script" and k=="id"):
+                      v2 = transformFunc(v)
+                      if not v2 and k=="id": v2 = v # don't change IDs just because we're removing scripts altogether
+                      changed = changed or not v==v2
+                      if v2: r.append((k,v2))
+                  else: r.append((k,v))
+              if changed: return (tag,r)
         def handle_endtag(self, tag):
             if tag==intag: self.intag=False
         def handle_data(self,data):
@@ -3093,7 +3084,7 @@ def LXML_find_text_in_HTML(htmlStr):
             return self.ignoredLastTag
         def start(self, tag, attrs):
             sst = self.shouldStripTag(tag)
-            self.out.append(lxmlEncodeTag(tag,dict((k,v.encode('utf-8')) for k,v in dict(attrs).items())))
+            self.out.append(encodeTag(tag,dict((k,v.encode('utf-8')) for k,v in dict(attrs).items())))
             if (not sst) and tag in options.leaveTags:
                 self.ignoreData=True
                 if tag in ['script','style']: self.ignoreData = 2 # TODO: document this hack (see below).  It relies on 'script' and 'style' being in leaveTags (as it is by default).  Needed for at least some versions of LXML.
