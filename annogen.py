@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.625 (c) 2012-17 Silas S. Brown"
+program_name = "Annotator Generator v0.626 (c) 2012-17 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1194,7 +1194,7 @@ public class MainActivity extends Activity {
         browser = (WebView)findViewById(R.id.browser);
         // ---------------------------------------------
         // Delete the following long line if you DON'T want caching (Android 2.1+); caching is useful for persistence if app is removed from memory and then switched back to while user is offline
-        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheMaxSize(10*1048576) /* if API==7 i.e. exactly Android 2.1 (deprecated in API 8) */ ; browser.getSettings().setAppCacheEnabled(true); }
+        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheMaxSize(10*1048576) /* if API==7 i.e. exactly Android 2.1 (deprecated in API 8) */ ; browser.getSettings().setAppCacheEnabled(true); if(Integer.valueOf(android.os.Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); } // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below)
         // ---------------------------------------------
         if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) WebView.setWebContentsDebuggingEnabled(true); // so you can use chrome://inspect in desktop Chromium when connected via USB to Android 4.4+
         browser.getSettings().setJavaScriptEnabled(true);
