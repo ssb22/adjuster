@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.238 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.239 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1253,7 +1253,7 @@ class RequestForwarder(RequestHandler):
             self._finished = 1 # (just in case)
           except: pass # belt and braces (depends on Tornado version?)
         try:
-            if hasattr(self.request.connection,'is_phantomJS'): webdriver_inProgress.remove(self.request.uri)
+            if self.request.connection.is_phantomJS: webdriver_inProgress.remove(self.request.uri)
         except: pass
 
     def redirect(self,redir,status=301):
@@ -1440,8 +1440,10 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             if not self.request.uri: self.request.uri="/"
         elif not self.request.uri.startswith("/"): # invalid
             self.set_status(400) ; self.myfinish() ; return True
-        if hasattr(self.request.connection,"WA_UseSSL"):
+        try:
+          if self.request.connection.WA_UseSSL:
             if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
+        except AttributeError: pass
 
     def handleSSHTunnel(self):
         if not allowConnectURL=="http://"+self.request.host+self.request.uri: return
@@ -1764,7 +1766,7 @@ document.forms[0].i.focus()
         if fasterServer_up:
             return self.forwardFor(options.fasterServer)
         if self.handleFullLocation(): return # if returns here, URL is invalid; if not, handleFullLocation has 'normalised' self.request.host and self.request.uri
-        isPjsUpstream = hasattr(self.request.connection,'is_phantomJS')
+        isPjsUpstream = hasattr(self.request,"connection") and hasattr(self.request.connection,'is_phantomJS')
         if isPjsUpstream:
             self.request.suppress_logging = True
             if options.PhantomJS_UA and options.PhantomJS_UA.startswith("*"): self.request.headers["User-Agent"] = options.PhantomJS_UA[1:]
@@ -2096,7 +2098,7 @@ document.forms[0].i.focus()
                 elif name=='Content-Disposition':
                     headers_to_add.remove((name,value))
         added = {'set-cookie':1} # might have been set by authenticates_ok
-        if not hasattr(self.request.connection,'is_phantomJS'):
+        if not (hasattr(self.request,"connection") and hasattr(self.request.connection,'is_phantomJS')):
             if vary: vary += ", "
             vary += 'Cookie, User-Agent' # can affect adjuster settings (and just saying 'Vary: *' can sometimes be ignored on Android 4.4)
         headers_to_add.append(('Vary',vary))
@@ -3176,9 +3178,7 @@ def domain_process(text,cookieHost=None,stopAtOne=False,https=None):
         return newHP
     if stopAtOne: count=1
     else: count=0
-    if https==None: lStart = r"https?://"
-    else: lStart = r"(?:https?://)|(?:(?<=['"+'"'+r"])//)" # 'use current protocol' links, including their use in scripts
-    return re.sub("("+lStart+r")([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)",mFunc,text,count) # TODO: what about embedded IPv6 addresses i.e. \[[0-9a-fA-F:]*\] in place of hostnames (and what should we rewrite them to?)  Hopefully rare as such sites wouldn't be usable by IPv4-only users (although somebody might have IPv6-specific versions of their pages/servers).  If making Web Adjuster IPv6 ready, also need to check all instances of using ':' to split host from port as this won't be the case if host is '[' + IPv6 + ']'
+    return re.sub(r"((?:https?://)|(?:(?<=['"+'"'+r"])//))([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)",mFunc,text,count) # http:// https:// or "// in scripts (but TODO: it won't pick up things like host="www.example.com"; return "https://"+host, also what about embedded IPv6 addresses i.e. \[[0-9a-fA-F:]*\] in place of hostnames (and what should we rewrite them to?)  Hopefully IPv6-embedding is rare as such sites wouldn't be usable by IPv4-only users (although somebody might have IPv6-specific versions of their pages/servers); if making Web Adjuster IPv6 ready, also need to check all instances of using ':' to split host from port as this won't be the case if host is '[' + IPv6 + ']'.  Splitting off hostname from protocol is more common though, e.g. used in Google advertising iframes 2017-06)
 
 def cookie_domain_process(text,cookieHost=None):
     start=0
