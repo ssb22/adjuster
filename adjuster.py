@@ -167,7 +167,7 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 
 heading("Javascript execution options")
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  Currently uses a single PhantomJS browser: beware logins etc will be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
-define("PhantomJS_reproxy",default=True,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms, fixes its Referer headers, and monitors its AJAX for early completion.") # and works around issue #13114 in PhantomJS 2.x
+define("PhantomJS_reproxy",default=True,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms, fixes its Referer headers, monitors its AJAX for early completion, and prevents problems with file downloads.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with PhantomJS) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS_reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
@@ -649,7 +649,9 @@ def main():
         # ditto for PhantomJS (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us) - this will be the port to which PhantomJS connects for its upstream proxy
         listen_on_port(Application([(r"(.*)",RequestForwarder2,{})],log_function=accessLog,gzip=True),options.port+2,"127.0.0.1",False)
         listen_on_port(Application([(r"(.*)",RequestForwarder3,{})],log_function=accessLog,gzip=True),options.port+3,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
-        extraPorts += "--PhantomJS_reproxy helpers listening on localhost:%d/%d (ditto)\n" % (options.port+2,options.port+3)
+        if options.real_proxy: ditto = "ditto"
+        else: ditto = "don't connect to these yourself"
+        extraPorts += "--PhantomJS_reproxy helpers listening on localhost:%d/%d (%s)\n" % (options.port+2,options.port+3,ditto)
     if options.watchdog:
         watchdog = open("/dev/watchdog", 'w')
     dropPrivileges()
