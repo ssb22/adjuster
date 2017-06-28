@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.239 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.24 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -166,11 +166,12 @@ define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate
 define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.") # e.g. example.rhcloud.com (although that does introduce the disadvantage of tying bookmarklet installations to the current URLs of the OpenShift service rather than your own domain)
 
 heading("Javascript execution options")
-define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  Currently uses a single PhantomJS browser: beware logins etc will be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx (but does not currently support Javascript-only buttons etc, so could be a backward step on pages that hide some of their text behind a \"reveal\" button but show all of it to non-JS browsers).  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
-define("PhantomJS_reproxy",default=False,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms, fixes its Referer headers, and monitors its AJAX for early completion.") # and works around issue #13114 in PhantomJS 2.x
+define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  Currently uses a single PhantomJS browser: beware logins etc will be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
+define("PhantomJS_reproxy",default=True,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms, fixes its Referer headers, and monitors its AJAX for early completion.") # and works around issue #13114 in PhantomJS 2.x
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS_reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
-define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? but height/width wrong
+define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
+define("PhantomJS_jslinks",default=True,help="When PhantomJS is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
 
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
@@ -617,6 +618,7 @@ def make_WSGI_application():
         # (PhantomJS itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But PhantomJS_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt):
             sys.stderr.write("Warning: '%s' option may not work in WSGI mode\n" % opt)
+    options.PhantomJS_reproxy = False # for now (see above)
     if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
         options.pdfepubkeep=0 ; options.waitpage = False
         sys.stderr.write("Warning: pdfepubkeep and waitpage may not work in WSGI mode; clearing them\n") # both rely on one process doing all requests (not guaranteed in WSGI mode), and both rely on ioloop's add_timeout being FULLY functional
@@ -944,6 +946,7 @@ seen_ipMessage_cookieName = "_adjusterIPM_"
 
 htmlmode_cookie_name = "_adjustZJCG_" # zap JS, CSS and Graphics
 password_cookie_name = "_pxyAxsP_" # "proxy access password". have to pick something that's unlikely to collide with a site's cookie
+webdriver_click_code = "._adjustPJSC_"
 
 redirectFiles_Extensions=set("pdf epub mp3 aac zip gif png jpeg jpg exe tar tgz tbz ttf woff swf txt doc rtf midi mid wav ly c h py".split()) # TODO: make this list configurable + maybe add a "minimum content length before it's worth re-directing" option
 
@@ -1006,24 +1009,24 @@ class WebdriverRunner:
     def __init__(self):
         self.thread_running = False
         self.theWebDriver = get_new_webdriver()
-    def fetch(self,url,body,asScreenshot,callback):
+    def fetch(self,url,body,clickElementID,clickLinkText,asScreenshot,callback):
         if self.thread_running: # allow only one at once
-            IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.fetch(url,body,asScreenshot,callback))
+            IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback))
             return
         self.thread_running = True
-        threading.Thread(target=wd_fetch,args=(url,body,asScreenshot,callback,self)).start()
-def wd_fetch(url,body,asScreenshot,callback,manager):
+        threading.Thread(target=wd_fetch,args=(url,body,clickElementID,clickLinkText,asScreenshot,callback,self)).start()
+def wd_fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback,manager):
     global helper_thread_count
     helper_thread_count += 1
-    r = _wd_fetch(manager.theWebDriver,url,body,asScreenshot)
+    r = _wd_fetch(manager.theWebDriver,url,body,clickElementID,clickLinkText,asScreenshot)
     manager.thread_running = False
     IOLoop.instance().add_callback(lambda *args:callback(r))
     helper_thread_count -= 1
-def _wd_fetch(theWebDriver,url,body,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
+def _wd_fetch(theWebDriver,url,body,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
     import tornado.httputil
     try: currentUrl = theWebDriver.current_url
-    except: currentUrl = None # PhantomJS Issue #13114: unconditional reload for now
-    if body or not currentUrl == url:
+    except: currentUrl = "" # PhantomJS Issue #13114: unconditional reload for now
+    if body or not re.sub('#.*','',currentUrl) == url:
         if body:
             theWebDriver.get("about:blank") # ensure no race condition with current page's XMLHttpRequests
             global webdriver_body_to_send
@@ -1035,10 +1038,23 @@ def _wd_fetch(theWebDriver,url,body,asScreenshot): # single-user only! (and reli
             time.sleep(0.2) # unconditional first-wait hopefully long enough to catch XMLHttpRequest delayed-send, very-low-value setTimeout etc, but we don't want to wait a whole second if the page isn't GOING to make any requests (TODO: monitor the js going through the upstream proxy to see if it contains any calls to this? but we'll have to deal with PhantomJS's cache, unless set it to not cache and we cache upstream)
             if not webdriver_inProgress: break # TODO: wait a tiny bit longer to allow processing of response? or check if the call to find_element_by_xpath below is synchronous with the page's js (still a race condition though)
         else: time.sleep(1) # can't do much if we're not reproxying, so just sleep 1sec and hope for the best
+        currentUrl = None
+    if clickElementID or clickLinkText:
+      try:
+        theWebDriver.execute_script("window.open = window.confirm = function(){return true;}") # in case any link has a "Do you really want to follow this link?" confirmation (webdriver default is usually Cancel), or has 'pop-under' window (TODO: switch to pop-up?)
+        if clickElementID: theWebDriver.find_element_by_id(clickElementID).click()
+        if clickLinkText:
+            if not '"' in clickLinkText: theWebDriver.find_element_by_xpath(u'//a[text()="'+clickLinkText+'"]').click()
+            elif not "'" in clickLinkText: theWebDriver.find_element_by_xpath(u"//a[text()='"+clickLinkText+"']").click()
+            else: theWebDriver.find_element_by_link_text(clickLinkText).click() # least reliable
+        time.sleep(0.2) # TODO: more? what if the click results in fetching a new URL, had we better wait for XMLHttpRequests to finish?  (loop as above but how do we know when they've started?)  currentUrl code below should at least show us the new URL even if it hasn't finished loading, and then there's a delay while the client browser is told to fetch it, but that might not be enough
+      except: debuglog("PhantomJS_jslinks find_element exception ignored",False)
+      currentUrl = None
+    if currentUrl == None: # we need to ask for it again
         try: currentUrl = theWebDriver.current_url
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
-        if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
-            return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % theWebDriver.current_url.replace('&','&amp;').replace('"','&quot;'))
+    if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
+        return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+theWebDriver.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % theWebDriver.current_url.replace('&','&amp;').replace('"','&quot;'))
     if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),theWebDriver.get_screenshot_as_png())
     else: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
 def _get_new_webdriver(firstTime=True):
@@ -1060,6 +1076,7 @@ def _get_new_webdriver(firstTime=True):
     dc = dict(DesiredCapabilities.PHANTOMJS)
     if options.PhantomJS_UA and not options.PhantomJS_UA.startswith("*"): dc["phantomjs.page.settings.userAgent"]=options.PhantomJS_UA
     if not options.PhantomJS_images: dc["phantomjs.page.settings.loadImages"]=False
+    dc["phantomjs.page.settings.javascriptCanOpenWindows"]=dc["phantomjs.page.settings.javascriptCanCloseWindows"]=False # TODO: does this cover target="_blank" in clickElementID etc (which could have originated via DOM manipulation, so stripping them on the upstream proxy is insufficient; close/restart the driver every so often?)
     if options.via and not options.PhantomJS_reproxy: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?) (don't have to worry about this if PhantomJS_reproxy)
     return webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
 def get_new_webdriver(firstTime=True):
@@ -1079,15 +1096,16 @@ def get_new_webdriver(firstTime=True):
     wd.set_window_size(w, h)
     import atexit ; atexit.register(wd.quit)
     return wd
+webdriver_body_to_send=webdriver_via=webdriver_referer="" # shouldn't be necessary unless doing direct debug tests on the upstream proxy
 def init_webdriver(): # just one for now (if supporting more than one, need to sort out the logic of webdriver_body_to_send, webdriver_referer, webdriver_via and webdriver_inProgress)
     global theWebDriverRunner, webdriver_inProgress
     theWebDriverRunner = WebdriverRunner()
     # (if doing several, make others have firstTime = False,
     # and may need to keep a queue-length list for choosing)
     webdriver_inProgress = set()
-def webdriver_fetch(url,body,asScreenshot,callback):
-    if wsgi_mode: return callback(_wd_fetch(theWebDriverRunner.theWebDriver,url,body,asScreenshot))
-    theWebDriverRunner.fetch(url,body,asScreenshot,callback)
+def webdriver_fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback):
+    if wsgi_mode: return callback(_wd_fetch(theWebDriverRunner.theWebDriver,url,body,clickElementID,clickLinkText,asScreenshot))
+    theWebDriverRunner.fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback)
 webdriver_body_to_send = webdriver_via = None
 
 def fixServerHeader(i):
@@ -1170,15 +1188,24 @@ class RequestForwarder(RequestHandler):
 
     def checkViewsource(self):
         # if URI ends with .viewsource, return True and take it out of the URI and all arguments (need to do this before further processing)
-        # - and in PhantomJS mode, recognise .screenshot-640x480 etc too and return "screenshot"
-        if not options.viewsource: return False
+        # - and in PhantomJS mode, recognise .screenshot too and return "screenshot", also (webdriver_click_code + .*)
+        toRemove = ret = None
+        if options.PhantomJS and options.PhantomJS_jslinks and webdriver_click_code in self.request.uri:
+            toRemove = self.request.uri[self.request.uri.index(webdriver_click_code):]
+            ret2 = urllib.unquote(toRemove[len(webdriver_click_code):])
+        elif not options.viewsource: return False
+        else: ret2 = None
         if self.request.uri.endswith(".viewsource"):
-            toRemove = ".viewsource"
-        elif options.PhantomJS and self.request.uri.endswith(".screenshot"): toRemove = ".screenshot"
-        else: return False
+            if toRemove: ret2 = ret2[:-len(".viewsource")]
+            else: toRemove = ".viewsource"
+            ret = True
+        elif options.PhantomJS and self.request.uri.endswith(".screenshot"):
+            if toRemove: ret2 = ret2[:-len(".screenshot")]
+            else: toRemove = ".screenshot",
+            ret = "screenshot"
+        elif not toRemove: return False
+        if ret2: ret = (ret2,ret)
         self.request.uri = self.request.uri[:-len(toRemove)]
-        if toRemove==".viewsource": ret = True
-        else: ret = "screenshot"
         if not self.request.method.lower() in ['get','head']: return ret # TODO: unless arguments are taken from both url AND body in that case
         for k,argList in self.request.arguments.items():
             if argList and argList[-1].endswith(toRemove):
@@ -1356,7 +1383,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def answer_load_balancer(self):
         self.request.suppress_logging = True
         self.add_header("Content-Type","text/html")
-        self.write(htmlhead("Web Adjuster")+"<h1>Web Adjuster load-balancer page</h1>This page should not be shown to normal browsers, only to load balancers and uptime checkers. If you are a human reading this message, <b>it probably means your browser is \"cloaked\"</b> (hidden User-Agent string); please un-hide this to see the top-level page.</body></html>")
+        self.write(htmlhead()+"<h1>Web Adjuster load-balancer page</h1>This page should not be shown to normal browsers, only to load balancers and uptime checkers. If you are a human reading this message, <b>it probably means your browser is \"cloaked\"</b> (hidden User-Agent string); please un-hide this to see the top-level page.</body></html>")
         self.myfinish()
 
     def find_real_IP(self):
@@ -1515,7 +1542,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             self.request_no_external_referer()
         else: msg = ''
         self.add_nocache_headers()
-        self.write("%s<h1>You don't need this!</h1>This installation of Web Adjuster has been set up to change certain characters into pictures, for people using old computers that don't know how to display them themselves. However, <em>you</em> seem to be using %s, which is <noscript>either </noscript>definitely capable of showing these characters by itself<noscript>, or else wouldn't be able to show the pictures anyway<!-- like Lynx --></noscript>. Please save our bandwidth for those who really need it%s. Thank you.</body></html>" % (htmlhead("Web Adjuster"),browser,msg))
+        self.write("%s<h1>You don't need this!</h1>This installation of Web Adjuster has been set up to change certain characters into pictures, for people using old computers that don't know how to display them themselves. However, <em>you</em> seem to be using %s, which is <noscript>either </noscript>definitely capable of showing these characters by itself<noscript>, or else wouldn't be able to show the pictures anyway<!-- like Lynx --></noscript>. Please save our bandwidth for those who really need it%s. Thank you.</body></html>" % (htmlhead(),browser,msg))
         self.myfinish() ; return True
 
     def needCssCookies(self):
@@ -1883,6 +1910,7 @@ document.forms[0].i.focus()
             e = u[u.rindex('.')+1:].lower()
             if not (e=="mp3" and options.bitrate and not options.askBitrate): return e
         if options.redirectFiles and not (isProxyRequest or any(converterFlags) or viewSource) and ext(self.request.uri) in redirectFiles_Extensions: self.sendHead()
+        elif isPjsUpstream and "text/html" in self.request.headers.get("Accept","") and not (any(converterFlags) or viewSource): self.sendHead(forPjs=True)
         else: self.sendRequest(converterFlags,viewSource,isProxyRequest,follow_redirects=False) # (DON'T follow redirects - browser needs to know about them!)
     
     def change_request_headers(self,realHost,isProxyRequest):
@@ -1971,11 +1999,19 @@ document.forms[0].i.focus()
             if webdriver_referer: self.request.headers["Referer"]=webdriver_referer
         if not body: body = None # required by some Tornado versions
         ph,pp = upstream_proxy_host, upstream_proxy_port
-        if options.PhantomJS and not isProxyRequest=="from PhantomJS" and self.htmlOnlyMode(isProxyRequest) and not follow_redirects:
+        if options.PhantomJS and not isProxyRequest=="from PhantomJS" and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"]:
             if options.via: webdriver_via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"] # else they might not be defined
             webdriver_referer = self.request.headers.get("Referer","")
             if body: body = self.request.method, body
+            clickElementID = clickLinkText = None
+            if type(viewSource)==tuple:
+                idEtc,viewSource = viewSource
+                if idEtc.startswith(';'):
+                    clickElementID = idEtc[1:]
+                elif idEtc.startswith('-'):
+                    clickLinkText = idEtc[1:]
             webdriver_fetch(self.urlToFetch,body,
+                            clickElementID, clickLinkText,
                             viewSource=="screenshot",
                             callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True))
         else:
@@ -2101,7 +2137,7 @@ document.forms[0].i.focus()
         if not (hasattr(self.request,"connection") and hasattr(self.request.connection,'is_phantomJS')):
             if vary: vary += ", "
             vary += 'Cookie, User-Agent' # can affect adjuster settings (and just saying 'Vary: *' can sometimes be ignored on Android 4.4)
-        headers_to_add.append(('Vary',vary))
+        if vary: headers_to_add.append(('Vary',vary))
         for name,value in headers_to_add:
           value = value.replace("\t"," ") # needed for some servers
           if name.lower() in added: self.add_header(name,value)
@@ -2196,8 +2232,12 @@ document.forms[0].i.focus()
         adjustList = []
         if do_html_process:
           if self.htmlOnlyMode(isProxyRequest):
+              if options.PhantomJS_jslinks:
+                  if isProxyRequest: url = self.urlToFetch
+                  else: url = domain_process(self.urlToFetch,cookie_host,True,self.urlToFetch.startswith("https"))
+                  adjustList.append(AddClickCodes(url))
               adjustList.append(StripJSEtc(self.urlToFetch,transparent=self.auto_htmlOnlyMode(isProxyRequest)))
-              adjustList.append(transform_in_selected_tag("style",lambda s:"",True)) # strips JS events also (TODO: what of href=javascript: links)
+              adjustList.append(transform_in_selected_tag("style",lambda s:"",True)) # strips JS events also
           elif options.upstream_guard:
             # don't let upstream scripts get confused by our cookies (e.g. if the site is running Web Adjuster as well)
             # TODO: do it in script files also?
@@ -2264,8 +2304,9 @@ document.forms[0].i.focus()
         debuglog("doResponse3 (len=%d)" % len(body))
         self.write(body)
         self.myfinish()
-    def sendHead(self):
-        # for options.redirectFiles: it looks like we have a "no processing necessary" request that we can tell the browser to get from the real site.  But just confirm it's not a mis-named HTML document.
+    def sendHead(self,forPjs=False):
+        # forPjs is for options.PhantomJS_reproxy: we've identified the request as coming from PhantomJS and being its main document (not images etc).  Just check it's not a download link.
+        # else for options.redirectFiles: it looks like we have a "no processing necessary" request that we can tell the browser to get from the real site.  But just confirm it's not a mis-named HTML document.
         body = self.request.body
         if not body: body = None
         if hasattr(self,"original_referer"): self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers.get("Referer","") # we'll send the request with the user's original Referer, to check it still works
@@ -2274,12 +2315,29 @@ document.forms[0].i.focus()
                   connect_timeout=60,request_timeout=120, # same TODO as above
                   proxy_host=ph, proxy_port=pp,
                   method="HEAD", headers=self.request.headers, body=body,
-                  callback=lambda r:self.headResponse(r),follow_redirects=True)
-    def headResponse(self,response):
+                  callback=lambda r:self.headResponse(r,forPjs),follow_redirects=True)
+    def headResponse(self,response,forPjs):
         self.restore_request_headers()
         if hasattr(self,"original_referer"): # undo the change made above, in case it goes to sendRequest below
             self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers.get("Referer","")
             if not self.request.headers.get("Referer",""): del self.request.headers["Referer"] # This line is relevant only if change_request_headers deleted it, i.e. the original request came from the URL box.  Why would anybody type a URL that fits options.redirectFiles?  3 reasons I can think of: (1) website has odd naming for its CGI scripts; (2) person is using privacy software that doesn't remove Referer but does truncate it; (2) person is trying to (mis)use the adjuster to retrieve a file by proxy w/out realising redirectFiles is set (this would get 500 server error on v0.202 but just a redirect on v0.203)
+        if forPjs:
+            reason = None
+            if response.code < 300:
+                for name,value in response.headers.get_all():
+                    if name.lower()=="content-type":
+                        value=value.lower()
+                        if not value.startswith("text/"):
+                            reason="it is neither HTML nor text" ; break
+                    elif name.lower()=="content-disposition":
+                        value=value.lower()
+                        if value.startswith("attachment"):
+                            reason="it is a download" ; break # TODO: could we just delete content-disposition and show it in the browser (it's usually for CSS/JS/etc)
+            if not reason: return self.sendRequest([False]*4,False,"from PhantomJS",follow_redirects=False)
+            self.set_status(200)
+            self.add_header("Content-Type","text/html")
+            self.write(htmlhead()+"PhantomJS cannot load "+ampEncode(self.urlToFetch)+" as "+reason+"</body></html>") # TODO: provide a direct link if the original request wasn't a proxy request?  (or even if it was a proxy request, give webdriver a placeholder (so it can still handle cookies etc) and bypass it with the actual response body?  but don't expect to load non-HTML files via PhantomJS: its currentUrl will be unchanged, sometimes from about:blank)
+            self.myfinish() ; return
         might_need_processing_after_all = True
         if response.code < 400: # this 'if' is a workaround for content-distribution networks that misconfigure their servers to serve Referrer Denied messages as HTML without changing the Content-Type from the original file: if the code is >=400 then assume might_need_processing_after_all is True no matter what the Content-Type is
          for name,value in response.headers.get_all():
@@ -2431,7 +2489,7 @@ def searchHelp():
     if not options.search_sites: return ""
     elif len(options.search_sites)==1: return " (or enter search terms)"
     else: return " or enter search terms, first word can be "+", ".join([x.split(None,1)[1] for x in options.search_sites])
-def htmlhead(title): return '<html><head><title>%s</title><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head><body>' % title
+def htmlhead(title="Web Adjuster"): return '<html><head><title>%s</title><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head><body>' % title
 def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
     r = htmlhead('Web Adjuster start page')+'<form action="/"><label for="q">'+options.boxPrompt+'</label>: <input type="text" id="q" name="q"'
     if default_url: r += ' value="'+default_url+'"'
@@ -2776,7 +2834,7 @@ def add_conversion_links(h,offsite_ok,isKindle):
     return HTML_adjust_svc(h,[AddConversionLinks(offsite_ok,isKindle)],can_use_LXML=False) # False because we're likely dealing with a fragment inside JSON, not a complete HTML document
 
 class StripJSEtc:
-    # Doesn't have to strip style= and on...= attributes, we'll do that separately
+    # Doesn't have to strip style= and on...= attributes (we'll do that separately) but DOES have to strip javascript: links when AddClickCodes isn't doing it (when AddClickCodes is doing it, we'll just see the PLACEHOLDER which hasn't yet been patched up, so let AddClickCodes do it itself in that case)
     # TODO: change any "[if IE" at the start of comments, in case anyone using affected versions of IE wants to use this mode
     def __init__(self,url,transparent):
         self.url,self.transparent = url,transparent
@@ -2793,7 +2851,12 @@ class StripJSEtc:
             if not self.transparent:
                 self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a rel="noreferrer" href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(self.url),self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
                 # TODO: call request_no_external_referer() on the RequestForwarder as well? (may need a parameter for it)
-        else: return self.suppressing or tag in ['link','noscript']
+            return
+        elif tag=="a" and not self.suppressing:
+            attrsD = dict(attrs)
+            if attrsD.get("href","").startswith("javascript:"):
+                attrsD["href"] = "#" ; return tag,attrsD
+        return self.suppressing or tag in ['link','noscript']
     def handle_endtag(self, tag):
         if tag=="head":
             self.parser.addDataFromTagHandler('<meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head>',True) # TODO: document that htmlonly_mode adds this; might also want to have it when CSS is on
@@ -2989,6 +3052,49 @@ def transform_in_selected_tag(intag,transformFunc,events=False):
             if self.intag:
                 return transformFunc(data)
     return Adjustment()
+
+class AddClickCodes:
+    # add webdriver_click_code + clickID before any #
+    # don't put & or = in it due to checkViewsource's arglist processing, try ;id or -txt
+    def __init__(self,url): self.url = url
+    def init(self,parser):
+        self.parser = parser
+        self.linkStart = self.href = None
+        self.linkTexts = set() ; self.inA = 0
+    def handle_starttag(self, tag, attrs):
+        if not tag=="a": return
+        if self.inA==0: self.currentLinkText = ""
+        self.inA += 1
+        attrsD = dict(attrs)
+        if not ("onclick" in attrsD or attrsD.get("href","").startswith("javascript:")): return # not a js link
+        href = attrsD.get("href","")
+        if '#' in href: href = href[href.index('#'):]
+        else: href = ""
+        if "id" in attrsD: # we can rewrite it straight away
+            attrsD["href"] = self.url + webdriver_click_code + ';' + attrsD["id"] + href
+        else: # we have to wait to see the text inside it
+            self.linkStart = len(self.parser.out) # assumes further processing hasn't already appended anything
+            self.href = href
+            self.original_href = attrsD.get("href","#")
+            if self.original_href.startswith("javascript:"): self.original_href = "#" # take it out
+            attrsD["href"] = '"PLACEHOLDER"' + webdriver_click_code # make sure there's quotes in the placeholder so we always get quoted by encAtt (simplifies the back-off replace below)
+        return tag, attrsD
+    def handle_endtag(self, tag):
+        if not tag=="a": return
+        self.inA = max(self.inA-1,0)
+        if not self.linkStart: return
+        # DON'T try to write 'shortest unique text', because
+        # that can change if another link is clicked (e.g. if
+        # clicking the other link makes it disappear) and we
+        # don't know what state the page will be in + could
+        # end up with duplicate URLs.  Write full link text.
+        if self.currentLinkText in self.linkTexts: replaceWith = self.original_href.replace('&','&amp;').replace('"','&quot;') # oops, not unique, back off
+        else: replaceWith = self.url + webdriver_click_code + '-' + self.currentLinkText + self.href
+        self.linkTexts.add(self.currentLinkText)
+        self.parser.out[self.linkStart] = self.parser.out[self.linkStart].replace('&quot;PLACEHOLDER&quot;' + webdriver_click_code,replaceWith)
+        self.linkStart = None ; self.currentLinkText = ""
+    def handle_data(self,data):
+        if self.inA==1: self.currentLinkText += data
 
 def fixHTML(htmlStr):
     # some versions of Python's HTMLParser can't cope with missing spaces between attributes:
