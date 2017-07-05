@@ -443,7 +443,7 @@ def check_config_file(cfg):
     except: return
     d = {} ; exec_in(open(cfg,'rb').read(),d,d)
     for k in d.keys():
-        if not k in options and type(d[k]) in [str,unicode,list,bool,int]: # (allow functions etc)
+        if not k in options and not k.replace('_','-') in options and type(d[k]) in [str,unicode,list,bool,int]: # (allow functions etc)
             errExit("Unrecognised global '%s' in configuration file '%s'" % (k,cfg))
 
 def readOptions():
