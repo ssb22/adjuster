@@ -2359,10 +2359,10 @@ document.forms[0].i.focus()
             if b in ua: return warn.replace("{B}",b)
         return ""
 
+the_duff_certfile = None
 def duff_certfile():
     global the_duff_certfile
-    the_duff_certfile = None
-    if the_duff_certfile: return the_duff_certfile
+    if the_duff_certfile: return the_duff_certfile # (we don't need to worry about /tmp reaping here because we're called only twice at start)
     for n in ['/dev/shm/dummy.pem','/tmp/dummy.pem','dummy.pem']:
         try:
             # Here's one I made earlier, unsigned localhost:
