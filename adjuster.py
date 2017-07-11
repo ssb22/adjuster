@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.24 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.241 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -656,7 +656,6 @@ def main():
     if options.watchdog:
         watchdog = open("/dev/watchdog", 'w')
     dropPrivileges()
-    if options.PhantomJS: init_webdriver()
     sys.stderr.write(twoline_program_name)
     if options.port: sys.stderr.write("Listening on port %d\n%s" % (options.port,extraPorts))
     else: sys.stderr.write("Not listening (--port=0 set)\n")
@@ -667,6 +666,7 @@ def main():
         unixfork()
     try: os.setpgrp() # for killpg later
     except: pass
+    if options.PhantomJS: init_webdriver()
     if options.browser: IOLoop.instance().add_callback(runBrowser)
     if options.watchdog: WatchdogPings(watchdog)
     if options.fasterServer:
@@ -1097,7 +1097,10 @@ def get_new_webdriver(firstTime=True):
         if firstTime: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.PhantomJS_size)
         w,h = 1024,768
     wd.set_window_size(w, h)
-    import atexit ; atexit.register(wd.quit)
+    def quit_wd(*args):
+        try: wd.quit()
+        except: pass
+    import atexit ; atexit.register(quit_wd)
     return wd
 webdriver_body_to_send=webdriver_via=webdriver_referer="" # shouldn't be necessary unless doing direct debug tests on the upstream proxy
 def init_webdriver(): # just one for now (if supporting more than one, need to sort out the logic of webdriver_body_to_send, webdriver_referer, webdriver_via and webdriver_inProgress)
