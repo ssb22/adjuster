@@ -427,8 +427,10 @@ def errExit(msg):
 
 def parse_command_line(final):
     if len(tornado.options.parse_command_line.func_defaults)==1: # Tornado 2.x
-        tornado.options.parse_command_line()
-    else: tornado.options.parse_command_line(final=final)
+        rest = tornado.options.parse_command_line()
+    else:
+        rest=tornado.options.parse_command_line(final=final)
+    if rest: errExit("Unrecognised command-line argument '%s'" % rest[0])
 def parse_config_file(cfg, final): # similarly
     check_config_file(cfg)
     if not tornado.options.parse_config_file.func_defaults: # Tornado 2.x
