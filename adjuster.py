@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.242 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.243 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -74,7 +74,7 @@ define("via",default=True,help="Whether or not to update the Via: and X-Forwarde
 define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP header when forwarding requests, as a courtesy to site administrators who wonder what's happening in their logs (and don't log Via: etc)")
 define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.") # TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, see comments in request_no_external_referer)
 
-define("upstream_proxy",help="address:port of a proxy to send our requests through, such as a caching proxy to reduce load on websites (putting this upstream of the adjuster might save a site from having to re-serve pages when adjuster settings are changed). This proxy (if set) is used for normal requests, but not for ip_query_url options, own_server or fasterServer.") # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies.
+define("upstream_proxy",help="address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options, own_server or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.") # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies. The ":port"-only option rewrites URLs in requests but NOT ones referred to in documents: we assume the proxy can cope with that.
 
 define("ip_messages",help="Messages or blocks for specific IP address ranges (IPv4 only).  Format is ranges|message|ranges|message etc, where ranges are separated by commas; can be individual IPs, or ranges in either 'network/mask' or 'min-max' format; the first matching range-set is selected.  If a message starts with * then its ranges are blocked completely (rest of message, if any, is sent as the only reply to any request), otherwise message is shown on a 'click-through' page (requires Javascript and cookies).  If the message starts with a hyphen (-) then it is considered a minor edit of earlier messages and is not shown to people who selected `do not show again' even if they did this on a different version of the message.  Messages may include HTML.")
 
@@ -492,11 +492,16 @@ def preprocessOptions():
     serverName_html = re.sub(r"([0-9])([0-9])",r"\1<span></span>\2",serverName) # stop mobile browsers interpreting the version number as a telephone number
     global upstream_proxy_host, upstream_proxy_port
     upstream_proxy_host = upstream_proxy_port = None
+    global upstream_rewrite_ssl ; upstream_rewrite_ssl=False
     if options.upstream_proxy:
         try: import pycurl
         except ImportError: errExit("upstream_proxy requires pycurl (try sudo pip install pycurl)")
         if not ':' in options.upstream_proxy: options.upstream_proxy += ":80"
-        upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':')
+        upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':') # TODO: IPv6 ?
+        if not upstream_proxy_host:
+            upstream_proxy_host = "127.0.0.1"
+            if wsgi_mode: sys.stderr.write("Can't do SSL-rewrite for upstream proxy when in WSGI mode\n")
+            else: upstream_rewrite_ssl = True
         upstream_proxy_port = int(upstream_proxy_port)
     global codeChanges ; codeChanges = []
     if options.codeChanges:
@@ -644,19 +649,25 @@ def main():
         unixfork()
     workaround_raspbian_IPv6_bug()
     if options.port: listen_on_port(application,options.port,options.address,options.browser)
-    extraPorts = ""
+    extraPorts = "" ; nextPort = options.port + 1
+    # don't add any other ports here: NormalRequestForwarder assumes we'll be at port+1
     if options.real_proxy:
         # create a modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port
-        listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=True),options.port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
-        extraPorts += "--real_proxy SSL helper is listening on localhost:%d (don't connect to it yourself)\n" % (options.port+1)
+        listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=True),nextPort,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
+        extraPorts += "--real_proxy SSL helper is listening on localhost:%d (don't connect to it yourself)\n" % nextPort
+        nextPort += 1
     if options.PhantomJS_reproxy:
         # ditto for PhantomJS (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us)
         for i in xrange(options.PhantomJS_instances):
-            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(i),{})],log_function=accessLog,gzip=True),options.port+2+2*i,"127.0.0.1",False)
-            listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(i),{})],log_function=accessLog,gzip=True),options.port+2+2*i+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
+            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(i,nextPort),{})],log_function=nullLog,gzip=True),nextPort,"127.0.0.1",False)
+            listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(i,nextPort+1),{})],log_function=nullLog,gzip=True),nextPort+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
+            nextPort += 2
         if options.real_proxy: ditto = "ditto"
         else: ditto = "don't connect to these yourself"
         extraPorts += "--PhantomJS_reproxy helpers listening on localhost:%d-%d (%s)\n" % (options.port+2,options.port+2+2*options.PhantomJS_instances-1,ditto)
+    if upstream_rewrite_ssl:
+        listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=True),upstream_proxy_port+1,"127.0.0.1",False)
+        extraPorts += "--upstream-proxy back-connection helper listening on localhost:%d\n" % (upstream_proxy_port+1,)
     if options.watchdog:
         watchdog = open("/dev/watchdog", 'w')
     dropPrivileges()
@@ -864,6 +875,8 @@ def whois_thread(ip,logger):
     if address: IOLoop.instance().add_callback(lambda *args:logging.info("whois "+ip+": "+address))
     helper_thread_count -= 1
 
+class NullLogger:
+  def __call__(self,req): pass
 class BrowserLogger:
   def __init__(self):
     # Do NOT read options here - they haven't been read yet
@@ -913,6 +926,7 @@ class BrowserLogger:
 
 helper_thread_count = 0
 
+nullLog = NullLogger()
 accessLog = BrowserLogger()
 
 try:
@@ -1290,11 +1304,11 @@ class RequestForwarder(RequestHandler):
       try: host, port = self.request.uri.split(':')
       except: host,port = None,None
       is_sshProxy = (host,port)==(allowConnectHost,allowConnectPort)
-      if host and (options.real_proxy or self.isPjsUpstream or is_sshProxy): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
+      if host and (options.real_proxy or self.isPjsUpstream or self.isSslUpstream or is_sshProxy): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
         upstream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
         client = self.request.connection.stream
         # See note about Tornado versions in writeAndClose
-        if not is_sshProxy and int(port)==443:
+        if not is_sshProxy and not self.isSslUpstream and int(port)==443:
             # We can change the host/port to ourselves
             # and adjust the SSL site (assuming this CONNECT
             # is for an SSL site)
@@ -1476,7 +1490,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             j = i = v.index('/')+2 # after the http:// or https://
             while j<len(v) and v[j] in string.letters+string.digits+'.-': j += 1
             wanted_host = v[i:j]
-            if v[i-4]=='s': wanted_host += '.0' # HTTPS hack (see protocolAndHost)
+            if v[i-4]=='s': wanted_host += ".0" # HTTPS hack (see protocolAndHost)
             ch = self.cookie_host(checkURL=False) # current cookie hostname
             if convert_to_requested_host(wanted_host,ch)==wanted_host: # can't do it without changing cookie_host
                 if enable_adjustDomainCookieName_URL_override:
@@ -1499,7 +1513,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             if not self.request.uri: self.request.uri="/"
         elif not self.request.uri.startswith("/"): # invalid
             self.set_status(400) ; self.myfinish() ; return True
-        if self.WA_UseSSL:
+        if self.WA_UseSSL: # we're the SSL helper on port+1 and we've been CONNECT'd to, so the host asked for must be a .0 host for https
             if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
     
     def handleSSHTunnel(self):
@@ -1824,10 +1838,9 @@ document.forms[0].i.focus()
             return self.forwardFor(options.fasterServer)
         if self.handleFullLocation(): return # if returns here, URL is invalid; if not, handleFullLocation has 'normalised' self.request.host and self.request.uri
         if self.isPjsUpstream:
-            self.request.suppress_logging = True
             if options.PhantomJS_UA and options.PhantomJS_UA.startswith("*"): self.request.headers["User-Agent"] = options.PhantomJS_UA[1:]
             webdriver_inProgress[self.WA_PjsIndex].add(self.request.uri)
-        else:
+        elif not self.isSslUpstream:
             if self.handleSSHTunnel(): return
             if self.handleSpecificIPs(): return
             # TODO: Slow down heavy users by self.request.remote_ip ?
@@ -1842,22 +1855,20 @@ document.forms[0].i.focus()
                 self.setCookie_with_dots(rest)
                 return self.redirect(ruri) # so can set another
             if (self.request.host=="localhost" or self.request.host.startswith("localhost:")) and not "localhost" in options.host_suffix: return self.redirect("http://"+hostSuffix(0)+publicPortStr()+self.request.uri) # save confusion later (e.g. set 'HTML-only mode' cookie on 'localhost' but then redirect to host_suffix and cookie is lost)
-        viewSource = (not self.isPjsUpstream) and self.checkViewsource()
+        viewSource = (not self.isPjsUpstream and not self.isSslUpstream) and self.checkViewsource()
         self.cookieViaURL = None
-        if self.isPjsUpstream: realHost = self.request.host
+        if self.isPjsUpstream or self.isSslUpstream: realHost = self.request.host
         else: realHost = convert_to_real_host(self.request.host,self.cookie_host(checkReal=False)) # don't need checkReal if return value will be passed to convert_to_real_host anyway
         if realHost == -1:
             return self.forwardFor(options.own_server)
             # (TODO: what if it's keep-alive and some browser figures out our other domains are on the same IP and tries to fetch them through the same connection?  is that supposed to be allowed?)
         elif realHost==0 and options.ownServer_if_not_root: realHost=options.own_server # asking by cookie to adjust the same host, so don't forwardFor() it but fetch it normally and adjust it
-        isProxyRequest = self.isPjsUpstream or (options.real_proxy and realHost == self.request.host)
-        
-        self.request.valid_for_whois = not self.isPjsUpstream # (if options.whois, don't whois unless it gets this far, e.g. don't whois any that didn't even match "/(.*)" etc)
-
-        maybeRobots = (not self.isPjsUpstream and not options.robots and self.request.uri=="/robots.txt") # don't actually serveRobots yet, because MIGHT want to pass it to own_server (see below)
+        isProxyRequest = self.isPjsUpstream or self.isSslUpstream or (options.real_proxy and realHost == self.request.host)
+        self.request.valid_for_whois = True # (if options.whois, don't whois unless it gets this far, e.g. don't whois any that didn't even match "/(.*)" etc)
+        maybeRobots = (not self.isPjsUpstream and not self.isSslUpstream and not options.robots and self.request.uri=="/robots.txt") # don't actually serveRobots yet, because MIGHT want to pass it to own_server (see below)
         
         self.is_password_domain=False # needed by doResponse2
-        if options.password and not options.real_proxy and not self.isPjsUpstream: # whether or not open_proxy, because might still have password (perhaps on password_domain), anyway the doc for open_proxy says "allow running" not "run"
+        if options.password and not options.real_proxy and not self.isPjsUpstream and not self.isSslUpstream: # whether or not open_proxy, because might still have password (perhaps on password_domain), anyway the doc for open_proxy says "allow running" not "run"
           # First ensure the wildcard part of the host is de-dotted, so the authentication cookie can be shared across hosts.
           # (This is not done if options.real_proxy because we don't want to touch the hostname for that)
           host = self.request.host
@@ -1886,7 +1897,7 @@ document.forms[0].i.focus()
               self.write(htmlhead("")+auth_error+"</body></html>")
               return self.myfinish()
         # Authentication is now OK
-        if not self.isPjsUpstream:
+        if not self.isPjsUpstream and not self.isSslUpstream:
           fixServerHeader(self)
           if self.handleGoAway(realHost,maybeRobots): return
           # Now check if it's an image request:
@@ -1908,10 +1919,10 @@ document.forms[0].i.focus()
             if v: return self.handle_URLbox_query(v)
             else: return self.serve_URLbox()
         if maybeRobots: return self.serveRobots()
-        if not self.isPjsUpstream and self.needCssCookies():
+        if not self.isPjsUpstream and not self.isSslUpstream and self.needCssCookies():
             self.add_nocache_headers() # please don't cache this redirect!  otherwise user might not be able to leave the URL box after:
             return self.redirect("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
-        if not self.isPjsUpstream: self.addCookieFromURL() # for cookie_host
+        if not self.isPjsUpstream and not self.isSslUpstream: self.addCookieFromURL() # for cookie_host
         converterFlags = []
         for opt,suffix,ext,fmt in [
             (options.pdftotext,pdftotext_suffix,".pdf","pdf"),
@@ -1919,11 +1930,13 @@ document.forms[0].i.focus()
             (options.epubtozip,epubtozip_suffix,".epub","epub"),
             (options.askBitrate,mp3lofi_suffix,".mp3",None),
             ]:
-            if opt and not self.isPjsUpstream and self.request.uri.endswith(suffix) and (self.request.uri.lower()[:-len(suffix)].endswith(ext) or guessCMS(self.request.uri,fmt)):
+            if opt and not self.isPjsUpstream and not self.isSslUpstream and self.request.uri.endswith(suffix) and (self.request.uri.lower()[:-len(suffix)].endswith(ext) or guessCMS(self.request.uri,fmt)):
                 self.request.uri = self.request.uri[:-len(suffix)]
                 converterFlags.append(True)
             else: converterFlags.append(False)
-        protocol,realHost = protocolAndHost(realHost)
+        if upstream_rewrite_ssl and not self.isSslUpstream:
+            protocol = "http://" # keep the .0 in and call protocolAndHost again on the isSslUpstream pass
+        else: protocol,realHost = protocolAndHost(realHost)
         self.change_request_headers(realHost,isProxyRequest)
         self.urlToFetch = protocol+self.request.headers["Host"]+self.request.uri
         if not isProxyRequest and any(re.search(x,self.urlToFetch) for x in options.prohibit):
@@ -2006,12 +2019,12 @@ document.forms[0].i.focus()
                 del self.request.headers[h]
                 self.accept_stuff.append((h,l[0]))
         self.request.headers["Host"]=realHost
-        if options.via:
+        if options.via and not self.isSslUpstream:
             v = self.request.version
             if v.startswith("HTTP/"): v=v[5:]
             self.addToHeader("Via",v+" "+convert_to_via_host(self.request.host)+" ("+viaName+")")
             self.addToHeader("X-Forwarded-For",self.request.remote_ip)
-        if options.uavia: self.addToHeader("User-Agent","via "+convert_to_via_host(self.request.host)+" ("+viaName+")")
+        if options.uavia and not self.isSslUpstream: self.addToHeader("User-Agent","via "+convert_to_via_host(self.request.host)+" ("+viaName+")")
     def restore_request_headers(self): # restore the ones Tornado might use (Connection etc)
         if not hasattr(self,"accept_stuff"): return # haven't called change_request_headers (probably means this is user input)
         for k,v in self.accept_stuff: self.request.headers[k]=v
@@ -2025,8 +2038,9 @@ document.forms[0].i.focus()
                 webdriver_body_to_send[self.WA_PjsIndex] = None
             if webdriver_referer[self.WA_PjsIndex]: self.request.headers["Referer"]=webdriver_referer[self.WA_PjsIndex]
         if not body: body = None # required by some Tornado versions
-        ph,pp = upstream_proxy_host, upstream_proxy_port
-        if options.PhantomJS and not self.isPjsUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"]:
+        if self.isSslUpstream: ph,pp = None,None
+        else: ph,pp = upstream_proxy_host,upstream_proxy_port
+        if options.PhantomJS and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"]:
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
             if body: body = self.request.method, body
@@ -2044,7 +2058,7 @@ document.forms[0].i.focus()
                             viewSource=="screenshot",
                             callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True))
         else:
-            if webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
+            if options.PhantomJS and webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
             httpfetch(self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # Tornado's default is usually something like 20 seconds each; be more generous to slow servers (TODO: customise?)
                   proxy_host=ph, proxy_port=pp,
@@ -2163,7 +2177,7 @@ document.forms[0].i.focus()
                 elif name=='Content-Disposition':
                     headers_to_add.remove((name,value))
         added = {'set-cookie':1} # might have been set by authenticates_ok
-        if not self.isPjsUpstream:
+        if not self.isPjsUpstream and not self.isSslUpstream:
             if vary: vary += ", "
             vary += 'Cookie, User-Agent' # can affect adjuster settings (and just saying 'Vary: *' can sometimes be ignored on Android 4.4)
         if vary: headers_to_add.append(('Vary',vary))
@@ -2234,13 +2248,12 @@ document.forms[0].i.focus()
             return
         if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host,https=self.urlToFetch.startswith("https")) # first, so filters to run and scripts to add can mention new domains without these being redirected back
         # Must also do things like 'delete' BEFORE the filters, especially if lxml is in use and might change the code so the delete patterns aren't recognised.  But do JS process BEFORE delete, as might want to pick up on something that was there originally.  (Must do it AFTER domain process though.)
-        if self.isPjsUpstream:
-            if do_html_process: # add a CSS rule to help with PhantomJS screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
-                i = htmlFind(body,"<head")
-                if i==-1: i=htmlFind(body,"<html")
-                if not i==-1: i = body.find('>',i)+1
-                if i: body=body[:i]+"<style>html{background:#fff}</style>"+body[i:] # setting on 'html' rather than 'body' allows body bgcolor= to override.  (body background= is not supported in HTML5 and PhantomJS will ignore it anyway.)
-            return self.doResponse3(body) # write & finish
+        if self.isPjsUpstream and do_html_process: # add a CSS rule to help with PhantomJS screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
+            i = htmlFind(body,"<head")
+            if i==-1: i=htmlFind(body,"<html")
+            if not i==-1: i = body.find('>',i)+1
+            if i: body=body[:i]+"<style>html{background:#fff}</style>"+body[i:] # setting on 'html' rather than 'body' allows body bgcolor= to override.  (body background= is not supported in HTML5 and PhantomJS will ignore it anyway.)
+        if self.isPjsUpstream or self.isSslUpstream: return self.doResponse3(body) # write & finish
         if do_js_process: body = js_process(body,self.urlToFetch)
         if not self.checkBrowser(options.deleteOmit):
             for d in options.delete:
@@ -2453,14 +2466,19 @@ def MakeRequestForwarder(useSSL,connectPort,isPJS=False,index=0):
         WA_connectPort = connectPort
         isPjsUpstream = isPJS
         WA_PjsIndex = index
+        isSslUpstream = False
     return MyRequestForwarder # the class, not an instance
 def NormalRequestForwarder(): return MakeRequestForwarder(False,options.port+1)
 def SSLRequestForwarder(): return MakeRequestForwarder(True,options.port+1)
-def PjsRequestForwarder(index): return MakeRequestForwarder(False,options.port+2+2*index+1,True,index)
-def PjsSslRequestForwarder(index): return MakeRequestForwarder(True,options.port+2+2*index+1,True,index)
+def PjsRequestForwarder(index,port): return MakeRequestForwarder(False,port+1,True,index)
+def PjsSslRequestForwarder(index,port): return MakeRequestForwarder(True,port,True,index)
+
+class UpSslRequestForwarder(RequestForwarder):
+    WA_UseSSL = isPjsUpstream = False
+    isSslUpstream = True
 
 class SynchronousRequestForwarder(RequestForwarder):
-   WA_UseSSL = isPjsUpstream = False
+   WA_UseSSL = isPjsUpstream = isSslUpstream = False
    def get(self, *args, **kwargs):     return self.doReq()
    def head(self, *args, **kwargs):    return self.doReq()
    def post(self, *args, **kwargs):    return self.doReq()
