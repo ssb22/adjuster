@@ -254,7 +254,7 @@ def warn(msg):
   # else it should have already been written
 if "PyPy" in sys.version: warn("PyPy is likely to run 60% slower than python with annogen") # (not to mention concurrent.futures being less likely to be available)
 
-if primitive and ybytes: warn("primitive will override ybytes\n")
+if primitive and ybytes: warn("primitive will override ybytes")
 if ybytes: ybytes=int(ybytes)
 if ybytes_max: ybytes_max=int(ybytes_max)
 else: ybytes_max = ybytes
@@ -267,6 +267,7 @@ if not golang: golang = ""
 def errExit(msg):
   assert main # bad news if this happens in non-main module
   sys.stderr.write(msg+"\n") ; sys.exit(1)
+if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
 if android and not (java or ndk): errExit('You must set --java=/path/to/src//name/of/package or --ndk=name.of.package when using --android')
 if ndk and not android: errExit("You must set --android=URL when using --ndk. E.g. --android=file:///android_asset/index.html")
@@ -1061,6 +1062,8 @@ int main(int argc,char*argv[]) {
       annotation_mode = annotations_only;
     } else if(!strcmp(argv[i],"--braces")) {
       annotation_mode = brace_notation;
+    } else {
+      fprintf(stderr,"Unknown argument '%s'\n(Text should be on standard input)\n",argv[i]); return 1;
     }
   }
   matchAll();
