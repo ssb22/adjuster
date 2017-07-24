@@ -847,8 +847,8 @@ class WhoisLogger:
     def __call__(self,ip):
         if ip in self.recent_whois: return
         if len(self.recent_whois) > 20: # TODO: configure?
-            self.recent_whois.pop()
-        self.recent_whois.insert(0,ip)
+            self.recent_whois.pop(0)
+        self.recent_whois.append(ip)
         self.reCheck(ip)
     def reCheck(self,ip):
         if self.thread_running: # allow only one at once
@@ -1038,9 +1038,7 @@ class WebdriverRunner:
         self.thread_running = False
         self.theWebDriver = get_new_webdriver(index)
     def fetch(self,url,body,clickElementID,clickLinkText,asScreenshot,callback):
-        if self.thread_running: # allow only one at once
-            IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback))
-            return
+        assert not self.thread_running, "webdriver_checkServe did WHAT?"
         self.thread_running = True
         threading.Thread(target=wd_fetch,args=(url,body,clickElementID,clickLinkText,asScreenshot,callback,self)).start()
 def wd_fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback,manager):
@@ -1048,6 +1046,7 @@ def wd_fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback,manager
     helper_thread_count += 1
     r = _wd_fetch(manager,url,body,clickElementID,clickLinkText,asScreenshot)
     manager.thread_running = False
+    IOLoop.instance().add_callback(webdriver_checkServe)
     IOLoop.instance().add_callback(lambda *args:callback(r))
     helper_thread_count -= 1
 def _wd_fetch(manager,url,body,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
@@ -1081,7 +1080,6 @@ def _wd_fetch(manager,url,body,clickElementID,clickLinkText,asScreenshot): # sin
     if currentUrl == None: # we need to ask for it again
         try: currentUrl = wd.current_url
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
-    webdriver_queueLen[manager.index] -= 1 # just for load balancing (doesn't matter if we haven't QUITE finished)
     if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
         return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+wd.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % wd.current_url.replace('&','&amp;').replace('"','&quot;'))
     if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),wd.get_screenshot_as_png())
@@ -1130,7 +1128,7 @@ def get_new_webdriver(index):
     return wd
 webdriver_runner = [] ; webdriver_body_to_send = []
 webdriver_referer = [] ; webdriver_via = []
-webdriver_inProgress = [] ; webdriver_queueLen = []
+webdriver_inProgress = [] ; webdriver_queue = []
 def init_webdrivers():
     for i in xrange(options.PhantomJS_instances):
         webdriver_runner.append(WebdriverRunner(len(webdriver_runner)))
@@ -1138,22 +1136,19 @@ def init_webdrivers():
         webdriver_referer.append(None)
         webdriver_inProgress.append(set())
         webdriver_via.append(None)
-        webdriver_queueLen.append(0)
-def least_busy_webdriver_index():
-    if not webdriver_queueLen[0]: return 0
-    index = 0 ; nItems = webdriver_queueLen[0]
-    for i in xrange(1,options.PhantomJS_instances):
-        if webdriver_queueLen[i] < nItems:
-            index = i ; nItems = webdriver_queueLen[i]
-            if not nItems: break
-    return index
+def webdriver_checkServe(*args):
+    # how many queue items can be served right now?
+    for i in xrange(options.PhantomJS_instances):
+        if not webdriver_runner[i].thread_running:
+            if not webdriver_queue: return
+            url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback = webdriver_queue.pop(0)
+            webdriver_referer[i]=referer
+            webdriver_via[i]=via
+            webdriver_runner[i].fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback)
 def webdriver_fetch(url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback):
-    index = least_busy_webdriver_index()
-    webdriver_queueLen[index] += 1
-    webdriver_referer[index]=referer
-    webdriver_via[index]=via
-    if wsgi_mode: return callback(_wd_fetch(webdriver_runner[index],url,body,clickElementID,clickLinkText,asScreenshot))
-    webdriver_runner[index].fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback)
+    if wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,body,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do PhantomJS anyway; where else might we have threaded wsgi?  PhantomJS really is better run in non-wsgi mode anyway, so can PhantomJS_reproxy)
+    webdriver_queue.append((url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback))
+    webdriver_checkServe()
 
 def fixServerHeader(i):
     i.set_header("Server",serverName) # TODO: in "real" proxy mode, "Server" might not be the most appropriate header to set for this
