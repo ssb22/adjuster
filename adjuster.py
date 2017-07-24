@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.243 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.244 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1082,6 +1082,7 @@ def _wd_fetch(manager,url,body,clickElementID,clickLinkText,asScreenshot): # sin
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
     if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
         return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+wd.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % wd.current_url.replace('&','&amp;').replace('"','&quot;'))
+
     if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),wd.get_screenshot_as_png())
     else: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(wd.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
 def _get_new_webdriver(index):
@@ -1159,6 +1160,7 @@ rmServerHeaders = set([
     # server headers to remove.  We'll do our own connection type etc (but don't include "Date" in this list: if the remote server includes a Date it would be useful to propagate that as a reference for its Age headers etc, TODO: unless remote server is broken? see also comment in fixServerHeader re having no Date by default).  Many servers' Content-Location is faulty; it DOESN'T necessarily provide the new base href; it might be relative; it might be identical to the actual URL fetched; many browsers ignore it anyway
     "connection","content-length","content-encoding","transfer-encoding","etag","content-md5","server","alternate-protocol","strict-transport-security","content-location",
     "x-associated-content", # should NOT be sent to browser (should be interpreted by a server's SPDY/push module) but somebody might misread the specs (at least one Wikipedia editor did)
+    "x-host","x-http-reason", # won't necessarily be the same
     "content-security-policy","x-webkit-csp","x-content-security-policy", # sorry but if we're adjusting the site by adding our own scripts/styles we are likely to be broken by a CSP that restricts which of these we're allowed to do. (Even if we adjust the domains listed on those headers, what if our scripts rely on injecting inline code?)  Sites shouldn't *depend* on CSP to prevent XSS: it's just a belt-and-braces that works only in recent browsers.  Hopefully our added styles etc will break the XSS-introduced ones if we hit a lazy site.
     "vary", # we modify this (see code)
 ])
@@ -1174,7 +1176,7 @@ class RequestForwarder(RequestHandler):
             import traceback
             msg = msg.replace("{traceback}","<pre>"+ampEncode("".join(traceback.format_exception(*kwargs["exc_info"])))+"</pre>")
             # TODO: what about substituting for {traceback} on pre-2.1 versions of Tornado that relied on get_error_html and put the error into sys.exc_info()?  (need to check their source to see how reliable the traceback is in this case; post-2.1 versions re-raise it from write_error itself)
-        self.write(msg)
+        if self.canWriteBody(): self.write(msg)
         self.finish()
 
     def cookie_host(self,checkReal=True,checkURL=True):
@@ -1309,10 +1311,11 @@ class RequestForwarder(RequestHandler):
             # is for an SSL site)
             # This should result in a huge "no cert" warning
             host,port = "127.0.0.1",self.WA_connectPort
-            debuglog("Rerouting to "+host+":"+str(port))
+            debuglog("Rerouting CONNECT to "+host+":"+str(port))
         upstream.connect((host, int(port)), lambda *args:(client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data)),upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data)),client.write('HTTP/1.0 200 Connection established\r\n\r\n')))
       else: self.set_status(400),self.myfinish()
     def myfinish(self):
+        debuglog("myfinish"+self.debugExtras())
         if hasattr(self,"_finished") and self._finished: pass # try to avoid "connection closed" exceptions if browser has already gone away
         else:
           try:
@@ -1325,11 +1328,12 @@ class RequestForwarder(RequestHandler):
             except: pass
 
     def redirect(self,redir,status=301):
+        debuglog("redirect ("+repr(status)+" to "+redir+")"+self.debugExtras())
         self.set_status(status)
         for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # so redirect() can be called AFTER a site's headers are copied in
         self.add_header("Location",redir)
         self.add_header("Content-Type","text/html")
-        self.write('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % redir.replace('&','&amp;').replace('"','&quot;'))
+        if self.canWriteBody(): self.write('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % redir.replace('&','&amp;').replace('"','&quot;'))
         self.myfinish()
 
     def request_no_external_referer(self):
@@ -1424,7 +1428,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def answer_load_balancer(self):
         self.request.suppress_logging = True
         self.add_header("Content-Type","text/html")
-        self.write(htmlhead()+"<h1>Web Adjuster load-balancer page</h1>This page should not be shown to normal browsers, only to load balancers and uptime checkers. If you are a human reading this message, <b>it probably means your browser is \"cloaked\"</b> (hidden User-Agent string); please un-hide this to see the top-level page.</body></html>")
+        if self.canWriteBody(): self.write(htmlhead()+"<h1>Web Adjuster load-balancer page</h1>This page should not be shown to normal browsers, only to load balancers and uptime checkers. If you are a human reading this message, <b>it probably means your browser is \"cloaked\"</b> (hidden User-Agent string); please un-hide this to see the top-level page.</body></html>")
         self.myfinish()
 
     def find_real_IP(self):
@@ -1447,7 +1451,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     
     def serveRobots(self):
         self.add_header("Content-Type","text/plain")
-        self.write("User-agent: *\nDisallow: /\n")
+        if self.canWriteBody(): self.write("User-agent: *\nDisallow: /\n")
         self.myfinish()
 
     def serveImage(self,img):
@@ -1457,7 +1461,8 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         self.add_header("Last-Modified","Sun, 06 Jul 2008 13:20:05 GMT")
         self.add_header("Expires","Wed, 1 Dec 2036 23:59:59 GMT") # TODO: S2G
         # self.clear_header("Server") # save bytes if possible as we could be serving a LOT of these images .. but is this really needed? (TODO)
-        self.write(img) ; self.myfinish()
+        if self.canWriteBody(): self.write(img)
+        self.myfinish()
 
     def set_htmlonly_cookie(self):
         # Set the cookie according to the value of "pr" entered from the URL box.
@@ -1564,7 +1569,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             return False
         hs = self.cookieHostToSet()
         self.add_nocache_headers()
-        self.write("%s%s<p><form><label><input type=\"checkbox\" name=\"gotit\">Don't show this message again</label><br><input type=\"submit\" value=\"Continue\" onClick=\"var a='%s=%s;domain=',b=(document.forms[0].gotit.checked?'expires=%s;':'')+'path=/',h='%s;';document.cookie=a+'.'+h+b;document.cookie=a+h+b;location.reload(true);return false\"></body></html>" % (htmlhead("Message"),msg,seen_ipMessage_cookieName,val,cookieExpires,hs))
+        if self.canWriteBody(): self.write("%s%s<p><form><label><input type=\"checkbox\" name=\"gotit\">Don't show this message again</label><br><input type=\"submit\" value=\"Continue\" onClick=\"var a='%s=%s;domain=',b=(document.forms[0].gotit.checked?'expires=%s;':'')+'path=/',h='%s;';document.cookie=a+'.'+h+b;document.cookie=a+h+b;location.reload(true);return false\"></body></html>" % (htmlhead("Message"),msg,seen_ipMessage_cookieName,val,cookieExpires,hs))
         logging.info("ip_messages: done "+self.request.remote_ip)
         self.myfinish() ; return True
 
@@ -1581,7 +1586,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             self.request_no_external_referer()
         else: msg = ''
         self.add_nocache_headers()
-        self.write("%s<h1>You don't need this!</h1>This installation of Web Adjuster has been set up to change certain characters into pictures, for people using old computers that don't know how to display them themselves. However, <em>you</em> seem to be using %s, which is <noscript>either </noscript>definitely capable of showing these characters by itself<noscript>, or else wouldn't be able to show the pictures anyway<!-- like Lynx --></noscript>. Please save our bandwidth for those who really need it%s. Thank you.</body></html>" % (htmlhead(),browser,msg))
+        if self.canWriteBody(): self.write("%s<h1>You don't need this!</h1>This installation of Web Adjuster has been set up to change certain characters into pictures, for people using old computers that don't know how to display them themselves. However, <em>you</em> seem to be using %s, which is <noscript>either </noscript>definitely capable of showing these characters by itself<noscript>, or else wouldn't be able to show the pictures anyway<!-- like Lynx --></noscript>. Please save our bandwidth for those who really need it%s. Thank you.</body></html>" % (htmlhead(),browser,msg))
         self.myfinish() ; return True
 
     def needCssCookies(self):
@@ -1762,20 +1767,22 @@ document.forms[0].i.focus()
         self.add_header("Access-Control-Allow-Origin","*")
         if options.submitBookmarkletDomain: submit = "//"+options.submitBookmarkletDomain
         else: submit = "http://"+self.request.host
-        self.write(bookmarkletMainScript(submit+options.submitPath+'j'+xtra,forceSameWindow))
+        if self.canWriteBody(): self.write(bookmarkletMainScript(submit+options.submitPath+'j'+xtra,forceSameWindow))
         self.myfinish()
     def serve_err(self,err):
         self.set_status(500)
         self.add_header("Content-Type","text/plain")
         logging.error("Bookmarklet error: "+err) # +' '+repr(self.request.body)
-        self.write(err) ; self.myfinish()
+        if self.canWriteBody(): self.write(err)
+        self.myfinish()
     def serve_bookmarklet_json(self,filterNo):
         self.add_header("Access-Control-Allow-Origin","*")
         self.add_header("Access-Control-Allow-Headers","Content-Type")
         if not self.request.body:
             self.add_header("Content-Type","text/plain")
             self.add_header("Allow","POST") # some browsers send OPTIONS first before POSTing via XMLHttpRequest (TODO: check if OPTIONS really is the request method before sending this?)
-            self.write("OK") ; return self.myfinish()
+            if self.canWriteBody(): self.write("OK")
+            return self.myfinish()
         try: l = json.loads(self.request.body)
         except: return self.serve_err("Bad JSON")
         for i in xrange(len(l)):
@@ -1787,7 +1794,7 @@ document.forms[0].i.focus()
             codeTextList.append(i.encode('utf-8'))
         def callback(out,err):
             self.add_header("Content-Type","application/json")
-            self.write(json.dumps([i.decode('utf-8','replace') for i in out[1:].split(chr(0))])) # 'replace' here because we don't want utf-8 errors to time-out the entire request (although hopefully the filter WON'T produce utf-8 errors...)
+            if self.canWriteBody(): self.write(json.dumps([i.decode('utf-8','replace') for i in out[1:].split(chr(0))])) # 'replace' here because we don't want utf-8 errors to time-out the entire request (although hopefully the filter WON'T produce utf-8 errors...)
             self.finish()
         runFilterOnText(self.getHtmlFilter(filterNo),codeTextList,callback)
 
@@ -1800,8 +1807,9 @@ document.forms[0].i.focus()
                 try: txt=open(kept_tempfiles[ktkey]).read()
                 except: txt = None
                 if txt:
-                    if newext==".mobi": self.write(txt)
-                    else: self.write(remove_blanks_add_utf8_BOM(txt))
+                    if self.canWriteBody():
+                        if newext==".mobi": self.write(txt)
+                        else: self.write(remove_blanks_add_utf8_BOM(txt))
                     self.myfinish()
                 elif not self.inProgress(): IOLoop.instance().add_timeout(time.time()+1,lambda *args:tryRead())
             tryRead() ; return True
@@ -1813,8 +1821,17 @@ document.forms[0].i.focus()
         if type(a)==type([]): a=a[0]
         return a
 
+    def debugExtras(self):
+        r = " for "+self.request.method+" "+self.request.uri
+        if self.WA_UseSSL: r += " WA_UseSSL"
+        if self.isPjsUpstream: r += " isPjsUpstream"
+        if self.isSslUpstream: r += " isSslUpstream"
+        return r
+
+    def canWriteBody(self): return not self.request.method in ["HEAD","OPTIONS"]
+    
     def doReq(self):
-        debuglog("doReq "+self.request.uri)
+        debuglog("doReq"+self.debugExtras())
         if wsgi_mode and self.request.path==urllib.quote(os.environ.get("SCRIPT_NAME","")+os.environ.get("PATH_INFO","")) and 'SCRIPT_URL' in os.environ:
             # workaround for Tornado 2.x limitation when used with CGI and htaccess redirects
             self.request.uri = os.environ['SCRIPT_URL']
@@ -1889,7 +1906,7 @@ document.forms[0].i.focus()
               else:
                   self.set_status(401)
                   auth_error = options.auth_error
-              self.write(htmlhead("")+auth_error+"</body></html>")
+              if self.canWriteBody(): self.write(htmlhead("")+auth_error+"</body></html>")
               return self.myfinish()
         # Authentication is now OK
         if not self.isPjsUpstream and not self.isSslUpstream:
@@ -2046,25 +2063,27 @@ document.forms[0].i.focus()
                     clickElementID = idEtc[1:]
                 elif idEtc.startswith('-'):
                     clickLinkText = idEtc[1:]
-            webdriver_fetch(self.urlToFetch,body,
+            if self.request.method.lower()=="head": self.myfinish() # don't actually run a webdriver just for HEAD
+            else: webdriver_fetch(self.urlToFetch,body,
                             clickElementID, clickLinkText,
                             self.request.headers.get("Referer",""),
                             via,
                             viewSource=="screenshot",
                             callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True))
         else:
-            if options.PhantomJS and webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
+            if options.PhantomJS and self.isPjsUpstream and webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
             httpfetch(self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # Tornado's default is usually something like 20 seconds each; be more generous to slow servers (TODO: customise?)
                   proxy_host=ph, proxy_port=pp,
                   use_gzip=enable_gzip and not hasattr(self,"avoid_gzip"),
                   method=self.request.method, headers=self.request.headers, body=body,
+                  validate_cert=False, # TODO: options.validate_certs ? but (1) there's little point unless you also secure your connection to the adjuster (or run it on localhost), (2) we haven't sorted out how to gracefully return if the validation fails, (3) True will cause failure if we're on a VM/container without a decent root-certs configuration
                   callback=lambda r:self.doResponse(r,converterFlags,viewSource,isProxyRequest),follow_redirects=follow_redirects)
         # (Don't have to worry about auth_username/auth_password: should just work by passing on the headers)
         # TODO: header_callback (run with each header line as it is received, and headers will be empty in the final response); streaming_callback (run with each chunk of data as it is received, and body and buffer will be empty in the final response), but how to abort a partial transfer if we realise we don't want it (e.g. large file we don't want to modify on site that doesn't mind client being redirected there directly)
 
     def doResponse(self,response,converterFlags,viewSource,isProxyRequest,phantomJS=False):
-        debuglog("doResponse "+self.request.uri)
+        debuglog("doResponse"+self.debugExtras()+" isProxyRequest="+repr(isProxyRequest))
         self.restore_request_headers()
         do_pdftotext,do_epubtotext,do_epubtozip,do_mp3 = converterFlags
         do_domain_process = do_html_process = do_js_process = True
@@ -2104,7 +2123,7 @@ document.forms[0].i.focus()
         doRedirect = ""
         for name,value in response.headers.get_all():
           if name.lower() in rmServerHeaders: continue
-          if (do_pdftotext or do_epubtotext) and name.lower() in ["content-disposition","content-type"]: continue # we're re-doing these also
+          elif (do_pdftotext or do_epubtotext) and name.lower() in ["content-disposition","content-type"]: continue # we're re-doing these also
           elif do_epubtozip and name.lower()=="content-disposition" and value.replace('"','').endswith(".epub"):
             epub = value.rfind(".epub")
             value=value[:epub]+".zip"+value[epub+5:]
@@ -2185,7 +2204,9 @@ document.forms[0].i.focus()
             # ignore response.body and put our own in
             return self.redirect(doRedirect,response.code)
         body = response.body
-        if not body: return self.myfinish() # might just be a redirect (TODO: if it's not, set type to text/html and report error?)
+        if not body:
+            if not self.canWriteBody(): self.set_header("Content-Length","-1") # we don't know yet: Tornado please don't add it!
+            return self.myfinish() # might just be a redirect (TODO: if it's not, set type to text/html and report error?)
         if do_html_process:
             # Normalise the character set
             charset2, body = get_and_remove_httpequiv_charset(body)
@@ -2231,13 +2252,15 @@ document.forms[0].i.focus()
                 unlinkOutputLater(fn+newext)
                 unlink(fn)
                 if self.inProgress_run(): return
-                if newext==".mobi": self.write(txt)
-                else: self.write(remove_blanks_add_utf8_BOM(txt))
+                if self.canWriteBody():
+                    if newext==".mobi": self.write(txt)
+                    else: self.write(remove_blanks_add_utf8_BOM(txt))
                 self.myfinish()
             self.inProgress() # if appropriate
             if do_pdftotext:
                 if options.pdfepubkeep: runFilter(("pdftotext -enc UTF-8 -nopgbrk \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"pdftotext",out+err)), False)
-                else: runFilter(("pdftotext -enc UTF-8 -nopgbrk \"%s\" -" % f.name),"",(lambda out,err:(unlink(f.name),self.write(remove_blanks_add_utf8_BOM(out)),self.myfinish())), False) # (pipe o/p from pdftotext directly, no temp outfile needed)
+                elif self.canWriteBody(): runFilter(("pdftotext -enc UTF-8 -nopgbrk \"%s\" -" % f.name),"",(lambda out,err:(unlink(f.name),self.write(remove_blanks_add_utf8_BOM(out)),self.myfinish())), False) # (pipe o/p from pdftotext directly, no temp outfile needed)
+                else: self.myfinish()
             elif self.isKindle(): runFilter(("ebook-convert \"%s\" \"%s.mobi\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)), False)
             else: runFilter(("ebook-convert \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)), False)
             return
@@ -2323,7 +2346,7 @@ document.forms[0].i.focus()
             else: return htmlFilter[int(anf)-1]
         else: return options.htmlFilter
     def doResponse2(self,body,do_html_process,do_json_process):
-        debuglog("doResponse2 "+self.request.uri)
+        debuglog("doResponse2"+self.debugExtras())
         # 2nd stage (domain change and external filter
         # has been run) - now add scripts etc, and render
         canRender = options.render and (do_html_process or (do_json_process and options.htmlJson)) and not self.checkBrowser(options.renderOmit)
@@ -2333,13 +2356,13 @@ document.forms[0].i.focus()
         if canRender and not "adjustNoRender=1" in jsCookieString:
             if do_html_process: func = find_text_in_HTML
             else: func=lambda body:find_HTML_in_JSON(body,find_text_in_HTML)
-            debuglog("runFilterOnText Renderer")
+            debuglog("runFilterOnText Renderer"+self.debugExtras())
             runFilterOnText(lambda t:Renderer.getMarkup(ampDecode(t.decode('utf-8'))).encode('utf-8'),func(body),callback,not do_html_process,chr(0))
         else: callback(body,"")
     def doResponse3(self,body):
         # 3rd stage (rendering has been done)
-        debuglog("doResponse3 (len=%d)" % len(body))
-        self.write(body)
+        debuglog(("doResponse3 (len=%d)" % len(body))+self.debugExtras())
+        if self.canWriteBody(): self.write(body)
         self.myfinish()
     def sendHead(self,forPjs=False):
         # forPjs is for options.PhantomJS_reproxy: we've identified the request as coming from PhantomJS and being its main document (not images etc).  Just check it's not a download link.
@@ -2373,7 +2396,7 @@ document.forms[0].i.focus()
             if not reason: return self.sendRequest([False]*4,False,True,follow_redirects=False)
             self.set_status(200)
             self.add_header("Content-Type","text/html")
-            self.write(htmlhead()+"PhantomJS cannot load "+ampEncode(self.urlToFetch)+" as "+reason+"</body></html>") # TODO: provide a direct link if the original request wasn't a proxy request?  (or even if it was a proxy request, give webdriver a placeholder (so it can still handle cookies etc) and bypass it with the actual response body?  but don't expect to load non-HTML files via PhantomJS: its currentUrl will be unchanged, sometimes from about:blank)
+            if self.canWriteBody(): self.write(htmlhead()+"PhantomJS cannot load "+ampEncode(self.urlToFetch)+" as "+reason+"</body></html>") # TODO: provide a direct link if the original request wasn't a proxy request?  (or even if it was a proxy request, give webdriver a placeholder (so it can still handle cookies etc) and bypass it with the actual response body?  but don't expect to load non-HTML files via PhantomJS: its currentUrl will be unchanged, sometimes from about:blank)
             self.myfinish() ; return
         might_need_processing_after_all = True
         if response.code < 400: # this 'if' is a workaround for content-distribution networks that misconfigure their servers to serve Referrer Denied messages as HTML without changing the Content-Type from the original file: if the code is >=400 then assume might_need_processing_after_all is True no matter what the Content-Type is
