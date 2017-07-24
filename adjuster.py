@@ -1082,7 +1082,6 @@ def _wd_fetch(manager,url,body,clickElementID,clickLinkText,asScreenshot): # sin
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
     if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
         return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+wd.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % wd.current_url.replace('&','&amp;').replace('"','&quot;'))
-
     if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),wd.get_screenshot_as_png())
     else: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(wd.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
 def _get_new_webdriver(index):
@@ -1841,6 +1840,7 @@ document.forms[0].i.focus()
                 self.request.uri += "?"+qs
                 self.request.arguments = urlparse.parse_qs(qs)
             self.request.path = self.request.uri
+        if not self.canWriteBody(): self.set_header("Content-Length","-1") # we don't know yet: Tornado please don't add it!
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
             elif self.request.uri=="/ping": return self.answerPing(False)
@@ -2204,9 +2204,7 @@ document.forms[0].i.focus()
             # ignore response.body and put our own in
             return self.redirect(doRedirect,response.code)
         body = response.body
-        if not body:
-            if not self.canWriteBody(): self.set_header("Content-Length","-1") # we don't know yet: Tornado please don't add it!
-            return self.myfinish() # might just be a redirect (TODO: if it's not, set type to text/html and report error?)
+        if not body: return self.myfinish() # might just be a redirect (TODO: if it's not, set type to text/html and report error?)
         if do_html_process:
             # Normalise the character set
             charset2, body = get_and_remove_httpequiv_charset(body)
