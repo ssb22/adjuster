@@ -395,7 +395,7 @@ def protocolAndHost(realHost):
     # (the dot will be represented as a hyphen by dedot/redot,
     # but some servers e.g. GAE can't cope with any part of the
     # wildcard domain ending with a hyphen, so add the 0;
-    # TODO: change this if ICANN come out with numerical TLDs)
+    # TODO: what about fetching from IP addresses)
     if realHost.endswith(".0"): return "https://",realHost[:-2]
     else: return "http://",realHost
 def protocolWithHost(realHost):
