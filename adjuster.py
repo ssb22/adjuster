@@ -930,14 +930,29 @@ nullLog = NullLogger()
 accessLog = BrowserLogger()
 
 def MyAsyncHTTPClient(): return AsyncHTTPClient()
+def curlFinished(): pass
 try:
     import pycurl # check it's there
-    try: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",max_clients=1000) # TODO: we really want this 1000 (and the one below) to be configurable. But at least it's better than the default of 10 (some Tornado versions simply drop any excess without flagging errors)
-    except: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
-    HTTPClient.configure("tornado.curl_httpclient.CurlHTTPClient")
+    curl_max_clients = 1000 # TODO: configurable?  PhantomJS_instances*30 after preprocessOptions?  but at least it's better than the default of 10 (see Tornado issue 2127), and we'll warn about the issue ourselves if we go over:
+    curl_inUse_clients = 0
+    try: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",max_clients=curl_max_clients)
+    except: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # will try in MyAsyncHTTPClient too (different versions of Tornado and all that...)
+    try: HTTPClient.configure("tornado.curl_httpclient.CurlHTTPClient") # for WSGI
+    except: pass # not all Tornado versions support configure on HTTPClient, and we still want to define the following if AsyncHTTPClient.configure worked
     def MyAsyncHTTPClient():
-        try: return AsyncHTTPClient(max_clients=1000)
+        global curl_inUse_clients
+        curl_inUse_clients += 1
+        if curl_inUse_clients == curl_max_clients:
+            if upstream_rewrite_ssl: logging.error("curl_max_clients too low; AsyncHTTPClient will queue requests and COULD DEADLOCK due to upstream_rewrite_ssl")
+            else: logging.info("curl_max_clients too low; AsyncHTTPClient will queue requests")
+        try: return AsyncHTTPClient(max_clients=curl_max_clients)
         except: return AsyncHTTPClient()
+    def curlFinished(): # for callbacks to call
+        global curl_inUse_clients
+        curl_inUse_clients -= 1
+        if curl_inUse_clients < 0:
+            # This shouldn't happen.  But if it does, don't let the effect 'run away'.
+            curl_inUse_clients = 0
 except: pass # fall back to the pure-Python one
 
 try:
@@ -2091,6 +2106,7 @@ document.forms[0].i.focus()
         # TODO: header_callback (run with each header line as it is received, and headers will be empty in the final response); streaming_callback (run with each chunk of data as it is received, and body and buffer will be empty in the final response), but how to abort a partial transfer if we realise we don't want it (e.g. large file we don't want to modify on site that doesn't mind client being redirected there directly)
 
     def doResponse(self,response,converterFlags,viewSource,isProxyRequest,phantomJS=False):
+        curlFinished()
         debuglog("doResponse"+self.debugExtras()+" isProxyRequest="+repr(isProxyRequest))
         self.restore_request_headers()
         do_pdftotext,do_epubtotext,do_epubtozip,do_mp3 = converterFlags
@@ -2383,6 +2399,7 @@ document.forms[0].i.focus()
                   method="HEAD", headers=self.request.headers, body=body,
                   callback=lambda r:self.headResponse(r,forPjs),follow_redirects=True)
     def headResponse(self,response,forPjs):
+        curlFinished()
         self.restore_request_headers()
         if hasattr(self,"original_referer"): # undo the change made above, in case it goes to sendRequest below
             self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers.get("Referer","")
@@ -2731,7 +2748,7 @@ def runFilter(cmd,text,callback,textmode=True):
         out = cmd(text)
         return IOLoop.instance().add_timeout(time.time(),lambda *args:callback(out,""))
     elif cmd.startswith("http://") or cmd.startswith("https://"):
-        return httpfetch(cmd,method="POST",body=text,callback=lambda r:callback(r.body,""))
+        return httpfetch(cmd,method="POST",body=text,callback=lambda r:(curlFinished(),callback(r.body,"")))
     def subprocess_thread():
         global helper_thread_count
         helper_thread_count += 1
@@ -3767,6 +3784,7 @@ class Dynamic_DNS_updater:
             threading.Thread(target=run,args=()).start()
             return
         def handleResponse(r):
+            curlFinished()
             if r.error or not self.currentIP in r.body:
                 return self.queryIP()
             # otherwise it looks like the IP is unchanged:
@@ -3776,13 +3794,14 @@ class Dynamic_DNS_updater:
             # some routers etc insist we send the non-auth'd request first, and the credentials only when prompted (that's what Lynx does with the -auth command line), TODO do we really need to do this every 60secs? (do it only if the other way gets an error??) but low-priority as this is all local-net stuff (and probably a dedicated link to the switch at that)
             if ip_url2_pwd_is_fname: pwd=open(ip_query_url2_pwd).read().strip() # re-read each time
             else: pwd = ip_query_url2_pwd
-            callback = lambda r:MyAsyncHTTPClient().fetch(ip_query_url2, callback=handleResponse, auth_username=ip_query_url2_user,auth_password=pwd)
+            callback = lambda r:(curlFinished(),MyAsyncHTTPClient().fetch(ip_query_url2, callback=handleResponse, auth_username=ip_query_url2_user,auth_password=pwd))
         else: callback = handleResponse
         MyAsyncHTTPClient().fetch(ip_query_url2, callback=callback)
     def queryIP(self):
         # Queries ip_query_url, and, after receiving a response (optionally via retries if ip_query_aggressive), sets a timeout to go back to queryLocalIP after ip_check_interval (not ip_check_interval2)
         debuglog("queryIP")
         def handleResponse(r):
+            curlFinished()
             if not r.error:
                 self.newIP(r.body.strip())
                 if self.aggressive_mode:
@@ -3900,7 +3919,9 @@ class checkServer:
             self.interval = FSU_set(not r.error,self.interval)
             if not fasterServer_up: self.client = None
             IOLoop.instance().add_timeout(time.time()+self.interval,lambda *args:checkServer())
-        if not self.client: self.client=MyAsyncHTTPClient()
+        if not self.client:
+            self.client=MyAsyncHTTPClient()
+            curlFinished() # we won't count it here
         self.client.fetch("http://"+options.fasterServer+"/ping",connect_timeout=1,request_timeout=1,user_agent="ping",callback=callback,use_gzip=False)
     def serverOK(self):
         # called when any chunk is available from the stream (normally once a second, but might catch up a few bytes if we've delayed for some reason)
