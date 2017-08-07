@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.244 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.245 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -929,10 +929,15 @@ helper_thread_count = 0
 nullLog = NullLogger()
 accessLog = BrowserLogger()
 
+def MyAsyncHTTPClient(): return AsyncHTTPClient()
 try:
     import pycurl # check it's there
-    AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
+    try: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",max_clients=1000) # TODO: we really want this 1000 (and the one below) to be configurable. But at least it's better than the default of 10 (some Tornado versions simply drop any excess without flagging errors)
+    except: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
     HTTPClient.configure("tornado.curl_httpclient.CurlHTTPClient")
+    def MyAsyncHTTPClient():
+        try: return AsyncHTTPClient(max_clients=1000)
+        except: return AsyncHTTPClient()
 except: pass # fall back to the pure-Python one
 
 try:
@@ -985,7 +990,7 @@ wsgi_mode = False
 def httpfetch(url,**kwargs):
     url = re.sub("[^ -~]+",lambda m:urllib.quote(m.group()),url) # sometimes needed to get out of redirect loops
     if not wsgi_mode:
-        return AsyncHTTPClient().fetch(url,**kwargs)
+        return MyAsyncHTTPClient().fetch(url,**kwargs)
     callback = kwargs['callback']
     del kwargs['callback']
     try: r = HTTPClient_Fixed().fetch(url,**kwargs)
@@ -1142,12 +1147,15 @@ def webdriver_checkServe(*args):
         if not webdriver_runner[i].thread_running:
             if not webdriver_queue: return
             url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback = webdriver_queue.pop(0)
+            debuglog("Starting fetch of "+url+" on webdriver instance "+str(i))
             webdriver_referer[i]=referer
             webdriver_via[i]=via
             webdriver_runner[i].fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback)
+    if webdriver_queue: debuglog("All PhantomJS_instances busy; %d items still in queue" % len(webdriver_queue))
 def webdriver_fetch(url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback):
     if wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,body,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do PhantomJS anyway; where else might we have threaded wsgi?  PhantomJS really is better run in non-wsgi mode anyway, so can PhantomJS_reproxy)
     webdriver_queue.append((url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback))
+    debuglog("webdriver_queue len=%d after adding %s" % (len(webdriver_queue),url))
     webdriver_checkServe()
 
 def fixServerHeader(i):
@@ -3768,9 +3776,9 @@ class Dynamic_DNS_updater:
             # some routers etc insist we send the non-auth'd request first, and the credentials only when prompted (that's what Lynx does with the -auth command line), TODO do we really need to do this every 60secs? (do it only if the other way gets an error??) but low-priority as this is all local-net stuff (and probably a dedicated link to the switch at that)
             if ip_url2_pwd_is_fname: pwd=open(ip_query_url2_pwd).read().strip() # re-read each time
             else: pwd = ip_query_url2_pwd
-            callback = lambda r:AsyncHTTPClient().fetch(ip_query_url2, callback=handleResponse, auth_username=ip_query_url2_user,auth_password=pwd)
+            callback = lambda r:MyAsyncHTTPClient().fetch(ip_query_url2, callback=handleResponse, auth_username=ip_query_url2_user,auth_password=pwd)
         else: callback = handleResponse
-        AsyncHTTPClient().fetch(ip_query_url2, callback=callback)
+        MyAsyncHTTPClient().fetch(ip_query_url2, callback=callback)
     def queryIP(self):
         # Queries ip_query_url, and, after receiving a response (optionally via retries if ip_query_aggressive), sets a timeout to go back to queryLocalIP after ip_check_interval (not ip_check_interval2)
         debuglog("queryIP")
@@ -3786,7 +3794,7 @@ class Dynamic_DNS_updater:
                     self.aggressive_mode = True
                 return self.queryIP()
             IOLoop.instance().add_timeout(time.time()+options.ip_check_interval,lambda *args:self.queryLocalIP())
-        AsyncHTTPClient().fetch(options.ip_query_url, callback=handleResponse)
+        MyAsyncHTTPClient().fetch(options.ip_query_url, callback=handleResponse)
     def newIP(self,ip):
         debuglog("newIP "+ip)
         if ip==self.currentIP and (not options.ip_force_interval or time.time()<self.forceTime): return
@@ -3892,7 +3900,7 @@ class checkServer:
             self.interval = FSU_set(not r.error,self.interval)
             if not fasterServer_up: self.client = None
             IOLoop.instance().add_timeout(time.time()+self.interval,lambda *args:checkServer())
-        if not self.client: self.client=AsyncHTTPClient()
+        if not self.client: self.client=MyAsyncHTTPClient()
         self.client.fetch("http://"+options.fasterServer+"/ping",connect_timeout=1,request_timeout=1,user_agent="ping",callback=callback,use_gzip=False)
     def serverOK(self):
         # called when any chunk is available from the stream (normally once a second, but might catch up a few bytes if we've delayed for some reason)
