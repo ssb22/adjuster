@@ -294,6 +294,7 @@ define("loadBalancer",default=False,help="Set this to True if you have a default
 # of define()s affects the HTML order only; --help will be
 # sorted alphabetically by Tornado.)
 heading("Logging options")
+define("profile",default=0,help="Log timing statistics every N seconds")
 define("renderLog",default=False,help="Whether or not to log requests for character-set renderer images. Note that this can generate a LOT of log entries on some pages.")
 define("logUnsupported",default=False,help="Whether or not to log attempts at requests using unsupported HTTP methods. Note that this can sometimes generate nearly as many log entries as renderLog if some browser (or malware) tries to do WebDAV PROPFIND requests on each of the images.")
 define("logRedirectFiles",default=True,help="Whether or not to log requests that result in the browser being simply redirected to the original site when the redirectFiles option is on.") # (Since this still results in a HEAD request being sent to the remote site, this option defaults to True in case you need it to diagnose "fair use of remote site" problems)
@@ -597,6 +598,29 @@ def preprocessOptions():
         global miniupnpc ; import miniupnpc # sudo pip install miniupnpc or apt-get install python-miniupnpc
         miniupnpc = miniupnpc.UPnP()
         miniupnpc.discoverdelay=200
+    if options.profile:
+        global cProfile, pstats, cStringIO
+        import cProfile, pstats, cStringIO
+        setProfile()
+
+def setProfile():
+    global theProfiler
+    theProfiler = cProfile.Profile()
+    IOLoop.instance().add_timeout(time.time()+options.profile,lambda *args:pollProfile())
+    theProfiler.enable()
+def pollProfile():
+    theProfiler.disable()
+    s = cStringIO.StringIO()
+    pstats.Stats(theProfiler,stream=s).sort_stats('cumulative').print_stats()
+    pr = "\n".join(x for x in s.getvalue().split("\n")[:8] if x and not "Ordered by" in x)
+    if options.PhantomJS:
+        global webdriver_lambda,webdriver_mu
+        pr += "\nPhantomJS %d/%d now busy; queue %d (%d arrived, %d served)" % (sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running),options.PhantomJS_instances,len(webdriver_queue),webdriver_lambda,webdriver_mu)
+        webdriver_lambda = webdriver_mu = 0
+        # TODO: also measure lambda/mu of other threads e.g. htmlFilter ?
+    if options.background: logging.info(pr)
+    else: sys.stderr.write(time.strftime("%X")+pr+"\n")
+    setProfile()
 
 def serverControl():
     if options.install:
@@ -1149,6 +1173,7 @@ def get_new_webdriver(index):
 webdriver_runner = [] ; webdriver_body_to_send = []
 webdriver_referer = [] ; webdriver_via = []
 webdriver_inProgress = [] ; webdriver_queue = []
+webdriver_lambda = webdriver_mu = 0
 def init_webdrivers():
     for i in xrange(options.PhantomJS_instances):
         webdriver_runner.append(WebdriverRunner(len(webdriver_runner)))
@@ -1166,10 +1191,12 @@ def webdriver_checkServe(*args):
             webdriver_referer[i]=referer
             webdriver_via[i]=via
             webdriver_runner[i].fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback)
+            global webdriver_mu ; webdriver_mu += 1
     if webdriver_queue: debuglog("All PhantomJS_instances busy; %d items still in queue" % len(webdriver_queue))
 def webdriver_fetch(url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback):
     if wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,body,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do PhantomJS anyway; where else might we have threaded wsgi?  PhantomJS really is better run in non-wsgi mode anyway, so can PhantomJS_reproxy)
     webdriver_queue.append((url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback))
+    global webdriver_lambda ; webdriver_lambda += 1
     debuglog("webdriver_queue len=%d after adding %s" % (len(webdriver_queue),url))
     webdriver_checkServe()
 
@@ -2122,7 +2149,8 @@ document.forms[0].i.focus()
                 self.avoid_gzip = True
                 return self.sendRequest(converterFlags,viewSource,isProxyRequest,False)
             tryFetch = self.urlToFetch
-            if options.upstream_proxy: tryFetch += " via "+options.upstream_proxy
+            if self.isSslUpstream: tryFetch += " (upstream of "+options.upstream_proxy+")"
+            elif options.upstream_proxy: tryFetch += " via "+options.upstream_proxy
             logging.error(error+" when fetching "+tryFetch) # better log it for the admin, especially if options.upstream_proxy, because it might be an upstream proxy malfunction
             error = """%s<h1>Error</h1>%s<br>Was trying to fetch %s<hr>This is %s</body></html>""" % (htmlhead("Error"),error,ampEncode(tryFetch),serverName_html)
             self.set_status(504)
