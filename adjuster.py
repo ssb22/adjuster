@@ -1362,6 +1362,9 @@ class RequestForwarder(RequestHandler):
             host,port = "127.0.0.1",self.WA_connectPort
             debuglog("Rerouting CONNECT to "+host+":"+str(port))
         upstream.connect((host, int(port)), lambda *args:(client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data)),upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data)),client.write('HTTP/1.0 200 Connection established\r\n\r\n')))
+        # Tornado _log is not called until finish(); it would be useful to log the in-process connection at this point
+        try: self._log()
+        except: pass # not all Tornado versions support this?
       else: self.set_status(400),self.myfinish()
     def myfinish(self):
         debuglog("myfinish"+self.debugExtras())
@@ -2105,7 +2108,8 @@ document.forms[0].i.focus()
         if options.PhantomJS and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"]:
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
-            if body: body = self.request.method, body
+            if body or self.request.method.lower()=="post":
+                body = self.request.method, body
             clickElementID = clickLinkText = None
             if type(viewSource)==tuple:
                 idEtc,viewSource = viewSource
@@ -2127,6 +2131,7 @@ document.forms[0].i.focus()
                   proxy_host=ph, proxy_port=pp,
                   use_gzip=enable_gzip and not hasattr(self,"avoid_gzip"),
                   method=self.request.method, headers=self.request.headers, body=body,
+                  allow_nonstandard_methods=True, # (e.g. POST with empty body)
                   validate_cert=False, # TODO: options.validate_certs ? but (1) there's little point unless you also secure your connection to the adjuster (or run it on localhost), (2) we haven't sorted out how to gracefully return if the validation fails, (3) True will cause failure if we're on a VM/container without a decent root-certs configuration
                   callback=lambda r:self.doResponse(r,converterFlags,viewSource,isProxyRequest),follow_redirects=follow_redirects)
         # (Don't have to worry about auth_username/auth_password: should just work by passing on the headers)
