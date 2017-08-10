@@ -144,9 +144,9 @@ define("deleteOmit",multiple=True,default="iPhone,iPad,Android,Macintosh",help="
 define("codeChanges",help="Several lines of text specifying changes that are to be made to all HTML and Javascript code files on certain sites; use as a last resort for fixing a site's scripts. This option is best set in the configuration file and surrounded by r\"\"\"...\"\"\". The first line is a URL prefix (just \"http\" matches all); append a # to match an exact URL instead of a prefix, and #+number (e.g. #1 or #2) to match an exact URL and perform the change only that number of times in the page.  The second line is a string of code to search for, and the third is a string to replace it with. Further groups of URL/search/replace lines may follow; blank lines and lines starting with # are ignored. If the 'URL prefix' starts with a * then it is instead a string to search for within the code of the document body; any documents containing this code will match; thus it's possible to write rules of the form 'if the code contains A, then replace B with C'. This processing takes place before any 'delete' option takes effect so it's possible to pick up on things that will be deleted, and it occurs after the domain rewriting so it's possible to change rewritten domains in the search/replace strings (but the URL prefix above should use the non-adjusted version).")
 define("boxPrompt",default="Website to adjust",help="What to say before the URL box (when shown); may include HTML; for example if you've configured Web Adjuster to perform a single specialist change that can be described more precisely with some word other than 'adjust', you might want to set this.")
 define("viewsource",default=False,help="Provide a \"view source\" option. If set, you can see a page's pre-adjustment source code, plus client and server headers, by adding \".viewsource\" to the end of a URL (after any query parameters etc)")
-define("htmlonly_mode",default=True,help="Provide a checkbox allowing the user to see pages in \"HTML-only mode\", stripping out most images, scripts and CSS; this might be a useful fallback for very slow connections if a site's pages bring in many external files and the browser cannot pipeline its requests. The checkbox is displayed by the URL box, not at the bottom of every page.") # if no pipeline, a slow UPLINK can be a problem, especially if many cookies have to be sent with each request for a js/css/gif/etc.
+define("htmlonly_mode",default=True,help="Provide a checkbox allowing the user to see pages in \"HTML-only mode\", stripping out images, scripts and CSS; this might be a useful fallback for very slow connections if a site's pages bring in many external files and the browser cannot pipeline its requests. The checkbox is displayed by the URL box, not at the bottom of every page.") # if no pipeline, a slow UPLINK can be a problem, especially if many cookies have to be sent with each request for a js/css/gif/etc.
 # (and if wildcard_dns=False and we're domain multiplexing, our domain can accumulate a lot of cookies, causing requests to take more uplink bandwidth, TODO: do something about this?)
-# Above says "most" not "all" because some stripping not finished (see TODO comments) and because some scripts/CSS added by Web Adjuster itself are not stripped
+define("htmlonly_css",default=False,help="Leave images and CSS in the page when in \"HTML-only mode\", removing only scripts")
 define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted website to put a special redirection page to handle mailto: links, showing the user the contents of the link first (in case a mail client is not set up). This must be made up of URL-safe characters starting with a / and should be a path that is unlikely to occur on normal websites and that does not conflict with renderPath. If this option is empty, mailto: links are not changed. (Currently, only plain HTML mailto: links are changed by this function; Javascript-computed ones are not.)")
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page, to place the suggested subject and/or body into a draft SMS message instead of an email.")
 
@@ -2352,7 +2352,7 @@ document.forms[0].i.focus()
                   else: url = domain_process(self.urlToFetch,cookie_host,True,self.urlToFetch.startswith("https"))
                   adjustList.append(AddClickCodes(url))
               adjustList.append(StripJSEtc(self.urlToFetch,transparent=self.auto_htmlOnlyMode(isProxyRequest)))
-              adjustList.append(transform_in_selected_tag("style",lambda s:"",True)) # strips JS events also
+              if not options.htmlonly_css: adjustList.append(transform_in_selected_tag("style",lambda s:"",True)) # strips JS events also (TODO: support this in htmlonly_css ? although htmlonly_css is mostly a 'developer' option)
           elif options.upstream_guard:
             # don't let upstream scripts get confused by our cookies (e.g. if the site is running Web Adjuster as well)
             # TODO: do it in script files also?
@@ -2953,10 +2953,10 @@ class StripJSEtc:
         self.parser = parser
         self.suppressing = False
     def handle_starttag(self, tag, attrs):
-        if tag=="img":
+        if tag=="img" and not options.htmlonly_css:
             self.parser.addDataFromTagHandler(dict(attrs).get("alt",""),1)
             return True
-        elif tag in ['script','style'] or (tag=="noscript" and options.PhantomJS): # (in PhantomJS mode we want to suppress 'noscript' alternatives to document.write()s or we'll get both; anyway some versions of PhantomJS will ampersand-encode anything inside 'noscript' when we call find_element_by_xpath)
+        elif tag=='script' or (tag=="noscript" and options.PhantomJS) or (tag=='style' and not options.htmlonly_css): # (in PhantomJS mode we want to suppress 'noscript' alternatives to document.write()s or we'll get both; anyway some versions of PhantomJS will ampersand-encode anything inside 'noscript' when we call find_element_by_xpath)
             self.suppressing = True ; return True
         elif tag=="body":
             if not self.transparent:
@@ -2967,12 +2967,12 @@ class StripJSEtc:
             attrsD = dict(attrs)
             if attrsD.get("href","").startswith("javascript:"):
                 attrsD["href"] = "#" ; return tag,attrsD
-        return self.suppressing or tag in ['link','noscript']
+        return self.suppressing or tag=='noscript' or (tag=='link' and not options.htmlonly_css)
     def handle_endtag(self, tag):
         if tag=="head":
             self.parser.addDataFromTagHandler('<meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head>',True) # TODO: document that htmlonly_mode adds this; might also want to have it when CSS is on
             return True # suppress </head> because we've done it ourselves in the above (had to or addDataFromTagHandler would have added it AFTER the closing tag)
-        if tag in ['script','style'] or (tag=="noscript" and options.PhantomJS):
+        if tag=='script' or (tag=='style' and not options.htmlonly_css) or (tag=="noscript" and options.PhantomJS):
             self.suppressing = False ; return True
         elif tag=='noscript': return True
         else: return self.suppressing
