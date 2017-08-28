@@ -86,7 +86,7 @@ define("host_suffix",default=getfqdn_default,help="The last part of the domain n
 # TODO at lower priority: empty (item in) host_suffix to match ALL (unknown) hosts, including IP hosts and no Host: header.  Fetch the corresponding default_site (empty means use cookies), and adjust it USING THE HOST SPECIFIED BY THE BROWSER to rewrite the links.  This could be useful if setting up an adjuster with NO domain name (IP only).  Could periodically upload our public IP to a separate static website via FTP/SSH/etc in case dynamic DNS is not reliable.  But if IP address has to change then all cookies would be 'lost'.  Also, if no password is set then IP-based "webserver probes" could cause us to send malicious-looking traffic to default_site.
 # TODO: Could do different hosts on different ports, which might also be useful if you have a domain name but only one.  Would have to check for cookie sharing (or just say "do this only if you don't mind it"); fasterServer would have to forward to same as incoming port.  Might be a problem if some users' firewalls disallow outgoing Web traffic to non-standard ports.
 # (In the current code, setting host_suffix to a public IP address should work: most browsers set Host: to the IP if requesting a URL by IP, and then the IP will be used in rewrites if it's the first thing specified for its corresponding default_site.  But adjuster will need to be reconfigured and restarted on every change of the public IP.)
-define("default_site",help="The site to fetch from if nothing is specified before host_suffix, e.g. example.org (add .0 at the end to specify an HTTPS connection, but see the 'prohibit' option). If default_site is omitted then the user is given a URL box when no site is specified.") # using .0 here rather than https:// prefix because / is a separator: see the host_suffix help text (TODO: change the separator? but don't break existing installations)
+define("default_site",help="The site to fetch from if nothing is specified before host_suffix, e.g. example.org (add .0 at the end to specify an HTTPS connection, but see the 'prohibit' option). If default_site is omitted then the user is given a URL box when no site is specified; if it is 'error' then an error is shown in place of the URL box (the text of the error depends on the settings of wildcard_dns and real_proxy).") # using .0 here rather than https:// prefix because / is a separator: see the host_suffix help text (TODO: change the separator? but don't break existing installations)
 define("own_server",help="Where to find your own web server. This can be something like localhost:1234 or 192.168.0.2:1234. If it is set, then any request that does not match host_suffix will be passed to that server to deal with, unless real_proxy is in effect. You can use this option to put your existing server on the same public port without much reconfiguration. Note: the password option will NOT password-protect your own_server. (You might gain a little responsiveness if you instead set up nginx or similar to direct incoming requests appropriately; see comments in adjuster.py for example nginx settings.)")
 # without much reconfiguration: might just need to change which port number it listens on.
 # Alternatively you could set nginx (or similar) to reverse-proxy the host_suffix domains to the adjuster, e.g.:
@@ -731,7 +731,7 @@ def main():
         Dynamic_DNS_updater()
     try:
         import signal
-        signal.signal(signal.SIGTERM, stopServer)
+        signal.signal(signal.SIGTERM, lambda *args:stopServer("SIGTERM received"))
     except: pass # signal not supported on this platform?
     if options.background: logging.info("Server starting")
     else: set_title("adjuster")
@@ -788,7 +788,7 @@ def listen_on_port(application,port,address,browser,**kwargs):
             # there's probably another adjuster instance, in which case we probably want to let the browser open a new window and let our listen() fail
             dropPrivileges()
             runBrowser()
-        raise
+        raise Exception("Can't open port "+repr(port)+" (tried for 3 seconds)")
 
 def workaround_raspbian_IPv6_bug():
     """Some versions of Raspbian apparently boot with IPv6 enabled but later don't configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However,if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
@@ -917,7 +917,7 @@ class BrowserLogger:
     if req.method=="CONNECT" or req.uri.startswith("http://") or req.uri.startswith("https://"): host="" # URI will have everything
     elif hasattr(req,"suppress_logger_host_convert"): host = req.host
     else: host=convert_to_real_host(req.host,ch)
-    if host==-1: host=req.host # for own_server (but this shouldn't happen as it was turned into a CONNECT; we don't mind not logging own_server because it should do so itself)
+    if host in [-1,"error"]: host=req.host # -1 for own_server (but this shouldn't happen as it was turned into a CONNECT; we don't mind not logging own_server because it should do so itself)
     elif host: host=protocolWithHost(host)
     # elif host==0: host="http://"+ch # e.g. adjusting one of the ownServer_if_not_root pages (TODO: uncomment this?)
     else: host=""
@@ -1175,12 +1175,17 @@ webdriver_referer = [] ; webdriver_via = []
 webdriver_inProgress = [] ; webdriver_queue = []
 webdriver_lambda = webdriver_mu = 0
 def init_webdrivers():
+    if not options.background: sys.stderr.write("Starting webdrivers")
     for i in xrange(options.PhantomJS_instances):
+        if not options.background:
+            if i%10 or not i: sys.stderr.write(".")
+            else: sys.stderr.write(repr(i))
         webdriver_runner.append(WebdriverRunner(len(webdriver_runner)))
         webdriver_body_to_send.append(None)
         webdriver_referer.append(None)
         webdriver_inProgress.append(set())
         webdriver_via.append(None)
+    if not options.background: sys.stderr.write(" done\n")
 def webdriver_checkServe(*args):
     # how many queue items can be served right now?
     for i in xrange(options.PhantomJS_instances):
@@ -1380,7 +1385,7 @@ class RequestForwarder(RequestHandler):
             except: pass
 
     def redirect(self,redir,status=301):
-        debuglog("redirect ("+repr(status)+" to "+redir+")"+self.debugExtras())
+        debuglog("redirect ("+repr(status)+" to "+repr(redir)+")"+self.debugExtras())
         self.set_status(status)
         for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # so redirect() can be called AFTER a site's headers are copied in
         self.add_header("Location",redir)
@@ -1707,6 +1712,14 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         self.addCookieFromURL()
         self.doResponse2(urlbox_html(self.htmlOnlyMode(),self.cssOptionsHtml(),self.getArg("q") or self.getArg("d")),True,False) # TODO: run htmlFilter on it also? (render etc will be done by doResponse2)
 
+    def serve_hostError(self):
+        l = []
+        if options.wildcard_dns: l.append("prefixing its domain with the one you want to adjust")
+        if options.real_proxy: l.append("setting it as a <b>proxy</b>")
+        if l: err="This adjuster can be used only by "+", or ".join(l)+"."
+        else: err="This adjuster cannot be used. Check the configuration."
+        self.doResponse2(htmlhead()+err+'</body></html>',True,False) # TODO: run htmlFilter on it also? (render etc will be done by doResponse2)
+
     def serve_mailtoPage(self):
         uri = self.request.uri[len(options.mailtoPath):].replace('%%+','%') # we encode % as %%+ to stop browsers and transcoders from arbitrarily decoding e.g. %26 to &
         if '?' in uri:
@@ -1974,6 +1987,8 @@ document.forms[0].i.focus()
           if options.mailtoPath and self.request.uri.startswith(options.mailtoPath): return self.serve_mailtoPage()
           if options.submitPath and self.request.uri.startswith(submitPathForTest): return self.serve_submitPage()
           self.request.uri = _olduri
+        if realHost=="error" and not maybeRobots:
+            return self.serve_hostError()
         if not realHost: # default_site(s) not set
             if options.own_server and options.ownServer_if_not_root and len(self.request.path)>1: return self.forwardFor(options.own_server)
             elif maybeRobots: return self.serveRobots()
@@ -2035,7 +2050,8 @@ document.forms[0].i.focus()
                 while i<len(val) and val[i] in string.digits: i += 1
             if i==start: return val
             r=convert_to_real_host(val[start:i],self.cookie_host())
-            if r==-1: return val # shouldn't happen
+            if r in [-1,"error"]: # shouldn't happen
+                return val # (leave unchanged if it does)
             elif not r: r="" # ensure it's a string
             elif r.endswith(".0"): # undo HTTPS hack
                 r = r[:-2]
@@ -2239,7 +2255,8 @@ document.forms[0].i.focus()
                 if do_html_process: headers_to_add[-1]=((name,value.replace(charset,"utf-8"))) # we'll be converting it
             elif do_html_process: headers_to_add[-1]=((name,value+"; charset=utf-8")) # ditto (don't leave as latin-1)
           # TODO: if there's no content-type header, send one anyway, with a charset
-        self.set_status(response.code) # (not before here! as might return doResponse2 above which will need status 200.  Redirect without Location gets "unknown error 0x80072f76" on IEMobile 6.)
+        try: self.set_status(response.code) # (not before here! as might return doResponse2 above which will need status 200.  Redirect without Location gets "unknown error 0x80072f76" on IEMobile 6.)
+        except ValueError: self.set_status(response.code,"Unknown") # some Tornado versions raise ValueError if given a code they can't look up in a 'reason' dict
         if response.code >= 400 and response.body and response.body[:5].lower()=="<html": # some content distribution networks are misconfigured to serve their permission error messages with the Content-Type and Content-Disposition headers of the original file, so the browser won't realise it's HTML to be displayed if you try to fetch the link directly.  This should work around it (but should rarely be needed now that headResponse() is also 'aware' of this problem for redirectFiles)
             for name,value in headers_to_add:
                 if name=='Content-Type' and not 'text/html' in value:
@@ -2810,10 +2827,13 @@ def runBrowser(*args):
         helper_thread_count += 1
         os.system(options.browser)
         helper_thread_count -= 1
-        stopServer()
+        stopServer("Browser command finished")
     threading.Thread(target=browser_thread,args=()).start()
 
-def stopServer(*args): IOLoop.instance().add_callback(lambda *args:IOLoop.instance().stop())
+def stopServer(reason=None):
+    if options.background: logging.info(reason)
+    else: sys.stderr.write(reason+"\n")
+    IOLoop.instance().add_callback(lambda *args:IOLoop.instance().stop())
 
 def json_reEscape(u8str): return json.dumps(u8str.decode('utf-8','replace'))[1:-1] # omit ""s (necessary as we might not have the whole string here)
 
