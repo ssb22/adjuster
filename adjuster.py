@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.245 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.246 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -168,7 +168,7 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 heading("Javascript execution options")
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  If you have multiple users, beware logins etc may be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
 define("PhantomJS_instances",default=1,help="The number of virtual browsers to load when PhantomJS is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
-define("PhantomJS_reproxy",default=True,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster. This allows PhantomJS to be used for POST forms, fixes its Referer headers, monitors its AJAX for early completion, and prevents problems with file downloads.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with PhantomJS) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
+define("PhantomJS_reproxy",default=True,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster on a different port. This allows PhantomJS to be used for POST forms, fixes its Referer headers, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a PhantomJS instance if the remote server is down.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with PhantomJS) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS_reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
@@ -1081,27 +1081,27 @@ class WebdriverRunner:
         self.index = index
         self.thread_running = False
         self.theWebDriver = get_new_webdriver(index)
-    def fetch(self,url,body,clickElementID,clickLinkText,asScreenshot,callback):
+    def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback):
         assert not self.thread_running, "webdriver_checkServe did WHAT?"
         self.thread_running = True
-        threading.Thread(target=wd_fetch,args=(url,body,clickElementID,clickLinkText,asScreenshot,callback,self)).start()
-def wd_fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback,manager):
+        threading.Thread(target=wd_fetch,args=(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,self)).start()
+def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,manager):
     global helper_thread_count
     helper_thread_count += 1
-    r = _wd_fetch(manager,url,body,clickElementID,clickLinkText,asScreenshot)
+    r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
     manager.thread_running = False
     IOLoop.instance().add_callback(webdriver_checkServe)
     IOLoop.instance().add_callback(lambda *args:callback(r))
     helper_thread_count -= 1
-def _wd_fetch(manager,url,body,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
+def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
     import tornado.httputil
     wd = manager.theWebDriver
     try: currentUrl = wd.current_url
     except: currentUrl = "" # PhantomJS Issue #13114: unconditional reload for now
-    if body or not re.sub('#.*','',currentUrl) == url:
-        if body:
+    if prefetched or not re.sub('#.*','',currentUrl) == url:
+        if prefetched:
             wd.get("about:blank") # ensure no race condition with current page's XMLHttpRequests
-            webdriver_body_to_send[manager.index] = body
+            webdriver_prefetched[manager.index] = prefetched
         webdriver_inProgress[manager.index].clear() # race condition with start of next 'get' if we haven't done about:blank, but worst case is we'll wait a bit too long for page to finish
         wd.get(url) # waits for onload, but we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
         if options.PhantomJS_reproxy:
@@ -1170,8 +1170,8 @@ def get_new_webdriver(index):
         except: pass
     import atexit ; atexit.register(quit_wd)
     return wd
-webdriver_runner = [] ; webdriver_body_to_send = []
-webdriver_referer = [] ; webdriver_via = []
+webdriver_runner = [] ; webdriver_prefetched = []
+webdriver_via = []
 webdriver_inProgress = [] ; webdriver_queue = []
 webdriver_lambda = webdriver_mu = 0
 def init_webdrivers():
@@ -1181,8 +1181,7 @@ def init_webdrivers():
             if i%10 or not i: sys.stderr.write(".")
             else: sys.stderr.write(repr(i))
         webdriver_runner.append(WebdriverRunner(len(webdriver_runner)))
-        webdriver_body_to_send.append(None)
-        webdriver_referer.append(None)
+        webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
         webdriver_via.append(None)
     if not options.background: sys.stderr.write(" done\n")
@@ -1191,16 +1190,15 @@ def webdriver_checkServe(*args):
     for i in xrange(options.PhantomJS_instances):
         if not webdriver_runner[i].thread_running:
             if not webdriver_queue: return
-            url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback = webdriver_queue.pop(0)
+            url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback = webdriver_queue.pop(0)
             debuglog("Starting fetch of "+url+" on webdriver instance "+str(i))
-            webdriver_referer[i]=referer
             webdriver_via[i]=via
-            webdriver_runner[i].fetch(url,body,clickElementID,clickLinkText,asScreenshot,callback)
+            webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback)
             global webdriver_mu ; webdriver_mu += 1
     if webdriver_queue: debuglog("All PhantomJS_instances busy; %d items still in queue" % len(webdriver_queue))
-def webdriver_fetch(url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback):
-    if wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,body,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do PhantomJS anyway; where else might we have threaded wsgi?  PhantomJS really is better run in non-wsgi mode anyway, so can PhantomJS_reproxy)
-    webdriver_queue.append((url,body,clickElementID,clickLinkText,referer,via,asScreenshot,callback))
+def webdriver_fetch(url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback):
+    if wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do PhantomJS anyway; where else might we have threaded wsgi?  PhantomJS really is better run in non-wsgi mode anyway, so can PhantomJS_reproxy)
+    webdriver_queue.append((url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback))
     global webdriver_lambda ; webdriver_lambda += 1
     debuglog("webdriver_queue len=%d after adding %s" % (len(webdriver_queue),url))
     webdriver_checkServe()
@@ -2112,12 +2110,11 @@ document.forms[0].i.focus()
         if hasattr(self.request,"old_cookie"): self.request.headers["Cookie"] = self.request.old_cookie # + put this back so we can refer to our own cookies
     
     def sendRequest(self,converterFlags,viewSource,isProxyRequest,follow_redirects):
+        if self.isPjsUpstream and webdriver_prefetched[self.WA_PjsIndex]:
+            r = webdriver_prefetched[self.WA_PjsIndex]
+            webdriver_prefetched[self.WA_PjsIndex] = None
+            return self.doResponse(r,converterFlags,viewSource,isProxyRequest)
         body = self.request.body
-        if self.isPjsUpstream:
-            if webdriver_body_to_send[self.WA_PjsIndex]:
-                self.request.method,body = webdriver_body_to_send[self.WA_PjsIndex]
-                webdriver_body_to_send[self.WA_PjsIndex] = None
-            if webdriver_referer[self.WA_PjsIndex]: self.request.headers["Referer"]=webdriver_referer[self.WA_PjsIndex]
         if not body: body = None # required by some Tornado versions
         if self.isSslUpstream: ph,pp = None,None
         else: ph,pp = upstream_proxy_host,upstream_proxy_port
@@ -2133,9 +2130,28 @@ document.forms[0].i.focus()
                     clickElementID = idEtc[1:]
                 elif idEtc.startswith('-'):
                     clickLinkText = idEtc[1:]
-            webdriver_fetch(self.urlToFetch,body,
+            if options.PhantomJS_reproxy:
+                # prefetch the page, don't tie up a PJS until
+                # we have the page in hand
+                httpfetch(self.urlToFetch,
+                  connect_timeout=60,request_timeout=120,
+                  proxy_host=ph, proxy_port=pp,
+                  # TODO: use_gzip=enable_gzip, # but will need to retry without it if it fails
+                  method=self.request.method,
+                  allow_nonstandard_methods=True,
+                  headers=self.request.headers, body=body,
+                  validate_cert=False,
+                  callback=lambda prefetched_response:
+                    webdriver_fetch(self.urlToFetch,
+                                    prefetched_response,
                         clickElementID, clickLinkText,
-                        self.request.headers.get("Referer",""),
+                        via,viewSource=="screenshot",
+                        callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True))
+,
+                  follow_redirects=False)
+            else: # no reproxy: can't prefetch
+                webdriver_fetch(self.urlToFetch,None,
+                        clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
                         callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True))
         else:
