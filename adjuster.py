@@ -2121,7 +2121,7 @@ document.forms[0].i.focus()
         if not body: body = None # required by some Tornado versions
         if self.isSslUpstream: ph,pp = None,None
         else: ph,pp = upstream_proxy_host,upstream_proxy_port
-        if options.PhantomJS and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"]:
+        if options.PhantomJS and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and not self.request.method.lower()=="head":
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
             if body or self.request.method.lower()=="post":
@@ -2133,13 +2133,11 @@ document.forms[0].i.focus()
                     clickElementID = idEtc[1:]
                 elif idEtc.startswith('-'):
                     clickLinkText = idEtc[1:]
-            if self.request.method.lower()=="head": self.myfinish() # don't actually run a webdriver just for HEAD
-            else: webdriver_fetch(self.urlToFetch,body,
-                            clickElementID, clickLinkText,
-                            self.request.headers.get("Referer",""),
-                            via,
-                            viewSource=="screenshot",
-                            callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True))
+            webdriver_fetch(self.urlToFetch,body,
+                        clickElementID, clickLinkText,
+                        self.request.headers.get("Referer",""),
+                        via,viewSource=="screenshot",
+                        callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True))
         else:
             if options.PhantomJS and self.isPjsUpstream and webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
             httpfetch(self.urlToFetch,
