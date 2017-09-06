@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.246 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.247 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -53,6 +53,9 @@ else:
     import tornado.options, tornado.iostream
     from tornado.options import define,options
     def heading(h): pass
+    if not __name__ == "__main__":
+        # we may be being imported by an extension, and some Tornado versions don't compile if 'define' is run twice
+        def define(*args,**kwargs): pass
 getfqdn_default = "is the machine's domain name" # default is ... (avoid calling getfqdn unnecessarily, as the server might be offline/experimental and we don't want to block on an nslookup with every adjuster start)
 
 heading("General options")
@@ -177,11 +180,13 @@ define("PhantomJS_jslinks",default=True,help="When PhantomJS is in use, handle s
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
 define("restart",default=False,help="If True, try to terminate any other process listening on our port number before we start (Unix only). Useful if Web Adjuster is running in the background and you want to quickly restart it with new options. Note that no check is made to make sure the other process is a copy of Web Adjuster; whatever it is, if it has our port open, it is asked to stop.")
-define("stop",default=False,help="Like 'restart', but don't replace the other process after stopping it. This option can be used to stop a background server (if it's configured with the same port number) without starting a new one. Unix only.")
+define("stop",default=False,help="Like 'restart', but don't replace the other process after stopping it. This option can be used to stop a background server (if it's configured with the same port number) without starting a new one. Unix only.") # "stop" overrides "restart", so if "restart" is set in a configuration file then you can still use "stop" on the command line
 define("install",default=False,help="Try to install the program in the current user's Unix crontab as an @reboot entry, unless it's already there.  The arguments of the cron entry will be the same as the command line, with no directory changes, so make sure you are in the home directory before doing this.  The program will continue to run normally after the installation attempt.  (If you are on Cygwin then you might need to run cron-config also.)")
 define("watchdog",default=0,help="(Linux only) Ping the system's watchdog every this number of seconds. This means the watchdog can reboot the system if for any reason Web Adjuster stops functioning, provided that no other program is pinging the watchdog. The default value of 0 means do not ping the watchdog.") # This option might not be suitable for a system whose watchdog cannot be set to wait a few extra seconds for a very complex page to be parsed (the worst case is where the program is just about to ping the watchdog when it gets a high-CPU request; the allowed delay time is the difference between the ping interval and the watchdog's \"heartbeat\" timeout, and this difference can be maximised by setting the ping interval to 1 although this does mean Adjuster will wake every second).  But see watchdogWait.
 define("watchdogWait",default=0,help="When the watchdog option is set, wait this number of seconds before stopping the watchdog pings. This causes the watchdog pings to be sent from a separate thread and therefore not stopped when the main thread is busy; they are stopped only when the main thread has not responded for watchdogWait seconds. This can be used to work around the limitations of a hardware watchdog that cannot be set to wait that long.") # such as the Raspberry Pi's Broadcom chip which defaults to 10 seconds and has max 15; you could say watchdog=5 and watchdogWait=60
 define("browser",help="The Web browser command to run. If this is set, Web Adjuster will run the specified command (which is assumed to be a web browser), and will exit when this browser exits. This is useful in conjunction with --real_proxy to have a personal proxy run with the browser. You still need to set the browser to use the proxy; this can sometimes be done via browser command line or environment variables.")
+define("run",help="A command to run that is not a browser. If set, Web Adjuster will run the specified command and will restart it if it stops. The command will be stopped when Web Adjuster is shut down. This could be useful, for example, to run an upstream proxy.")
+define("runWait",default=1,help="The number of seconds to wait before restarting the 'run' command if it fails")
 define("ssh_proxy",help="host[:port][,URL] which, if set, can help to proxy SSH connections over HTTP if you need to perform server administration from a place with port restrictions.  See comments in adjuster.py for details.")
 # - If set host (and optional port, defaults to 22), then CONNECT requests for that server are accepted even without real_proxy.  Use (e.g.) ssh -o ProxyCommand "nc -X connect -x adjuster.example.org:80 %h %p" ssh-host
 # - This however won't work if the adjuster is running on a virtual hosting provider (like OpenShift) which doesn't support CONNECT (and many of them don't even support streaming 1-way connections like proxy2ssh, even if we modify Tornado to do that).  But you can set ,URL and write a ProxyCommand like this:
@@ -294,7 +299,7 @@ define("loadBalancer",default=False,help="Set this to True if you have a default
 # of define()s affects the HTML order only; --help will be
 # sorted alphabetically by Tornado.)
 heading("Logging options")
-define("profile",default=0,help="Log timing statistics every N seconds")
+define("profile",default=0,help="Log timing statistics every N seconds (only when not idle)")
 define("renderLog",default=False,help="Whether or not to log requests for character-set renderer images. Note that this can generate a LOT of log entries on some pages.")
 define("logUnsupported",default=False,help="Whether or not to log attempts at requests using unsupported HTTP methods. Note that this can sometimes generate nearly as many log entries as renderLog if some browser (or malware) tries to do WebDAV PROPFIND requests on each of the images.")
 define("logRedirectFiles",default=True,help="Whether or not to log requests that result in the browser being simply redirected to the original site when the redirectFiles option is on.") # (Since this still results in a HEAD request being sent to the remote site, this option defaults to True in case you need it to diagnose "fair use of remote site" problems)
@@ -472,6 +477,9 @@ def preprocessOptions():
     if type(options.mailtoSMS)==type(""): options.mailtoSMS=options.mailtoSMS.split(',')
     if type(options.leaveTags)==type(""): options.leaveTags=options.leaveTags.split(',')
     if type(options.stripTags)==type(""): options.stripTags=options.stripTags.split(',')
+    if options.render:
+        try: import PIL
+        except ImportError: errExit("render requires PIL")
     create_inRenderRange_function(options.renderRange)
     if type(options.renderOmit)==type(""): options.renderOmit=options.renderOmit.split(',')
     if options.renderOmitGoAway:
@@ -599,28 +607,32 @@ def preprocessOptions():
         miniupnpc = miniupnpc.UPnP()
         miniupnpc.discoverdelay=200
     if options.profile:
-        global cProfile, pstats, cStringIO
+        global cProfile, pstats, cStringIO, profileIdle
         import cProfile, pstats, cStringIO
-        setProfile()
+        setProfile() ; profileIdle = False
 
 def setProfile():
-    global theProfiler
+    global theProfiler, profileIdle
     theProfiler = cProfile.Profile()
     IOLoop.instance().add_timeout(time.time()+options.profile,lambda *args:pollProfile())
-    theProfiler.enable()
+    profileIdle = True ; theProfiler.enable()
 def pollProfile():
     theProfiler.disable()
+    if not profileIdle: showProfile()
+    setProfile()
+def showProfile():
     s = cStringIO.StringIO()
     pstats.Stats(theProfiler,stream=s).sort_stats('cumulative').print_stats()
     pr = "\n".join(x for x in s.getvalue().split("\n")[:8] if x and not "Ordered by" in x)
     if options.PhantomJS:
-        global webdriver_lambda,webdriver_mu
-        pr += "\nPhantomJS %d/%d now busy; queue %d (%d arrived, %d served)" % (sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running),options.PhantomJS_instances,len(webdriver_queue),webdriver_lambda,webdriver_mu)
+        global webdriver_lambda,webdriver_mu,webdriver_maxBusy
+        stillUsed = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running)
+        pr += "\nPhantomJS %d/%d used (%d still in use); queue %d (%d arrived, %d served)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,len(webdriver_queue),webdriver_lambda,webdriver_mu)
         webdriver_lambda = webdriver_mu = 0
+        webdriver_maxBusy = stillUsed
         # TODO: also measure lambda/mu of other threads e.g. htmlFilter ?
     if options.background: logging.info(pr)
     else: sys.stderr.write(time.strftime("%X")+pr+"\n")
-    setProfile()
 
 def serverControl():
     if options.install:
@@ -696,6 +708,7 @@ def main():
         watchdog = open("/dev/watchdog", 'w')
     dropPrivileges()
     sys.stderr.write(twoline_program_name)
+    bannerTime = time.time()
     if options.port: sys.stderr.write("Listening on port %d\n%s" % (options.port,extraPorts))
     else: sys.stderr.write("Not listening (--port=0 set)\n")
     if options.watchdog:
@@ -707,6 +720,7 @@ def main():
     except: pass
     if options.PhantomJS: init_webdrivers()
     if options.browser: IOLoop.instance().add_callback(runBrowser)
+    if options.run: IOLoop.instance().add_callback(runRun)
     if options.watchdog: WatchdogPings(watchdog)
     if options.fasterServer:
         if not ':' in options.fasterServer: options.fasterServer += ":80" # needed for the new code
@@ -734,27 +748,34 @@ def main():
         signal.signal(signal.SIGTERM, lambda *args:stopServer("SIGTERM received"))
     except: pass # signal not supported on this platform?
     if options.background: logging.info("Server starting")
-    else: set_title("adjuster")
+    # and if not running in background, we won't have the
+    # "foreground process exitted" clue that we're ready
+    # ("listening" isn't enough if we also took time to
+    # start webdrivers after reserving the ports).
+    elif set_title("adjuster")>60 and time.time() > bannerTime+1:
+        # we can make it nice and obvious (on a potentially
+        # cluttered log screen) that here is where we START
+        sys.stderr.write("""
+#   "There seemed a strangeness in the air,
+#    Vermilion light on the land's lean face;
+#    I heard a Voice from I knew not where:
+#     'The Great Adjustment is taking place!'" - Thomas Hardy
+""".replace("#","\033[31m")+"\033[0m\n") # (exact vermilion would be \033[38;2;227;66;52m but we don't know the terminal can do that and it might be less likely to fit with the background, so we go for basic 'red')
+    elif time.time() > bannerTime+1: sys.stderr.write("Ready\n")
     try: IOLoop.instance().start()
-    # ...
-    #   "There seemed a strangeness in the air,
-    #    Vermilion light on the land's lean face;
-    #    I heard a Voice from I knew not where:
-    #     'The Great Adjustment is taking place!'" - Hardy
-    # ...
     except KeyboardInterrupt:
         if options.background: logging.info("SIGINT received")
         else: sys.stderr.write("\nKeyboard interrupt\n")
     # gets here after stopServer (e.g. got SIGTERM from a --stop, or options.browser and the browser finished)
     if options.background: logging.info("Server shutdown")
     else: sys.stderr.write("Adjuster shutdown\n")
+    for v in kept_tempfiles.values(): unlink(v)
     if options.watchdog:
         options.watchdog = 0 # tell any separate_thread() to stop (that thread is not counted in helper_thread_count)
         watchdog.write('V') # this MIGHT be clean exit, IF the watchdog supports it (not all of them do, so it might not be advisable to use the watchdog option if you plan to stop the server without restarting it)
         watchdog.close()
-    for v in kept_tempfiles.values(): unlink(v)
     if helper_thread_count:
-        msg = "Terminating %d runaway helper threads" % (helper_thread_count,)
+        msg = "Terminating %d helper threads" % (helper_thread_count,)
         # in case someone needs our port quickly.
         # Most likely "runaway" thread is ip_change_command if you did a --restart shortly after the server started.
         # TODO it would be nice if the port can be released at the IOLoop.instance.stop, and make sure os.system doesn't dup any /dev/watchdog handle we might need to release, so that it's not necessary to stop the threads
@@ -763,6 +784,9 @@ def main():
         try:
             import signal
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            if options.run:
+                try: os.kill(runningPid,signal.SIGTERM)
+                except: pass
             os.killpg(os.getpgrp(),signal.SIGTERM)
         except: pass
         os.abort()
@@ -791,7 +815,7 @@ def listen_on_port(application,port,address,browser,**kwargs):
         raise Exception("Can't open port "+repr(port)+" (tried for 3 seconds)")
 
 def workaround_raspbian_IPv6_bug():
-    """Some versions of Raspbian apparently boot with IPv6 enabled but later don't configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However,if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
+    """Some versions of Raspbian apparently boot with IPv6 enabled but later don't configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However, if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
     if options.address: return # don't need to do this if we're listening on a specific address
     flags = socket.AI_PASSIVE
     if hasattr(socket, "AI_ADDRCONFIG"): flags |= socket.AI_ADDRCONFIG
@@ -803,16 +827,24 @@ def workaround_raspbian_IPv6_bug():
                 return
 
 def istty(): return hasattr(sys.stderr,"isatty") and sys.stderr.isatty()
-def set_title(t):
-  if not istty(): return
-  import atexit
-  if t: atexit.register(set_title,"")
+def set_title(t): # and return num screen cols if xterm, or 0
+  if not istty(): return 0
   term = os.environ.get("TERM","")
   is_xterm = "xterm" in term
   is_screen = (term=="screen" and os.environ.get("STY",""))
   is_tmux = (term=="screen" and os.environ.get("TMUX",""))
   if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
+  else: return 0
+  if not t: return 0
+  import atexit
+  atexit.register(set_title,"")
+  if not is_xterm: return 0
+  try: return int(os.environ['COLUMNS'])
+  except:
+      import struct, fcntl, termios
+      try: return struct.unpack('hh',fcntl.ioctl(sys.stderr,termios.TIOCGWINSZ,'xxxx'))[1]
+      except: return 0
 
 def dropPrivileges():
     if options.user and not os.getuid():
@@ -967,7 +999,7 @@ try:
         global curl_inUse_clients
         curl_inUse_clients += 1
         if curl_inUse_clients == curl_max_clients:
-            if upstream_rewrite_ssl: logging.error("curl_max_clients too low; AsyncHTTPClient will queue requests and COULD DEADLOCK due to upstream_rewrite_ssl")
+            if upstream_rewrite_ssl: logging.error("curl_max_clients too low; AsyncHTTPClient will queue requests and COULD DEADLOCK due to upstream_rewrite_ssl") # TODO: can we run the upstream_rewrite_ssl in a separate process's ioloop ?
             else: logging.info("curl_max_clients too low; AsyncHTTPClient will queue requests")
         try: return AsyncHTTPClient(max_clients=curl_max_clients)
         except: return AsyncHTTPClient()
@@ -1005,8 +1037,15 @@ set_window_onerror = False # for debugging Javascript on some mobile browsers (T
 
 def writeAndClose(stream,data):
     # This helper function is needed for CONNECT and own_server handling because, contrary to Tornado docs, some Tornado versions (e.g. 2.3) send the last data packet in the FIRST callback of IOStream's read_until_close
-    if data: stream.write(data,lambda *args:True) # ignore errors like client disconnected
-    if not stream.closed(): stream.close()
+    if data:
+        try: stream.write(data,lambda *args:True)
+        except: pass # ignore errors like client disconnected
+    if not stream.closed():
+        try: stream.close()
+        except: pass
+def writeOrError(name,stream,data):
+    try: stream.write(data)
+    except: logging.error("Error writing data to "+name)
 
 # Domain-setting cookie for when we have no wildcard_dns and no default_site:
 adjust_domain_cookieName = "_adjusterDN_"
@@ -1049,21 +1088,14 @@ def httpfetch(url,**kwargs):
         headers = dict(kwargs.get('headers',{}))
         req = urllib2.Request(url, data, headers)
         if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
+        r = None
         try: resp = urllib2.urlopen(req,timeout=60)
         except urllib2.HTTPError, e: resp = e
-        except Exception, e: resp = wrapError(e) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
-        r = wrapResponse(resp.getcode(),resp.info(),resp.read())
+        except Exception, e: resp = r = wrapResponse(e) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
+        if r==None: r = wrapResponse(resp.read(),resp.info(),resp.getcode())
     callback(r)
-def wrapError(e):
-    class Resp:
-        def getcode(self): return 500
-        def info(self):
-            class H:
-                def get(self,h,d): return d
-            r = H() ; r.headers = [] ; return r
-        def read(self): return str(e)
-    return Resp()
-def wrapResponse(code,headers,body):
+def wrapResponse(body,info={},code=500):
+    "Makes a urllib2 response or an error message look like an HTTPClient response.  info can be a headers dict or a resp.info() object."
     class Empty: pass
     r = Empty()
     r.code = code
@@ -1071,10 +1103,12 @@ def wrapResponse(code,headers,body):
         def __init__(self,info): self.info = info
         def get(self,h,d): return self.info.get(h,d)
         def get_all(self):
+            if type(self.info)==dict:
+                return self.info.items()
             if hasattr(self.info,"headers"):
                 return [h.replace('\n','').split(': ',1) for h in self.info.headers]
             else: return self.info.get_all()
-    r.headers = H(headers) ; r.body = body ; return r
+    r.headers = H(info) ; r.body = body ; return r
 
 class WebdriverRunner:
     def __init__(self,index=0):
@@ -1088,7 +1122,21 @@ class WebdriverRunner:
 def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,manager):
     global helper_thread_count
     helper_thread_count += 1
-    r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
+    try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
+    except:
+        import traceback
+        def findAdjuster(l):
+            for i in range(len(l)-1,-1,-1):
+                if "adjuster.py" in l[i][0]: return ", adjuster line "+str(l[i][1])
+            return ""
+        logging.error("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+findAdjuster(traceback.extract_tb(sys.exc_info()[2]))+")")
+        if prefetched: toRet = "non-webdriver page" # TODO: document that this can happen?
+        else: toRet = "error"
+        logging.info("Restarting webdriver "+str(manager.index)+" and returning "+toRet)
+        manager.theWebDriver.quit()
+        manager.theWebDriver = get_new_webdriver(manager.index)
+        if prefetched: r = prefetched
+        else: r = wrapResponse("webdriver error")
     manager.thread_running = False
     IOLoop.instance().add_callback(webdriver_checkServe)
     IOLoop.instance().add_callback(lambda *args:callback(r))
@@ -1125,9 +1173,9 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         try: currentUrl = wd.current_url
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
     if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
-        return wrapResponse(302,tornado.httputil.HTTPHeaders.parse("Location: "+wd.current_url),'<html lang="en"><body><a href="%s">Redirect</a></body></html>' % wd.current_url.replace('&','&amp;').replace('"','&quot;'))
-    if asScreenshot: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),wd.get_screenshot_as_png())
-    else: return wrapResponse(200,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),get_and_remove_httpequiv_charset(wd.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1])
+        return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % wd.current_url.replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+wd.current_url),302)
+    if asScreenshot: return wrapResponse(wd.get_screenshot_as_png(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
+    else: return wrapResponse(get_and_remove_httpequiv_charset(wd.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
 def _get_new_webdriver(index):
     from selenium import webdriver
     sa = ['--ssl-protocol=any']
@@ -1165,10 +1213,6 @@ def get_new_webdriver(index):
         if index==0: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.PhantomJS_size)
         w,h = 1024,768
     wd.set_window_size(w, h)
-    def quit_wd(*args):
-        try: wd.quit()
-        except: pass
-    import atexit ; atexit.register(quit_wd)
     return wd
 webdriver_runner = [] ; webdriver_prefetched = []
 webdriver_via = []
@@ -1184,9 +1228,19 @@ def init_webdrivers():
         webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
         webdriver_via.append(None)
+    def quit_wd(*args):
+      try:
+        for i in webdriver_runner:
+            try: i.theWebDriver.quit()
+            except: pass
+      except: pass
+    import atexit ; atexit.register(quit_wd)
     if not options.background: sys.stderr.write(" done\n")
+webdriver_maxBusy = 0
 def webdriver_checkServe(*args):
     # how many queue items can be served right now?
+    global webdriver_maxBusy
+    webdriver_maxBusy = max(webdriver_maxBusy,sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running))
     for i in xrange(options.PhantomJS_instances):
         if not webdriver_runner[i].thread_running:
             if not webdriver_queue: return
@@ -1364,7 +1418,12 @@ class RequestForwarder(RequestHandler):
             # This should result in a huge "no cert" warning
             host,port = "127.0.0.1",self.WA_connectPort
             debuglog("Rerouting CONNECT to "+host+":"+str(port))
-        upstream.connect((host, int(port)), lambda *args:(client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data)),upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data)),client.write('HTTP/1.0 200 Connection established\r\n\r\n')))
+        def callback(*args):
+          client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError(host+":"+str(port)+self.debugExtras(),upstream,data))
+          upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError("client "+self.request.remote_ip+self.debugExtras(),client,data))
+          try: client.write('HTTP/1.0 200 Connection established\r\n\r\n')
+          except tornado.iostream.StreamClosedError: logging.error("client "+self.request.remote_ip+" closed before we said Established"+self.debugExtras())
+        upstream.connect((host, int(port)), callback)
         # Tornado _log is not called until finish(); it would be useful to log the in-process connection at this point
         try: self._log()
         except: pass # not all Tornado versions support this?
@@ -1447,7 +1506,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         client = self.request.connection.stream
         if ':' in server: host, port = server.split(':')
         else: host, port = server, 80
-        upstream.connect((host, int(port)),lambda *args:(upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:client.write(data)),client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:upstream.write(data))))
+        upstream.connect((host, int(port)),lambda *args:(upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError("ownServer client",client,data)),client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError("ownServer upstream",upstream,data))))
         try: self.request.uri = self.request.original_uri
         except: pass
         upstream.write(self.request.method+" "+self.request.uri+" "+self.request.version+"\r\n"+"\r\n".join(("%s: %s" % (k,v)) for k,v in (list(h for h in self.request.headers.get_all() if not h[0].lower()=="x-real-ip")+[("X-Real-Ip",self.request.remote_ip)]))+"\r\n\r\n"+self.request.body)
@@ -1894,7 +1953,7 @@ document.forms[0].i.focus()
     def canWriteBody(self): return not self.request.method in ["HEAD","OPTIONS"]
     
     def doReq(self):
-        debuglog("doReq"+self.debugExtras())
+        debuglog("doReq"+self.debugExtras()) # MUST keep this here: it also sets profileIdle=False
         if wsgi_mode and self.request.path==urllib.quote(os.environ.get("SCRIPT_NAME","")+os.environ.get("PATH_INFO","")) and 'SCRIPT_URL' in os.environ:
             # workaround for Tornado 2.x limitation when used with CGI and htaccess redirects
             self.request.uri = os.environ['SCRIPT_URL']
@@ -2843,6 +2902,19 @@ def runBrowser(*args):
         helper_thread_count -= 1
         stopServer("Browser command finished")
     threading.Thread(target=browser_thread,args=()).start()
+
+def runRun(*args):
+    def runner_thread():
+        global helper_thread_count
+        helper_thread_count += 1
+        while True:
+            sp=subprocess.Popen(options.run,shell=True,stdin=subprocess.PIPE)
+            global runningPid ; runningPid = sp.pid
+            ret = sp.wait()
+            time.sleep(options.runWait)
+            logging.info("Restarting run command after %dsec (last exit = %d)" % (options.runWait,ret))
+        helper_thread_count -= 1
+    threading.Thread(target=runner_thread,args=()).start()
 
 def stopServer(reason=None):
     if options.background: logging.info(reason)
@@ -3998,7 +4070,8 @@ checkServer=checkServer()
 
 lastDebugMsg = "None" # for 'stopping watchdog ping'
 def debuglog(msg,logRepeats=True):
-    global lastDebugMsg
+    global lastDebugMsg, profileIdle
+    profileIdle = False
     if logRepeats or not msg==lastDebugMsg:
         if not options.logDebug: logging.debug(msg)
         elif options.background: logging.info(msg)
