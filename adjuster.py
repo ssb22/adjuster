@@ -53,7 +53,7 @@ else:
     import tornado.options, tornado.iostream
     from tornado.options import define,options
     def heading(h): pass
-    if not __name__ == "__main__":
+    if 'port' in options:
         # we may be being imported by an extension, and some Tornado versions don't compile if 'define' is run twice
         def define(*args,**kwargs): pass
 getfqdn_default = "is the machine's domain name" # default is ... (avoid calling getfqdn unnecessarily, as the server might be offline/experimental and we don't want to block on an nslookup with every adjuster start)
@@ -154,7 +154,7 @@ define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted we
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page, to place the suggested subject and/or body into a draft SMS message instead of an email.")
 
 heading("External processing options")
-define("htmlFilter",help="External program(s) to run to filter every HTML document. If more than one program is specified separated by # then the user will be given a choice (see htmlFilterName option). Any shell command can be used; its standard input will get the HTML (or the plain text if htmlText is set), and it should send the new version to standard output. Multiple copies of each program might be run at the same time to serve concurrent requests. UTF-8 character encoding is used. If you are not able to run external programs then you could use a back-end server (specify an http:// or https:// URL and input is POSTed in the request body) or a Python function (specify * followed by the function name, and inject the function into the adjuster module from a wrapper script; the function is run in the serving thread).") # (so try to make it fast, although this is not quite so essential in WSGI mode; if you're in WSGI mode then I suggest getting the function to import any large required modules on-demand)
+define("htmlFilter",help="External program(s) to run to filter every HTML document. If more than one program is specified separated by # then the user will be given a choice (see htmlFilterName option). Any shell command can be used; its standard input will get the HTML (or the plain text if htmlText is set), and it should send the new version to standard output. Multiple copies of each program might be run at the same time to serve concurrent requests. UTF-8 character encoding is used. If you are not able to run external programs then you could use a back-end server (specify an http:// or https:// URL and input is POSTed in the request body; if this back-end server is another Web Adjuster with submitPath and submitBookmarklet set then give its submitPath plus uA for its 1st filter, uB for its 2nd, etc), or use a Python function (specify * followed by the function name, and inject the function into the adjuster module from a wrapper script; the function is run in the serving thread).") # (so try to make it fast, although this is not quite so essential in WSGI mode; if you're in WSGI mode then I suggest getting the function to import any large required modules on-demand)
 define("htmlFilterName",help="A name for the task performed by htmlFilter. If this is set, the user will be able to switch it on and off from the browser via a cookie and some Javascript links at the bottom of HTML pages. If htmlFilter lists two or more options, htmlFilterName should list the same number plus one (again separated by #); the first is the name of the entire category (for example \"filters\"), and the user can choose between any one of them or none at all (hence the number of options is one more than the number of filters); if this yields more than 3 options then all but the first two are hidden behind a \"More\" option on some browsers.") # TODO: non-Javascript fallback for the switcher
 define("htmlJson",default=False,help="Try to detect HTML strings in JSON responses and feed them to htmlFilter. This can help when using htmlFilter with some AJAX-driven sites. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple HTML strings in the same JSON response will be given to it separated by newlines, and the newlines of the output determine which fragment to put back where. (If you combine htmlJson with htmlText, the external program will see text in HTML in JSON as well as text in HTML, but it won't see text in HTML in JSON in HTML.)")
 define("htmlText",default=False,help="Causes the HTML to be parsed, and only the text parts (not the markup) will be sent to htmlFilter. Useful to save doing HTML parsing in the external program. The external program is still allowed to include HTML markup in its output. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple text strings will be given to it separated by newlines, and the newlines of the output determine which modified string to put back where.")
@@ -1825,6 +1825,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 filterNo = ord(txt[1])-ord('A')
                 if txt[0] in 'bB': return self.serve_bookmarklet_code(txt[1],txt[0]=='B')
                 elif txt[0]=='j': return self.serve_bookmarklet_json(filterNo)
+                elif txt[0]=='u': return self.serve_backend_post(filterNo)
                 elif txt[0]=='i' or txt[0]=='a':
                     # Android or iOS instructions
                     # (Similar technique does NOT work in Opera Mini 5.1.21594 or Opera Mobile 10.00 (both 2010) on Windows Mobile 6.1: can end up with a javascript: bookmark but it has no effect when selected)
@@ -1919,6 +1920,9 @@ document.forms[0].i.focus()
             if self.canWriteBody(): self.write(json.dumps([i.decode('utf-8','replace') for i in out[1:].split(chr(0))])) # 'replace' here because we don't want utf-8 errors to time-out the entire request (although hopefully the filter WON'T produce utf-8 errors...)
             self.finish()
         runFilterOnText(self.getHtmlFilter(filterNo),codeTextList,callback)
+    def serve_backend_post(self,filterNo):
+        l = self.request.body
+        runFilter(self.getHtmlFilter(filterNo),self.request.body,lambda out,err: (self.write(out),self.finish()))
 
     def checkTextCache(self,newext):
         # check for PDF/EPUB conversion on other threads or cached
