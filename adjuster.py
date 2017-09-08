@@ -775,7 +775,9 @@ def main():
         watchdog.write('V') # this MIGHT be clean exit, IF the watchdog supports it (not all of them do, so it might not be advisable to use the watchdog option if you plan to stop the server without restarting it)
         watchdog.close()
     if helper_thread_count:
-        msg = "Terminating %d helper threads" % (helper_thread_count,)
+        if helper_thread_count>1: plural = "s"
+        else: plural = ""
+        msg = "Terminating %d helper thread%s" % (helper_thread_count,plural)
         # in case someone needs our port quickly.
         # Most likely "runaway" thread is ip_change_command if you did a --restart shortly after the server started.
         # TODO it would be nice if the port can be released at the IOLoop.instance.stop, and make sure os.system doesn't dup any /dev/watchdog handle we might need to release, so that it's not necessary to stop the threads
@@ -1566,6 +1568,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def serveRobots(self):
         self.add_header("Content-Type","text/plain")
         if self.canWriteBody(): self.write("User-agent: *\nDisallow: /\n")
+        self.request.suppress_logger_host_convert = True
         self.myfinish()
 
     def serveImage(self,img):
@@ -1845,7 +1848,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                     if "Firefox/" in self.request.headers.get("User-Agent",""): i0 += "<h4>Not Yet Working On Mobile Firefox!</h4>Please use Chrome/Safari.<p>TODO: extension for mobile Firefox?"
                     i0 += "<h4>Instructions</h4><ol><li>"
                     sharp = "<li>You should see a sharp sign (#). If you don't, you might have to scroll a little to the right to get it into view. When you see the sharp sign, press immediately to the right of it. (This can be difficult, depending on your eyesight and the size of your fingers. You must put the text cursor <em>immediately</em> to the right of that sharp. Keep trying until you get it in <em>exactly</em> the right place.)<li>Use the backspace key to delete everything up to and including the sharp. The code should now start with the word <tt>javascript</tt>.<li>"
-                    if txt[0]=='i': i0 += "Press Menu (centre square button below) and Bookmark, to bookmark <b>this</b> page<li>Change the name if you want, and press Done<li>Press Bookmarks (one to the right of menu)<li>Press Edit (bottom left)<li>Find the bookmark you made and press it<li>Long-press the <em>second</em> line to get the selection menu on it<li>Press Select<li>Gently drag the left-most marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"Done\" three times to come back here."
+                    if txt[0]=='i': i0 += "Press Menu (centre square button below) and Bookmark, to bookmark <b>this</b> page<li>Change the name if you want, and press Done<li>Press Bookmarks (one to the right of menu)<li>Press Edit (bottom left or bottom right)<li>Find the bookmark you made and press it<li>Long-press the <em>second</em> line to get the selection menu on it<li>Press Select<li>Gently drag the left-most marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"Done\" three times to come back here."
                     else: i0 += "Press Menu and Save to Bookmarks, to bookmark <b>this</b> page (on some phones that option is just a drawing of a star)<li>Change the label if you want, but <b>do not</b> press OK<li>Long-press the <em>second</em> line to get the selection on it<li>Gently drag the marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"OK\" to come back here."
                     i0 += "<li>The bookmarklet is now ready for use. Go to whatever page you want to use it on, and select it from the bookmarks to use it."
                     if txt[0]=='a': i0 += " <b>On later versions of Android, it doesn't work to choose the bookmark directly</b>: you have to start typing <tt>javascript:</tt> in the URL box and select it that way."
@@ -1856,15 +1859,16 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         if not txt:
             self.is_password_domain=True # no prominentNotice needed
             # In the markup below, body's height=100% is needed to ensure we can set a percentage height on the textarea consistently across many browsers (otherwise e.g. Safari 6 without user CSS might start making the textarea larger as soon as it contains input, overprinting the rest of the document)
+            local_submit_url = "http://"+self.request.host+options.submitPath
             if options.submitBookmarkletDomain: submit_url = "//"+options.submitBookmarkletDomain+options.submitPath
-            else: submit_url = "http://"+self.request.host+options.submitPath
+            else: submit_url = local_submit_url
             return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3 style="float:left;padding:0px;margin:0px">Upload Text</h3><span style="float:right"><input type="submit"><script><!--
 document.write(' (Ctrl-Enter) | <a href="javascript:history.go(-1)">Back</a>')
 //--></script></span><br><textarea name="i" style="width:100%%;clear:both;height:60%%" rows="5" cols="20" placeholder="Type or paste your text here"
 onKeyDown="if((event.ctrlKey||event.metaKey) && (event.keyCode==13 || event.which==13)) document.forms[0].submit(); else return true;">
 </textarea></form>%s<script><!--
 document.forms[0].i.focus()
-//--></script></body></html>""" % (htmlhead("Upload Text - Web Adjuster").replace("<body>",""),options.submitPath,bookmarklet(submit_url))),"noFilterOptions",False)
+//--></script></body></html>""" % (htmlhead("Upload Text - Web Adjuster").replace("<body>",""),options.submitPath,bookmarklet(submit_url,local_submit_url))),"noFilterOptions",False)
         if type(txt) == list: # came from the POST form
             txt = txt[0].strip()
             # On at least some browsers (e.g. some Safari versions), clicking one of our JS reload links after the POST text has been shown will reload the form (instead of re-submitting the POST text) and can scroll to an awkward position whether the code below calls focus() or not.  Could at least translate to GET if it's short enough (don't want to start storing things on the adjuster machine - that would require a shared database if load-balancing)
@@ -2022,6 +2026,7 @@ document.forms[0].i.focus()
                 return self.redirect("http://"+dedot(host[:-len(ohs)])+ohs+colPort+self.request.uri)
           # Now OK to check authentication:
           if not self.authenticates_ok(host) and not (submitPathIgnorePassword and self.request.uri.startswith(submitPathForTest)):
+              self.request.suppress_logger_host_convert = True
               if options.auth_error=="http://":
                   if options.own_server: return self.forwardFor(options.own_server)
                   elif maybeRobots: return self.serveRobots()
@@ -2731,7 +2736,7 @@ rubyEndScript = """
 function treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!="SCRIPT" && c.nodeName!="TEXTAREA" && !(c.nodeName=="A" && c.href)) { treewalk(c); if(c.nodeName=="RUBY" && c.title && !c.onclick) c.onclick=Function("alert(this.title)") } c=c.nextSibling; } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);
 //--></script>"""
 
-def bookmarklet(submit_url):
+def bookmarklet(submit_url,local_submit_url):
     # Returns JS code to write out the bookmarklet.
     # If options.submitBookmarkletDomain is set, submit_url should NOT include the location.protocol part.
     # Get the bookmarklet to fetch more JS and eval/exec it, seeing as it'll need to talk to the server anyway (avoids cluttering bookmarks / can fix bugs later)
@@ -2758,7 +2763,7 @@ def bookmarklet(submit_url):
     # noIOS spans added because the "Plus" bookmarklets say no "frames loophole" on any tested version of iOS
     if options.submitBookmarkletDomain: locProto = '(location.protocol=="https:"?"https:":"http:")+' # use http if it's file: etc
     else: locProto = ""
-    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPad|iPhone/),a=n.match(/Android/),c="",t=0,j="javascript:",u="var r=new XMLHttpRequest();r.open(\'GET\','+locProto.replace('"',"'")+"'"+submit_url+'",v="\',false);r.send();eval(r.responseText)"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var b=d.body;var fs=d.createElement(\'frameset\'),h=d.createElement(\'html\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(b.firstChild)h.appendChild(b.removeChild(b.firstChild));b.appendChild(fs);window.doneMasterFrame=1;window.setTimeout(function(){if(!window.frames[0].document.body.innerHTML){var d=document;var b=d.body;while(b.firstChild)b.removeChild(b.firstChild);while(h.firstChild)b.appendChild(h.removeChild(h.firstChild));alert(\'The bookmarklet cannot annotate the whole site because your browser does not seem to have the frames loophole it needs. Falling back to annotating this page only. (To avoid this message in future, install the not Plus bookmarklet.)\')}},1000)}"+u+"B";u=j+u+"b";if(i||a){t='+locProto+'"'+submit_url+'"+(i?"i":"a");u="#"+u;u2="#"+u2}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a)?"On "+(i?"iOS":"Android")+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;<span class=noIOS>Basic bookmarklet'+plural+' (to process <b>one page</b> when activated): </span>'+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'<span class=noIOS>. Advanced bookmarklet'+plural+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'</span>&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural+'</a></span>').replace('@]@','"')+'");if(i) document.write("<style>.noIOS{display:none;visibility:hidden}</style>")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
+    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPad|iPhone/),a=n.match(/Android/),c="",t=0,j="javascript:",u="var r=new XMLHttpRequest();r.open(\'GET\','+locProto.replace('"',"'")+"'"+submit_url+'",v="\',false);r.send();eval(r.responseText)"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var b=d.body;var fs=d.createElement(\'frameset\'),h=d.createElement(\'html\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(b.firstChild)h.appendChild(b.removeChild(b.firstChild));b.appendChild(fs);window.doneMasterFrame=1;window.setTimeout(function(){if(!window.frames[0].document.body.innerHTML){var d=document;var b=d.body;while(b.firstChild)b.removeChild(b.firstChild);while(h.firstChild)b.appendChild(h.removeChild(h.firstChild));alert(\'The bookmarklet cannot annotate the whole site because your browser does not seem to have the frames loophole it needs. Falling back to annotating this page only. (To avoid this message in future, install the not Plus bookmarklet.)\')}},1000)}"+u+"B";u=j+u+"b";if(i||a){t="'+local_submit_url+'"+(i?"i":"a");u="#"+u;u2="#"+u2}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a)?"On "+(i?"iOS":"Android")+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;<span class=noIOS>Basic bookmarklet'+plural+' (to process <b>one page</b> when activated): </span>'+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'<span class=noIOS>. Advanced bookmarklet'+plural+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'</span>&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural+'</a></span>').replace('@]@','"')+'");if(i) document.write("<style>.noIOS{display:none;visibility:hidden}</style>")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
     # 'loophole': https://bugzilla.mozilla.org/show_bug.cgi?id=1123694 (+ 'seem to' because I don't know if the timeout value is enough; however we don't want it to hang around too long) (don't do else h=null if successful because someone else may hv used that var?)
     # 'resetting the current page': so you lose anything you typed in text boxes etc
     # (DO hide bookmarklets by default, because don't want to confuse users if they're named the same as the immediate-action filter selections at the bottom of the page)
@@ -2857,6 +2862,9 @@ def unlink(fn):
     except: pass
 
 def runFilter(cmd,text,callback,textmode=True):
+
+    # (Note: replaced by sync_runFilter when in WSGI mode)
+    
     # runs shell command 'cmd' on input 'text' in a new
     # thread, then gets Tornado to call callback(out,err)
     # If 'cmd' is not a string, assumes it's a function
@@ -2890,12 +2898,14 @@ def runFilter(cmd,text,callback,textmode=True):
 def sync_runFilter(cmd,text,callback,textmode=True):
     if type(cmd)==type("") and cmd.startswith("*"):
         cmd = eval(cmd[1:])
-    if type(cmd)==type(""):
+    if not type(cmd)==type(""): out,err = cmd(text),""
+    elif cmd.startswith("http://") or cmd.startswith("https://"):
+        return httpfetch(cmd,method="POST",body=text,callback=lambda r:callback(r.body,""))
+    else:
         sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=textmode) # TODO: check shell=True won't throw error on Windows
         out,err = sp.communicate(text)
         if not out: out=""
         if not err: err="" # TODO: else logging.debug ? (some stderr might be harmless; don't want to fill normal logs)
-    else: out,err = cmd(text),""
     callback(out,err)
 
 def runBrowser(*args):
