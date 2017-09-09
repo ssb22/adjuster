@@ -782,14 +782,14 @@ enum { Half_Bufsize = %%LONGEST_RULE_LEN%% };
 static unsigned char lookahead[Half_Bufsize*2];
 static size_t readPtr=0,writePtr=0,bufStart=0,bufLen=0;
 static int nextByte() {
-  if (readPtr-bufStart +ybytes >= bufLen) {
+  if (readPtr-bufStart +ybytes >= bufLen && !feof(stdin)) {
     if (bufLen == Half_Bufsize * 2) {
       memmove(lookahead,lookahead+Half_Bufsize,Half_Bufsize);
       bufStart += Half_Bufsize; bufLen -= Half_Bufsize;
     }
     bufLen += fread(lookahead+bufLen,1,Half_Bufsize*2-bufLen,stdin);
-    if (readPtr-bufStart == bufLen) return EOF;
   }
+  if (readPtr-bufStart == bufLen) return EOF;
   return lookahead[(readPtr++)-bufStart];
 }
 static int near(char* string) {

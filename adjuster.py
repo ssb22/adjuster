@@ -473,6 +473,7 @@ def readOptions():
 
 def preprocessOptions():
     if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
+    if options.restart and options.watchdog and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
     if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
     if type(options.mailtoSMS)==type(""): options.mailtoSMS=options.mailtoSMS.split(',')
     if type(options.leaveTags)==type(""): options.leaveTags=options.leaveTags.split(',')
