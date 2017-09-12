@@ -48,7 +48,6 @@ else:
     import tornado
     from tornado.httpclient import AsyncHTTPClient,HTTPClient,HTTPError
     from tornado.ioloop import IOLoop
-    from tornado import web
     from tornado.web import Application, RequestHandler, StaticFileHandler, asynchronous
     import tornado.options, tornado.iostream
     from tornado.options import define,options
@@ -184,6 +183,7 @@ define("stop",default=False,help="Like 'restart', but don't replace the other pr
 define("install",default=False,help="Try to install the program in the current user's Unix crontab as an @reboot entry, unless it's already there.  The arguments of the cron entry will be the same as the command line, with no directory changes, so make sure you are in the home directory before doing this.  The program will continue to run normally after the installation attempt.  (If you are on Cygwin then you might need to run cron-config also.)")
 define("watchdog",default=0,help="(Linux only) Ping the system's watchdog every this number of seconds. This means the watchdog can reboot the system if for any reason Web Adjuster stops functioning, provided that no other program is pinging the watchdog. The default value of 0 means do not ping the watchdog.") # This option might not be suitable for a system whose watchdog cannot be set to wait a few extra seconds for a very complex page to be parsed (the worst case is where the program is just about to ping the watchdog when it gets a high-CPU request; the allowed delay time is the difference between the ping interval and the watchdog's \"heartbeat\" timeout, and this difference can be maximised by setting the ping interval to 1 although this does mean Adjuster will wake every second).  But see watchdogWait.
 define("watchdogWait",default=0,help="When the watchdog option is set, wait this number of seconds before stopping the watchdog pings. This causes the watchdog pings to be sent from a separate thread and therefore not stopped when the main thread is busy; they are stopped only when the main thread has not responded for watchdogWait seconds. This can be used to work around the limitations of a hardware watchdog that cannot be set to wait that long.") # such as the Raspberry Pi's Broadcom chip which defaults to 10 seconds and has max 15; you could say watchdog=5 and watchdogWait=60
+define("watchdogDevice",default="/dev/watchdog",help="The watchdog device to use (set this to /dev/null to check main-thread responsiveness without actually pinging the watchdog)")
 define("browser",help="The Web browser command to run. If this is set, Web Adjuster will run the specified command (which is assumed to be a web browser), and will exit when this browser exits. This is useful in conjunction with --real_proxy to have a personal proxy run with the browser. You still need to set the browser to use the proxy; this can sometimes be done via browser command line or environment variables.")
 define("run",help="A command to run that is not a browser. If set, Web Adjuster will run the specified command and will restart it if it stops. The command will be stopped when Web Adjuster is shut down. This could be useful, for example, to run an upstream proxy.")
 define("runWait",default=1,help="The number of seconds to wait before restarting the 'run' command if it fails")
@@ -473,7 +473,7 @@ def readOptions():
 
 def preprocessOptions():
     if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
-    if options.restart and options.watchdog and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
+    if options.restart and options.watchdog and options.watchdogDevice=="/dev/watchdog" and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
     if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
     if type(options.mailtoSMS)==type(""): options.mailtoSMS=options.mailtoSMS.split(',')
     if type(options.leaveTags)==type(""): options.leaveTags=options.leaveTags.split(',')
@@ -706,14 +706,14 @@ def main():
         listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=True),upstream_proxy_port+1,"127.0.0.1",False)
         extraPorts += "--upstream-proxy back-connection helper listening on localhost:%d\n" % (upstream_proxy_port+1,)
     if options.watchdog:
-        watchdog = open("/dev/watchdog", 'w')
+        watchdog = open(options.watchdogDevice, 'w')
     dropPrivileges()
     sys.stderr.write(twoline_program_name)
     bannerTime = time.time()
     if options.port: sys.stderr.write("Listening on port %d\n%s" % (options.port,extraPorts))
     else: sys.stderr.write("Not listening (--port=0 set)\n")
     if options.watchdog:
-        sys.stderr.write("Writing /dev/watchdog every %d seconds\n" % options.watchdog)
+        sys.stderr.write("Writing "+options.watchdogDevice+" every %d seconds\n" % options.watchdog)
         if options.watchdogWait: sys.stderr.write("(abort if unresponsive for %d seconds)\n" % options.watchdogWait)
     if options.background and not fork_before_listen:
         unixfork()
@@ -815,7 +815,7 @@ def listen_on_port(application,port,address,browser,**kwargs):
             # there's probably another adjuster instance, in which case we probably want to let the browser open a new window and let our listen() fail
             dropPrivileges()
             runBrowser()
-        raise Exception("Can't open port "+repr(port)+" (tried for 3 seconds)")
+        raise Exception("Can't open port "+repr(port)+" (tried for 3 seconds, "+e.strerror+")")
 
 def workaround_raspbian_IPv6_bug():
     """Some versions of Raspbian apparently boot with IPv6 enabled but later don't configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However, if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
@@ -992,6 +992,7 @@ def MyAsyncHTTPClient(): return AsyncHTTPClient()
 def curlFinished(): pass
 try:
     import pycurl # check it's there
+    if not ('c-ares' in pycurl.version or 'threaded' in pycurl.version): sys.stderr.write("WARNING: The libcurl on this system might hold up our main thread while it resolves DNS\n")
     curl_max_clients = 1000 # TODO: configurable?  PhantomJS_instances*30 after preprocessOptions?  but at least it's better than the default of 10 (see Tornado issue 2127), and we'll warn about the issue ourselves if we go over:
     curl_inUse_clients = 0
     try: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",max_clients=curl_max_clients)
@@ -999,9 +1000,12 @@ try:
     try: HTTPClient.configure("tornado.curl_httpclient.CurlHTTPClient") # for WSGI
     except: pass # not all Tornado versions support configure on HTTPClient, and we still want to define the following if AsyncHTTPClient.configure worked
     def MyAsyncHTTPClient():
-        global curl_inUse_clients
-        curl_inUse_clients += 1
-        if curl_inUse_clients == curl_max_clients:
+        try: problem = not len(AsyncHTTPClient()._free_list)
+        except:
+            global curl_inUse_clients
+            curl_inUse_clients += 1
+            problem = curl_inUse_clients >= curl_max_clients
+        if problem:
             if upstream_rewrite_ssl: logging.error("curl_max_clients too low; AsyncHTTPClient will queue requests and COULD DEADLOCK due to upstream_rewrite_ssl") # TODO: can we run the upstream_rewrite_ssl in a separate process's ioloop ?
             else: logging.info("curl_max_clients too low; AsyncHTTPClient will queue requests")
         try: return AsyncHTTPClient(max_clients=curl_max_clients)
@@ -4002,6 +4006,7 @@ class WatchdogPings:
         global watchdog_mainServerResponded # a flag.  Do NOT timestamp with time.time() - it can go wrong if NTP comes along and re-syncs the clock by a large amount
         def respond(*args):
             global watchdog_mainServerResponded
+            debuglog("watchdogWait: responding")
             watchdog_mainServerResponded = True
         respond() ; stopped = 0 ; sleptSinceResponse = 0
         while options.watchdog:
@@ -4015,7 +4020,7 @@ class WatchdogPings:
                 IOLoop.instance().add_callback(respond)
             elif sleptSinceResponse < options.watchdogWait: self.ping() # keep waiting for it
             elif not stopped:
-                logging.info("Main thread unresponsive, stopping watchdog ping. lastDebugMsg: "+lastDebugMsg)
+                logging.error("Main thread unresponsive, stopping watchdog ping. lastDebugMsg: "+lastDebugMsg)
                 stopped = 1 # but don't give up (it might respond just in time)
             time.sleep(options.watchdog)
             sleptSinceResponse += options.watchdog # "dead reckoning" to avoid time.time()
