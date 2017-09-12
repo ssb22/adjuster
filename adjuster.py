@@ -308,7 +308,7 @@ define("ipNoLog",multiple=True,help="A comma-separated list of IP addresses whic
 define("squashLogs",default=True,help="Try to remove some duplicate information from consecutive log entries, to make logs easier to check. You might want to set this to False if you plan to use automatic search tools on the logs.") # (word 'some' is important as not all duplicate info is guaranteed to be removed)
 define("whois",default=False,help="Try to log the Internet service provider for each IP address in the logs.  Requires the 'whois' program.  The extra information is written as separate log entries when it becomes available, and not for recent duplicate IPs or IPs that do not submit valid requests.")
 define("errorHTML",default="Adjuster error has been logged",help="What to say when an uncaught exception (due to a misconfiguration or programming error) has been logged. HTML markup is allowed in this message. If for some reason you have trouble accessing the log files, the traceback can usually be included in the page itself by placing {traceback} in the message.") # TODO: this currently requires Tornado 2.1+ (document this? see TODO in write_error)
-define("logDebug",default=False,help="Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules.")
+define("logDebug",default=False,help="Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules.") # see debuglog()
 # and continuing into the note below:
 if not tornado:
     print "</dl>"
@@ -679,12 +679,13 @@ def main():
     handlers = [(r"(.*)",NormalRequestForwarder(),{})]
     if options.staticDocs: handlers.insert(0,static_handler())
     application = Application(handlers,log_function=accessLog,gzip=True)
-    if not hasattr(application,"listen"): errExit("Your version of Tornado is too old.  Please install version 2.x.")
+    if not hasattr(application,"listen"): errExit("Your version of Tornado is too old.  Please install at least version 2.x.")
     if fork_before_listen and options.background:
         sys.stderr.write(twoline_program_name)
         if options.port: sys.stderr.write("Child will listen on port %d\n(can't report errors here as this system needs early fork)\n" % (options.port,)) # (need some other way of checking it really started)
         unixfork()
     workaround_raspbian_IPv6_bug()
+    workaround_timeWait_problem()
     if options.port: listen_on_port(application,options.port,options.address,options.browser)
     extraPorts = "" ; nextPort = options.port + 1
     # don't add any other ports here: NormalRequestForwarder assumes we'll be at port+1
@@ -828,6 +829,29 @@ def workaround_raspbian_IPv6_bug():
             if "family not supported" in e.strerror:
                 options.address = "0.0.0.0" # use IPv4 only
                 return
+
+def workaround_timeWait_problem():
+    """Work around listen-port failing to bind when there are still TIME_WAIT connections from the previous run.  This at least seems to work around the problem MOST of the time."""
+    if "win" in sys.platform and not sys.platform=="darwin":
+        # Don't do this on MS-Windows.  It can result in
+        # 'stealing' a port from another server even while
+        # that other server is still running.
+        return
+    if not hasattr(socket, "SO_REUSEPORT"): return
+    try: import tornado.netutil, inspect
+    except ImportError: return
+    if not 'reuse_port' in inspect.getargspec(tornado.netutil.bind_sockets).args: return # Tornado version too old
+    obs = tornado.netutil.bind_sockets
+    def newBind(*args,**kwargs):
+        if len(args) < 6: kwargs['reuse_port'] = True
+        return obs(*args,**kwargs)
+    debuglog("Adding reuse_port to tornado.netutil.bind_sockets")
+    tornado.netutil.bind_sockets = newBind
+    # but tornado.tcpserver may have already imported it:
+    try: import tornado.tcpserver
+    except ImportError: pass # Tornado version too old
+    debuglog("Adding reuse_port to tornado.tcpserver.bind_sockets")
+    tornado.tcpserver.bind_sockets = newBind
 
 def istty(): return hasattr(sys.stderr,"isatty") and sys.stderr.isatty()
 def set_title(t): # and return num screen cols if xterm, or 0
@@ -992,7 +1016,8 @@ def MyAsyncHTTPClient(): return AsyncHTTPClient()
 def curlFinished(): pass
 try:
     import pycurl # check it's there
-    if not ('c-ares' in pycurl.version or 'threaded' in pycurl.version): sys.stderr.write("WARNING: The libcurl on this system might hold up our main thread while it resolves DNS\n")
+    if not ('c-ares' in pycurl.version or 'threaded' in pycurl.version): sys.stderr.write("WARNING: The libcurl on this system might hold up our main thread while it resolves DNS (try building curl with ./configure --enable-ares)\n")
+    if float('.'.join(pycurl.version.split()[0].split('/')[1].rsplit('.')[:2])) < 7.5: sys.stderr.write("WARNING: The curl on this system is old and might hang when fetching certain SSL sites\n") # strace -p (myPID) shows busy looping on poll (TODO: option to not use it if we're not using upstream_proxy)
     curl_max_clients = 1000 # TODO: configurable?  PhantomJS_instances*30 after preprocessOptions?  but at least it's better than the default of 10 (see Tornado issue 2127), and we'll warn about the issue ourselves if we go over:
     curl_inUse_clients = 0
     try: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",max_clients=curl_max_clients)
@@ -1136,14 +1161,19 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
             for i in range(len(l)-1,-1,-1):
                 if "adjuster.py" in l[i][0]: return ", adjuster line "+str(l[i][1])
             return ""
-        logging.error("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+findAdjuster(traceback.extract_tb(sys.exc_info()[2]))+")")
-        if prefetched: toRet = "non-webdriver page" # TODO: document that this can happen?
-        else: toRet = "error"
-        logging.info("Restarting webdriver "+str(manager.index)+" and returning "+toRet)
+        logging.info("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+findAdjuster(traceback.extract_tb(sys.exc_info()[2]))+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
         manager.theWebDriver.quit()
         manager.theWebDriver = get_new_webdriver(manager.index)
-        if prefetched: r = prefetched
-        else: r = wrapResponse("webdriver error")
+        try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
+        except:
+            logging.error("webdriver error on "+url+" even after restart")
+            if prefetched: toRet = "non-webdriver page" # TODO: document that this can happen?
+            else: toRet = "error"
+            logging.info("Restarting webdriver "+str(manager.index)+" and returning "+toRet)
+            manager.theWebDriver.quit()
+            manager.theWebDriver = get_new_webdriver(manager.index)
+            if prefetched: r = prefetched
+            else: r = wrapResponse("webdriver error")
     manager.thread_running = False
     IOLoop.instance().add_callback(webdriver_checkServe)
     IOLoop.instance().add_callback(lambda *args:callback(r))
@@ -1155,10 +1185,13 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
     except: currentUrl = "" # PhantomJS Issue #13114: unconditional reload for now
     if prefetched or not re.sub('#.*','',currentUrl) == url:
         if prefetched:
+            debuglog("webdriver %d get about:blank" % manager.index)
             wd.get("about:blank") # ensure no race condition with current page's XMLHttpRequests
             webdriver_prefetched[manager.index] = prefetched
         webdriver_inProgress[manager.index].clear() # race condition with start of next 'get' if we haven't done about:blank, but worst case is we'll wait a bit too long for page to finish
+        debuglog(("webdriver %d get " % manager.index)+url)
         wd.get(url) # waits for onload, but we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
+        debuglog("webdriver %d loaded" % manager.index)
         if options.PhantomJS_reproxy:
           for _ in xrange(40):
             time.sleep(0.2) # unconditional first-wait hopefully long enough to catch XMLHttpRequest delayed-send, very-low-value setTimeout etc, but we don't want to wait a whole second if the page isn't GOING to make any requests (TODO: monitor the js going through the upstream proxy to see if it contains any calls to this? but we'll have to deal with PhantomJS's cache, unless set it to not cache and we cache upstream)
@@ -1179,6 +1212,7 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
     if currentUrl == None: # we need to ask for it again
         try: currentUrl = wd.current_url
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
+    debuglog("Getting data from webdriver %d" % manager.index)
     if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
         return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % wd.current_url.replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+wd.current_url),302)
     if asScreenshot: return wrapResponse(wd.get_screenshot_as_png(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
@@ -2358,9 +2392,11 @@ document.forms[0].i.focus()
         if vary: headers_to_add.append(('Vary',vary))
         for name,value in headers_to_add:
           value = value.replace("\t"," ") # needed for some servers
-          if name.lower() in added: self.add_header(name,value)
-          else: self.set_header(name,value) # overriding any Tornado default
-          added[name.lower()]=1
+          try:
+            if name.lower() in added: self.add_header(name,value)
+            else: self.set_header(name,value) # overriding any Tornado default
+            added[name.lower()]=1
+          except ValueError: pass # ignore unsafe header values
         if doRedirect:
             # ignore response.body and put our own in
             return self.redirect(doRedirect,response.code)
@@ -4006,7 +4042,7 @@ class WatchdogPings:
         global watchdog_mainServerResponded # a flag.  Do NOT timestamp with time.time() - it can go wrong if NTP comes along and re-syncs the clock by a large amount
         def respond(*args):
             global watchdog_mainServerResponded
-            debuglog("watchdogWait: responding")
+            debuglog("watchdogWait: responding",stillIdle=True)
             watchdog_mainServerResponded = True
         respond() ; stopped = 0 ; sleptSinceResponse = 0
         while options.watchdog:
@@ -4025,7 +4061,7 @@ class WatchdogPings:
             time.sleep(options.watchdog)
             sleptSinceResponse += options.watchdog # "dead reckoning" to avoid time.time()
     def ping(self):
-        if not options.watchdogWait: debuglog("pinging watchdog",logRepeats=False) # ONLY if run from MAIN thread, otherwise it might overwrite the real lastDebugMsg of where we were stuck
+        if not options.watchdogWait: debuglog("pinging watchdog",logRepeats=False,stillIdle=True) # ONLY if run from MAIN thread, otherwise it might overwrite the real lastDebugMsg of where we were stuck
         self.wFile.write('a') ; self.wFile.flush()
         if not options.watchdogWait: # run from main thread
             IOLoop.instance().add_timeout(time.time()+options.watchdog,lambda *args:self.ping())
@@ -4040,7 +4076,7 @@ def FSU_set(new_FSU,interval):
     if not fasterServer_up == fsu_old:
         if fasterServer_up: logging.info("fasterServer %s came up - forwarding traffic to it" % options.fasterServer)
         else: logging.info("fasterServer %s went down - handling traffic ourselves" % options.fasterServer)
-    # debuglog("fasterServer_up="+repr(fasterServer_up)+" (err="+repr(r.error)+")",logRepeats=False)
+    # debuglog("fasterServer_up="+repr(fasterServer_up)+" (err="+repr(r.error)+")",logRepeats=False,stillIdle=True)
     if fasterServer_up: return 1 # TODO: configurable? fallback if timeout when we try to connect to it as well?
     elif interval < 60: interval *= 2 # TODO: configurable?
     return interval
@@ -4089,9 +4125,9 @@ class checkServer:
 checkServer=checkServer()
 
 lastDebugMsg = "None" # for 'stopping watchdog ping'
-def debuglog(msg,logRepeats=True):
+def debuglog(msg,logRepeats=True,stillIdle=False):
     global lastDebugMsg, profileIdle
-    profileIdle = False
+    if not stillIdle: profileIdle = False
     if logRepeats or not msg==lastDebugMsg:
         if not options.logDebug: logging.debug(msg)
         elif options.background: logging.info(msg)
