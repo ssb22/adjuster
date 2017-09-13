@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.247 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.248 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,10 +20,10 @@ program_name = "Web Adjuster v0.247 (c) 2012-17 Silas S. Brown"
 # although some early ones are missing.
 
 import sys,os
-twoline_program_name = program_name+"\nLicensed under the Apache License, Version 2.0\n"
+twoline_program_name = program_name+"\nLicensed under the Apache License, Version 2.0"
 
 if '--version' in sys.argv:
-    print twoline_program_name.rstrip() ; raise SystemExit # no imports needed
+    print twoline_program_name ; raise SystemExit # no imports needed
 elif '--html-options' in sys.argv: # for updating the website (this option is not included in the help text)
     tornado=False
     inDL = 0
@@ -175,6 +175,7 @@ define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if 
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
 define("PhantomJS_jslinks",default=True,help="When PhantomJS is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
+define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only). This can make better use of multi-core CPUs and stops the main event loop from being stalled by buggy SSL libraries, but the current implementation has not yet been tested with all logging setups.") # see TODO in maybe_sslfork
 
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
@@ -315,7 +316,7 @@ if not tornado:
     print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <tt>python adjuster.py --help</tt> to see a full list of the ones available on your setup. They typically include <tt>log_file_max_size</tt>, <tt>log_file_num_backups</tt>, <tt>log_file_prefix</tt> and <tt>log_to_stderr</tt>." # and --logging=debug but that may generate a lot of entries from curl_httpclient
     raise SystemExit
 
-import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,json,base64,htmlentitydefs
+import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,json,base64,htmlentitydefs,signal
 from HTMLParser import HTMLParser,HTMLParseError
 
 try: # can we page the help text?
@@ -323,7 +324,7 @@ try: # can we page the help text?
     import pydoc,cStringIO ; pydoc.pager # ensure present
     def new_top(*args):
         dat = cStringIO.StringIO()
-        dat.write(twoline_program_name)
+        dat.write(twoline_program_name+"\n")
         tornado.options.options.old_top(dat)
         pydoc.pager(dat.getvalue())
     tornado.options.options.__dict__['old_top'] = tornado.options.options.print_help
@@ -472,6 +473,9 @@ def readOptions():
     parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files)
 
 def preprocessOptions():
+    if not options.background:
+        global fork_before_listen
+        fork_before_listen = False
     if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
     if options.restart and options.watchdog and options.watchdogDevice=="/dev/watchdog" and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
     if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
@@ -660,7 +664,7 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy PhantomJS_reproxy'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy PhantomJS_reproxy ssl_fork'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         # (PhantomJS itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But PhantomJS_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt):
             sys.stderr.write("Warning: '%s' option may not work in WSGI mode\n" % opt)
@@ -674,81 +678,175 @@ def make_WSGI_application():
     if options.staticDocs: handlers.insert(0,static_handler()) # (the staticDocs option is probably not really needed in a WSGI environment if we're behind a wrapper that can also list static URIs, but keeping it anyway might be a convenience for configuration-porting; TODO: warn that this won't work with htaccess redirect and SCRIPT_URL thing)
     return tornado.wsgi.WSGIApplication(handlers)
 
-def main():
-    readOptions() ; preprocessOptions() ; serverControl()
+sslforks_to_monitor = [] # list of [pid,callback1,callback2,port,last response time]
+sslfork_monitor_pid = None
+def maybe_sslfork(callback1, port2):
+    "Returns True if we're now a child process that shouldn't run anything else"
+    if options.ssl_fork:
+        callback2 = lambda *_:listen_on_port(Application([(r"(.*)",AliveResponder,{})],log_function=nullLog),port2,"127.0.0.1",False) # the "I'm still alive" responder is non-SSL
+        pid = os.fork()
+        if pid: sslforks_to_monitor.append([pid,callback1,callback2,port2,None])
+        else: # child
+            # TODO: set logging to go somewhere else (and update ssl_fork help text)
+            callback1() # set up main listener
+            callback2() # set up 'still alive' listener
+            return True
+    else: callback1() # just run it on the current process
+def maybe_sslfork_monitor():
+    if not sslforks_to_monitor: return
+    global sslfork_monitor_pid
+    pid = os.fork()
+    if pid:
+        sslfork_monitor_pid = pid ; return
+    IOLoop.instance().add_callback(ping_sslForks)
+    return lambda *args:(stopServer(),terminateSslForks())
+def ping_sslForks(*args):
+    if not sslforks_to_monitor: return
+    interval = 1 # TODO: configurable?  (ping every interval, restart if down for 2*interval)
+    def doSslPingResponse(r,i):
+        if r and r.code==200:
+            sslforks_to_monitor[i][4]=time.time()
+    for i in xrange(len(sslforks_to_monitor)):
+        t = sslforks_to_monitor[i][4]
+        if t and t + 2*interval < time.time():
+            restart_sslfork(i)
+            if not sslforks_to_monitor: break # child
+        else:
+            MyAsyncHTTPClient().fetch("http://localhost:%d/" % sslforks_to_monitor[i][3],callback=lambda r,i=i:doSslPingResponse(r,i))
+            if not t: sslforks_to_monitor[i][4] = time.time()
+    IOLoop.instance().add_timeout(time.time()+interval,ping_sslForks)
+def restart_sslfork(n):
+    global sslforks_to_monitor
+    logging.error("Restarting SSL helper %d (not heard from it for %d seconds)" % (n,time.time()-sslforks_to_monitor[n][4]))
+    pid = os.fork()
+    if pid:
+        sslforks_to_monitor[n][0] = pid
+        sslforks_to_monitor[n][4] = time.time()
+    else: # child
+        # IOLoop is already running; we need to repurpose it
+        # Start the necessary Applications & stop the checker
+        # TODO: the IOLoop will have async http request fd's in it that the child process won't have!  (this will probably cause callback errors in the logs)
+        # Tornado 4 IOLoop.clear_instance() = del IOLoop._instance (but still need to stop it)
+        sslforks_to_monitor[n][1]() # main listener
+        sslforks_to_monitor[n][2]() # 'still alive' listener
+        sslforks_to_monitor = [] # nothing for us to check
+def terminateSslForks():
+    global sslforks_to_monitor
+    for p,_,_,_,_ in sslforks_to_monitor:
+        os.kill(p,signal.SIGTERM)
+    sslforks_to_monitor = []
+
+def open_extra_ports():
+    "Returns the stop function if we're now a child process that shouldn't run anything else"
+    nextPort = options.port + 1
+    # don't add any other ports here: NormalRequestForwarder assumes the real_proxy SSL helper will be at port+1
+    # banner() must be kept in sync with these port numbers,
+    # as must phantomJS_proxy_port()
+    # All calls to maybe_sslfork* must be made before ANY other calls to listen_on_port
+    if options.real_proxy:
+        # create a modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port
+        if maybe_sslfork(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=True),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1): return lambda *args:stopServer()
+        nextPort += 1
+        if options.ssl_fork: nextPort += 1
+    nextPort_jsProxy = nextPort
+    if options.PhantomJS_reproxy:
+        # ditto for PhantomJS (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us)
+        for i in xrange(options.PhantomJS_instances):
+            # to be done later: listen_on_port(Application([(r"(.*)",PjsRequestForwarder(i,nextPort),{})],log_function=nullLog,gzip=True),nextPort,"127.0.0.1",False)
+            if maybe_sslfork(lambda port=nextPort:listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(i,port+1),{})],log_function=nullLog,gzip=True),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2): return lambda *args:stopServer()
+            nextPort += 2
+            if options.ssl_fork: nextPort += 1
+    if upstream_rewrite_ssl:
+        # This one does NOT listen on SSL: it listens on unencrypted HTTP and rewrites .0 into outgoing SSL.  But we can still run it in a different process if ssl_fork is enabled, and this will save encountering the curl_max_clients issue as well as possibly offloading *client*-side SSL to a different CPU core (TODO: could also use Tornado's multiprocessing to multi-core the client-side SSL)
+        if maybe_sslfork(lambda port=upstream_proxy_port+1:listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=True),port,"127.0.0.1",False),upstream_proxy_port+2): return lambda *args:stopServer() # TODO: document upstream_proxy_port+2 needs to be reserved if options.ssl_fork and not options.upstream_proxy_host
+    r = maybe_sslfork_monitor()
+    if r: return r
+    # NOW we can start non-maybe_sslfork listen_on_port:
+    if options.PhantomJS_reproxy:
+        nextPort = nextPort_jsProxy
+        for i in xrange(options.PhantomJS_instances):
+            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(i,nextPort),{})],log_function=nullLog,gzip=True),nextPort,"127.0.0.1",False)
+            nextPort += 2
+            if options.ssl_fork: nextPort += 1
+
+def makeMainApplication():
     handlers = [(r"(.*)",NormalRequestForwarder(),{})]
     if options.staticDocs: handlers.insert(0,static_handler())
     application = Application(handlers,log_function=accessLog,gzip=True)
     if not hasattr(application,"listen"): errExit("Your version of Tornado is too old.  Please install at least version 2.x.")
-    if fork_before_listen and options.background:
-        sys.stderr.write(twoline_program_name)
-        if options.port: sys.stderr.write("Child will listen on port %d\n(can't report errors here as this system needs early fork)\n" % (options.port,)) # (need some other way of checking it really started)
-        unixfork()
+    return application
+
+def phantomJS_proxy_port(index):
+    nextPort = options.port + 1
+    nextPort += 1 # skip over real_proxy SSL helper
+    if options.ssl_fork:
+        nextPort += 1 # + SSL alive responder for the above
+        return nextPort + 3*index # each has upstream, SSL helper, and SSL alive responder
+    else: return nextPort + 2*index # no SSL alive responder
+
+def openPortsEtc():
+    application = makeMainApplication() # must be first so it can check for old Tornado
+    if fork_before_listen: banner(),unixfork()
     workaround_raspbian_IPv6_bug()
     workaround_timeWait_problem()
-    if options.port: listen_on_port(application,options.port,options.address,options.browser)
-    extraPorts = "" ; nextPort = options.port + 1
-    # don't add any other ports here: NormalRequestForwarder assumes we'll be at port+1
-    if options.real_proxy:
-        # create a modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port
-        listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=True),nextPort,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
-        extraPorts += "--real_proxy SSL helper is listening on localhost:%d (don't connect to it yourself)\n" % nextPort
-        nextPort += 1
-    if options.PhantomJS_reproxy:
-        # ditto for PhantomJS (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us)
-        for i in xrange(options.PhantomJS_instances):
-            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(i,nextPort),{})],log_function=nullLog,gzip=True),nextPort,"127.0.0.1",False)
-            listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(i,nextPort+1),{})],log_function=nullLog,gzip=True),nextPort+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()})
-            nextPort += 2
-        if options.real_proxy: ditto = "ditto"
-        else: ditto = "don't connect to these yourself"
-        extraPorts += "--PhantomJS_reproxy helpers listening on localhost:%d-%d (%s)\n" % (options.port+2,options.port+2+2*options.PhantomJS_instances-1,ditto)
-    if upstream_rewrite_ssl:
-        listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=True),upstream_proxy_port+1,"127.0.0.1",False)
-        extraPorts += "--upstream-proxy back-connection helper listening on localhost:%d\n" % (upstream_proxy_port+1,)
-    if options.watchdog:
-        watchdog = open(options.watchdogDevice, 'w')
-    dropPrivileges()
-    sys.stderr.write(twoline_program_name)
-    bannerTime = time.time()
-    if options.port: sys.stderr.write("Listening on port %d\n%s" % (options.port,extraPorts))
-    else: sys.stderr.write("Not listening (--port=0 set)\n")
-    if options.watchdog:
-        sys.stderr.write("Writing "+options.watchdogDevice+" every %d seconds\n" % options.watchdog)
-        if options.watchdogWait: sys.stderr.write("(abort if unresponsive for %d seconds)\n" % options.watchdogWait)
-    if options.background and not fork_before_listen:
-        unixfork()
-    try: os.setpgrp() # for killpg later
+    stopFunc = open_extra_ports()
+    if stopFunc: dropPrivileges()
+    else: # we're not a child process
+        if options.port: listen_on_port(application,options.port,options.address,options.browser)
+        openWatchdog() ; dropPrivileges() ; banner()
+        if options.background and not fork_before_listen:
+            unixfork()
+        if options.PhantomJS: init_webdrivers()
+        setupRunAndBrowser() ; watchdog.start()
+        checkServer.setup() ; Dynamic_DNS_updater()
+        stopFunc = lambda *_:stopServer("SIGTERM received")
+    signal.signal(signal.SIGTERM, stopFunc)
+    try: os.setpgrp() # for stop_threads() later
     except: pass
-    if options.PhantomJS: init_webdrivers()
-    if options.browser: IOLoop.instance().add_callback(runBrowser)
-    if options.run: IOLoop.instance().add_callback(runRun)
-    if options.watchdog: WatchdogPings(watchdog)
-    if options.fasterServer:
-        if not ':' in options.fasterServer: options.fasterServer += ":80" # needed for the new code
-        logging.getLogger("tornado.general").disabled=1 # needed to suppress socket-level 'connection refused' messages from ping2 code in Tornado 3
-        class NoConErrors:
-            def filter(self,record): return not record.getMessage().startswith("Connect error on fd")
-        logging.getLogger().addFilter(NoConErrors()) # ditto in Tornado 2 (which uses the root logger) (don't be tempted to combine this by setting tornado.general to a filter, as the message might change in future Tornado 3 releases)
-        IOLoop.instance().add_callback(checkServer)
-    if options.ip_query_url and options.ip_change_command:
-        # check for user:password@ in ip_query_url2
-        global ip_query_url2,ip_query_url2_user,ip_query_url2_pwd,ip_url2_pwd_is_fname
-        ip_query_url2 = options.ip_query_url2
-        ip_query_url2_user=ip_query_url2_pwd=ip_url2_pwd_is_fname=None
-        if ip_query_url2 and not ip_query_url2=="upnp":
-            netloc = urlparse.urlparse(ip_query_url2).netloc
-            if '@' in netloc:
-                auth,rest = netloc.split('@',1)
-                ip_query_url2 = ip_query_url2.replace(netloc,rest,1)
-                ip_query_url2_user,ip_query_url2_pwd = auth.split(':',1)
-                ip_url2_pwd_is_fname = os.path.isfile(ip_query_url2_pwd)
-        # and start the updater
-        Dynamic_DNS_updater()
-    try:
-        import signal
-        signal.signal(signal.SIGTERM, lambda *args:stopServer("SIGTERM received"))
-    except: pass # signal not supported on this platform?
+
+def banner():
+    ret = [twoline_program_name]
+    if options.port:
+        ret.append("Listening on port %d" % options.port)
+        if options.real_proxy or options.PhantomJS_reproxy or options.upstream_rewrite_ssl: ret.append("with these helpers (don't connect to them yourself):")
+        nextPort = options.port + 1
+        def getSslPID():
+            if not sslforks_to_monitor: return "" # could be fork_before_listen and don't yet know PID
+            p = sslforks_to_monitor[0][0]
+            del sslforks_to_monitor[0]
+            return " (pid %d)" % p
+        if options.real_proxy:
+            if options.ssl_fork:
+                ret.append("--real_proxy SSL helper on localhost:%d-%d%s" % (nextPort,nextPort+1,getSslPID()))
+                nextPort += 2
+            else:
+                ret.append("--real_proxy SSL helper on localhost:%d" % nextPort)
+                nextPort += 1
+        if options.PhantomJS_reproxy:
+            ret.append("--PhantomJS_reproxy helpers on localhost:%d-%d" % (nextPort,phantomJS_proxy_port(options.PhantomJS_instances)-1))
+            for i in xrange(options.PhantomJS_instances):
+                s = getSslPID()
+                if i:
+                    ret[-1] = ret[-1][:-1]+","
+                    s=s.replace("(pid ","")
+                else: s=s.replace("pid","SSL pid")
+                ret[-1] += s
+            nextPort = phantomJS_proxy_port(options.PhantomJS_instances) # although currently unused
+        if upstream_rewrite_ssl:
+            if ssl_fork: ret.append("--upstream-proxy back-connection helper on localhost:%d-%d%s" % (upstream_proxy_port+1,upstream_proxy_port+2,getSslPID()))
+            else: ret.append("--upstream-proxy back-connection helper on localhost:%d" % (upstream_proxy_port+1,))
+    else: ret.append("Not listening (--port=0 set)")
+    if options.watchdog:
+        ret.append("Writing "+options.watchdogDevice+" every %d seconds" % options.watchdog)
+        if options.watchdogWait: ret.append("(abort if unresponsive for %d seconds)" % options.watchdogWait)
+    ret = "\n".join(ret)+"\n"
+    if fork_before_listen:
+        ret = ret.replace("Listening","Child will listen").replace("Writing","Child will write")+"Can't report errors here as this system needs early fork\n" # (need some other way of checking it really started)
+    global bannerTime ; bannerTime = time.time()
+    sys.stderr.write(ret)
+bannerTime = None
+def announceStart():
+    if bannerTime==None: return # if banner() hasn't been called, we're a silent helper process
     if options.background: logging.info("Server starting")
     # and if not running in background, we won't have the
     # "foreground process exitted" clue that we're ready
@@ -764,36 +862,43 @@ def main():
 #     'The Great Adjustment is taking place!'" - Thomas Hardy
 """.replace("#","\033[31m")+"\033[0m\n") # (exact vermilion would be \033[38;2;227;66;52m but we don't know the terminal can do that and it might be less likely to fit with the background, so we go for basic 'red')
     elif time.time() > bannerTime+1: sys.stderr.write("Ready\n")
-    try: IOLoop.instance().start()
-    except KeyboardInterrupt:
-        if options.background: logging.info("SIGINT received")
-        else: sys.stderr.write("\nKeyboard interrupt\n")
-    # gets here after stopServer (e.g. got SIGTERM from a --stop, or options.browser and the browser finished)
+def announceInterrupt():
+    if bannerTime==None: return # as above
+    if options.background: logging.info("SIGINT received")
+    else: sys.stderr.write("\nKeyboard interrupt\n")
+def announceShutdown():
+    if bannerTime==None: return # as above
     if options.background: logging.info("Server shutdown")
     else: sys.stderr.write("Adjuster shutdown\n")
+
+def main():
+    readOptions() ; preprocessOptions() ; serverControl()
+    openPortsEtc() ; announceStart()
+    try: IOLoop.instance().start()
+    except KeyboardInterrupt: announceInterrupt()
+    announceShutdown()
     for v in kept_tempfiles.values(): unlink(v)
-    if options.watchdog:
-        options.watchdog = 0 # tell any separate_thread() to stop (that thread is not counted in helper_thread_count)
-        watchdog.write('V') # this MIGHT be clean exit, IF the watchdog supports it (not all of them do, so it might not be advisable to use the watchdog option if you plan to stop the server without restarting it)
-        watchdog.close()
-    if helper_thread_count:
-        if helper_thread_count>1: plural = "s"
-        else: plural = ""
-        msg = "Terminating %d helper thread%s" % (helper_thread_count,plural)
-        # in case someone needs our port quickly.
-        # Most likely "runaway" thread is ip_change_command if you did a --restart shortly after the server started.
-        # TODO it would be nice if the port can be released at the IOLoop.instance.stop, and make sure os.system doesn't dup any /dev/watchdog handle we might need to release, so that it's not necessary to stop the threads
-        if options.background: logging.info(msg)
-        else: sys.stderr.write(msg+"\n")
-        try:
-            import signal
-            signal.signal(signal.SIGTERM, signal.SIG_DFL)
-            if options.run:
-                try: os.kill(runningPid,signal.SIGTERM)
-                except: pass
-            os.killpg(os.getpgrp(),signal.SIGTERM)
+    if watchdog: watchdog.stop()
+    stop_threads() # must be last thing
+
+def stop_threads():
+    if not sslfork_monitor_pid == None:
+        os.kill(sslfork_monitor_pid,signal.SIGTERM) # this should cause it to propagate that signal to the monitored PIDs
+    if not helper_thread_count: return
+    if helper_thread_count>1: plural = "s"
+    else: plural = ""
+    msg = "Terminating %d helper thread%s" % (helper_thread_count,plural)
+    # in case someone needs our port quickly.
+    # Most likely "runaway" thread is ip_change_command if you did a --restart shortly after the server started.
+    # TODO it would be nice if the port can be released at the IOLoop.instance.stop, and make sure os.system doesn't dup any /dev/watchdog handle we might need to release, so that it's not necessary to stop the threads
+    if options.background: logging.info(msg)
+    else: sys.stderr.write(msg+"\n")
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    if options.run:
+        try: os.kill(runningPid,signal.SIGTERM)
         except: pass
-        os.abort()
+    os.killpg(os.getpgrp(),signal.SIGTERM)
+    os.abort()
 
 def static_handler():
     url,path = options.staticDocs.split('#')
@@ -1031,7 +1136,7 @@ try:
             curl_inUse_clients += 1
             problem = curl_inUse_clients >= curl_max_clients
         if problem:
-            if upstream_rewrite_ssl: logging.error("curl_max_clients too low; AsyncHTTPClient will queue requests and COULD DEADLOCK due to upstream_rewrite_ssl") # TODO: can we run the upstream_rewrite_ssl in a separate process's ioloop ?
+            if upstream_rewrite_ssl and not options.ssl_fork: logging.error("curl_max_clients too low; AsyncHTTPClient will queue requests and COULD DEADLOCK due to upstream_rewrite_ssl") # TODO: can we run the upstream_rewrite_ssl in a separate process's ioloop ?
             else: logging.info("curl_max_clients too low; AsyncHTTPClient will queue requests")
         try: return AsyncHTTPClient(max_clients=curl_max_clients)
         except: return AsyncHTTPClient()
@@ -1212,7 +1317,7 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
     if currentUrl == None: # we need to ask for it again
         try: currentUrl = wd.current_url
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
-    debuglog("Getting data from webdriver %d" % manager.index)
+    debuglog("Getting data from webdriver %d (current_url=%s)" % (manager.index,currentUrl))
     if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
         return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % wd.current_url.replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+wd.current_url),302)
     if asScreenshot: return wrapResponse(wd.get_screenshot_as_png(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
@@ -1222,7 +1327,7 @@ def _get_new_webdriver(index):
     sa = ['--ssl-protocol=any']
     if options.PhantomJS_reproxy:
         sa.append('--ignore-ssl-errors=true')
-        sa.append('--proxy=127.0.0.1:%d' % (options.port+2+2*index))
+        sa.append('--proxy=127.0.0.1:%d' % phantomJS_proxy_port(index))
     elif options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
     try: from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
     except:
@@ -1659,6 +1764,17 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         else: wanted_host=None # not needed if wildcard_dns
         self.redirect(domain_process(v,wanted_host,True))
 
+    def forwardToOtherPid(self):
+        if not (options.ssl_fork and self.WA_UseSSL): return
+        # We're handling SSL in a separate PID, so we have to
+        # forward the request back to the original PID in
+        # case it needs to do things with webdrivers etc.
+        self.request.headers["X-WA-FromSSLHelper"] = "1"
+        # disable keep-alive (seems to cause trouble here, TODO: why doesn't self.request.connection stay the same object)
+        self.request.version = "HTTP/1.0"
+        if "Connection" in self.request.headers: del self.request.headers["Connection"]
+        self.forwardFor("127.0.0.1:%d" % (self.WA_connectPort-1))
+        return True
     def handleFullLocation(self):
         # HTTP 1.1 spec says ANY request can be of form http://...., not just a proxy request.  The differentiation of proxy/not-proxy depends on what host is requested.  So rewrite all http://... requests to HTTP1.0-style host+uri requests.
         if self.request.uri.startswith("http://"):
@@ -1669,9 +1785,11 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             if not self.request.uri: self.request.uri="/"
         elif not self.request.uri.startswith("/"): # invalid
             self.set_status(400) ; self.myfinish() ; return True
-        if self.WA_UseSSL: # we're the SSL helper on port+1 and we've been CONNECT'd to, so the host asked for must be a .0 host for https
+        if options.ssl_fork and self.request.headers.get("X-WA-FromSSLHelper",""):
+            self.request.connection.isFromSslHelper = True # (it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it)
+        if self.WA_UseSSL or hasattr(self.request.connection,"isFromSslHelper"): # we're the SSL helper on port+1 and we've been CONNECT'd to, so the host asked for must be a .0 host for https
             if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
-    
+            
     def handleSSHTunnel(self):
         if not allowConnectURL=="http://"+self.request.host+self.request.uri: return
         self.thin_down_headers() ; self.add_header("Pragma","no-cache") # hopefully enough and don't need all of self.add_nocache_headers
@@ -2018,6 +2136,7 @@ document.forms[0].i.focus()
         self.find_real_IP() # must do this BEFORE forwarding to fasterServer, because might also be behind nginx etc
         if fasterServer_up:
             return self.forwardFor(options.fasterServer)
+        if self.forwardToOtherPid(): return
         if self.handleFullLocation(): return # if returns here, URL is invalid; if not, handleFullLocation has 'normalised' self.request.host and self.request.uri
         if self.isPjsUpstream:
             if options.PhantomJS_UA and options.PhantomJS_UA.startswith("*"): self.request.headers["User-Agent"] = options.PhantomJS_UA[1:]
@@ -2703,6 +2822,10 @@ class SynchronousRequestForwarder(RequestForwarder):
    def connect(self, *args, **kwargs): raise Exception("CONNECT is not implemented in WSGI mode")
    def myfinish(self): pass
 
+class AliveResponder(RequestHandler):
+    SUPPORTED_METHODS = ("GET",)
+    def get(self, *args, **kwargs): self.write("1")
+
 kept_tempfiles = {}
 
 def addArgument(url,extraArg):
@@ -2957,7 +3080,6 @@ def runBrowser(*args):
         helper_thread_count -= 1
         stopServer("Browser command finished")
     threading.Thread(target=browser_thread,args=()).start()
-
 def runRun(*args):
     def runner_thread():
         global helper_thread_count
@@ -2970,10 +3092,14 @@ def runRun(*args):
             logging.info("Restarting run command after %dsec (last exit = %d)" % (options.runWait,ret))
         helper_thread_count -= 1
     threading.Thread(target=runner_thread,args=()).start()
+def setupRunAndBrowser():
+    if options.browser: IOLoop.instance().add_callback(runBrowser)
+    if options.run: IOLoop.instance().add_callback(runRun)
 
 def stopServer(reason=None):
-    if options.background: logging.info(reason)
-    else: sys.stderr.write(reason+"\n")
+    if reason:
+        if options.background: logging.info(reason)
+        else: sys.stderr.write(reason+"\n")
     IOLoop.instance().add_callback(lambda *args:IOLoop.instance().stop())
 
 def json_reEscape(u8str): return json.dumps(u8str.decode('utf-8','replace'))[1:-1] # omit ""s (necessary as we might not have the whole string here)
@@ -3955,9 +4081,22 @@ def ipv4ranges_func(ipRanges_and_results):
 
 class Dynamic_DNS_updater:
     def __init__(self):
+        if not (options.ip_query_url and options.ip_change_command): return
         self.currentIP = None
         self.forceTime=0
         self.aggressive_mode = False
+        # check for user:password@ in ip_query_url2
+        global ip_query_url2,ip_query_url2_user,ip_query_url2_pwd,ip_url2_pwd_is_fname
+        ip_query_url2 = options.ip_query_url2
+        ip_query_url2_user=ip_query_url2_pwd=ip_url2_pwd_is_fname=None
+        if ip_query_url2 and not ip_query_url2=="upnp":
+            netloc = urlparse.urlparse(ip_query_url2).netloc
+            if '@' in netloc:
+                auth,rest = netloc.split('@',1)
+                ip_query_url2 = ip_query_url2.replace(netloc,rest,1)
+                ip_query_url2_user,ip_query_url2_pwd = auth.split(':',1)
+                ip_url2_pwd_is_fname = os.path.isfile(ip_query_url2_pwd)
+        # and start the updater
         IOLoop.instance().add_callback(lambda *args:self.queryIP())
     def queryLocalIP(self):
         # Queries ip_query_url2 (if set, and if we know current IP).  Depending on the response/situation, either passes control to queryIP (which sets the next timeout itself), or sets an ip_check_interval2 timeout.
@@ -4030,13 +4169,27 @@ def backgrounded_system(cmd):
         helper_thread_count -= 1
     threading.Thread(target=run,args=(cmd,)).start()
 
+watchdog = None
+def openWatchdog():
+    global watchdog
+    watchdog = WatchdogPings()
 class WatchdogPings:
-    def __init__(self,wFile):
-        self.wFile = wFile
+    def __init__(self):
+        if options.watchdog:
+            self.wFile = open(options.watchdogDevice, 'w')
+        else: self.wFile = None
+        # then call start() after privileges are dropped
+    def start(self):
+        if not self.wFile: return # no watchdog
         if options.watchdogWait:
             import thread
             thread.start_new_thread((lambda *args:self.separate_thread()),())
         self.ping()
+    def stop(self):
+        if not self.wFile: return # no watchdog
+        options.watchdog = 0 # tell any separate_thread() to stop (that thread is not counted in helper_thread_count)
+        self.wFile.write('V') # this MIGHT be clean exit, IF the watchdog supports it (not all of them do, so it might not be advisable to use the watchdog option if you plan to stop the server without restarting it)
+        self.wFile.close()
     def separate_thread(self): # version for watchdogWait
         # (does not adjust helper_thread_count / can't be "runaway")
         global watchdog_mainServerResponded # a flag.  Do NOT timestamp with time.time() - it can go wrong if NTP comes along and re-syncs the clock by a large amount
@@ -4085,6 +4238,14 @@ class checkServer:
         self.client = self.pendingClient = None
         self.count = 0
         self.interval=1
+    def setup(self):
+        if not options.fasterServer: return
+        if not ':' in options.fasterServer: options.fasterServer += ":80" # needed for the new code
+        logging.getLogger("tornado.general").disabled=1 # needed to suppress socket-level 'connection refused' messages from ping2 code in Tornado 3
+        class NoConErrors:
+            def filter(self,record): return not record.getMessage().startswith("Connect error on fd")
+        logging.getLogger().addFilter(NoConErrors()) # ditto in Tornado 2 (which uses the root logger) (don't be tempted to combine this by setting tornado.general to a filter, as the message might change in future Tornado 3 releases)
+        IOLoop.instance().add_callback(self)
     def __call__(self):
      if options.fasterServerNew:
          # TODO: might be bytes in the queue if this server somehow gets held up.  Could try read_until_close(close,stream)
