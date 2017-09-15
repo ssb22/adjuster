@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.626 (c) 2012-17 Silas S. Brown"
+program_name = "Annotator Generator v0.627 (c) 2012-17 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1204,7 +1204,7 @@ public class MainActivity extends Activity {
         browser.setWebChromeClient(new WebChromeClient());
         class A {
             public A(MainActivity act) { this.act = act; }
-            MainActivity act;
+            MainActivity act; String copiedText="";
             @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) { String r=new %%JPACKAGE%%.Annotator(t).result(); if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPopAll(this)\""); return r; } // now we have a Copy button, it's convenient to put this on ALL ruby elements, not just ones with title
             @android.webkit.JavascriptInterface public void alert(String t,String a) {
                 class DialogTask implements Runnable {
@@ -1216,10 +1216,10 @@ public class MainActivity extends Activity {
                         d.setNegativeButton("Copy",new android.content.DialogInterface.OnClickListener() {
                                 @android.annotation.TargetApi(11)
                                 public void onClick(android.content.DialogInterface dialog,int id) {
-                                        String text=tt+" "+aa;
+                                        copiedText=tt+" "+aa;
                                 if(Integer.valueOf(android.os.Build.VERSION.SDK) < android.os.Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
-                                        ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(text);
-                                else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(text,text));
+                                        ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
+                                else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
                                 }
                         });
                         d.setPositiveButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
@@ -1228,7 +1228,7 @@ public class MainActivity extends Activity {
                 }
                 act.runOnUiThread(new DialogTask(t,a));
             }
-            @android.webkit.JavascriptInterface public String getClip() { return readClipboard(); }
+            @android.webkit.JavascriptInterface public String getClip() { String r=readClipboard(); if(r.contentEquals(copiedText)) return ""; else return r; }
             @android.webkit.JavascriptInterface public String getSentText() { return sentText; }
         }
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
@@ -1313,7 +1313,7 @@ android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><me
 var curClip="";
 function update() {
 var newClip = ssb_local_annotator.getClip();
-if (newClip != curClip) {
+if (newClip && newClip != curClip) {
   document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\u200b/g,'');
   curClip = newClip;
 } window.setTimeout(update,1000) } update(); </script>
