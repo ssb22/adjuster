@@ -175,7 +175,7 @@ define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if 
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
 define("PhantomJS_jslinks",default=True,help="When PhantomJS is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
-define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only). This can make better use of multi-core CPUs and stops the main event loop from being stalled by buggy SSL libraries, but the current implementation has not yet been tested with all logging setups.") # see TODO in maybe_sslfork
+define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only). This can make better use of multi-core CPUs and stops the main event loop from being stalled by buggy SSL libraries, but the current implementation has not yet been tested with all logging setups.")
 
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
@@ -607,15 +607,18 @@ def preprocessOptions():
     # (so we can .split it even if it's None or something)
     if not options.PhantomJS: options.PhantomJS_reproxy=False
     elif not options.htmlonly_mode: errExit("PhantomJS requires htmlonly_mode")
+def open_upnp():
     if options.ip_query_url2=="upnp":
         global miniupnpc ; import miniupnpc # sudo pip install miniupnpc or apt-get install python-miniupnpc
         miniupnpc = miniupnpc.UPnP()
         miniupnpc.discoverdelay=200
+
+profile_forks_too = False # TODO: configurable
+def open_profile():
     if options.profile:
         global cProfile, pstats, cStringIO, profileIdle
         import cProfile, pstats, cStringIO
         setProfile() ; profileIdle = False
-
 def setProfile():
     global theProfiler, profileIdle
     theProfiler = cProfile.Profile()
@@ -629,7 +632,7 @@ def showProfile():
     s = cStringIO.StringIO()
     pstats.Stats(theProfiler,stream=s).sort_stats('cumulative').print_stats()
     pr = "\n".join(x for x in s.getvalue().split("\n")[:8] if x and not "Ordered by" in x)
-    if options.PhantomJS:
+    if options.PhantomJS and len(webdriver_runner):
         global webdriver_lambda,webdriver_mu,webdriver_maxBusy
         stillUsed = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running)
         pr += "\nPhantomJS %d/%d used (%d still in use); queue %d (%d arrived, %d served)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,len(webdriver_queue),webdriver_lambda,webdriver_mu)
@@ -638,6 +641,23 @@ def showProfile():
         # TODO: also measure lambda/mu of other threads e.g. htmlFilter ?
     if options.background: logging.info(pr)
     else: sys.stderr.write(time.strftime("%X")+pr+"\n")
+
+def setProcName(name="adjuster"):
+    "Try to set the process name for top/ps"
+    try: # should work on both Linux and BSD, if installed:
+        import setproctitle # sudo pip install setproctitle
+        return setproctitle.setproctitle(name)
+    except: pass
+    try: # I haven't checked the portability of this one:
+        import procname # sudo pip install procname
+        return procname.setprocname(name)
+    except: pass
+    try: # this works for 'top', 'pstree -p' and 'killall', but not 'ps' or 'pidof':
+        import ctypes
+        b = ctypes.create_string_buffer(len(name)+1)
+        b.value = name
+        ctypes.cdll.LoadLibrary('libc.so.6').prctl(15,ctypes.byref(b),0,0,0)
+    except: pass # oh well
 
 def serverControl():
     if options.install:
@@ -680,60 +700,63 @@ def make_WSGI_application():
 
 sslforks_to_monitor = [] # list of [pid,callback1,callback2,port,last response time]
 sslfork_monitor_pid = None
-def maybe_sslfork(callback1, port2):
-    "Returns True if we're now a child process that shouldn't run anything else"
-    if options.ssl_fork:
+def sslSetup(callback1, port2):
+    if options.ssl_fork: # queue it to be started by monitor
         callback2 = lambda *_:listen_on_port(Application([(r"(.*)",AliveResponder,{})],log_function=nullLog),port2,"127.0.0.1",False) # the "I'm still alive" responder is non-SSL
-        pid = os.fork()
-        if pid: sslforks_to_monitor.append([pid,callback1,callback2,port2,None])
-        else: # child
-            # TODO: set logging to go somewhere else (and update ssl_fork help text)
-            callback1() # set up main listener
-            callback2() # set up 'still alive' listener
-            return True
+        sslforks_to_monitor.append([None,callback1,callback2,port2,None])
     else: callback1() # just run it on the current process
+sslFork_pingInterval = 1 # TODO: configurable?  (ping every interval, restart if down for 2*interval)  (if setting this larger, might want to track the helper threads for early termination)
 def maybe_sslfork_monitor():
+    "Returns SIGTERM callback if we're now a child process"
     if not sslforks_to_monitor: return
     global sslfork_monitor_pid
+    import urllib2, thread # don't use IOLoop for this monitoring: too confusing if we have to restart it on fork
     pid = os.fork()
     if pid:
         sslfork_monitor_pid = pid ; return
-    IOLoop.instance().add_callback(ping_sslForks)
-    return lambda *args:(stopServer(),terminateSslForks())
-def ping_sslForks(*args):
-    if not sslforks_to_monitor: return
-    interval = 1 # TODO: configurable?  (ping every interval, restart if down for 2*interval)
-    def doSslPingResponse(r,i):
-        if r and r.code==200:
-            sslforks_to_monitor[i][4]=time.time()
-    for i in xrange(len(sslforks_to_monitor)):
-        t = sslforks_to_monitor[i][4]
-        if t and t + 2*interval < time.time():
-            restart_sslfork(i)
-            if not sslforks_to_monitor: break # child
-        else:
-            MyAsyncHTTPClient().fetch("http://localhost:%d/" % sslforks_to_monitor[i][3],callback=lambda r,i=i:doSslPingResponse(r,i))
-            if not t: sslforks_to_monitor[i][4] = time.time()
-    IOLoop.instance().add_timeout(time.time()+interval,ping_sslForks)
+    setProcName("adjusterSSLmon") # 15 chars is max for some "top" implementations
+    def responder(i):
+        while sslforks_to_monitor:
+            t = time.time()
+            try:
+                urllib2.urlopen("http://localhost:%d/" % sslforks_to_monitor[i][3],timeout=sslFork_pingInterval)
+                sslforks_to_monitor[i][4]=time.time()
+            except: pass # ignore URLError etc
+            time.sleep(max(0,t+sslFork_pingInterval-time.time()))
+    for i in xrange(len(sslforks_to_monitor)): thread.start_new_thread(responder,(i,))
+    while sslforks_to_monitor:
+        for i in xrange(len(sslforks_to_monitor)):
+            t = sslforks_to_monitor[i][4]
+            if sslforks_to_monitor[i][0]==None or (t and t + 2*sslFork_pingInterval < time.time()):
+                if restart_sslfork(i): # child
+                    return lambda *args:stopServer()
+            elif not t: sslforks_to_monitor[i][4] = time.time()
+    raise SystemExit
 def restart_sslfork(n):
     global sslforks_to_monitor
-    logging.error("Restarting SSL helper %d (not heard from it for %d seconds)" % (n,time.time()-sslforks_to_monitor[n][4]))
+    if not sslforks_to_monitor[n][0]==None: # not first time
+        logging.error("Restarting SSL helper %d (old pid %d; not heard from it for %d seconds)" % (n,sslforks_to_monitor[n][0],time.time()-sslforks_to_monitor[n][4]))
+        try: os.kill(sslforks_to_monitor[n][0],9)
+        except: logging.info("Unable to kill pid %d (already gone?)" % sslforks_to_monitor[n][0])
+        os.waitpid(sslforks_to_monitor[n][0], os.WNOHANG) # clear it from the process table
+    # TODO: if profile_forks_too, do things with profile?
     pid = os.fork()
     if pid:
         sslforks_to_monitor[n][0] = pid
-        sslforks_to_monitor[n][4] = time.time()
+        sslforks_to_monitor[n][4] = None
     else: # child
-        # IOLoop is already running; we need to repurpose it
-        # Start the necessary Applications & stop the checker
-        # TODO: the IOLoop will have async http request fd's in it that the child process won't have!  (this will probably cause callback errors in the logs)
-        # Tornado 4 IOLoop.clear_instance() = del IOLoop._instance (but still need to stop it)
+        setProcName("adjusterSSLhelp")
         sslforks_to_monitor[n][1]() # main listener
         sslforks_to_monitor[n][2]() # 'still alive' listener
         sslforks_to_monitor = [] # nothing for us to check
+        return True
 def terminateSslForks():
     global sslforks_to_monitor
     for p,_,_,_,_ in sslforks_to_monitor:
-        os.kill(p,signal.SIGTERM)
+        try: os.kill(p,signal.SIGTERM)
+        except: pass # somebody might have 'killall'd them
+        try: os.waitpid(p, os.WNOHANG)
+        except: pass
     sslforks_to_monitor = []
 
 def open_extra_ports():
@@ -742,10 +765,10 @@ def open_extra_ports():
     # don't add any other ports here: NormalRequestForwarder assumes the real_proxy SSL helper will be at port+1
     # banner() must be kept in sync with these port numbers,
     # as must phantomJS_proxy_port()
-    # All calls to maybe_sslfork* must be made before ANY other calls to listen_on_port
+    # All calls to sslSetup and maybe_sslfork_monitor must be made before ANY other calls to listen_on_port (as we don't yet want there to be an IOLoop instance when maybe_sslfork_monitor is called)
     if options.real_proxy:
         # create a modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port
-        if maybe_sslfork(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=True),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1): return lambda *args:stopServer()
+        sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=True),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1)
         nextPort += 1
         if options.ssl_fork: nextPort += 1
     nextPort_jsProxy = nextPort
@@ -753,15 +776,15 @@ def open_extra_ports():
         # ditto for PhantomJS (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us)
         for i in xrange(options.PhantomJS_instances):
             # to be done later: listen_on_port(Application([(r"(.*)",PjsRequestForwarder(i,nextPort),{})],log_function=nullLog,gzip=True),nextPort,"127.0.0.1",False)
-            if maybe_sslfork(lambda port=nextPort:listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(i,port+1),{})],log_function=nullLog,gzip=True),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2): return lambda *args:stopServer()
+            sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(i,port+1),{})],log_function=nullLog,gzip=True),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2)
             nextPort += 2
             if options.ssl_fork: nextPort += 1
     if upstream_rewrite_ssl:
         # This one does NOT listen on SSL: it listens on unencrypted HTTP and rewrites .0 into outgoing SSL.  But we can still run it in a different process if ssl_fork is enabled, and this will save encountering the curl_max_clients issue as well as possibly offloading *client*-side SSL to a different CPU core (TODO: could also use Tornado's multiprocessing to multi-core the client-side SSL)
-        if maybe_sslfork(lambda port=upstream_proxy_port+1:listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=True),port,"127.0.0.1",False),upstream_proxy_port+2): return lambda *args:stopServer() # TODO: document upstream_proxy_port+2 needs to be reserved if options.ssl_fork and not options.upstream_proxy_host
+        sslSetup(lambda port=upstream_proxy_port+1:listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=True),port,"127.0.0.1",False),upstream_proxy_port+2) # TODO: document upstream_proxy_port+2 needs to be reserved if options.ssl_fork and not options.upstream_proxy_host
     r = maybe_sslfork_monitor()
     if r: return r
-    # NOW we can start non-maybe_sslfork listen_on_port:
+    # NOW we can start non-sslSetup listen_on_port:
     if options.PhantomJS_reproxy:
         nextPort = nextPort_jsProxy
         for i in xrange(options.PhantomJS_instances):
@@ -790,10 +813,13 @@ def openPortsEtc():
     workaround_raspbian_IPv6_bug()
     workaround_timeWait_problem()
     stopFunc = open_extra_ports()
-    if stopFunc: dropPrivileges()
+    if stopFunc: # we're a child process (--ssl-fork)
+        dropPrivileges()
+        if profile_forks_too: open_profile()
     else: # we're not a child process
         if options.port: listen_on_port(application,options.port,options.address,options.browser)
-        openWatchdog() ; dropPrivileges() ; banner()
+        openWatchdog() ; dropPrivileges() ; open_upnp()
+        banner() ; open_profile()
         if options.background and not fork_before_listen:
             unixfork()
         if options.PhantomJS: init_webdrivers()
@@ -810,30 +836,18 @@ def banner():
         ret.append("Listening on port %d" % options.port)
         if options.real_proxy or options.PhantomJS_reproxy or options.upstream_rewrite_ssl: ret.append("with these helpers (don't connect to them yourself):")
         nextPort = options.port + 1
-        def getSslPID():
-            if not sslforks_to_monitor: return "" # could be fork_before_listen and don't yet know PID
-            p = sslforks_to_monitor[0][0]
-            del sslforks_to_monitor[0]
-            return " (pid %d)" % p
         if options.real_proxy:
             if options.ssl_fork:
-                ret.append("--real_proxy SSL helper on localhost:%d-%d%s" % (nextPort,nextPort+1,getSslPID()))
+                ret.append("--real_proxy SSL helper on localhost:%d-%d" % (nextPort,nextPort+1))
                 nextPort += 2
             else:
                 ret.append("--real_proxy SSL helper on localhost:%d" % nextPort)
                 nextPort += 1
         if options.PhantomJS_reproxy:
             ret.append("--PhantomJS_reproxy helpers on localhost:%d-%d" % (nextPort,phantomJS_proxy_port(options.PhantomJS_instances)-1))
-            for i in xrange(options.PhantomJS_instances):
-                s = getSslPID()
-                if i:
-                    ret[-1] = ret[-1][:-1]+","
-                    s=s.replace("(pid ","")
-                else: s=s.replace("pid","SSL pid")
-                ret[-1] += s
             nextPort = phantomJS_proxy_port(options.PhantomJS_instances) # although currently unused
         if upstream_rewrite_ssl:
-            if ssl_fork: ret.append("--upstream-proxy back-connection helper on localhost:%d-%d%s" % (upstream_proxy_port+1,upstream_proxy_port+2,getSslPID()))
+            if options.ssl_fork: ret.append("--upstream-proxy back-connection helper on localhost:%d-%d" % (upstream_proxy_port+1,upstream_proxy_port+2))
             else: ret.append("--upstream-proxy back-connection helper on localhost:%d" % (upstream_proxy_port+1,))
     else: ret.append("Not listening (--port=0 set)")
     if options.watchdog:
@@ -872,8 +886,8 @@ def announceShutdown():
     else: sys.stderr.write("Adjuster shutdown\n")
 
 def main():
-    readOptions() ; preprocessOptions() ; serverControl()
-    openPortsEtc() ; announceStart()
+    setProcName() ; readOptions() ; preprocessOptions()
+    serverControl() ; openPortsEtc() ; announceStart()
     try: IOLoop.instance().start()
     except KeyboardInterrupt: announceInterrupt()
     announceShutdown()
@@ -883,7 +897,8 @@ def main():
 
 def stop_threads():
     if not sslfork_monitor_pid == None:
-        os.kill(sslfork_monitor_pid,signal.SIGTERM) # this should cause it to propagate that signal to the monitored PIDs
+        try: os.kill(sslfork_monitor_pid,signal.SIGTERM) # this should cause it to propagate that signal to the monitored PIDs
+        except: pass # somebody might have killall'd it
     if not helper_thread_count: return
     if helper_thread_count>1: plural = "s"
     else: plural = ""
@@ -1123,7 +1138,17 @@ try:
     import pycurl # check it's there
     if not ('c-ares' in pycurl.version or 'threaded' in pycurl.version): sys.stderr.write("WARNING: The libcurl on this system might hold up our main thread while it resolves DNS (try building curl with ./configure --enable-ares)\n")
     if float('.'.join(pycurl.version.split()[0].split('/')[1].rsplit('.')[:2])) < 7.5: sys.stderr.write("WARNING: The curl on this system is old and might hang when fetching certain SSL sites\n") # strace -p (myPID) shows busy looping on poll (TODO: option to not use it if we're not using upstream_proxy)
-    curl_max_clients = 1000 # TODO: configurable?  PhantomJS_instances*30 after preprocessOptions?  but at least it's better than the default of 10 (see Tornado issue 2127), and we'll warn about the issue ourselves if we go over:
+    _oldCurl = pycurl.Curl
+    def _newCurl(*args,**kwargs):
+        c = _oldCurl(*args,**kwargs)
+        so = c.setopt
+        def mySetopt(k,v):
+            so(k,v)
+            if k==pycurl.PROXY: so(pycurl.HTTP_VERSION, pycurl.CURL_HTTP_VERSION_1_0) # workaround 599 "transfer closed with outstanding read data remaining" in Curl 7.55.1 with polipo2 as upstream proxy (TODO: curl-version dependent? 7.43.0 seemed OK in this aspect, although it had the above problem)
+        c.setopt = mySetopt
+        return c
+    pycurl.Curl = _newCurl
+    curl_max_clients = 1000 # TODO: configurable?  PhantomJS_instances*30 after preprocessOptions (and less if options.ssl_fork)?  but at least it's better than the default of 10 (see Tornado issue 2127), and we'll warn about the issue ourselves if we go over:
     curl_inUse_clients = 0
     try: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",max_clients=curl_max_clients)
     except: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # will try in MyAsyncHTTPClient too (different versions of Tornado and all that...)
@@ -1565,7 +1590,7 @@ class RequestForwarder(RequestHandler):
             host,port = "127.0.0.1",self.WA_connectPort
             debuglog("Rerouting CONNECT to "+host+":"+str(port))
         def callback(*args):
-          client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError(host+":"+str(port)+self.debugExtras(),upstream,data))
+          client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError("upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
           upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError("client "+self.request.remote_ip+self.debugExtras(),client,data))
           try: client.write('HTTP/1.0 200 Connection established\r\n\r\n')
           except tornado.iostream.StreamClosedError: logging.error("client "+self.request.remote_ip+" closed before we said Established"+self.debugExtras())
@@ -1641,7 +1666,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         if val: val += ", "
         self.request.headers[header] = val+toAdd
 
-    def forwardFor(self,server):
+    def forwardFor(self,server,serverType="ownServer"):
         if wsgi_mode: raise Exception("Not yet implemented for WSGI mode") # no .connection; we'd probably have to repeat the request with HTTPClient
         if server==options.own_server and options.ownServer_useragent_ip:
             r = self.request.headers.get("User-Agent","")
@@ -1652,7 +1677,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         client = self.request.connection.stream
         if ':' in server: host, port = server.split(':')
         else: host, port = server, 80
-        upstream.connect((host, int(port)),lambda *args:(upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError("ownServer client",client,data)),client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError("ownServer upstream",upstream,data))))
+        upstream.connect((host, int(port)),lambda *args:(upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError(serverType+" client",client,data)),client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError(serverType+" upstream",upstream,data))))
         try: self.request.uri = self.request.original_uri
         except: pass
         upstream.write(self.request.method+" "+self.request.uri+" "+self.request.version+"\r\n"+"\r\n".join(("%s: %s" % (k,v)) for k,v in (list(h for h in self.request.headers.get_all() if not h[0].lower()=="x-real-ip")+[("X-Real-Ip",self.request.remote_ip)]))+"\r\n\r\n"+self.request.body)
@@ -1773,7 +1798,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         # disable keep-alive (seems to cause trouble here, TODO: why doesn't self.request.connection stay the same object)
         self.request.version = "HTTP/1.0"
         if "Connection" in self.request.headers: del self.request.headers["Connection"]
-        self.forwardFor("127.0.0.1:%d" % (self.WA_connectPort-1))
+        self.forwardFor("127.0.0.1:%d" % (self.WA_connectPort-1),"SSL helper")
         return True
     def handleFullLocation(self):
         # HTTP 1.1 spec says ANY request can be of form http://...., not just a proxy request.  The differentiation of proxy/not-proxy depends on what host is requested.  So rewrite all http://... requests to HTTP1.0-style host+uri requests.
@@ -2135,7 +2160,7 @@ document.forms[0].i.focus()
         elif options.loadBalancer and self.request.headers.get("User-Agent","")=="" and self.request.uri=="/": return self.answer_load_balancer()
         self.find_real_IP() # must do this BEFORE forwarding to fasterServer, because might also be behind nginx etc
         if fasterServer_up:
-            return self.forwardFor(options.fasterServer)
+            return self.forwardFor(options.fasterServer,"fasterServer")
         if self.forwardToOtherPid(): return
         if self.handleFullLocation(): return # if returns here, URL is invalid; if not, handleFullLocation has 'normalised' self.request.host and self.request.uri
         if self.isPjsUpstream:
