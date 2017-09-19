@@ -730,6 +730,8 @@ def maybe_sslfork_monitor():
     pid = os.fork()
     if pid:
         sslfork_monitor_pid = pid ; return
+    # If background, can't double-fork (our PID is known)
+    # (TODO: if profile_forks_too, there's no profile loop in this monitor (it starts only when we fork a new helper); unlikely to be useful here though)
     try: os.setpgrp() # for stop_threads0 later
     except: pass
     signal.signal(signal.SIGTERM, terminateSslForks)
@@ -836,18 +838,22 @@ def openPortsEtc():
     stopFunc = open_extra_ports()
     if stopFunc: # we're a child process (--ssl-fork)
         dropPrivileges()
+        # If background, can't double-fork (our PID is known)
         if profile_forks_too: open_profile()
     else: # we're not a child process
       try:
         if options.port: listen_on_port(application,options.port,options.address,options.browser)
         openWatchdog() ; dropPrivileges() ; open_upnp()
-        banner() ; open_profile()
-        if options.PhantomJS: init_webdrivers()
+        banner()
         if options.background and not fork_before_listen:
-            unixfork()
+            if options.PhantomJS: test_init_webdriver()
+            unixfork() # MUST be before init_webdrivers (PhantomJS does NOT work if you start them before forking)
+        open_profile()
+        if options.PhantomJS: init_webdrivers()
         setupRunAndBrowser() ; watchdog.start()
         checkServer.setup() ; Dynamic_DNS_updater()
         stopFunc = lambda *_:stopServer("SIGTERM received")
+      except SystemExit: pass # from the unixfork, OK
       except: # oops, error during startup, stop forks if any
         if not sslfork_monitor_pid == None:
           time.sleep(0.5) # (it may have only just started: give it a chance to install its signal handler)
@@ -1419,11 +1425,17 @@ webdriver_runner = [] ; webdriver_prefetched = []
 webdriver_via = []
 webdriver_inProgress = [] ; webdriver_queue = []
 webdriver_lambda = webdriver_mu = 0
+def test_init_webdriver():
+    "Check that we CAN start a webdriver, before forking to background and starting all of them"
+    sys.stderr.write("Checking webdriver configuration... ")
+    get_new_webdriver(0).quit()
+    sys.stderr.write("OK\n")
 def init_webdrivers():
-    sys.stderr.write("Starting webdrivers")
+    if not options.background: sys.stderr.write("Starting webdrivers")
     for i in xrange(options.PhantomJS_instances):
-        if i%10 or not i: sys.stderr.write(".")
-        else: sys.stderr.write(repr(i))
+        if not options.background:
+            if i%10 or not i: sys.stderr.write(".")
+            else: sys.stderr.write(repr(i))
         webdriver_runner.append(WebdriverRunner(len(webdriver_runner)))
         webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
@@ -1435,7 +1447,7 @@ def init_webdrivers():
             except: pass
       except: pass
     import atexit ; atexit.register(quit_wd)
-    sys.stderr.write(" done\n")
+    if not options.background: sys.stderr.write(" done\n")
 webdriver_maxBusy = 0
 def webdriver_checkServe(*args):
     # how many queue items can be served right now?
