@@ -730,10 +730,13 @@ def maybe_sslfork_monitor():
     pid = os.fork()
     if pid:
         sslfork_monitor_pid = pid ; return
+    try: os.setpgrp() # for stop_threads0 later
+    except: pass
+    signal.signal(signal.SIGTERM, terminateSslForks)
     setProcName("adjusterSSLmon") # 15 chars is max for some "top" implementations
     setLogPrefix("SSLmon")
     def responder(i):
-        while sslforks_to_monitor:
+        while True:
             t = time.time()
             try:
                 urllib2.urlopen("http://localhost:%d/" % sslforks_to_monitor[i][3],timeout=sslFork_pingInterval)
@@ -741,14 +744,13 @@ def maybe_sslfork_monitor():
             except: pass # ignore URLError etc
             time.sleep(max(0,t+sslFork_pingInterval-time.time()))
     for i in xrange(len(sslforks_to_monitor)): thread.start_new_thread(responder,(i,))
-    while sslforks_to_monitor:
+    while True:
         for i in xrange(len(sslforks_to_monitor)):
             t = sslforks_to_monitor[i][4]
             if sslforks_to_monitor[i][0]==None or (t and t + 2*sslFork_pingInterval < time.time()):
                 if restart_sslfork(i): # child
                     return lambda *args:stopServer()
             elif not t: sslforks_to_monitor[i][4] = time.time()
-    raise SystemExit
 def restart_sslfork(n):
     global sslforks_to_monitor
     if not sslforks_to_monitor[n][0]==None: # not first time
@@ -768,14 +770,15 @@ def restart_sslfork(n):
         sslforks_to_monitor[n][2]() # 'still alive' listener
         sslforks_to_monitor = [] # nothing for us to check
         return True
-def terminateSslForks():
+def terminateSslForks(*args):
+    "sslfork_monitor's SIGTERM handler"
     global sslforks_to_monitor
     for p,_,_,_,_ in sslforks_to_monitor:
         try: os.kill(p,signal.SIGTERM)
         except: pass # somebody might have 'killall'd them
         try: os.waitpid(p, os.WNOHANG)
         except: pass
-    sslforks_to_monitor = []
+    stop_threads0()
 
 def open_extra_ports():
     "Returns the stop function if we're now a child process that shouldn't run anything else"
@@ -835,17 +838,24 @@ def openPortsEtc():
         dropPrivileges()
         if profile_forks_too: open_profile()
     else: # we're not a child process
+      try:
         if options.port: listen_on_port(application,options.port,options.address,options.browser)
         openWatchdog() ; dropPrivileges() ; open_upnp()
         banner() ; open_profile()
+        if options.PhantomJS: init_webdrivers()
         if options.background and not fork_before_listen:
             unixfork()
-        if options.PhantomJS: init_webdrivers()
         setupRunAndBrowser() ; watchdog.start()
         checkServer.setup() ; Dynamic_DNS_updater()
         stopFunc = lambda *_:stopServer("SIGTERM received")
+      except: # oops, error during startup, stop forks if any
+        if not sslfork_monitor_pid == None:
+          time.sleep(0.5) # (it may have only just started: give it a chance to install its signal handler)
+          try: os.kill(sslfork_monitor_pid,signal.SIGTERM)
+          except: pass
+        raise
     signal.signal(signal.SIGTERM, stopFunc)
-    try: os.setpgrp() # for stop_threads() later
+    try: os.setpgrp() # for stop_threads0 later
     except: pass
 
 def banner():
@@ -926,12 +936,14 @@ def stop_threads():
     # TODO it would be nice if the port can be released at the IOLoop.instance.stop, and make sure os.system doesn't dup any /dev/watchdog handle we might need to release, so that it's not necessary to stop the threads
     if options.background: logging.info(msg)
     else: sys.stderr.write(msg+"\n")
+    stop_threads0()
+def stop_threads0():
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     if options.run:
         try: os.kill(runningPid,signal.SIGTERM)
         except: pass
     os.killpg(os.getpgrp(),signal.SIGTERM)
-    os.abort()
+    os.abort() # if the above didn't work, this should
 
 def static_handler():
     url,path = options.staticDocs.split('#')
@@ -1408,11 +1420,10 @@ webdriver_via = []
 webdriver_inProgress = [] ; webdriver_queue = []
 webdriver_lambda = webdriver_mu = 0
 def init_webdrivers():
-    if not options.background: sys.stderr.write("Starting webdrivers")
+    sys.stderr.write("Starting webdrivers")
     for i in xrange(options.PhantomJS_instances):
-        if not options.background:
-            if i%10 or not i: sys.stderr.write(".")
-            else: sys.stderr.write(repr(i))
+        if i%10 or not i: sys.stderr.write(".")
+        else: sys.stderr.write(repr(i))
         webdriver_runner.append(WebdriverRunner(len(webdriver_runner)))
         webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
@@ -1424,7 +1435,7 @@ def init_webdrivers():
             except: pass
       except: pass
     import atexit ; atexit.register(quit_wd)
-    if not options.background: sys.stderr.write(" done\n")
+    sys.stderr.write(" done\n")
 webdriver_maxBusy = 0
 def webdriver_checkServe(*args):
     # how many queue items can be served right now?
