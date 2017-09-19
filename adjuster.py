@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.248 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.249 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -175,7 +175,7 @@ define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if 
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
 define("PhantomJS_jslinks",default=True,help="When PhantomJS is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
-define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only). This can make better use of multi-core CPUs and stops the main event loop from being stalled by buggy SSL libraries, but the current implementation has not yet been tested with all logging setups.")
+define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only). This can make better use of multi-core CPUs and stops the main event loop from being stalled by buggy SSL libraries (at the expense of more RAM).")
 
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
@@ -473,6 +473,9 @@ def readOptions():
     parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files)
 
 def preprocessOptions():
+    if options.ssl_fork and options.log_file_prefix:
+        try: logging.getLogger().handlers
+        except: errExit("The logging module on this system is not suitable for --log-file-prefix with --ssl-fork") # because we won't know how to clear its handlers and start again in the child processes
     if not options.background:
         global fork_before_listen
         fork_before_listen = False
@@ -659,6 +662,19 @@ def setProcName(name="adjuster"):
         ctypes.cdll.LoadLibrary('libc.so.6').prctl(15,ctypes.byref(b),0,0,0)
     except: pass # oh well
 
+def setLogPrefix(toAppend=None):
+    if not options.log_file_prefix: return # stderr is OK
+    if not toAppend: toAppend=str(os.getpid())
+    logging.getLogger().handlers = [] # preprocessOptions checks we can do this
+    options.log_file_prefix += "-"+toAppend
+    global tornado # needed for the 'import tornado.log'
+    if hasattr(tornado.options,"enable_pretty_logging"):
+        # Tornado 2
+        tornado.options.enable_pretty_logging()
+    else: # Tornado 4
+        import tornado.log
+        tornado.log.enable_pretty_logging()
+
 def serverControl():
     if options.install:
         current_crontab = commands.getoutput("crontab -l 2>/dev/null")
@@ -667,7 +683,7 @@ def serverControl():
             return "'"+arg.replace("'",r"'\''")+"'"
         def cron_escape(arg): return shell_escape(arg).replace('%',r'\%')
         new_cmd = "@reboot python "+" ".join(cron_escape(a) for a in sys.argv)
-        if not new_cmd in current_crontab.replace("\r","\n").split("\n"):
+        if not new_cmd in current_crontab.replace("\r","\n").split("\n") and not new_cmd in current_crontab.replace("$HOME",os.environ.get("HOME")).replace("\r","\n").split("\n"):
             sys.stderr.write("Adding to crontab: "+new_cmd+"\n")
             if not current_crontab.endswith("\n"): current_crontab += "\n"
             os.popen("crontab -","w").write(current_crontab+new_cmd+"\n")
@@ -715,6 +731,7 @@ def maybe_sslfork_monitor():
     if pid:
         sslfork_monitor_pid = pid ; return
     setProcName("adjusterSSLmon") # 15 chars is max for some "top" implementations
+    setLogPrefix("SSLmon")
     def responder(i):
         while sslforks_to_monitor:
             t = time.time()
@@ -746,6 +763,7 @@ def restart_sslfork(n):
         sslforks_to_monitor[n][4] = None
     else: # child
         setProcName("adjusterSSLhelp")
+        setLogPrefix("SSL"+str(n)) # TODO: or port number?
         sslforks_to_monitor[n][1]() # main listener
         sslforks_to_monitor[n][2]() # 'still alive' listener
         sslforks_to_monitor = [] # nothing for us to check
