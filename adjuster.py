@@ -853,7 +853,7 @@ def openPortsEtc():
         setupRunAndBrowser() ; watchdog.start()
         checkServer.setup() ; Dynamic_DNS_updater()
         stopFunc = lambda *_:stopServer("SIGTERM received")
-      except SystemExit: pass # from the unixfork, OK
+      except SystemExit: raise # from the unixfork, OK
       except: # oops, error during startup, stop forks if any
         if not sslfork_monitor_pid == None:
           time.sleep(0.5) # (it may have only just started: give it a chance to install its signal handler)
