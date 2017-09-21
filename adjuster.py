@@ -512,8 +512,7 @@ def preprocessOptions():
     upstream_proxy_host = upstream_proxy_port = None
     global upstream_rewrite_ssl ; upstream_rewrite_ssl=False
     if options.upstream_proxy:
-        try: import pycurl
-        except ImportError: errExit("upstream_proxy requires pycurl (try sudo pip install pycurl)")
+        setupCurl("upstream_proxy requires pycurl (try sudo pip install pycurl)")
         if not ':' in options.upstream_proxy: options.upstream_proxy += ":80"
         upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':') # TODO: IPv6 ?
         if not upstream_proxy_host:
@@ -521,6 +520,7 @@ def preprocessOptions():
             if wsgi_mode: sys.stderr.write("Can't do SSL-rewrite for upstream proxy when in WSGI mode\n")
             else: upstream_rewrite_ssl = True
         upstream_proxy_port = int(upstream_proxy_port)
+    else: setupCurl() # and no error if not there
     global codeChanges ; codeChanges = []
     if options.codeChanges:
       ccLines = [x for x in [x.strip() for x in options.codeChanges.split("\n")] if x and not x.startswith("#")]
@@ -648,9 +648,9 @@ def showProfile():
 
 def setProcName(name="adjuster"):
     "Try to set the process name for top/ps"
-    try: # should work on both Linux and BSD, if installed:
-        import setproctitle # sudo pip install setproctitle
-        return setproctitle.setproctitle(name)
+    try: # should work on both Linux and BSD if installed, but might not have much effect on Mac:
+        import setproctitle # sudo pip install setproctitle or apt-get install python-setproctitle
+        return setproctitle.setproctitle(name) # (TODO: this also stops 'ps axwww' from displaying command-line arguments; make it optional?)
     except: pass
     try: # I haven't checked the portability of this one:
         import procname # sudo pip install procname
@@ -1171,10 +1171,18 @@ accessLog = BrowserLogger()
 
 def MyAsyncHTTPClient(): return AsyncHTTPClient()
 def curlFinished(): pass
-try:
+def setupCurl(error=None):
+  global pycurl
+  try:
     import pycurl # check it's there
-    if not ('c-ares' in pycurl.version or 'threaded' in pycurl.version): sys.stderr.write("WARNING: The libcurl on this system might hold up our main thread while it resolves DNS (try building curl with ./configure --enable-ares)\n")
-    if float('.'.join(pycurl.version.split()[0].split('/')[1].rsplit('.')[:2])) < 7.5: sys.stderr.write("WARNING: The curl on this system is old and might hang when fetching certain SSL sites\n") # strace -p (myPID) shows busy looping on poll (TODO: option to not use it if we're not using upstream_proxy)
+    if not ('c-ares' in pycurl.version or 'threaded' in pycurl.version):
+        if error: sys.stderr.write("WARNING: The libcurl on this system might hold up our main thread while it resolves DNS (try building curl with ./configure --enable-ares)\n")
+        else:
+            del pycurl ; return # TODO: and say 'not using'?
+    if float('.'.join(pycurl.version.split()[0].split('/')[1].rsplit('.')[:2])) < 7.5:
+        if error: sys.stderr.write("WARNING: The curl on this system is old and might hang when fetching certain SSL sites\n") # strace -p (myPID) shows busy looping on poll (TODO: option to not use it if we're not using upstream_proxy)
+        else:
+            del pycurl ; return # TODO: as above
     _oldCurl = pycurl.Curl
     def _newCurl(*args,**kwargs):
         c = _oldCurl(*args,**kwargs)
@@ -1208,7 +1216,8 @@ try:
         if curl_inUse_clients < 0:
             # This shouldn't happen.  But if it does, don't let the effect 'run away'.
             curl_inUse_clients = 0
-except: pass # fall back to the pure-Python one
+  except: # fall back to the pure-Python one
+      if error: errExit(error) # (unless it won't do)
 
 try:
     import zlib
