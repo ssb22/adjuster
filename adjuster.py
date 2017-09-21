@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.249 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.25 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -162,6 +162,7 @@ define("leaveTags",multiple=True,default="script,style,title,textarea,option",he
 define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names which should be deleted if they occur in any section of running text. For example, \"wbr\" (word-break opportunity) tags (listed by default) might cause problems with phrase-based annotators.") # TODO: <span class="whatever">&nbsp;</span> (c.f. annogen's JS) ?  have already added to the bookmarklet JS (undocumented! see 'awkwardSpan') but not to the proxy version (the two find_text_in_HTML functions)
 
 define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.") # (see comments in serve_submitPage)
+define("submitPrompt",default="Type or paste in some text to adjust",help="What to say before the form allowing users to enter their own text when submitPath is set (compare boxPrompt)")
 define("submitBookmarklet",default=True,help="If submitPath is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly. The bookmarklets should work on modern desktop browsers and on iOS and Android; they should cope with frames and with Javascript-driven changes to a page, and on some browsers an option is provided to additionally place the page into a frameset so that links to other pages on the same site can be followed without explicitly reactivating the bookmarklet (but this does have disadvantages - page must be reloaded + URL display gets 'stuck' - so it's left to the user to choose).") # (and if the other pages check their top.location, things could break there as well)
 define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",help="A Javascript expression that evaluates true if a DOM text node 'c' should be processed by the 'bookmarklet' Javascript when submitPath and submitBookmarklet are set. To process ALL text, set this option to c.nodeValue.length, but if your htmlFilter will not change certain kinds of text then you can make the Javascript run more efficiently by not processing these (quote the expression carefully). The default setting will not process text that is all ASCII.") # + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8. (Previously said "To process ALL text, simply set this option to 'true'", but that can have odd effects on some sites' empty nodes. Saying c.nodeValue.length for now; c.nodeValue.match(/[^\s]/) might be better but needs more quoting explanation. Could change bookmarkletMainScript so it alters the DOM only if replacements[i] != oldTexts[i], c.f. annogen's android code, but that would mean future passes would re-send all the unchanged nodes cluttering the XMLHttpRequests especially if they fill a chunk - annogen version has the advantage of immediate local processing)
 define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate number of characters at a time that the 'bookmarklet' Javascript will send to the server if submitPath and submitBookmarklet are set. Setting this too high could impair browser responsiveness, but too low will be inefficient with bandwidth and pages will take longer to finish.")
@@ -182,8 +183,8 @@ define("background",default=False,help="If True, fork to the background as soon 
 define("restart",default=False,help="If True, try to terminate any other process listening on our port number before we start (Unix only). Useful if Web Adjuster is running in the background and you want to quickly restart it with new options. Note that no check is made to make sure the other process is a copy of Web Adjuster; whatever it is, if it has our port open, it is asked to stop.")
 define("stop",default=False,help="Like 'restart', but don't replace the other process after stopping it. This option can be used to stop a background server (if it's configured with the same port number) without starting a new one. Unix only.") # "stop" overrides "restart", so if "restart" is set in a configuration file then you can still use "stop" on the command line
 define("install",default=False,help="Try to install the program in the current user's Unix crontab as an @reboot entry, unless it's already there.  The arguments of the cron entry will be the same as the command line, with no directory changes, so make sure you are in the home directory before doing this.  The program will continue to run normally after the installation attempt.  (If you are on Cygwin then you might need to run cron-config also.)")
-define("watchdog",default=0,help="(Linux only) Ping the system's watchdog every this number of seconds. This means the watchdog can reboot the system if for any reason Web Adjuster stops functioning, provided that no other program is pinging the watchdog. The default value of 0 means do not ping the watchdog.") # This option might not be suitable for a system whose watchdog cannot be set to wait a few extra seconds for a very complex page to be parsed (the worst case is where the program is just about to ping the watchdog when it gets a high-CPU request; the allowed delay time is the difference between the ping interval and the watchdog's \"heartbeat\" timeout, and this difference can be maximised by setting the ping interval to 1 although this does mean Adjuster will wake every second).  But see watchdogWait.
-define("watchdogWait",default=0,help="When the watchdog option is set, wait this number of seconds before stopping the watchdog pings. This causes the watchdog pings to be sent from a separate thread and therefore not stopped when the main thread is busy; they are stopped only when the main thread has not responded for watchdogWait seconds. This can be used to work around the limitations of a hardware watchdog that cannot be set to wait that long.") # such as the Raspberry Pi's Broadcom chip which defaults to 10 seconds and has max 15; you could say watchdog=5 and watchdogWait=60
+define("watchdog",default=0,help="(Linux only) Ping the system's watchdog every this number of seconds, so the watchdog can reboot the system if for any reason Web Adjuster stops functioning. The default value of 0 means do not ping the watchdog. If your machine's unattended boot is no longer reliable, beware of unnecessary reboot if you remotely stop the adjuster and are unable to restart it.") # e.g. some old Raspberry Pis no longer boot 100% of the time and have watchdogs that cannot be cleanly closed with 'V'
+define("watchdogWait",default=0,help="When the watchdog option is set, wait this number of seconds before stopping the watchdog pings. This causes the watchdog pings to be sent from a separate thread and therefore not stopped when the main thread is busy; they are stopped only when the main thread has not responded for watchdogWait seconds. This can be used to work around the limitations of a hardware watchdog that cannot be set to wait that long.") # such as the Raspberry Pi's Broadcom chip which defaults to 10 seconds and has max 15; you could say watchdog=5 and watchdogWait=60 (if you have an RPi which actually reboots when the watchdog goes off, see above)
 define("watchdogDevice",default="/dev/watchdog",help="The watchdog device to use (set this to /dev/null to check main-thread responsiveness without actually pinging the watchdog)")
 define("browser",help="The Web browser command to run. If this is set, Web Adjuster will run the specified command (which is assumed to be a web browser), and will exit when this browser exits. This is useful in conjunction with --real_proxy to have a personal proxy run with the browser. You still need to set the browser to use the proxy; this can sometimes be done via browser command line or environment variables.")
 define("run",help="A command to run that is not a browser. If set, Web Adjuster will run the specified command and will restart it if it stops. The command will be stopped when Web Adjuster is shut down. This could be useful, for example, to run an upstream proxy.")
@@ -868,7 +869,7 @@ def banner():
     ret = [twoline_program_name]
     if options.port:
         ret.append("Listening on port %d" % options.port)
-        if options.real_proxy or options.PhantomJS_reproxy or options.upstream_rewrite_ssl: ret.append("with these helpers (don't connect to them yourself):")
+        if options.real_proxy or options.PhantomJS_reproxy or upstream_rewrite_ssl: ret.append("with these helpers (don't connect to them yourself):")
         nextPort = options.port + 1
         if options.real_proxy:
             if options.ssl_fork:
@@ -1853,7 +1854,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             self.set_status(400) ; self.myfinish() ; return True
         if options.ssl_fork and self.request.headers.get("X-WA-FromSSLHelper",""):
             self.request.connection.isFromSslHelper = True # (it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it)
-        if self.WA_UseSSL or hasattr(self.request.connection,"isFromSslHelper"): # we're the SSL helper on port+1 and we've been CONNECT'd to, so the host asked for must be a .0 host for https
+        if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, so the host asked for must be a .0 host for https
             if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
             
     def handleSSHTunnel(self):
@@ -2085,19 +2086,21 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             local_submit_url = "http://"+self.request.host+options.submitPath
             if options.submitBookmarkletDomain: submit_url = "//"+options.submitBookmarkletDomain+options.submitPath
             else: submit_url = local_submit_url
-            return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3 style="float:left;padding:0px;margin:0px">Upload Text</h3><span style="float:right"><input type="submit"><script><!--
+            if (options.password and submitPathIgnorePassword) or options.submitPath=='/': urlbox_footer = "" # not much point linking them back to the URL box under these circumstances
+            else: urlbox_footer = '<p><a href="http://'+hostSuffix()+publicPortStr()+'">Process a website</a></p>'
+            return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3 style="float:left;padding:0px;margin:0px">Upload Text</h3>%s:<p><span style="float:right"><input type="submit"><script><!--
 document.write(' (Ctrl-Enter) | <a href="javascript:history.go(-1)">Back</a>')
 //--></script></span><br><textarea name="i" style="width:100%%;clear:both;height:60%%" rows="5" cols="20" placeholder="Type or paste your text here"
 onKeyDown="if((event.ctrlKey||event.metaKey) && (event.keyCode==13 || event.which==13)) document.forms[0].submit(); else return true;">
 </textarea></form>%s<script><!--
 document.forms[0].i.focus()
-//--></script></body></html>""" % (htmlhead("Upload Text - Web Adjuster").replace("<body>",""),options.submitPath,bookmarklet(submit_url,local_submit_url))),"noFilterOptions",False)
+//--></script></body></html>""" % (htmlhead("Upload Text - Web Adjuster").replace("<body>",""),options.submitPath,options.submitPrompt,bookmarklet(submit_url,local_submit_url)+urlbox_footer)),"noFilterOptions",False)
         if type(txt) == list: # came from the POST form
             txt = txt[0].strip()
             # On at least some browsers (e.g. some Safari versions), clicking one of our JS reload links after the POST text has been shown will reload the form (instead of re-submitting the POST text) and can scroll to an awkward position whether the code below calls focus() or not.  Could at least translate to GET if it's short enough (don't want to start storing things on the adjuster machine - that would require a shared database if load-balancing)
             if len(txt) <= 16384: # (else we wouldn't decompress all; see comment above)
                 enc = base64.b64encode(zlib.compress(txt,9))
-                if 0 < len(enc) < 2000: return self.redirect(options.submitPath+enc,303) # POST to GET
+                if 0 < len(enc) < 2000: return self.redirect("http://"+hostSuffix()+publicPortStr()+options.submitPath+enc,303) # POST to GET
 
         # pretend it was served by a remote site; go through everything including filters (TODO: could bypass most of doResponse instead of rigging it up like this; alternatively keep this as it shows how to feed data to doResponse)
         self.connection_header = None
@@ -2285,6 +2288,7 @@ document.forms[0].i.focus()
             # Serve URL box
             self.set_css_from_urlbox()
             if self.getArg("try"): return self.serve_URLbox() # we just set the stylesheet (TODO: preserve any already-typed URL?)
+            if options.submitPath and self.getArg("sPath"): return self.redirect("http://"+hostSuffix()+publicPortStr()+options.submitPath)
             v=self.getArg("q")
             if v: return self.handle_URLbox_query(v)
             else: return self.serve_URLbox()
@@ -2941,6 +2945,7 @@ def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
     if options.htmlonly_mode:
         if not r.endswith("</p>"): r += "<br>"
         r += '<input type="checkbox" id="pr" name="pr"'+htmlonly_checked+'> <label for="pr">HTML-only mode</label>'
+    if options.submitPath: r += '<p><input type="submit" name="sPath" value="Upload your own text"></p>'
     r += '</form><script><!--\ndocument.forms[0].q.focus();\n//--></script>'
     if options.urlbox_extra_html: r += options.urlbox_extra_html
     return r+'</body></html>'
