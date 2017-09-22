@@ -648,15 +648,15 @@ def showProfile():
 
 def setProcName(name="adjuster"):
     "Try to set the process name for top/ps"
-    try: # should work on both Linux and BSD if installed, but might not have much effect on Mac:
+    try: # works on both Linux and BSD/Mac if installed (although doesn't affect Mac OS 10.7 "Activity Monitor")
         import setproctitle # sudo pip install setproctitle or apt-get install python-setproctitle
         return setproctitle.setproctitle(name) # (TODO: this also stops 'ps axwww' from displaying command-line arguments; make it optional?)
     except: pass
-    try: # I haven't checked the portability of this one:
+    try: # ditto but non-Mac BSD not checked:
         import procname # sudo pip install procname
         return procname.setprocname(name)
     except: pass
-    try: # this works for 'top', 'pstree -p' and 'killall', but not 'ps' or 'pidof':
+    try: # this works in GNU/Linux for 'top', 'pstree -p' and 'killall', but not 'ps' or 'pidof':
         import ctypes
         b = ctypes.create_string_buffer(len(name)+1)
         b.value = name
