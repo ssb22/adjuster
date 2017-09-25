@@ -748,6 +748,7 @@ def maybe_sslfork_monitor():
             time.sleep(max(0,t+sslFork_pingInterval-time.time()))
     for i in xrange(len(sslforks_to_monitor)): thread.start_new_thread(responder,(i,))
     while True:
+        time.sleep(sslFork_pingInterval)
         for i in xrange(len(sslforks_to_monitor)):
             t = sslforks_to_monitor[i][4]
             if sslforks_to_monitor[i][0]==None or (t and t + 2*sslFork_pingInterval < time.time()):
@@ -2097,7 +2098,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             else: submit_url = local_submit_url
             if (options.password and submitPathIgnorePassword) or options.submitPath=='/': urlbox_footer = "" # not much point linking them back to the URL box under these circumstances
             else: urlbox_footer = '<p><a href="http://'+hostSuffix()+publicPortStr()+'">Process a website</a></p>'
-            return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3 style="float:left;padding:0px;margin:0px">Upload Text</h3>%s:<p><span style="float:right"><input type="submit"><script><!--
+            return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3>Upload Text</h3>%s:<p><span style="float:right"><input type="submit"><script><!--
 document.write(' (Ctrl-Enter) | <a href="javascript:history.go(-1)">Back</a>')
 //--></script></span><br><textarea name="i" style="width:100%%;clear:both;height:60%%" rows="5" cols="20" placeholder="Type or paste your text here"
 onKeyDown="if((event.ctrlKey||event.metaKey) && (event.keyCode==13 || event.which==13)) document.forms[0].submit(); else return true;">
