@@ -727,7 +727,7 @@ def maybe_sslfork_monitor():
     "Returns SIGTERM callback if we're now a child process"
     if not sslforks_to_monitor: return
     global sslfork_monitor_pid
-    import urllib2, thread # don't use IOLoop for this monitoring: too confusing if we have to restart it on fork
+    import urllib2 # don't use IOLoop for this monitoring: too confusing if we have to restart it on fork
     pid = os.fork()
     if pid:
         sslfork_monitor_pid = pid ; return
@@ -737,7 +737,7 @@ def maybe_sslfork_monitor():
     except: pass
     signal.signal(signal.SIGTERM, terminateSslForks)
     setProcName("adjusterSSLmon") # 15 chars is max for some "top" implementations
-    setLogPrefix("SSLmon")
+    setLogPrefix("SSL") # not SSLmon because helper IDs will be appended to it also
     def responder(i):
         while True:
             t = time.time()
@@ -746,14 +746,14 @@ def maybe_sslfork_monitor():
                 sslforks_to_monitor[i][4]=time.time()
             except: pass # ignore URLError etc
             time.sleep(max(0,t+sslFork_pingInterval-time.time()))
-    for i in xrange(len(sslforks_to_monitor)): thread.start_new_thread(responder,(i,))
+    for i in xrange(len(sslforks_to_monitor)): threading.Thread(target=responder,args=(i,)).start()
     while True:
         time.sleep(sslFork_pingInterval)
         for i in xrange(len(sslforks_to_monitor)):
             t = sslforks_to_monitor[i][4]
             if sslforks_to_monitor[i][0]==None or (t and t + 2*sslFork_pingInterval < time.time()):
                 if restart_sslfork(i): # child
-                    return lambda *args:stopServer()
+                    return lambda *args:stopServer("SIG*")
             elif not t: sslforks_to_monitor[i][4] = time.time()
 def restart_sslfork(n):
     global sslforks_to_monitor
@@ -769,7 +769,7 @@ def restart_sslfork(n):
         sslforks_to_monitor[n][4] = None
     else: # child
         setProcName("adjusterSSLhelp")
-        setLogPrefix("SSL"+str(n)) # TODO: or port number?
+        setLogPrefix(str(n)) # TODO: or port number?
         sslforks_to_monitor[n][1]() # main listener
         sslforks_to_monitor[n][2]() # 'still alive' listener
         sslforks_to_monitor = [] # nothing for us to check
@@ -1113,7 +1113,7 @@ def whois_thread(ip,logger):
     helper_thread_count += 1
     address = getWhois(ip)
     logger.thread_running = False
-    if address: IOLoop.instance().add_callback(lambda *args:logging.info("whois "+ip+": "+address))
+    if address: logging.info("whois "+ip+": "+address)
     helper_thread_count -= 1
 
 class NullLogger:
@@ -2207,6 +2207,11 @@ document.forms[0].i.focus()
                 self.request.uri += "?"+qs
                 self.request.arguments = urlparse.parse_qs(qs)
             self.request.path = self.request.uri
+        else:
+            # HTTP/1.x headers are officially Latin-1 (but usually ASCII), and Tornado (at least versions 2 through 4) decodes the Latin-1 and re-encodes it as UTF-8.  This can cause confusion, so let's emulate modern browsers and %-encode any non-ASCII URIs:
+            try: uri2 = self.request.uri.decode('utf-8').encode('latin1')
+            except: uri2 = self.request.uri
+            if not self.request.uri == uri2: self.request.uri = urllib.quote(uri2)
         if not self.canWriteBody(): self.set_header("Content-Length","-1") # we don't know yet: Tornado please don't add it!
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
@@ -3178,10 +3183,15 @@ def setupRunAndBrowser():
     if options.run: IOLoop.instance().add_callback(runRun)
 
 def stopServer(reason=None):
-    if reason:
-        if options.background: logging.info(reason)
-        else: sys.stderr.write(reason+"\n")
-    IOLoop.instance().add_callback(lambda *args:IOLoop.instance().stop())
+    def stop(*args):
+        if reason:
+            # logging from signal handler is not safe, so we
+            # defer it until this inner function is called
+            if options.background: logging.info(reason)
+            else: sys.stderr.write(reason+"\n")
+        IOLoop.instance().stop()
+    if reason.startswith("SIG") and hasattr(IOLoop.instance(),"add_callback_from_signal"): IOLoop.instance().add_callback_from_signal(stop)
+    else: IOLoop.instance().add_callback(stop)
 
 def json_reEscape(u8str): return json.dumps(u8str.decode('utf-8','replace'))[1:-1] # omit ""s (necessary as we might not have the whole string here)
 
@@ -4239,16 +4249,8 @@ class Dynamic_DNS_updater:
         cmd = options.ip_change_command+" "+ip
         if len(options.ip_change_command) < 50: logging.info("ip_change_command: "+cmd)
         else: logging.info("Running ip_change_command for "+ip)
-        backgrounded_system(cmd)
+        subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE)
         self.forceTime=time.time()+options.ip_force_interval
-
-def backgrounded_system(cmd):
-    def run(cmd):
-        global helper_thread_count
-        helper_thread_count += 1
-        os.system(cmd)
-        helper_thread_count -= 1
-    threading.Thread(target=run,args=(cmd,)).start()
 
 watchdog = None
 def openWatchdog():
@@ -4262,9 +4264,7 @@ class WatchdogPings:
         # then call start() after privileges are dropped
     def start(self):
         if not self.wFile: return # no watchdog
-        if options.watchdogWait:
-            import thread
-            thread.start_new_thread((lambda *args:self.separate_thread()),())
+        if options.watchdogWait: threading.Thread(target=self.separate_thread,args=()).start()
         self.ping()
     def stop(self):
         if not self.wFile: return # no watchdog
