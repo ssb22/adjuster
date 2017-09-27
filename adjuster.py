@@ -317,7 +317,7 @@ if not tornado:
     print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <tt>python adjuster.py --help</tt> to see a full list of the ones available on your setup. They typically include <tt>log_file_max_size</tt>, <tt>log_file_num_backups</tt>, <tt>log_file_prefix</tt> and <tt>log_to_stderr</tt>." # and --logging=debug but that may generate a lot of entries from curl_httpclient
     raise SystemExit
 
-import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,json,base64,htmlentitydefs,signal
+import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,json,base64,htmlentitydefs,signal,traceback
 from HTMLParser import HTMLParser,HTMLParseError
 
 try: # can we page the help text?
@@ -637,26 +637,29 @@ def showProfile():
     pstats.Stats(theProfiler,stream=s).sort_stats('cumulative').print_stats()
     pr = "\n".join(x for x in s.getvalue().split("\n")[:8] if x and not "Ordered by" in x)
     if options.PhantomJS and len(webdriver_runner):
-        global webdriver_lambda,webdriver_mu,webdriver_maxBusy
+        global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
         stillUsed = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running)
-        pr += "\nPhantomJS %d/%d used (%d still in use); queue %d (%d arrived, %d served)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,len(webdriver_queue),webdriver_lambda,webdriver_mu)
+        webdriver_maxBusy = max(webdriver_maxBusy,stillUsed)
+        pr += "\nPhantomJS %d/%d used (%d still in use); queue %d (%d arrived, %d successes + %d failures = %d served)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,len(webdriver_queue),webdriver_lambda,webdriver_mu-webdriver_oops,webdriver_oops,webdriver_mu)
         webdriver_lambda = webdriver_mu = 0
+        webdriver_oops = 0
         webdriver_maxBusy = stillUsed
         # TODO: also measure lambda/mu of other threads e.g. htmlFilter ?
     if options.background: logging.info(pr)
+    elif istty() and "xterm" in os.environ.get("TERM",""): sys.stderr.write("\033[35m"+(time.strftime("%X")+pr).replace("\n","\n\033[35m")+"\033[0m\n")
     else: sys.stderr.write(time.strftime("%X")+pr+"\n")
 
 def setProcName(name="adjuster"):
     "Try to set the process name for top/ps"
     try: # works on both Linux and BSD/Mac if installed (although doesn't affect Mac OS 10.7 "Activity Monitor")
-        import setproctitle # sudo pip install setproctitle or apt-get install python-setproctitle
+        import setproctitle # sudo pip install setproctitle or apt-get install python-setproctitle (requires gcc)
         return setproctitle.setproctitle(name) # (TODO: this also stops 'ps axwww' from displaying command-line arguments; make it optional?)
     except: pass
     try: # ditto but non-Mac BSD not checked:
-        import procname # sudo pip install procname
+        import procname # sudo pip install procname (requires gcc)
         return procname.setprocname(name)
     except: pass
-    try: # this works in GNU/Linux for 'top', 'pstree -p' and 'killall', but not 'ps' or 'pidof':
+    try: # this works in GNU/Linux for 'top', 'pstree -p' and 'killall', but not 'ps' or 'pidof' (which need argv[0] to be changed in C) :
         import ctypes
         b = ctypes.create_string_buffer(len(name)+1)
         b.value = name
@@ -725,6 +728,7 @@ def sslSetup(callback1, port2):
 sslFork_pingInterval = 1 # TODO: configurable?  (ping every interval, restart if down for 2*interval)  (if setting this larger, might want to track the helper threads for early termination)
 def maybe_sslfork_monitor():
     "Returns SIGTERM callback if we're now a child process"
+    global sslforks_to_monitor
     if not sslforks_to_monitor: return
     global sslfork_monitor_pid
     import urllib2 # don't use IOLoop for this monitoring: too confusing if we have to restart it on fork
@@ -738,27 +742,31 @@ def maybe_sslfork_monitor():
     signal.signal(signal.SIGTERM, terminateSslForks)
     setProcName("adjusterSSLmon") # 15 chars is max for some "top" implementations
     setLogPrefix("SSL") # not SSLmon because helper IDs will be appended to it also
-    def responder(i):
+    for i in xrange(len(sslforks_to_monitor)):
+      if i==len(sslforks_to_monitor)-1: pid = 0 # don't bother to fork for the last one
+      else: pid = os.fork()
+      if pid: sslforks_to_monitor[i][0] = pid # for SIGTERM
+      else: # child
+        oldI = i
+        if i < len(sslforks_to_monitor)-1:
+            sslforks_to_monitor = [sslforks_to_monitor[i]]
+            i = 0 # we'll monitor only one in the child
         while True:
             t = time.time()
             try:
                 urllib2.urlopen("http://localhost:%d/" % sslforks_to_monitor[i][3],timeout=sslFork_pingInterval)
                 sslforks_to_monitor[i][4]=time.time()
-            except: pass # ignore URLError etc
-            time.sleep(max(0,t+sslFork_pingInterval-time.time()))
-    for i in xrange(len(sslforks_to_monitor)): threading.Thread(target=responder,args=(i,)).start()
-    while True:
-        time.sleep(sslFork_pingInterval)
-        for i in xrange(len(sslforks_to_monitor)):
-            t = sslforks_to_monitor[i][4]
-            if sslforks_to_monitor[i][0]==None or (t and t + 2*sslFork_pingInterval < time.time()):
-                if restart_sslfork(i): # child
+            except: # URLError etc
+              t2 = sslforks_to_monitor[i][4]
+              if sslforks_to_monitor[i][0]==None or (t2 and t2 + 2*sslFork_pingInterval < time.time()):
+                if restart_sslfork(i,oldI): # child
                     return lambda *args:stopServer("SIG*")
-            elif not t: sslforks_to_monitor[i][4] = time.time()
-def restart_sslfork(n):
+              elif not t2: sslforks_to_monitor[i][4] = time.time()
+            time.sleep(max(0,t+sslFork_pingInterval-time.time()))
+def restart_sslfork(n,oldN):
     global sslforks_to_monitor
     if not sslforks_to_monitor[n][0]==None: # not first time
-        logging.error("Restarting SSL helper %d (old pid %d; not heard from it for %d seconds)" % (n,sslforks_to_monitor[n][0],time.time()-sslforks_to_monitor[n][4]))
+        logging.error("Restarting SSL helper %d (old pid %d; not heard from it for %d seconds)" % (oldN,sslforks_to_monitor[n][0],time.time()-sslforks_to_monitor[n][4]))
         try: os.kill(sslforks_to_monitor[n][0],9)
         except: logging.info("Unable to kill pid %d (already gone?)" % sslforks_to_monitor[n][0])
         os.waitpid(sslforks_to_monitor[n][0], os.WNOHANG) # clear it from the process table
@@ -889,6 +897,7 @@ def banner():
     if options.watchdog:
         ret.append("Writing "+options.watchdogDevice+" every %d seconds" % options.watchdog)
         if options.watchdogWait: ret.append("(abort if unresponsive for %d seconds)" % options.watchdogWait)
+    if options.ssl_fork and not options.background: ret.append("To inspect processes, use: pstree "+str(os.getpid()))
     ret = "\n".join(ret)+"\n"
     if fork_before_listen:
         ret = ret.replace("Listening","Child will listen").replace("Writing","Child will write")+"Can't report errors here as this system needs early fork\n" # (need some other way of checking it really started)
@@ -914,8 +923,8 @@ def announceStart():
     elif time.time() > bannerTime+1: sys.stderr.write("Ready\n")
 def announceInterrupt():
     if bannerTime==None: return # as above
-    if options.background: logging.info("SIGINT received")
-    else: sys.stderr.write("\nKeyboard interrupt\n")
+    if options.background: logging.info("SIGINT received"+find_adjuster_in_traceback())
+    else: sys.stderr.write("\nKeyboard interrupt"+find_adjuster_in_traceback()+"\n")
 def announceShutdown():
     if bannerTime==None: return # as above
     if options.background: logging.info("Server shutdown")
@@ -1323,37 +1332,51 @@ class WebdriverRunner:
     def __init__(self,index=0):
         self.index = index
         self.thread_running = False
-        self.theWebDriver = get_new_webdriver(index)
+        self.theWebDriver = None
+        self.renew_webdriver()
+    def renew_webdriver(self):
+        if self.theWebDriver: self.theWebDriver.quit()
+        self.theWebDriver = get_new_webdriver(self.index)
+    def quit_webdriver(self):
+        if self.theWebDriver: self.theWebDriver.quit()
+        self.theWebDriver = None
     def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback):
         assert not self.thread_running, "webdriver_checkServe did WHAT?"
         self.thread_running = True
         threading.Thread(target=wd_fetch,args=(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,self)).start()
+def find_adjuster_in_traceback():
+    l = traceback.extract_tb(sys.exc_info()[2])
+    for i in range(len(l)-1,-1,-1):
+        if "adjuster.py" in l[i][0]: return ", adjuster line "+str(l[i][1])
+    return ""
 def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,manager):
     global helper_thread_count
     helper_thread_count += 1
+    try: from selenium.common.exceptions import TimeoutException
+    except: # maybe wrong Selenium version
+        class TimeoutException: pass # placeholder
+    need_restart = False
+    def errHandle(error,extraMsg,prefetched):
+        if prefetched: toRet = "non-webdriver page" # TODO: document that this can happen?
+        else: toRet = "error"
+        logging.error(extraMsg+" returning "+toRet)
+        global webdriver_oops
+        webdriver_oops += 1
+        if prefetched: return prefetched
+        else: return wrapResponse("webdriver "+error)
     try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
+    except TimeoutException: r = errHandle("timeout","webdriver "+str(manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched)
     except:
-        import traceback
-        def findAdjuster(l):
-            for i in range(len(l)-1,-1,-1):
-                if "adjuster.py" in l[i][0]: return ", adjuster line "+str(l[i][1])
-            return ""
-        logging.info("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+findAdjuster(traceback.extract_tb(sys.exc_info()[2]))+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
-        manager.theWebDriver.quit()
-        manager.theWebDriver = get_new_webdriver(manager.index)
+        logging.info("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+find_adjuster_in_traceback()+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
+        manager.renew_webdriver()
         try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
         except:
-            logging.error("webdriver error on "+url+" even after restart")
-            if prefetched: toRet = "non-webdriver page" # TODO: document that this can happen?
-            else: toRet = "error"
-            logging.info("Restarting webdriver "+str(manager.index)+" and returning "+toRet)
-            manager.theWebDriver.quit()
-            manager.theWebDriver = get_new_webdriver(manager.index)
-            if prefetched: r = prefetched
-            else: r = wrapResponse("webdriver error")
+            r = errHandle("error","webdriver error on "+url+" even after restart, so re-restarting and",prefetched)
+            need_restart = True
+    IOLoop.instance().add_callback(lambda *args:callback(r))
+    if need_restart: manager.renew_webdriver()
     manager.thread_running = False
     IOLoop.instance().add_callback(webdriver_checkServe)
-    IOLoop.instance().add_callback(lambda *args:callback(r))
     helper_thread_count -= 1
 def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
     import tornado.httputil
@@ -1367,10 +1390,15 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
             webdriver_prefetched[manager.index] = prefetched
         webdriver_inProgress[manager.index].clear() # race condition with start of next 'get' if we haven't done about:blank, but worst case is we'll wait a bit too long for page to finish
         debuglog(("webdriver %d get " % manager.index)+url)
-        wd.get(url) # waits for onload, but we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
+        try: wd.get(url) # waits for onload
+        except: # possibly a timeout; did we get some of it?
+            try: currentUrl = wd.current_url
+            except: currentUrl = None
+            if not currentUrl==url: raise # didn't get any
+        # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
         debuglog("webdriver %d loaded" % manager.index)
         if options.PhantomJS_reproxy:
-          for _ in xrange(40):
+          for _ in xrange(40): # up to 8+ seconds in steps of 0.2 (on top of the inital load)
             time.sleep(0.2) # unconditional first-wait hopefully long enough to catch XMLHttpRequest delayed-send, very-low-value setTimeout etc, but we don't want to wait a whole second if the page isn't GOING to make any requests (TODO: monitor the js going through the upstream proxy to see if it contains any calls to this? but we'll have to deal with PhantomJS's cache, unless set it to not cache and we cache upstream)
             if not webdriver_inProgress[manager.index]: break # TODO: wait a tiny bit longer to allow processing of response? or check if the call to find_element_by_xpath below is synchronous with the page's js (still a race condition though)
         else: time.sleep(1) # can't do much if we're not reproxying, so just sleep 1sec and hope for the best
@@ -1415,7 +1443,10 @@ def _get_new_webdriver(index):
     if not options.PhantomJS_images: dc["phantomjs.page.settings.loadImages"]=False
     dc["phantomjs.page.settings.javascriptCanOpenWindows"]=dc["phantomjs.page.settings.javascriptCanCloseWindows"]=False # TODO: does this cover target="_blank" in clickElementID etc (which could have originated via DOM manipulation, so stripping them on the upstream proxy is insufficient; close/restart the driver every so often?)
     if options.via and not options.PhantomJS_reproxy: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?) (don't have to worry about this if PhantomJS_reproxy)
-    return webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
+    debuglog("Instantiating webdriver.PhantomJS")
+    p = webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
+    debuglog("webdriver.PhantomJS instantiated")
+    return p
 def get_new_webdriver(index):
     wd = _get_new_webdriver(index)
     if index==0 and not options.PhantomJS_reproxy:
@@ -1430,12 +1461,15 @@ def get_new_webdriver(index):
     if not (w and h):
         if index==0: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.PhantomJS_size)
         w,h = 1024,768
-    wd.set_window_size(w, h)
+    try: wd.set_window_size(w, h)
+    except: logging.info("Couldn't set webdriver window size")
+    try: wd.set_page_load_timeout(30) # TODO: configurable?
+    except: logging.info("Couldn't set webdriver page load timeout")
     return wd
 webdriver_runner = [] ; webdriver_prefetched = []
 webdriver_via = []
 webdriver_inProgress = [] ; webdriver_queue = []
-webdriver_lambda = webdriver_mu = 0
+webdriver_lambda = webdriver_mu = webdriver_oops = 0
 def test_init_webdriver():
     "Check that we CAN start a webdriver, before forking to background and starting all of them"
     sys.stderr.write("Checking webdriver configuration... ")
@@ -1454,7 +1488,7 @@ def init_webdrivers():
     def quit_wd(*args):
       try:
         for i in webdriver_runner:
-            try: i.theWebDriver.quit()
+            try: i.quit_webdriver()
             except: pass
       except: pass
     import atexit ; atexit.register(quit_wd)
@@ -1467,15 +1501,21 @@ def webdriver_checkServe(*args):
     for i in xrange(options.PhantomJS_instances):
         if not webdriver_runner[i].thread_running:
             if not webdriver_queue: return
-            url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback = webdriver_queue.pop(0)
+            while True:
+                url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate = webdriver_queue.pop(0)
+                if not tooLate(): break
+                logging.error("Client gave up on "+url+" while queued")
+                if not webdriver_queue: return
             debuglog("Starting fetch of "+url+" on webdriver instance "+str(i))
             webdriver_via[i]=via
             webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback)
             global webdriver_mu ; webdriver_mu += 1
     if webdriver_queue: debuglog("All PhantomJS_instances busy; %d items still in queue" % len(webdriver_queue))
-def webdriver_fetch(url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback):
-    if wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do PhantomJS anyway; where else might we have threaded wsgi?  PhantomJS really is better run in non-wsgi mode anyway, so can PhantomJS_reproxy)
-    webdriver_queue.append((url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback))
+def webdriver_fetch(url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
+    if tooLate(): return logging.error("Client gave up on "+url+" before it was queued for webdriver") # probably because webdriver_queue overload (which will also be logged)
+    elif prefetched and prefetched.code >= 500: return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something
+    elif wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do PhantomJS anyway; where else might we have threaded wsgi?  PhantomJS really is better run in non-wsgi mode anyway, so can PhantomJS_reproxy)
+    webdriver_queue.append((url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate))
     global webdriver_lambda ; webdriver_lambda += 1
     debuglog("webdriver_queue len=%d after adding %s" % (len(webdriver_queue),url))
     webdriver_checkServe()
@@ -1502,7 +1542,6 @@ class RequestForwarder(RequestHandler):
     def write_error(self,status,**kwargs):
         msg = self.get_error_html(status,**kwargs)
         if "{traceback}" in msg and 'exc_info' in kwargs:
-            import traceback
             msg = msg.replace("{traceback}","<pre>"+ampEncode("".join(traceback.format_exception(*kwargs["exc_info"])))+"</pre>")
             # TODO: what about substituting for {traceback} on pre-2.1 versions of Tornado that relied on get_error_html and put the error into sys.exc_info()?  (need to check their source to see how reliable the traceback is in this case; post-2.1 versions re-raise it from write_error itself)
         if self.canWriteBody(): self.write(msg)
@@ -2442,6 +2481,7 @@ document.forms[0].i.focus()
                 elif idEtc.startswith('-'):
                     clickLinkText = idEtc[1:]
             if options.PhantomJS_reproxy:
+              def prefetch():
                 # prefetch the page, don't tie up a PJS until
                 # we have the page in hand
                 httpfetch(self.urlToFetch,
@@ -2457,14 +2497,27 @@ document.forms[0].i.focus()
                                     prefetched_response,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
-                        callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True))
-,
+                        callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True),tooLate=lambda *_:hasattr(self,"_finished") and self._finished),
                   follow_redirects=False)
+              def prefetch_when_ready(t0):
+                if len(webdriver_queue) < 2*options.PhantomJS_instances: return prefetch()
+                # If too many PJS instances already tied up,
+                # don't even start the prefetch
+                again = time.time()+1
+                global last_Qoverload_time, Qoverload_max
+                try: last_Qoverload_time
+                except: last_Qoverload_time=Qoverload_max=0
+                Qoverload_max = max(Qoverload_max,again-t0)
+                if time.time() > last_Qoverload_time + 5:
+                    logging.error("webdriver_queue overload (max prefetch delay %d secs)" % Qoverload_max)
+                    last_Qoverload_time = time.time()
+                IOLoop.instance().add_timeout(again,lambda *args:prefetch_when_ready(t0))
+              prefetch_when_ready(time.time())
             else: # no reproxy: can't prefetch
                 webdriver_fetch(self.urlToFetch,None,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
-                        callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True))
+                        callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True),tooLate=lambda *_:hasattr(self,"_finished") and self._finished)
         else:
             if options.PhantomJS and self.isPjsUpstream and webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
             httpfetch(self.urlToFetch,
@@ -3184,7 +3237,7 @@ def setupRunAndBrowser():
 
 def stopServer(reason=None):
     def stop(*args):
-        if reason:
+        if reason and not reason=="SIG*":
             # logging from signal handler is not safe, so we
             # defer it until this inner function is called
             if options.background: logging.info(reason)
