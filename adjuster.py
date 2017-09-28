@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.25 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.251 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -640,7 +640,11 @@ def showProfile():
         global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
         stillUsed = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running)
         webdriver_maxBusy = max(webdriver_maxBusy,stillUsed)
-        pr += "\nPhantomJS %d/%d used (%d still in use); queue %d (%d arrived, %d successes + %d failures = %d served)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,len(webdriver_queue),webdriver_lambda,webdriver_mu-webdriver_oops,webdriver_oops,webdriver_mu)
+        if not webdriver_maxBusy: pr += "\nPhantomJS idle"
+        else:
+            if webdriver_oops: served = "%d successes + %d failures = %d served" % (webdriver_mu-webdriver_oops,webdriver_oops,webdriver_mu)
+            else: served = "%d served" % webdriver_mu
+            pr += "\nPhantomJS %d/%d used (%d still in use); queue %d (%d arrived, %s)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,len(webdriver_queue),webdriver_lambda,served)
         webdriver_lambda = webdriver_mu = 0
         webdriver_oops = 0
         webdriver_maxBusy = stillUsed
@@ -957,6 +961,7 @@ def stop_threads():
 def stop_threads0():
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     if options.run:
+        global exitting ; exitting = True # so not restarted if options.runWait == 0
         try: os.kill(runningPid,signal.SIGTERM)
         except: pass
     os.killpg(os.getpgrp(),signal.SIGTERM)
@@ -3223,11 +3228,13 @@ def runRun(*args):
     def runner_thread():
         global helper_thread_count
         helper_thread_count += 1
+        global exitting ; exitting = 0
         while True:
             sp=subprocess.Popen(options.run,shell=True,stdin=subprocess.PIPE)
             global runningPid ; runningPid = sp.pid
             ret = sp.wait()
             time.sleep(options.runWait)
+            if exitting: break
             logging.info("Restarting run command after %dsec (last exit = %d)" % (options.runWait,ret))
         helper_thread_count -= 1
     threading.Thread(target=runner_thread,args=()).start()
