@@ -879,10 +879,12 @@ def openPortsEtc():
     except: pass
 
 def banner():
-    ret = [twoline_program_name]
+    if teletext(): r0 = teletext_program_name()
+    else: r0 = twoline_program_name+"\n"
+    ret = []
     if options.port:
         ret.append("Listening on port %d" % options.port)
-        if options.real_proxy or options.PhantomJS_reproxy or upstream_rewrite_ssl: ret.append("with these helpers (don't connect to them yourself):")
+        if (options.real_proxy or options.PhantomJS_reproxy or upstream_rewrite_ssl) and not teletext(): ret.append("with these helpers (don't connect to them yourself):")
         nextPort = options.port + 1
         if options.real_proxy:
             if options.ssl_fork:
@@ -906,16 +908,19 @@ def banner():
     if fork_before_listen:
         ret = ret.replace("Listening","Child will listen").replace("Writing","Child will write")+"Can't report errors here as this system needs early fork\n" # (need some other way of checking it really started)
     global bannerTime ; bannerTime = time.time()
-    sys.stderr.write(ret)
+    sys.stderr.write(r0+ret)
 bannerTime = None
 def announceStart():
     if bannerTime==None: return # if banner() hasn't been called, we're a silent helper process
-    if options.background: logging.info("Server starting")
-    # and if not running in background, we won't have the
+    if options.background:
+        return logging.info("Server starting")
+    if time.time() <= bannerTime+1: return # start should be clear enough
+    # and gets here, not running in background so won't have
     # "foreground process exitted" clue that we're ready
     # ("listening" isn't enough if we also took time to
-    # start webdrivers after reserving the ports).
-    elif set_title("adjuster")>60 and time.time() > bannerTime+1:
+    # start webdrivers after reserving the ports)
+    cols = set_title(aTitle)
+    if cols>60:
         # we can make it nice and obvious (on a potentially
         # cluttered log screen) that here is where we START
         sys.stderr.write("""
@@ -924,7 +929,8 @@ def announceStart():
 #    I heard a Voice from I knew not where:
 #     'The Great Adjustment is taking place!'" - Thomas Hardy
 """.replace("#","\033[31m")+"\033[0m\n") # (exact vermilion would be \033[38;2;227;66;52m but we don't know the terminal can do that and it might be less likely to fit with the background, so we go for basic 'red')
-    elif time.time() > bannerTime+1: sys.stderr.write("Ready\n")
+    elif teletext(): sys.stderr.write("\x81 \"There seemed a strangeness in the air,Vermilion light on the land's lean face; \x81I heard a Voice from I knew not where:'The Great Adjustment is taking place!'\"                      \x81 --- Thomas Hardy") # not enough room for red control codes on all lines, just 1/3/5 (and note all \n's missing: 40col wraparound)
+    else: sys.stderr.write("Ready\n")
 def announceInterrupt():
     if bannerTime==None: return # as above
     if options.background: logging.info("SIGINT received"+find_adjuster_in_traceback())
@@ -1025,7 +1031,21 @@ def workaround_timeWait_problem():
     debuglog("Adding reuse_port to tornado.tcpserver.bind_sockets")
     tornado.tcpserver.bind_sockets = newBind
 
+def aTitle(): # window title for foreground running
+    t = "adjuster"
+    if "SSH_CONNECTION" in os.environ: t += "@"+hostSuffix() # TODO: might want to use socket.getfqdn() to save confusion if several servers are configured with the same host_suffix and/or host_suffix specifies multiple hosts?
+    return t
 def istty(): return hasattr(sys.stderr,"isatty") and sys.stderr.isatty()
+def teletext(): return os.environ.get("TERM","")=="teletext" # for 'retro' demonstrations (set TERM=teletext and pipe stderr to BeebEm Mode 7); affects only the very start
+def teletext_program_name():
+    i = program_name.index("(c)")
+    p1,p2 = program_name[:i].rstrip(),program_name[i:]
+    p1 = "\x81\x9d\x8d\x83"+" "*(int((40-len(p1))/2)-4)+p1
+    while len(p1)<40: p1 += ' ' # use this rather than \n
+    p2 = " "*(39-len(p2))+"\x84"+p2 # no \n
+    p3 = "\x82"+twoline_program_name.split("\n")[1].replace(", Version "," v")
+    while len(p3)<40: p3 += ' '
+    return p1+p1+p2+p3 # p1 is double-height so repeated
 def set_title(t): # and return num screen cols if xterm, or 0
   if not istty(): return 0
   term = os.environ.get("TERM","")
