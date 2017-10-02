@@ -919,7 +919,7 @@ def announceStart():
     # "foreground process exitted" clue that we're ready
     # ("listening" isn't enough if we also took time to
     # start webdrivers after reserving the ports)
-    cols = set_title(aTitle)
+    cols = set_title(aTitle())
     if cols>60:
         # we can make it nice and obvious (on a potentially
         # cluttered log screen) that here is where we START
