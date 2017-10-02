@@ -919,6 +919,7 @@ def announceStart():
     # "foreground process exitted" clue that we're ready
     # ("listening" isn't enough if we also took time to
     # start webdrivers after reserving the ports)
+
     cols = set_title(aTitle())
     if cols>60:
         # we can make it nice and obvious (on a potentially
@@ -2266,7 +2267,7 @@ document.forms[0].i.focus()
     def debugExtras(self):
         r = " for "+self.request.method+" "+self.request.uri
         if self.WA_UseSSL: r += " WA_UseSSL"
-        if self.isPjsUpstream: r += " isPjsUpstream"
+        if self.isPjsUpstream: r += " isPjsUpstream instance "+str(self.WA_PjsIndex)
         if self.isSslUpstream: r += " isSslUpstream"
         return r
 
