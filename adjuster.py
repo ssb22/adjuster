@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.251 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.252 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -163,7 +163,7 @@ define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with 
 
 define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.") # (see comments in serve_submitPage)
 define("submitPrompt",default="Type or paste in some text to adjust",help="What to say before the form allowing users to enter their own text when submitPath is set (compare boxPrompt)")
-define("submitBookmarklet",default=True,help="If submitPath is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly. The bookmarklets should work on modern desktop browsers and on iOS and Android; they should cope with frames and with Javascript-driven changes to a page, and on some browsers an option is provided to additionally place the page into a frameset so that links to other pages on the same site can be followed without explicitly reactivating the bookmarklet (but this does have disadvantages - page must be reloaded + URL display gets 'stuck' - so it's left to the user to choose).") # (and if the other pages check their top.location, things could break there as well)
+define("submitBookmarklet",default=True,help="If submitPath and htmlFilter is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly. The bookmarklets should work on modern desktop browsers and on iOS and Android; they should cope with frames and with Javascript-driven changes to a page, and on some browsers an option is provided to additionally place the page into a frameset so that links to other pages on the same site can be followed without explicitly reactivating the bookmarklet (but this does have disadvantages - page must be reloaded + URL display gets 'stuck' - so it's left to the user to choose).") # (and if the other pages check their top.location, things could break there as well)
 define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",help="A Javascript expression that evaluates true if a DOM text node 'c' should be processed by the 'bookmarklet' Javascript when submitPath and submitBookmarklet are set. To process ALL text, set this option to c.nodeValue.length, but if your htmlFilter will not change certain kinds of text then you can make the Javascript run more efficiently by not processing these (quote the expression carefully). The default setting will not process text that is all ASCII.") # + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8. (Previously said "To process ALL text, simply set this option to 'true'", but that can have odd effects on some sites' empty nodes. Saying c.nodeValue.length for now; c.nodeValue.match(/[^\s]/) might be better but needs more quoting explanation. Could change bookmarkletMainScript so it alters the DOM only if replacements[i] != oldTexts[i], c.f. annogen's android code, but that would mean future passes would re-send all the unchanged nodes cluttering the XMLHttpRequests especially if they fill a chunk - annogen version has the advantage of immediate local processing)
 define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate number of characters at a time that the 'bookmarklet' Javascript will send to the server if submitPath and submitBookmarklet are set. Setting this too high could impair browser responsiveness, but too low will be inefficient with bandwidth and pages will take longer to finish.")
 define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.") # e.g. example.rhcloud.com (although that does introduce the disadvantage of tying bookmarklet installations to the current URLs of the OpenShift service rather than your own domain)
@@ -171,6 +171,8 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 heading("Javascript execution options")
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  If you have multiple users, beware logins etc may be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
 define("PhantomJS_instances",default=1,help="The number of virtual browsers to load when PhantomJS is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
+define("PhantomJS_429",default=True,help="Return HTTP error 429 (too many requests) if PhantomJS queue is too long") # RFC 6585, April 2012 ('too long' = 'longer than 2*PhantomJS_instances', but in the case of --PhantomJS_reproxy this is inspected before the prefetch: once we decide to prefetch a page, we'll queue it no matter what (unless the client goes away or the prefetch fails), so the queue can get longer than 2*PhantomJS_instances if more items are in prefetch)
+define("PhantomJS_restartAfter",default=10,help="When PhantomJS is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1") # regression from 2.0.1 ?
 define("PhantomJS_reproxy",default=True,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster on a different port. This allows PhantomJS to be used for POST forms, fixes its Referer headers, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a PhantomJS instance if the remote server is down.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with PhantomJS) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS_reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
@@ -492,7 +494,7 @@ def preprocessOptions():
     create_inRenderRange_function(options.renderRange)
     if type(options.renderOmit)==type(""): options.renderOmit=options.renderOmit.split(',')
     if options.renderOmitGoAway:
-        if options.renderCheck: errExit("Setting both renderOmitGoAway and renderCheck is not yet implemented: if renderOmitGoAway is set then the renderOmit-matching visitors are turned away before getting as far as renderCheck.  Please unset one of them.")
+        if options.renderCheck: errExit("Setting both renderOmitGoAway and renderCheck is not yet implemented (renderOmitGoAway assumes all testing is done by renderOmit only).  Please unset either renderOmitGoAway or renderCheck.")
         options.renderName = "" # so it can't be switched on/off (because there's not a lot of point in switching it off if we're renderOmitGoAway; TODO: document this behaviour?)
     if type(options.deleteOmit)==type(""): options.deleteOmit=options.deleteOmit.split(',')
     if type(options.cssName)==type(""): options.cssName=options.cssName.replace('"',"&quot;") # for embedding in JS
@@ -566,7 +568,7 @@ def preprocessOptions():
     submitPathForTest = options.submitPath
     if submitPathForTest and submitPathForTest[-1]=="?": submitPathForTest = submitPathForTest[:-1] # for CGI mode: putting the ? in tells adjuster to ADD a ? before any parameters, but does not require it to be there for the base submit URL (but don't do this if not submitPathForTest because it might not be a string)
     if options.submitPath and not options.htmlText: errExit("submitPath only really makes sense if htmlText is set (or do you want users to submit actual HTML?)") # TODO: allow this? also with submitBookmarklet ??
-    if not options.submitPath: options.submitBookmarklet = False
+    if not (options.submitPath and options.htmlFilter): options.submitBookmarklet = False # TODO: bookmarklet for character rendering? (as an additional bookmarklet if there are filters as well, and update submitBookmarklet help text) although it's rare to find a machine that lacks fonts but has a bookmarklet-capable browser
     if options.submitBookmarklet and '_IHQ_' in options.submitPath: errExit("For implementation reasons, you cannot have the string _IHQ_ in submitPath when submitBookmarklet is on.") # Sorry.  See TODO in 'def bookmarklet'
     global upstreamGuard, cRecogniseAny, cRecognise1
     upstreamGuard = set() ; cRecogniseAny = set() ; cRecognise1 = set() # cRecognise = cookies to NOT clear at url box when serving via adjust_domain_cookieName; upstreamGuard = cookies to not pass to upstream (and possibly rename if upstream sets them)
@@ -620,8 +622,10 @@ def open_upnp():
 profile_forks_too = False # TODO: configurable
 def open_profile():
     if options.profile:
-        global cProfile, pstats, cStringIO, profileIdle
+        global cProfile,pstats,cStringIO,profileIdle,psutil
         import cProfile, pstats, cStringIO
+        try: import psutil
+        except ImportError: psutil = None
         setProfile() ; profileIdle = False
 def setProfile():
     global theProfiler, profileIdle
@@ -639,16 +643,21 @@ def showProfile():
     if options.PhantomJS and len(webdriver_runner):
         global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
         stillUsed = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running)
+        maybeStuck = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].maybe_stuck)
+        for i in xrange(options.PhantomJS_instances): webdriver_runner[i].maybe_stuck = 0
         webdriver_maxBusy = max(webdriver_maxBusy,stillUsed)
         if not webdriver_maxBusy: pr += "\nPhantomJS idle"
         else:
             if webdriver_oops: served = "%d successes + %d failures = %d served" % (webdriver_mu-webdriver_oops,webdriver_oops,webdriver_mu)
             else: served = "%d served" % webdriver_mu
-            pr += "\nPhantomJS %d/%d used (%d still in use); queue %d (%d arrived, %s)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,len(webdriver_queue),webdriver_lambda,served)
+            if maybeStuck: stuck = "%d may be" % maybeStuck
+            else: stuck = "none"
+            pr += "\nPhantomJS %d/%d used (%d still in use, %s stuck); queue %d (%d arrived, %s)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,stuck,len(webdriver_queue),webdriver_lambda,served)
         webdriver_lambda = webdriver_mu = 0
         webdriver_oops = 0
         webdriver_maxBusy = stillUsed
         # TODO: also measure lambda/mu of other threads e.g. htmlFilter ?
+        if psutil: pr += "; system RAM %.1f%% used" % (psutil.virtual_memory().percent)
     if options.background: logging.info(pr)
     elif istty() and "xterm" in os.environ.get("TERM",""): sys.stderr.write("\033[35m"+(time.strftime("%X")+pr).replace("\n","\n\033[35m")+"\033[0m\n")
     else: sys.stderr.write(time.strftime("%X")+pr+"\n")
@@ -1289,7 +1298,8 @@ def writeAndClose(stream,data):
         except: pass
 def writeOrError(name,stream,data):
     try: stream.write(data)
-    except: logging.error("Error writing data to "+name)
+    except:
+        if name: logging.error("Error writing data to "+name)
 
 # Domain-setting cookie for when we have no wildcard_dns and no default_site:
 adjust_domain_cookieName = "_adjusterDN_"
@@ -1363,16 +1373,17 @@ class WebdriverRunner:
     def renew_webdriver(self):
         if self.theWebDriver: self.theWebDriver.quit()
         self.theWebDriver = get_new_webdriver(self.index)
+        self.usageCount = 0 ; self.maybe_stuck = False
     def quit_webdriver(self):
         if self.theWebDriver: self.theWebDriver.quit()
         self.theWebDriver = None
     def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback):
         assert not self.thread_running, "webdriver_checkServe did WHAT?"
-        self.thread_running = True
+        self.thread_running = True ; self.maybe_stuck = False
         threading.Thread(target=wd_fetch,args=(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,self)).start()
 def find_adjuster_in_traceback():
     l = traceback.extract_tb(sys.exc_info()[2])
-    for i in range(len(l)-1,-1,-1):
+    for i in xrange(len(l)-1,-1,-1):
         if "adjuster.py" in l[i][0]: return ", adjuster line "+str(l[i][1])
     return ""
 def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,manager):
@@ -1400,8 +1411,9 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
             r = errHandle("error","webdriver error on "+url+" even after restart, so re-restarting and",prefetched)
             need_restart = True
     IOLoop.instance().add_callback(lambda *args:callback(r))
-    if need_restart: manager.renew_webdriver()
-    manager.thread_running = False
+    manager.usageCount += 1
+    if need_restart or (options.PhantomJS_restartAfter and manager.usageCount >= options.PhantomJS_restartAfter): manager.renew_webdriver()
+    manager.thread_running = manager.maybe_stuck = False
     IOLoop.instance().add_callback(webdriver_checkServe)
     helper_thread_count -= 1
 def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
@@ -1530,7 +1542,6 @@ def webdriver_checkServe(*args):
             while True:
                 url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate = webdriver_queue.pop(0)
                 if not tooLate(): break
-                logging.error("Client gave up on "+url+" while queued")
                 if not webdriver_queue: return
             debuglog("Starting fetch of "+url+" on webdriver instance "+str(i))
             webdriver_via[i]=via
@@ -1708,9 +1719,12 @@ class RequestForwarder(RequestHandler):
             debuglog("Rerouting CONNECT to "+host+":"+str(port))
         def callback(*args):
           client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError("upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
-          upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError("client "+self.request.remote_ip+self.debugExtras(),client,data))
+          if self.isPjsUpstream: clientErr=None # we won't mind if our PhantomJS client gives up on an upstream fetch
+          else: clientErr = "client "+self.request.remote_ip+self.debugExtras()
+          upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError(clientErr,client,data))
           try: client.write('HTTP/1.0 200 Connection established\r\n\r\n')
-          except tornado.iostream.StreamClosedError: logging.error("client "+self.request.remote_ip+" closed before we said Established"+self.debugExtras())
+          except tornado.iostream.StreamClosedError:
+              if not self.isPjsUpstream: logging.error("client "+self.request.remote_ip+" closed before we said Established"+self.debugExtras())
         upstream.connect((host, int(port)), callback)
         # Tornado _log is not called until finish(); it would be useful to log the in-process connection at this point
         try: self._log()
@@ -2175,6 +2189,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             else: submit_url = local_submit_url
             if (options.password and submitPathIgnorePassword) or options.submitPath=='/': urlbox_footer = "" # not much point linking them back to the URL box under these circumstances
             else: urlbox_footer = '<p><a href="http://'+hostSuffix()+publicPortStr()+'">Process a website</a></p>'
+            # TODO: what if their browser doesn't submit in the correct charset?  for example some versions of Lynx need -display_charset=UTF-8 otherwise they might double-encode pasted-in UTF-8 and remove A0 bytes even though it appears to display correctly (and no, adding accept-charset won't help: that's for if the one to be accepted differs from the document's)
             return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3>Upload Text</h3>%s:<p><span style="float:right"><input type="submit"><script><!--
 document.write(' (Ctrl-Enter) | <a href="javascript:history.go(-1)">Back</a>')
 //--></script></span><br><textarea name="i" style="width:100%%;clear:both;height:60%%" rows="5" cols="20" placeholder="Type or paste your text here"
@@ -2197,11 +2212,7 @@ document.forms[0].i.focus()
                 if h=="Content-Type": return "text/html; charset=utf-8"
                 else: return d
             def get_all(self): return [("Content-Type","text/html; charset=utf-8")]
-        class R:
-            code = 200
-            headers = H()
-        r=R() ; r.body="""%s<h3>Your text</h3>%s<hr>This is %s. %s</body></html>""" % (htmlhead("Uploaded Text - Web Adjuster"),txt2html(txt),serverName_html,backScriptNoBr) # backScriptNoBr AFTER the server notice to save vertical space
-        self.doResponse(r,[False]*4,False,False)
+        runFilterOnText(self.getHtmlFilter(),find_text_in_HTML("""%s<h3>Your text</h3>%s<hr>This is %s. %s</body></html>""" % (htmlhead("Uploaded Text - Web Adjuster"),txt2html(txt),serverName_html,backScriptNoBr)),lambda out,err:self.doResponse2(out,True,False)) # backScriptNoBr AFTER the server notice to save vertical space
     def serve_bookmarklet_code(self,xtra,forceSameWindow):
         self.add_header("Content-Type","application/javascript")
         self.add_header("Access-Control-Allow-Origin","*")
@@ -2289,7 +2300,7 @@ document.forms[0].i.focus()
             try: uri2 = self.request.uri.decode('utf-8').encode('latin1')
             except: uri2 = self.request.uri
             if not self.request.uri == uri2: self.request.uri = urllib.quote(uri2)
-        if not self.canWriteBody(): self.set_header("Content-Length","-1") # we don't know yet: Tornado please don't add it!
+        if self.request.method=="HEAD": self.set_header("Content-Length","-1") # we don't know yet: Tornado please don't add it!  (NB this is for HEAD only, not OPTIONS, which should have Content-Length 0 or some browsers time out)
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
             elif self.request.uri=="/ping": return self.answerPing(False)
@@ -2518,6 +2529,17 @@ document.forms[0].i.focus()
                     clickElementID = idEtc[1:]
                 elif idEtc.startswith('-'):
                     clickLinkText = idEtc[1:]
+            def tooLate():
+              r=hasattr(self,"_finished") and self._finished
+              if r: logging.error("Client gave up on "+self.urlToFetch+" while queued")
+              return r
+            if options.PhantomJS_429 and len(webdriver_queue) >= 2*options.PhantomJS_instances: # TODO: do we want to allow for 'number of requests currently in prefetch stage' as well?  (but what if we're about to get a large number of prefetch-failures anyway?)  + update comment by define("PhantomJS_429") above
+                try: self.set_status(429,"Too many requests")
+                except: self.set_status(429)
+                self.add_header("Retry-After",str(10*len(webdriver_queue)/options.PhantomJS_instances)) # TODO: increase this if multiple clients?
+                if self.canWriteBody(): self.write("Too many requests (HTTP 429)")
+                logging.error("Returning HTTP 429 (too many requests) for "+self.urlToFetch)
+                self.myfinish() ; return
             if options.PhantomJS_reproxy:
               def prefetch():
                 # prefetch the page, don't tie up a PJS until
@@ -2535,13 +2557,13 @@ document.forms[0].i.focus()
                                     prefetched_response,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
-                        callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True),tooLate=lambda *_:hasattr(self,"_finished") and self._finished),
+                        lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True),tooLate),
                   follow_redirects=False)
               def prefetch_when_ready(t0):
                 if len(webdriver_queue) < 2*options.PhantomJS_instances: return prefetch()
                 # If too many PJS instances already tied up,
-                # don't even start the prefetch
-                again = time.time()+1
+                # don't start the prefetch yet
+                again = time.time()+1 # TODO: in extreme cases this can result in hundreds or thousands of calls to prefetch_when_ready per second; need a second queue? (tooLate() should mitigate it if client goes away, + won't get here unless --PhantomJS_429=False)
                 global last_Qoverload_time, Qoverload_max
                 try: last_Qoverload_time
                 except: last_Qoverload_time=Qoverload_max=0
@@ -2549,13 +2571,13 @@ document.forms[0].i.focus()
                 if time.time() > last_Qoverload_time + 5:
                     logging.error("webdriver_queue overload (max prefetch delay %d secs)" % Qoverload_max)
                     last_Qoverload_time = time.time()
-                IOLoop.instance().add_timeout(again,lambda *args:prefetch_when_ready(t0))
+                if not tooLate(): IOLoop.instance().add_timeout(again,lambda *args:prefetch_when_ready(t0))
               prefetch_when_ready(time.time())
             else: # no reproxy: can't prefetch
                 webdriver_fetch(self.urlToFetch,None,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
-                        callback=lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True),tooLate=lambda *_:hasattr(self,"_finished") and self._finished)
+                        lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True),tooLate)
         else:
             if options.PhantomJS and self.isPjsUpstream and webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
             httpfetch(self.urlToFetch,
@@ -2578,7 +2600,7 @@ document.forms[0].i.focus()
         do_json_process = do_css_process = False
         charset = "utf-8" # by default
         if response==None or not response.code or response.code==599:
-            # (some Tornado versions don't like us copying a 599 response)
+            # (some Tornado versions don't like us copying a 599 response without adding our own Reason code; just making it a 504 for now)
             try: error = str(response.error)
             except: error = "Gateway timeout or something"
             if "incorrect data check" in error and not hasattr(self,"avoid_gzip") and enable_gzip:
@@ -2842,13 +2864,12 @@ document.forms[0].i.focus()
         canRender = options.render and (do_html_process or (do_json_process and options.htmlJson)) and not self.checkBrowser(options.renderOmit)
         jsCookieString = ';'.join(self.request.headers.get_list("Cookie"))
         if do_html_process: body = html_additions(body,self.cssAndAttrsToAdd(),self.checkBrowser(options.cssNameReload),self.cookieHostToSet(),jsCookieString,canRender,self.cookie_host(),self.is_password_domain,not do_html_process=="noFilterOptions") # noFilterOptions is used by bookmarklet code (to avoid confusion between filter options on current screen versus bookmarklets)
-        callback = lambda out,err:self.doResponse3(out)
         if canRender and not "adjustNoRender=1" in jsCookieString:
             if do_html_process: func = find_text_in_HTML
             else: func=lambda body:find_HTML_in_JSON(body,find_text_in_HTML)
             debuglog("runFilterOnText Renderer"+self.debugExtras())
-            runFilterOnText(lambda t:Renderer.getMarkup(ampDecode(t.decode('utf-8'))).encode('utf-8'),func(body),callback,not do_html_process,chr(0))
-        else: callback(body,"")
+            runFilterOnText(lambda t:Renderer.getMarkup(ampDecode(t.decode('utf-8'))).encode('utf-8'),func(body),lambda out,err:self.doResponse3(out),not do_html_process,chr(0))
+        else: self.doResponse3(body)
     def doResponse3(self,body):
         # 3rd stage (rendering has been done)
         debuglog(("doResponse3 (len=%d)" % len(body))+self.debugExtras())
@@ -3216,6 +3237,7 @@ def runFilter(cmd,text,callback,textmode=True):
     # of a Python function to call on the text.  And if it
     # starts with http(s?):// then we assume it's a back-end
     # server to query.
+    if not cmd: return callback(text,"") # null filter, e.g. render-only submitPage
     if type(cmd)==type("") and cmd.startswith("*"):
         cmd = eval(cmd[1:]) # (normally a function name, but any Python expression that evaluates to a callable is OK, TODO: document this?  and incidentally if it evaluates to a string that's OK as well; the string will be given to an external command)
     if not type(cmd)==type(""):
@@ -3237,6 +3259,7 @@ def runFilter(cmd,text,callback,textmode=True):
     threading.Thread(target=subprocess_thread,args=()).start()
 
 def sync_runFilter(cmd,text,callback,textmode=True):
+    if not cmd: return callback(text,"")
     if type(cmd)==type("") and cmd.startswith("*"):
         cmd = eval(cmd[1:])
     if not type(cmd)==type(""): out,err = cmd(text),""
