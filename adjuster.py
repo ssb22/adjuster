@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.252 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.253 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -81,7 +81,7 @@ define("upstream_proxy",help="address:port of a proxy to send our requests throu
 define("ip_messages",help="Messages or blocks for specific IP address ranges (IPv4 only).  Format is ranges|message|ranges|message etc, where ranges are separated by commas; can be individual IPs, or ranges in either 'network/mask' or 'min-max' format; the first matching range-set is selected.  If a message starts with * then its ranges are blocked completely (rest of message, if any, is sent as the only reply to any request), otherwise message is shown on a 'click-through' page (requires Javascript and cookies).  If the message starts with a hyphen (-) then it is considered a minor edit of earlier messages and is not shown to people who selected `do not show again' even if they did this on a different version of the message.  Messages may include HTML.")
 
 heading("DNS and website settings")
-define("host_suffix",default=getfqdn_default,help="The last part of the domain name. For example, if the user wishes to change www.example.com and should do so by visiting www.example.com.adjuster.example.org, then host_suffix is adjuster.example.org. If you do not have a wildcard domain then you can still adjust one site by setting wildcard_dns to False, host_suffix to your non-wildcard domain, and default_site to the site you wish to adjust. If you have more than one non-wildcard domain, you can set wildcard_dns to False, host_suffix to all your domains separated by slash (/), and default_site to the sites these correspond to, again separated by slash (/); if two or more domains share the same default_site then the first is preferred in links and the others are assumed to be for backward compatibility. If wildcard_dns is False and default_site is empty (or if it's a /-separated list and one of its items is empty), then the corresponding host_suffix gives a URL box and sets its domain in a cookie (and adds a link at the bottom of pages to clear this and return to the URL box), but this should be done only as a last resort: you can browse only one domain at a time at that host_suffix; links and HTTP redirects to other domains will leave the adjuster, and this can negatively affect sites that use auxiliary domains for scripts etc and check Referer (unless you ensure these auxiliary domains are listed elsewhere in default_site). Also, the sites you visit at that host_suffix might be able to see some of each other's cookies etc (leaking privacy) although the URL box page will try to clear site cookies.")
+define("host_suffix",default=getfqdn_default,help="The last part of the domain name. For example, if the user wishes to change www.example.com and should do so by visiting www.example.com.adjuster.example.org, then host_suffix is adjuster.example.org. If you do not have a wildcard domain then you can still adjust one site by setting wildcard_dns to False, host_suffix to your non-wildcard domain, and default_site to the site you wish to adjust. If you have more than one non-wildcard domain, you can set wildcard_dns to False, host_suffix to all your domains separated by slash (/), and default_site to the sites these correspond to, again separated by slash (/); if two or more domains share the same default_site then the first is preferred in links and the others are assumed to be for backward compatibility. If wildcard_dns is False and default_site is empty (or if it's a /-separated list and one of its items is empty), then the corresponding host_suffix gives a URL box and sets its domain in a cookie (and adds a link at the bottom of pages to clear this and return to the URL box), but this should be done only as a last resort: you can browse only one domain at a time at that host_suffix; most links and HTTP redirects to other domains will leave the adjuster when not in HTML-only mode, which can negatively affect sites that use auxiliary domains for scripts etc and check Referer (unless you ensure these auxiliary domains are listed elsewhere in default_site). Also, the sites you visit at that host_suffix might be able to see some of each other's cookies etc (leaking privacy) although the URL box page will try to clear site cookies.")
 # ("preferred" / "backward compatibility" thing: can be useful if old domain has become unreliable, or if "preferred" domain is actually a URL-path-forwarding service with a memorable name which redirects browsers to an actual domain that's less memorable, and you want the memorable domain to be used in links etc, although in this case you might still get the less-memorable domain in the address bar)
 # TODO: (two or more domains pointing to the same default_site) "preferred" / "backward compatibility" thing above: or, add an option to periodically check which of our domains are actually 'up' and move them to the front of the host_suffix / default_site list; that way we don't have to guess ahead of time which one is more reliable and should be preferred.
 # Could also do 'use the currently-requested host if it's appropriate', but what if there's a *set* of sites we adjust and we need to try to rewrite cross-site links to be in the same set of domains as the one the browser is requesting - maybe it's best to leave the "preferred" DNS to the config or the periodic check.
@@ -847,10 +847,10 @@ def makeMainApplication():
 
 def phantomJS_proxy_port(index):
     nextPort = options.port + 1
-    nextPort += 1 # skip over real_proxy SSL helper
-    if options.ssl_fork:
-        nextPort += 1 # + SSL alive responder for the above
-        return nextPort + 3*index # each has upstream, SSL helper, and SSL alive responder
+    if options.real_proxy:
+      nextPort += 1
+      if options.ssl_fork: nextPort += 1
+    if options.ssl_fork: return nextPort + 3*index # each has upstream, SSL helper, and SSL alive responder
     else: return nextPort + 2*index # no SSL alive responder
 
 def openPortsEtc():
@@ -1371,7 +1371,8 @@ class WebdriverRunner:
         self.theWebDriver = None
         self.renew_webdriver()
     def renew_webdriver(self):
-        if self.theWebDriver: self.theWebDriver.quit()
+        try: self.theWebDriver.quit()
+        except: pass # e.g. sometimes get 'bad fd' in selenium's send_remote_shutdown_command _cookie_temp_file_handle; hope carrying on regardless doesn't leak resources but we don't want to get 'stuck' here
         self.theWebDriver = get_new_webdriver(self.index)
         self.usageCount = 0 ; self.maybe_stuck = False
     def quit_webdriver(self):
@@ -1455,6 +1456,9 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
     if currentUrl == None: # we need to ask for it again
         try: currentUrl = wd.current_url
         except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
+    if currentUrl == "about:blank":
+        debuglog("got about:blank instead of "+url)
+        return wrapResponse("webdriver failed to load") # rather than an actual redirect to about:blank, which breaks some versions of Lynx
     debuglog("Getting data from webdriver %d (current_url=%s)" % (manager.index,currentUrl))
     if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
         return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % wd.current_url.replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+wd.current_url),302)
@@ -1481,7 +1485,7 @@ def _get_new_webdriver(index):
     if not options.PhantomJS_images: dc["phantomjs.page.settings.loadImages"]=False
     dc["phantomjs.page.settings.javascriptCanOpenWindows"]=dc["phantomjs.page.settings.javascriptCanCloseWindows"]=False # TODO: does this cover target="_blank" in clickElementID etc (which could have originated via DOM manipulation, so stripping them on the upstream proxy is insufficient; close/restart the driver every so often?)
     if options.via and not options.PhantomJS_reproxy: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?) (don't have to worry about this if PhantomJS_reproxy)
-    debuglog("Instantiating webdriver.PhantomJS")
+    debuglog("Instantiating webdriver.PhantomJS "+' '.join(sa))
     p = webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
     debuglog("webdriver.PhantomJS instantiated")
     return p
@@ -2667,8 +2671,8 @@ document.forms[0].i.focus()
                 # TODO: if that sendRequest results in HTML, overriding the do_... options, the browser will end up with an incorrect idea of the current address; might want to detect this and give the user the unchanged Location: header
             else: doRedirect = value
             if cookie_host and (self.request.path=="/" or self.request.arguments.get(adjust_domain_cookieName,None)) and old_value_1.startswith("http") and not (old_value_1.startswith("http://"+cookie_host+"/") or (cookie_host.endswith(".0") and old_value_1.startswith("https://"+cookie_host[:-2]+"/"))):
-                # This'll be a problem.  If the user is requesting / and the site's trying to redirect off-site, how do we know that the user isn't trying to get back to the URL box (having forgotten to clear the cookie) and now can't possibly do so because / always results in an off-site Location redirect ?
-                # (DON'T just do this for ANY offsite url when in cookie_host mode - that could mess up images and things.  (Could still mess up images etc if they're served from / with query parameters; for now we're assuming path=/ is a good condition to do this.  The whole cookie_host thing is a compromise anyway; wildcard_dns is better.)  Can however do it if adjust_domain_cookieName is in the arguments, since this should mean a URL has just been typed in.)
+                # This'll be a problem.  If the user is requesting / and the site's trying to redirect off-site, how do we know that the user isn't trying to get back to the URL box (having forgotten to clear the cookie) and now can't possibly do so because '/' always results in an off-site Location redirect ?
+                # (DON'T just do this for just ANY offsite url when in cookie_host mode (except when also in htmlOnlyMode, see below) - it could mess up images and things.  (Could still mess up images etc if they're served from / with query parameters; for now we're assuming path=/ is a good condition to do this.  The whole cookie_host thing is a compromise anyway; wildcard_dns is better.)  Can however do it if adjust_domain_cookieName is in the arguments, since this should mean a URL has just been typed in.)
                 if offsite:
                     # as cookie_host has been set, we know we CAN do this request if it were typed in directly....
                     value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
@@ -2676,6 +2680,8 @@ document.forms[0].i.focus()
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html lang=\"en\"><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
+            elif cookie_host and offsite and self.htmlOnlyMode(): # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally
+                value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
           elif "set-cookie" in name.lower():
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host)
             for ckName in upstreamGuard: value=value.replace(ckName,ckName+"1")
@@ -2787,24 +2793,15 @@ document.forms[0].i.focus()
         if self.isPjsUpstream or self.isSslUpstream: return self.doResponse3(body) # write & finish
         if do_js_process: body = js_process(body,self.urlToFetch)
         if not self.checkBrowser(options.deleteOmit):
-            for d in options.delete:
-                body=re.sub(d,"",body)
-            if options.delete_doctype:
-                body=re.sub("^<![dD][oO][cC][tT][yY][pP][eE][^>]*>","",body,1)
+            body = process_delete(body)
         if do_css_process:
-            for d in options.delete_css:
-                if '@@' in d:
-                    s,r = d.split('@@',1)
-                    if '@@' in r:
-                        r,urlPart = r.split('@@',1)
-                        if not urlPart in self.urlToFetch:
-                            continue # skip this rule
-                    body = re.sub(s,r,body)
-                else: body=re.sub(d,"",body)
+            body = process_delete_css(body,self.urlToFetch)
         # OK to change the code now:
         adjustList = []
         if do_html_process:
           if self.htmlOnlyMode(isProxyRequest):
+              if cookie_host:
+                  adjustList.append(RewriteExternalLinks("http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?"+adjust_domain_cookieName+"=0&pr=on&q="))
               if options.PhantomJS_jslinks:
                   if isProxyRequest: url = self.urlToFetch
                   else: url = domain_process(self.urlToFetch,cookie_host,True,self.urlToFetch.startswith("https"))
@@ -3474,6 +3471,19 @@ class StripJSEtc:
     def handle_data(self,data):
         if self.suppressing: return ""
 
+class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will probably break the site's scripts in non-htmlOnly): make external links go back to URL box and act as though the link had been typed in
+    def __init__(self, rqPrefix): self.rqPrefix = rqPrefix
+    def init(self,parser): self.parser = parser
+    def handle_starttag(self, tag, attrs):
+        if tag=="a":
+            attrsD = dict(attrs)
+            hr = attrsD.get("href","")
+            if (hr.startswith("http://") and not url_is_ours(hr)) or hr.startswith("https://"):
+              attrsD["href"]=self.rqPrefix + urllib.quote(hr)
+              return tag,attrsD
+    def handle_endtag(self, tag): pass
+    def handle_data(self,data): pass
+
 def guessCMS(url,fmt):
     # (TODO: more possibilities for this?  Option to HEAD all urls and return what they resolve to? but fetch-ahead might not be a good idea on all sites)
     return fmt and options.guessCMS and "?" in url and "format="+fmt in url.lower() and not ((not fmt=="pdf") and "pdf" in url.lower())
@@ -3930,6 +3940,25 @@ def js_process(body,url):
         if cond:
             if times: body=body.replace(srch,rplac,times)
             else: body=body.replace(srch,rplac)
+    return body
+
+def process_delete(body):
+    for d in options.delete:
+        body=re.sub(d,"",body)
+    if options.delete_doctype:
+        body=re.sub("^<![dD][oO][cC][tT][yY][pP][eE][^>]*>","",body,1)
+    return body
+
+def process_delete_css(body,url):
+    for d in options.delete_css:
+        if '@@' in d: # it's a replace, not a delete
+            s,r = d.split('@@',1)
+            if '@@' in r: # replace only for certain URLs
+                r,urlPart = r.split('@@',1)
+                if not urlPart in url:
+                    continue # skip this rule
+            body = re.sub(s,r,body)
+        else: body=re.sub(d,"",body)
     return body
 
 detect_iframe = """(window.frameElement && window.frameElement.nodeName.toLowerCase()=="iframe" && function(){var i=window.location.href.indexOf("/",7); return (i>-1 && window.top.location.href.slice(0,i)==window.location.href.slice(0,i))}())""" # expression that's true if we're in an iframe that belongs to the same site, so can omit reminders etc
