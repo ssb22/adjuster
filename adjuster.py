@@ -644,7 +644,7 @@ def showProfile():
         global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
         stillUsed = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running)
         maybeStuck = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].maybe_stuck)
-        for i in xrange(options.PhantomJS_instances): webdriver_runner[i].maybe_stuck = 0
+        for i in xrange(options.PhantomJS_instances): webdriver_runner[i].maybe_stuck = webdriver_runner[i].thread_running
         webdriver_maxBusy = max(webdriver_maxBusy,stillUsed)
         if not webdriver_maxBusy: pr += "\nPhantomJS idle"
         else:
@@ -2538,7 +2538,8 @@ document.forms[0].i.focus()
                 except: self.set_status(429)
                 self.add_header("Retry-After",str(10*len(webdriver_queue)/options.PhantomJS_instances)) # TODO: increase this if multiple clients?
                 if self.canWriteBody(): self.write("Too many requests (HTTP 429)")
-                logging.error("Returning HTTP 429 (too many requests) for "+self.urlToFetch)
+                if not self.request.remote_ip in options.ipNoLog: logging.error("Returning HTTP 429 (too many requests) for "+self.urlToFetch+" to "+self.request.remote_ip)
+                self.request.suppress_logging = True
                 self.myfinish() ; return
             if options.PhantomJS_reproxy:
               def prefetch():
