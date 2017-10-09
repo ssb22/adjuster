@@ -161,7 +161,7 @@ define("separator",help="If you are using htmlFilter with htmlJson and/or htmlTe
 define("leaveTags",multiple=True,default="script,style,title,textarea,option",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names whose enclosed text should NOT be sent to the external program for modification. For this to work, the website must properly close these tags and must not nest them. (This list is also used for character-set rendering.)") # not including 'option' can break pages that need character-set rendering
 define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names which should be deleted if they occur in any section of running text. For example, \"wbr\" (word-break opportunity) tags (listed by default) might cause problems with phrase-based annotators.") # TODO: <span class="whatever">&nbsp;</span> (c.f. annogen's JS) ?  have already added to the bookmarklet JS (undocumented! see 'awkwardSpan') but not to the proxy version (the two find_text_in_HTML functions)
 
-define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.") # (see comments in serve_submitPage)
+define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.") # (see comments in serve_submitPage; "with htmlFilter" TODO do we add "(or --render)" to this? but charset submit not entirely tested with all old browsers)
 define("submitPrompt",default="Type or paste in some text to adjust",help="What to say before the form allowing users to enter their own text when submitPath is set (compare boxPrompt)")
 define("submitBookmarklet",default=True,help="If submitPath and htmlFilter is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly. The bookmarklets should work on modern desktop browsers and on iOS and Android; they should cope with frames and with Javascript-driven changes to a page, and on some browsers an option is provided to additionally place the page into a frameset so that links to other pages on the same site can be followed without explicitly reactivating the bookmarklet (but this does have disadvantages - page must be reloaded + URL display gets 'stuck' - so it's left to the user to choose).") # (and if the other pages check their top.location, things could break there as well)
 define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",help="A Javascript expression that evaluates true if a DOM text node 'c' should be processed by the 'bookmarklet' Javascript when submitPath and submitBookmarklet are set. To process ALL text, set this option to c.nodeValue.length, but if your htmlFilter will not change certain kinds of text then you can make the Javascript run more efficiently by not processing these (quote the expression carefully). The default setting will not process text that is all ASCII.") # + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8. (Previously said "To process ALL text, simply set this option to 'true'", but that can have odd effects on some sites' empty nodes. Saying c.nodeValue.length for now; c.nodeValue.match(/[^\s]/) might be better but needs more quoting explanation. Could change bookmarkletMainScript so it alters the DOM only if replacements[i] != oldTexts[i], c.f. annogen's android code, but that would mean future passes would re-send all the unchanged nodes cluttering the XMLHttpRequests especially if they fill a chunk - annogen version has the advantage of immediate local processing)
@@ -888,12 +888,14 @@ def openPortsEtc():
     except: pass
 
 def banner():
-    if teletext(): r0 = teletext_program_name()
+    if teletext():
+        r0 = teletext_program_name()
+        r0 = "\x0c\r\n" + r0 # one of these should hopefully clear the screen or at least start a new line, if the terminal is a BBC Micro or similar, but strictly speaking Teletext should rely on padding lines to 40 characters rather than any newline code working
     else: r0 = twoline_program_name+"\n"
     ret = []
     if options.port:
         ret.append("Listening on port %d" % options.port)
-        if (options.real_proxy or options.PhantomJS_reproxy or upstream_rewrite_ssl) and not teletext(): ret.append("with these helpers (don't connect to them yourself):")
+        if (options.real_proxy or options.PhantomJS_reproxy or upstream_rewrite_ssl): ret.append("with these helpers (don't connect to them yourself):")
         nextPort = options.port + 1
         if options.real_proxy:
             if options.ssl_fork:
@@ -913,9 +915,19 @@ def banner():
         ret.append("Writing "+options.watchdogDevice+" every %d seconds" % options.watchdog)
         if options.watchdogWait: ret.append("(abort if unresponsive for %d seconds)" % options.watchdogWait)
     if options.ssl_fork and not options.background: ret.append("To inspect processes, use: pstree "+str(os.getpid()))
-    ret = "\n".join(ret)+"\n"
     if fork_before_listen:
-        ret = ret.replace("Listening","Child will listen").replace("Writing","Child will write")+"Can't report errors here as this system needs early fork\n" # (need some other way of checking it really started)
+        for i in xrange(len(ret)):
+            ret[i] = ret[i].replace("Listening","Child will listen").replace("Writing","Child will write")
+        ret.append("Can't report errors here as this system needs early fork") # (need some other way of checking it really started)
+    if teletext():
+        for i in xrange(len(ret)):
+            for pad in ["(don't connect","on localhost"]:
+                while len(ret[i]) % 40 and pad in ret[i]: ret[i]=ret[i].replace(pad,"\x83"+pad)
+            while len(ret[i]) % 40:
+                ret[i] += ' '
+                if len(ret[i]) % 40 and "Listening on port" in ret[i]: ret[i] = "\x85" + ret[i]
+        ret = "".join(ret)
+    else: ret = "\n".join(ret)+"\n"
     global bannerTime ; bannerTime = time.time()
     sys.stderr.write(r0+ret)
 bannerTime = None
@@ -939,7 +951,7 @@ def announceStart():
 #    I heard a Voice from I knew not where:
 #     'The Great Adjustment is taking place!'" - Thomas Hardy
 """.replace("#","\033[31m")+"\033[0m\n") # (exact vermilion would be \033[38;2;227;66;52m but we don't know the terminal can do that and it might be less likely to fit with the background, so we go for basic 'red')
-    elif teletext(): sys.stderr.write("\x81 \"There seemed a strangeness in the air,Vermilion light on the land's lean face; \x81I heard a Voice from I knew not where:'The Great Adjustment is taking place!'\"                      \x81 --- Thomas Hardy") # not enough room for red control codes on all lines, just 1/3/5 (and note all \n's missing: 40col wraparound)
+    elif teletext(): sys.stderr.write(" "*40+"\x95"+"\xf1"*39+"\x81\"There seemed a strangeness in the air,Vermilion\x81light on the land's lean face; \x81I heard a Voice from I knew not where:'The\x82Great Adjustment\x81is taking place!'\"                      \x81 --- Thomas Hardy\x95"+"\xb3"*39)
     else: sys.stderr.write("Ready\n")
 def announceInterrupt():
     if bannerTime==None: return # as above
@@ -953,6 +965,7 @@ def announceShutdown():
 def main():
     setProcName() ; readOptions() ; preprocessOptions()
     serverControl() ; openPortsEtc() ; announceStart()
+    workaround_tornado_fd_issue()
     try: IOLoop.instance().start()
     except KeyboardInterrupt: announceInterrupt()
     announceShutdown()
@@ -1041,18 +1054,35 @@ def workaround_timeWait_problem():
     debuglog("Adding reuse_port to tornado.tcpserver.bind_sockets")
     tornado.tcpserver.bind_sockets = newBind
 
+def workaround_tornado_fd_issue():
+    cxFunc = IOLoop.instance().handle_callback_exception
+    def newCx(callback):
+        if callback: return cxFunc(callback)
+        # self._handlers[fd] raised KeyError.  This means
+        # we don't want to keep being told about the fd.
+        fr = sys.exc_info()[2]
+        while fr.tb_next: fr = fr.tb_next
+        fd = fr.tb_frame.f_locals.get("fd",None)
+        if not fd: return cxFunc("callback="+repr(callback)+" and newCx couldn't get fd from stack")
+        logging.info("IOLoop has no handler left for fd "+repr(fd)+" but is still getting events from it.  Attempting low-level close to avoid loop.")
+        try: IOLoop.instance().remove_handler(fd)
+        except: pass
+        try: os.close(fd)
+        except: pass
+    IOLoop.instance().handle_callback_exception = newCx
+
 def aTitle(): # window title for foreground running
     t = "adjuster"
     if "SSH_CONNECTION" in os.environ: t += "@"+hostSuffix() # TODO: might want to use socket.getfqdn() to save confusion if several servers are configured with the same host_suffix and/or host_suffix specifies multiple hosts?
     return t
 def istty(): return hasattr(sys.stderr,"isatty") and sys.stderr.isatty()
-def teletext(): return os.environ.get("TERM","")=="teletext" # for 'retro' demonstrations (set TERM=teletext and pipe stderr to BeebEm Mode 7); affects only the very start
+def teletext(): return os.environ.get("TERM","")=="teletext" # for 'retro' demonstrations (set TERM=teletext and pipe stderr to BeebEm Mode 7); affects only the start
 def teletext_program_name():
     i = program_name.index("(c)")
     p1,p2 = program_name[:i].rstrip(),program_name[i:]
-    p1 = "\x81\x9d\x8d\x83"+" "*(int((40-len(p1))/2)-4)+p1
+    p1 = "\x84\x9d\x8d\x83"+" "*(int((40-len(p1))/2)-4)+p1
     while len(p1)<40: p1 += ' ' # use this rather than \n
-    p2 = " "*(39-len(p2))+"\x84"+p2 # no \n
+    p2 = " "*(39-len(p2))+"\x86"+p2 # no \n
     p3 = "\x82"+twoline_program_name.split("\n")[1].replace(", Version "," v")
     while len(p3)<40: p3 += ' '
     return p1+p1+p2+p3 # p1 is double-height so repeated
@@ -1369,11 +1399,11 @@ class WebdriverRunner:
         self.index = index
         self.thread_running = False
         self.theWebDriver = None
-        self.renew_webdriver()
-    def renew_webdriver(self):
+        self.renew_webdriver(True)
+    def renew_webdriver(self,firstTime=False):
         try: self.theWebDriver.quit()
         except: pass # e.g. sometimes get 'bad fd' in selenium's send_remote_shutdown_command _cookie_temp_file_handle; hope carrying on regardless doesn't leak resources but we don't want to get 'stuck' here
-        self.theWebDriver = get_new_webdriver(self.index)
+        self.theWebDriver = get_new_webdriver(self.index,not firstTime)
         self.usageCount = 0 ; self.maybe_stuck = False
     def quit_webdriver(self):
         if self.theWebDriver: self.theWebDriver.quit()
@@ -1464,7 +1494,8 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % wd.current_url.replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+wd.current_url),302)
     if asScreenshot: return wrapResponse(wd.get_screenshot_as_png(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
     else: return wrapResponse(get_and_remove_httpequiv_charset(wd.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
-def _get_new_webdriver(index):
+def _get_new_webdriver(index,renewing):
+    log_complaints = (index==0 and not renewing)
     from selenium import webdriver
     sa = ['--ssl-protocol=any']
     if options.PhantomJS_reproxy:
@@ -1473,7 +1504,7 @@ def _get_new_webdriver(index):
     elif options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
     try: from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
     except:
-        if index==0: # first one
+        if log_complaints:
             sys.stderr.write("Your Selenium installation is too old to set PhantomJS custom options.\n")
             if options.PhantomJS_reproxy: sys.stderr.write("This means --PhantomJS_reproxy won't work.") # because we can't set the UA string or custom headers
         if options.PhantomJS_reproxy:
@@ -1486,12 +1517,19 @@ def _get_new_webdriver(index):
     dc["phantomjs.page.settings.javascriptCanOpenWindows"]=dc["phantomjs.page.settings.javascriptCanCloseWindows"]=False # TODO: does this cover target="_blank" in clickElementID etc (which could have originated via DOM manipulation, so stripping them on the upstream proxy is insufficient; close/restart the driver every so often?)
     if options.via and not options.PhantomJS_reproxy: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?) (don't have to worry about this if PhantomJS_reproxy)
     debuglog("Instantiating webdriver.PhantomJS "+' '.join(sa))
-    p = webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
+    while True:
+        try: p = webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
+        except:
+            if log_complaints: raise
+            logging.error("Unhandled exception when instantiating webdriver %d, retrying in 5sec" % index)
+            time.sleep(5) ; p = None
+        if p: break
     debuglog("webdriver.PhantomJS instantiated")
     return p
-def get_new_webdriver(index):
-    wd = _get_new_webdriver(index)
-    if index==0 and not options.PhantomJS_reproxy:
+def get_new_webdriver(index,renewing=False):
+    wd = _get_new_webdriver(index,renewing)
+    log_complaints = (index==0 and not renewing)
+    if log_complaints and not options.PhantomJS_reproxy:
      try: is_v2 = wd.capabilities['version'].startswith("2.")
      except: is_v2 = False
      if is_v2: sys.stderr.write("\nWARNING: You may be affected by PhantomJS issue #13114.\nRelative links may be wrong after a redirect if the site sets Content-Security-Policy.\nTry --PhantomJS_reproxy, or downgrade your PhantomJS to version 1.9.8\n\n")
@@ -1501,7 +1539,7 @@ def get_new_webdriver(index):
     try: w,h = int(w),int(h)
     except: w,h = 0,0
     if not (w and h):
-        if index==0: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.PhantomJS_size)
+        if log_complaints: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.PhantomJS_size)
         w,h = 1024,768
     try: wd.set_window_size(w, h)
     except: logging.info("Couldn't set webdriver window size")
@@ -1518,15 +1556,14 @@ def test_init_webdriver():
     get_new_webdriver(0).quit()
     sys.stderr.write("OK\n")
 def init_webdrivers():
-    if not options.background: sys.stderr.write("Starting webdrivers")
+    if not options.background: sys.stderr.write(" "*40)
     for i in xrange(options.PhantomJS_instances):
-        if not options.background:
-            if i%10 or not i: sys.stderr.write(".")
-            else: sys.stderr.write(repr(i))
+        if not options.background: sys.stderr.write("\rStarting webdrivers... ")
         webdriver_runner.append(WebdriverRunner(len(webdriver_runner)))
         webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
         webdriver_via.append(None)
+        if not options.background: sys.stderr.write("(%d/%d)" % (i+1,options.PhantomJS_instances))
     def quit_wd(*args):
       try:
         for i in webdriver_runner:
@@ -1534,7 +1571,12 @@ def init_webdrivers():
             except: pass
       except: pass
     import atexit ; atexit.register(quit_wd)
-    if not options.background: sys.stderr.write(" done\n")
+    if not options.background:
+        if teletext():
+            l = len("Starting webdrivers... (%d/%d)" % (options.PhantomJS_instances,options.PhantomJS_instances))
+            while l % 40:
+                sys.stderr.write(' ') ; l += 1
+        else: sys.stderr.write("\n")
 webdriver_maxBusy = 0
 def webdriver_checkServe(*args):
     # how many queue items can be served right now?
@@ -2680,7 +2722,7 @@ document.forms[0].i.focus()
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html lang=\"en\"><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
-            elif cookie_host and offsite and self.htmlOnlyMode(): # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally
+            elif cookie_host and offsite and self.htmlOnlyMode() and not options.htmlonly_css: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally
                 value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
           elif "set-cookie" in name.lower():
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host)
