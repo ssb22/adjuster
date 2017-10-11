@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.253 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.254 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -178,6 +178,7 @@ define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if 
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
 define("PhantomJS_jslinks",default=True,help="When PhantomJS is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
+define("PhantomJS_multiprocess",default=True,help="When PhantomJS is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available. This might be more robust.")
 define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only). This can make better use of multi-core CPUs and stops the main event loop from being stalled by buggy SSL libraries (at the expense of more RAM).")
 
 heading("Server control options")
@@ -304,6 +305,7 @@ define("loadBalancer",default=False,help="Set this to True if you have a default
 # sorted alphabetically by Tornado.)
 heading("Logging options")
 define("profile",default=0,help="Log timing statistics every N seconds (only when not idle)")
+define("profile_lines",default=5,help="Number of lines to log when profile option is in use")
 define("renderLog",default=False,help="Whether or not to log requests for character-set renderer images. Note that this can generate a LOT of log entries on some pages.")
 define("logUnsupported",default=False,help="Whether or not to log attempts at requests using unsupported HTTP methods. Note that this can sometimes generate nearly as many log entries as renderLog if some browser (or malware) tries to do WebDAV PROPFIND requests on each of the images.")
 define("logRedirectFiles",default=True,help="Whether or not to log requests that result in the browser being simply redirected to the original site when the redirectFiles option is on.") # (Since this still results in a HEAD request being sent to the remote site, this option defaults to True in case you need it to diagnose "fair use of remote site" problems)
@@ -491,6 +493,10 @@ def preprocessOptions():
     if options.render:
         try: import PIL
         except ImportError: errExit("render requires PIL")
+    if options.PhantomJS_multiprocess:
+        try: import multiprocessing # Python 2.6
+        except ImportError: # can't do it then
+            options.PhantomJS_multiprocess = False
     create_inRenderRange_function(options.renderRange)
     if type(options.renderOmit)==type(""): options.renderOmit=options.renderOmit.split(',')
     if options.renderOmitGoAway:
@@ -627,6 +633,8 @@ def open_profile():
         try: import psutil
         except ImportError: psutil = None
         setProfile() ; profileIdle = False
+        global reqsInFlight,origReqInFlight
+        reqsInFlight = set() ; origReqInFlight = set()
 def setProfile():
     global theProfiler, profileIdle
     theProfiler = cProfile.Profile()
@@ -639,25 +647,30 @@ def pollProfile():
 def showProfile():
     s = cStringIO.StringIO()
     pstats.Stats(theProfiler,stream=s).sort_stats('cumulative').print_stats()
-    pr = "\n".join(x for x in s.getvalue().split("\n")[:8] if x and not "Ordered by" in x)
+    pr = "\n".join([x for x in s.getvalue().split("\n") if x and not "Ordered by" in x][:options.profile_lines])
     if options.PhantomJS and len(webdriver_runner):
         global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
         stillUsed = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running)
         maybeStuck = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].maybe_stuck)
         for i in xrange(options.PhantomJS_instances): webdriver_runner[i].maybe_stuck = webdriver_runner[i].thread_running
         webdriver_maxBusy = max(webdriver_maxBusy,stillUsed)
-        if not webdriver_maxBusy: pr += "\nPhantomJS idle"
+        if pr: pr += "\n"
+        elif not options.background: pr += ": "
+        if not webdriver_maxBusy: pr += "PhantomJS idle"
         else:
             if webdriver_oops: served = "%d successes + %d failures = %d served" % (webdriver_mu-webdriver_oops,webdriver_oops,webdriver_mu)
             else: served = "%d served" % webdriver_mu
             if maybeStuck: stuck = "%d may be" % maybeStuck
             else: stuck = "none"
-            pr += "\nPhantomJS %d/%d used (%d still in use, %s stuck); queue %d (%d arrived, %s)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,stuck,len(webdriver_queue),webdriver_lambda,served)
+            pr += "PhantomJS %d/%d used (%d still in use, %s stuck); queue %d (%d arrived, %s)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,stuck,len(webdriver_queue),webdriver_lambda,served)
         webdriver_lambda = webdriver_mu = 0
         webdriver_oops = 0
         webdriver_maxBusy = stillUsed
         # TODO: also measure lambda/mu of other threads e.g. htmlFilter ?
         if psutil: pr += "; system RAM %.1f%% used" % (psutil.virtual_memory().percent)
+    if pr: pr += "\n"
+    elif not options.background: pr += ": "
+    pr += "%d requests in flight (%d from clients)" % (len(reqsInFlight),len(origReqInFlight))
     if options.background: logging.info(pr)
     elif istty() and "xterm" in os.environ.get("TERM",""): sys.stderr.write("\033[35m"+(time.strftime("%X")+pr).replace("\n","\n\033[35m")+"\033[0m\n")
     else: sys.stderr.write(time.strftime("%X")+pr+"\n")
@@ -1394,25 +1407,114 @@ def wrapResponse(body,info={},code=500):
             else: return self.info.get_all()
     r.headers = H(info) ; r.body = body ; return r
 
+class WebdriverWrapper:
+    "Wrapper for webdriver that might or might not be in a separate process without shared memory"
+    def __init__(self): self.theWebDriver = None
+    def new(self,*args):
+        self.theWebDriver = get_new_webdriver(*args)
+    def quit(self,*args):
+        if not self.theWebDriver: return
+        pid = None
+        try: self.theWebDriver.quit()
+        except: # e.g. sometimes get 'bad fd' in selenium's send_remote_shutdown_command _cookie_temp_file_handle
+            try: pid = self.theWebDriver.service.process.pid
+            except: pass # TODO: log?
+        self.theWebDriver = None
+        if not pid: return
+        # logging.error("Trying harder to kill webdriver")
+        try: os.killpg(pid,9)
+        except: pass # maybe it's not a process group
+        try: import psutil
+        except ImportError: pass
+        try:
+            for c in psutil.Process(parent_pid).children(recursive=True):
+                try: c.kill(9)
+                except: pass
+        except: pass
+        try: os.kill(pid,9)
+        except: pass
+    def current_url(self):
+        try: return self.theWebDriver.current_url
+        except: return "" # PhantomJS Issue #13114: unconditional reload for now
+    def get(self,url): self.theWebDriver.get(url)
+    def execute_script(self,script): self.theWebDriver.execute_script(script)
+    def click_id(self,clickElementID): self.theWebDriver.find_element_by_id(clickElementID).click()
+    def click_xpath(self,xpath): self.theWebDriver.find_element_by_xpath(xpath).click()
+    def click_linkText(self,clickLinkText): self.theWebDriver.find_element_by_link_text(clickLinkText).click()
+    def getu8(self): return self.theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8')
+    def getpng(self): return self.theWebDriver.get_screenshot_as_png()
+def webdriverWrapper_receiver(pipe):
+    "Command receiver for WebdriverWrapper for when it's running over IPC.  Receives (command,args) and sends (return,exception)."
+    setProcName("adjusterWDhelp")
+    w = WebdriverWrapper()
+    while True:
+        try: cmd,args = pipe.recv()
+        except EOFError: return pipe.close()
+        except KeyboardInterrupt: return pipe.close()
+        try: ret,exc = getattr(w,cmd)(*args), None
+        except Exception, e:
+            ret,exc,p = None,e,find_adjuster_in_traceback()
+            if p:
+                try: exc.args += (p,) # works with things like KeyError
+                except: exc.message += p # works with base Exception
+        pipe.send((ret,exc))
+def webdriverWrapper_send(pipe,cmd,args=()):
+    "Send a command to a Webdriverwrapper over IPC, and either return its result or raise its exception in this process."
+    pipe.send((cmd,args))
+    ret,exc = pipe.recv()
+    if exc: raise exc
+    else: return ret
+class WebdriverWrapperController:
+    "Proxy for WebdriverWrapper if it's running over IPC"
+    def __init__(self):
+        self.pipe, cPipe = multiprocessing.Pipe()
+        p = multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,))
+        p.daemon = True ; p.start()
+    def send(self,cmd,args=()): return webdriverWrapper_send(self.pipe,cmd,args)
+    def new(self,*args): self.send("new",args)
+    def quit(self,final=False):
+        self.send("quit")
+        if final: self.pipe.close()
+    def current_url(self): return self.send("current_url")
+    def get(self,url): return self.send("get",(url,))
+    def execute_script(self,script): self.send("execute_script",(script,))
+    def click_id(self,clickElementID): self.send("click_id",(clickElementID,))
+    def click_xpath(self,xpath): self.send("click_xpath",(xpath),)
+    def click_linkText(self,clickLinkText): self.send("click_linkText",(clickLinkText,))
+    def getu8(self): return self.send("getu8")
+    def getpng(self): return self.send("getpng")
+try: import multiprocessing # Python 2.6
+except: multiprocessing = None
 class WebdriverRunner:
+    "Manage a WebdriverWrapperController (or a WebdriverWrapper if we're not using IPC) from a thread of the main process"
     def __init__(self,index=0):
         self.index = index
         self.thread_running = False
-        self.theWebDriver = None
+        if options.PhantomJS_multiprocess:
+            self.wrapper = WebdriverWrapperController()
+        else: self.wrapper = WebdriverWrapper()
         self.renew_webdriver(True)
     def renew_webdriver(self,firstTime=False):
-        try: self.theWebDriver.quit()
-        except: pass # e.g. sometimes get 'bad fd' in selenium's send_remote_shutdown_command _cookie_temp_file_handle; hope carrying on regardless doesn't leak resources but we don't want to get 'stuck' here
-        self.theWebDriver = get_new_webdriver(self.index,not firstTime)
+        self.wrapper.quit()
+        self.wrapper.new(self.index,not firstTime)
         self.usageCount = 0 ; self.maybe_stuck = False
-    def quit_webdriver(self):
-        if self.theWebDriver: self.theWebDriver.quit()
-        self.theWebDriver = None
+    def quit_webdriver(self): self.wrapper.quit(final=True)
     def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback):
         assert not self.thread_running, "webdriver_checkServe did WHAT?"
         self.thread_running = True ; self.maybe_stuck = False
         threading.Thread(target=wd_fetch,args=(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,self)).start()
+    def current_url(self): return self.wrapper.current_url()
+    def get(self,url): self.wrapper.get(url)
+    def execute_script(self,script): self.wrapper.execute_script(script)
+    def click_id(self,clickElementID): self.wrapper.click_id(clickElementID)
+    def click_xpath(self,xpath): self.wrapper.click_xpath(xpath)
+    def click_linkText(self,clickLinkText): self.wrapper.click_linkText(clickLinkText)
+    def getu8(self): return self.wrapper.getu8()
+    def getpng(self): return self.wrapper.getpng()
 def find_adjuster_in_traceback():
+    try: p = sys.exc_info()[1].args[-1]
+    except: p = ""
+    if "adjuster line" in p: return p # for webdriverWrapper_receiver
     l = traceback.extract_tb(sys.exc_info()[2])
     for i in xrange(len(l)-1,-1,-1):
         if "adjuster.py" in l[i][0]: return ", adjuster line "+str(l[i][1])
@@ -1449,20 +1551,17 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     helper_thread_count -= 1
 def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
     import tornado.httputil
-    wd = manager.theWebDriver
-    try: currentUrl = wd.current_url
-    except: currentUrl = "" # PhantomJS Issue #13114: unconditional reload for now
+    currentUrl = manager.current_url()
     if prefetched or not re.sub('#.*','',currentUrl) == url:
         if prefetched:
             debuglog("webdriver %d get about:blank" % manager.index)
-            wd.get("about:blank") # ensure no race condition with current page's XMLHttpRequests
+            manager.get("about:blank") # ensure no race condition with current page's XMLHttpRequests
             webdriver_prefetched[manager.index] = prefetched
         webdriver_inProgress[manager.index].clear() # race condition with start of next 'get' if we haven't done about:blank, but worst case is we'll wait a bit too long for page to finish
         debuglog(("webdriver %d get " % manager.index)+url)
-        try: wd.get(url) # waits for onload
+        try: manager.get(url) # waits for onload
         except: # possibly a timeout; did we get some of it?
-            try: currentUrl = wd.current_url
-            except: currentUrl = None
+            currentUrl = manager.current_url()
             if not currentUrl==url: raise # didn't get any
         # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
         debuglog("webdriver %d loaded" % manager.index)
@@ -1474,26 +1573,26 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         currentUrl = None
     if clickElementID or clickLinkText:
       try:
-        wd.execute_script("window.open = window.confirm = function(){return true;}") # in case any link has a "Do you really want to follow this link?" confirmation (webdriver default is usually Cancel), or has 'pop-under' window (TODO: switch to pop-up?)
-        if clickElementID: wd.find_element_by_id(clickElementID).click()
+        manager.execute_script("window.open = window.confirm = function(){return true;}") # in case any link has a "Do you really want to follow this link?" confirmation (webdriver default is usually Cancel), or has 'pop-under' window (TODO: switch to pop-up?)
+        if clickElementID: manager.click_id(clickElementID)
         if clickLinkText:
-            if not '"' in clickLinkText: wd.find_element_by_xpath(u'//a[text()="'+clickLinkText+'"]').click()
-            elif not "'" in clickLinkText: wd.find_element_by_xpath(u"//a[text()='"+clickLinkText+"']").click()
-            else: wd.find_element_by_link_text(clickLinkText).click() # least reliable
+            if not '"' in clickLinkText: manager.click_xpath(u'//a[text()="'+clickLinkText+'"]')
+            elif not "'" in clickLinkText: manager.click_xpath(u"//a[text()='"+clickLinkText+"']")
+            else: manager.click_linkText(clickLinkText) # least reliable
         time.sleep(0.2) # TODO: more? what if the click results in fetching a new URL, had we better wait for XMLHttpRequests to finish?  (loop as above but how do we know when they've started?)  currentUrl code below should at least show us the new URL even if it hasn't finished loading, and then there's a delay while the client browser is told to fetch it, but that might not be enough
       except: debuglog("PhantomJS_jslinks find_element exception ignored",False)
       currentUrl = None
     if currentUrl == None: # we need to ask for it again
-        try: currentUrl = wd.current_url
-        except: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
+        currentUrl = manager.current_url()
+        if not currentUrl: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
     if currentUrl == "about:blank":
         debuglog("got about:blank instead of "+url)
         return wrapResponse("webdriver failed to load") # rather than an actual redirect to about:blank, which breaks some versions of Lynx
     debuglog("Getting data from webdriver %d (current_url=%s)" % (manager.index,currentUrl))
     if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
-        return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % wd.current_url.replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+wd.current_url),302)
-    if asScreenshot: return wrapResponse(wd.get_screenshot_as_png(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
-    else: return wrapResponse(get_and_remove_httpequiv_charset(wd.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8'))[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
+        return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % manager.current_url().replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+manager.current_url()),302)
+    if asScreenshot: return wrapResponse(manager.getpng(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
+    else: return wrapResponse(get_and_remove_httpequiv_charset(manager.getu8())[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
 def _get_new_webdriver(index,renewing):
     log_complaints = (index==0 and not renewing)
     from selenium import webdriver
@@ -1595,7 +1694,7 @@ def webdriver_checkServe(*args):
             global webdriver_mu ; webdriver_mu += 1
     if webdriver_queue: debuglog("All PhantomJS_instances busy; %d items still in queue" % len(webdriver_queue))
 def webdriver_fetch(url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
-    if tooLate(): return logging.error("Client gave up on "+url+" before it was queued for webdriver") # probably because webdriver_queue overload (which will also be logged)
+    if tooLate(): return # probably webdriver_queue overload (which will also be logged)
     elif prefetched and prefetched.code >= 500: return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something
     elif wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do PhantomJS anyway; where else might we have threaded wsgi?  PhantomJS really is better run in non-wsgi mode anyway, so can PhantomJS_reproxy)
     webdriver_queue.append((url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate))
@@ -1788,6 +1887,10 @@ class RequestForwarder(RequestHandler):
             try:
                 webdriver_inProgress[self.WA_PjsIndex].remove(self.request.uri)
             except: pass
+        try: reqsInFlight.remove(id(self))
+        except: pass
+        try: origReqInFlight.remove(id(self))
+        except: pass
 
     def redirect(self,redir,status=301):
         debuglog("redirect ("+repr(status)+" to "+repr(redir)+")"+self.debugExtras())
@@ -1866,7 +1969,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             try: self.clear_header(h)
             except: pass
         # (Date is added by Tornado 3, which can also add "Vary: Accept-Encoding" but that's done after we get here, TODO: option to ping via a connect and low-level TCP keepalive bytes?)
-        self.set_header("Etag","0") # shorter than Tornado's computed one (clear_header won't work with Etag)
+        self.set_header("Etag","0") # shorter than Tornado's computed one (clear_header won't work with Etag; TODO: could override RequestHandler's compute_etag and make it return None if we've set somewhere that we don't want Etag on this request)
 
     def answerPing(self,newVersion):
         # answer a "ping" request from another machine that's using us as a fasterServer
@@ -2332,6 +2435,11 @@ document.forms[0].i.focus()
     
     def doReq(self):
         debuglog("doReq"+self.debugExtras()) # MUST keep this here: it also sets profileIdle=False
+        try: reqsInFlight.add(id(self)) # for profile
+        except: pass
+        if not self.isPjsUpstream and not self.isSslUpstream:
+            try: origReqInFlight.add(id(self))
+            except: pass
         if wsgi_mode and self.request.path==urllib.quote(os.environ.get("SCRIPT_NAME","")+os.environ.get("PATH_INFO","")) and 'SCRIPT_URL' in os.environ:
             # workaround for Tornado 2.x limitation when used with CGI and htaccess redirects
             self.request.uri = os.environ['SCRIPT_URL']
@@ -2346,7 +2454,7 @@ document.forms[0].i.focus()
             try: uri2 = self.request.uri.decode('utf-8').encode('latin1')
             except: uri2 = self.request.uri
             if not self.request.uri == uri2: self.request.uri = urllib.quote(uri2)
-        if self.request.method=="HEAD": self.set_header("Content-Length","-1") # we don't know yet: Tornado please don't add it!  (NB this is for HEAD only, not OPTIONS, which should have Content-Length 0 or some browsers time out)
+        if self.request.method=="HEAD": self.set_header("Content-Length","-1") # we don't know yet: Tornado please don't add it!  (NB this is for HEAD only, not OPTIONS, which should have Content-Length 0 or some browsers time out) (TODO: in non-WSGI mode could call .flush() after writing headers (with callback param), then Content-Length won't be added on .finish())
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
             elif self.request.uri=="/ping": return self.answerPing(False)
@@ -2359,6 +2467,7 @@ document.forms[0].i.focus()
         if self.isPjsUpstream:
             if options.PhantomJS_UA and options.PhantomJS_UA.startswith("*"): self.request.headers["User-Agent"] = options.PhantomJS_UA[1:]
             webdriver_inProgress[self.WA_PjsIndex].add(self.request.uri)
+            self._gzipping = False # little point if we know the final client is on localhost
         elif not self.isSslUpstream:
             if self.handleSSHTunnel(): return
             if self.handleSpecificIPs(): return
@@ -2577,7 +2686,12 @@ document.forms[0].i.focus()
                     clickLinkText = idEtc[1:]
             def tooLate():
               r=hasattr(self,"_finished") and self._finished
-              if r: logging.error("Client gave up on "+self.urlToFetch+" while queued")
+              if r:
+                  logging.error("Client gave up on "+self.urlToFetch+" while queued")
+                  try: reqsInFlight.remove(id(self))
+                  except: pass
+                  try: origReqInFlight.remove(id(self))
+                  except: pass
               return r
             if options.PhantomJS_429 and len(webdriver_queue) >= 2*options.PhantomJS_instances: # TODO: do we want to allow for 'number of requests currently in prefetch stage' as well?  (but what if we're about to get a large number of prefetch-failures anyway?)  + update comment by define("PhantomJS_429") above
                 try: self.set_status(429,"Too many requests")
@@ -3044,10 +3158,12 @@ def PjsRequestForwarder(index,port): return MakeRequestForwarder(False,port+1,Tr
 def PjsSslRequestForwarder(index,port): return MakeRequestForwarder(True,port,True,index)
 
 class UpSslRequestForwarder(RequestForwarder):
+    "A RequestForwarder for running upstream of upstream_proxy, rewriting its .0 requests back into SSL requests"
     WA_UseSSL = isPjsUpstream = False
     isSslUpstream = True
 
 class SynchronousRequestForwarder(RequestForwarder):
+   "A RequestForwarder for use in WSGI mode"
    WA_UseSSL = isPjsUpstream = isSslUpstream = False
    def get(self, *args, **kwargs):     return self.doReq()
    def head(self, *args, **kwargs):    return self.doReq()
