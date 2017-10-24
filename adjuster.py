@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.254 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.261 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,6 +47,8 @@ elif '--html-options' in sys.argv: # for updating the website (this option is no
 else:
     import tornado
     from tornado.httpclient import AsyncHTTPClient,HTTPClient,HTTPError
+    try: from tornado.httpserver import HTTPServer
+    except: HTTPServer = None # may happen in WSGI mode (e.g. AppEngine can have trouble importing this)
     from tornado.ioloop import IOLoop
     from tornado.web import Application, RequestHandler, StaticFileHandler, asynchronous
     import tornado.options, tornado.iostream
@@ -67,7 +69,7 @@ define("publicPort",default=0,help="The port to advertise in URLs etc, if differ
 define("user",help="The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.")
 define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real_proxy.")
 define("password",help="The password. If this is set, nobody can connect without specifying ?p= followed by this password. It will then be sent to them as a cookie so they don't have to enter it every time. Notes: (1) If wildcard_dns is False and you have multiple domains in host_suffix, then the password cookie will have to be set on a per-domain basis. (2) On a shared server you probably don't want to specify this on the command line where it can be seen by process-viewing tools; use a configuration file instead.")
-define("password_domain",help="The domain entry in host_suffix to which the password applies. For use when wildcard_dns is False and you have several domains in host_suffix, and only one of them (perhaps the one with an empty default_site) is to be password-protected, with the others public. If this option is used then prominentNotice (if set) will not apply to the passworded domain. You may put the password on two or more domains by separating them with slash (/).") # prominentNotice not apply: on the assumption that those who know the password understand what the tool is
+define("password_domain",help="The domain entry in host_suffix to which the password applies. For use when wildcard_dns is False and you have several domains in host_suffix, and only one of them (perhaps the one with an empty default_site) is to be password-protected, with the others public. If this option is used then prominentNotice (if set) will not apply to the passworded domain. You may put the password on two or more domains by separating them with slash (/).") # prominentNotice not apply: on the assumption that those who know the password understand what the tool is.  DOES apply anyway if =="htmlFilter".
 define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * when this is ignored and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
 define("open_proxy",default=False,help="Whether or not to allow running with no password. Off by default as a safeguard against accidentally starting an open proxy.")
 define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separated list of regular expressions specifying URLs that are not allowed to be fetched unless --real_proxy is in effect. Browsers requesting a URL that contains any of these will be redirected to the original site. Use for example if you want people to go direct when posting their own content to a particular site (this is of only limited use if your server also offers access to any other site on the Web, but it might be useful when that's not the case). Include ^https in the list to prevent Web Adjuster from fetching HTTPS pages for adjustment and return over normal HTTP. This access is enabled by default now that many sites use HTTPS for public pages that don't really need to be secure, just to get better placement on some search engines, but if sending confidential information to the site then beware you are trusting the Web Adjuster machine and your connection to it, plus its certificate verification might not be as thorough as your browser's.")
@@ -137,7 +139,7 @@ define("headAppendRuby",default=False,help="Convenience option which adds CSS an
 define("bodyAppend",help="Code to append to the BODY section of every HTML document that has one. Use for example to add a script that needs to be run after the rest of the body has been read, or to add a footer explaining how the page has been modified. See also prominentNotice.") # TODO: note that it will go at the bottom of IFRAMEs also, and suggest using something similar to prominentNotice's iframe-detection code?
 define("bodyAppendGoesAfter",help="If this is set to a regular expression matching some text or HTML code that appears verbatim in the body section, the code in bodyAppend will be inserted after the last instance of this regular expression (case sensitive) instead of at the end of the body. Use for example if a site styles its pages such that the end of the body is not a legible place for a footer.") # (e.g. it would overprint some position=fixed stuff)
 define("bodyPrepend",help="Code to place at the start of the BODY section of every HTML document that has one.") # May be a useful place to put some scripts. For example, a script that changes a low-vision stylesheet according to screen size might be better in the BODY than in the HEAD, because some Webkit-based browsers do not make screen size available when processing the HEAD of the starting page. # but sometimes it still goes wrong on Chromium startup; probably a race condition; might be worth re-running the script at end of page load just to make sure
-define("prominentNotice",help="Text to add as a brief prominent notice to processed sites (may include HTML). If the browser has sufficient Javascript support, this will float relative to the browser window and will contain an 'acknowledge' button to hide it (for the current site in the current browsing session). Use prominentNotice if you need to add important information about how the page has been modified. Note: if you include Javascript document.write() code in prominentNotice, check that document.readyState is not 'complete' or you might find the document is erased on some website/browser combinations when a site script somehow causes your script to be re-run after the document stream is closed. In some rare cases you might also need to verify that document.cookie does not contain _WA_warnOK=1") # e.g. if the site does funny things with the browser cache.  Rewriting the innerHTML manipulation to appendChild doesn't fix the need to check document.readyState
+define("prominentNotice",help="Text to add as a prominent notice to processed sites (may include HTML). If the browser has sufficient Javascript support, this will float relative to the browser window and will contain an 'acknowledge' button to hide it (for the current site in the current browsing session). Use prominentNotice if you need to add important information about how the page has been modified. If you set prominentNotice to the special value \"htmlFilter\", then the output of the htmlFilter option (if any) will be placed as a prominent notice; this can be used if you want to provide extra information or links derived from the content of the page. Note: if you include Javascript document.write() code in prominentNotice, check that document.readyState is not 'complete' or you might find the document is erased on some website/browser combinations when a site script somehow causes your script to be re-run after the document stream is closed. In some rare cases you might also need to verify that document.cookie does not contain _WA_warnOK=1") # e.g. if the site does funny things with the browser cache.  Rewriting the innerHTML manipulation to appendChild doesn't fix the need to check document.readyState
 define("staticDocs",help="url#path of static documents to add to every website, e.g. /_myStatic/#/var/www (make sure the first part is something not likely to be used by the websites you visit). This can be used to supply extra Javascript (e.g. for bodyPrepend to load) if it needs to be served from the same domain. Note: staticDocs currently overrides the password and own_server options.")
 define("delete",multiple=True,help="Comma-separated list of regular expressions to delete from HTML documents. Can be used to delete selected items of Javascript and other code if it is causing trouble for your browser. Will also delete from the text of pages; use with caution.")
 define("delete_css",multiple=True,help="Comma-separated list of regular expressions to delete from CSS documents (but not inline CSS in HTML); can be used to remove, for example, dimension limits that conflict with annotations you add, as an alternative to inserting CSS overrides.  In rare cases you might want to replace the deleted regexp with another, in which case you can use @@ to separate the two, and a second @@ can be used to specify a string in the CSS URL that must be present for the operation to take effect (this could be combined with a codeChanges to add query parameters to the URL if you want the change to occur only when the CSS is loaded from specific HTML pages).")
@@ -153,7 +155,7 @@ define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted we
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page, to place the suggested subject and/or body into a draft SMS message instead of an email.")
 
 heading("External processing options")
-define("htmlFilter",help="External program(s) to run to filter every HTML document. If more than one program is specified separated by # then the user will be given a choice (see htmlFilterName option). Any shell command can be used; its standard input will get the HTML (or the plain text if htmlText is set), and it should send the new version to standard output. Multiple copies of each program might be run at the same time to serve concurrent requests. UTF-8 character encoding is used. If you are not able to run external programs then you could use a back-end server (specify an http:// or https:// URL and input is POSTed in the request body; if this back-end server is another Web Adjuster with submitPath and submitBookmarklet set then give its submitPath plus uA for its 1st filter, uB for its 2nd, etc), or use a Python function (specify * followed by the function name, and inject the function into the adjuster module from a wrapper script; the function is run in the serving thread).") # (so try to make it fast, although this is not quite so essential in WSGI mode; if you're in WSGI mode then I suggest getting the function to import any large required modules on-demand)
+define("htmlFilter",help="External program(s) to run to filter every HTML document. If more than one program is specified separated by # then the user will be given a choice (see htmlFilterName option). Any shell command can be used; its standard input will get the HTML (or the plain text if htmlText is set), and it should send the new version to standard output. Multiple copies of each program might be run at the same time to serve concurrent requests. UTF-8 character encoding is used. If you are not able to run external programs then you could use a back-end server (specify an http:// or https:// URL and input is POSTed in the request body; if this back-end server is another Web Adjuster with submitPath and submitBookmarklet set then give its submitPath plus uA for its 1st filter, uB for its 2nd, etc), or use a Python function: specify * followed by the function name, and inject the function into the adjuster module from a wrapper script (which imports adjuster, sets adjuster.options.htmlFilter etc, injects the function and calls adjuster.main). The function is run in the serving thread.") # (so try to make it fast, although this is not quite so essential in WSGI mode; if you're in WSGI mode then I suggest getting the function to import any large required modules on-demand)
 define("htmlFilterName",help="A name for the task performed by htmlFilter. If this is set, the user will be able to switch it on and off from the browser via a cookie and some Javascript links at the bottom of HTML pages. If htmlFilter lists two or more options, htmlFilterName should list the same number plus one (again separated by #); the first is the name of the entire category (for example \"filters\"), and the user can choose between any one of them or none at all (hence the number of options is one more than the number of filters); if this yields more than 3 options then all but the first two are hidden behind a \"More\" option on some browsers.") # TODO: non-Javascript fallback for the switcher
 define("htmlJson",default=False,help="Try to detect HTML strings in JSON responses and feed them to htmlFilter. This can help when using htmlFilter with some AJAX-driven sites. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple HTML strings in the same JSON response will be given to it separated by newlines, and the newlines of the output determine which fragment to put back where. (If you combine htmlJson with htmlText, the external program will see text in HTML in JSON as well as text in HTML, but it won't see text in HTML in JSON in HTML.)")
 define("htmlText",default=False,help="Causes the HTML to be parsed, and only the text parts (not the markup) will be sent to htmlFilter. Useful to save doing HTML parsing in the external program. The external program is still allowed to include HTML markup in its output. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple text strings will be given to it separated by newlines, and the newlines of the output determine which modified string to put back where.")
@@ -161,7 +163,7 @@ define("separator",help="If you are using htmlFilter with htmlJson and/or htmlTe
 define("leaveTags",multiple=True,default="script,style,title,textarea,option",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names whose enclosed text should NOT be sent to the external program for modification. For this to work, the website must properly close these tags and must not nest them. (This list is also used for character-set rendering.)") # not including 'option' can break pages that need character-set rendering
 define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names which should be deleted if they occur in any section of running text. For example, \"wbr\" (word-break opportunity) tags (listed by default) might cause problems with phrase-based annotators.") # TODO: <span class="whatever">&nbsp;</span> (c.f. annogen's JS) ?  have already added to the bookmarklet JS (undocumented! see 'awkwardSpan') but not to the proxy version (the two find_text_in_HTML functions)
 
-define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.") # (see comments in serve_submitPage; "with htmlFilter" TODO do we add "(or --render)" to this? but charset submit not entirely tested with all old browsers)
+define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.") # (see comments in serve_submitPage; "with htmlFilter" TODO: do we add "(or --render)" to this? but charset submit not entirely tested with all old browsers; TODO: consider use of chardet.detect(buf) in python-chardet)
 define("submitPrompt",default="Type or paste in some text to adjust",help="What to say before the form allowing users to enter their own text when submitPath is set (compare boxPrompt)")
 define("submitBookmarklet",default=True,help="If submitPath and htmlFilter is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly. The bookmarklets should work on modern desktop browsers and on iOS and Android; they should cope with frames and with Javascript-driven changes to a page, and on some browsers an option is provided to additionally place the page into a frameset so that links to other pages on the same site can be followed without explicitly reactivating the bookmarklet (but this does have disadvantages - page must be reloaded + URL display gets 'stuck' - so it's left to the user to choose).") # (and if the other pages check their top.location, things could break there as well)
 define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",help="A Javascript expression that evaluates true if a DOM text node 'c' should be processed by the 'bookmarklet' Javascript when submitPath and submitBookmarklet are set. To process ALL text, set this option to c.nodeValue.length, but if your htmlFilter will not change certain kinds of text then you can make the Javascript run more efficiently by not processing these (quote the expression carefully). The default setting will not process text that is all ASCII.") # + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8. (Previously said "To process ALL text, simply set this option to 'true'", but that can have odd effects on some sites' empty nodes. Saying c.nodeValue.length for now; c.nodeValue.match(/[^\s]/) might be better but needs more quoting explanation. Could change bookmarkletMainScript so it alters the DOM only if replacements[i] != oldTexts[i], c.f. annogen's android code, but that would mean future passes would re-send all the unchanged nodes cluttering the XMLHttpRequests especially if they fill a chunk - annogen version has the advantage of immediate local processing)
@@ -172,14 +174,15 @@ heading("Javascript execution options")
 define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  If you have multiple users, beware logins etc may be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
 define("PhantomJS_instances",default=1,help="The number of virtual browsers to load when PhantomJS is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
 define("PhantomJS_429",default=True,help="Return HTTP error 429 (too many requests) if PhantomJS queue is too long") # RFC 6585, April 2012 ('too long' = 'longer than 2*PhantomJS_instances', but in the case of --PhantomJS_reproxy this is inspected before the prefetch: once we decide to prefetch a page, we'll queue it no matter what (unless the client goes away or the prefetch fails), so the queue can get longer than 2*PhantomJS_instances if more items are in prefetch)
-define("PhantomJS_restartAfter",default=10,help="When PhantomJS is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1") # regression from 2.0.1 ?
-define("PhantomJS_reproxy",default=True,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster on a different port. This allows PhantomJS to be used for POST forms, fixes its Referer headers, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a PhantomJS instance if the remote server is down.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with PhantomJS) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
+define("PhantomJS_restartAfter",default=10,help="When PhantomJS is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --PhantomJS-instances (and hardware to match) you could also try --PhantomJS-restartAfter=1 (restart after every request) to work around runaway or unresponsive PhantomJS processes.") # (although that would preclude a faster response when a PhantomJS instance is already loaded with the page requested, although TODO faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load); RAM usage is a regression from 2.0.1 ?
+define("PhantomJS_restartMins",default=10,help="Restart an idle PhantomJS instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --PhantomJS-restartAfter=1.") # Setting it low does have the disadvantage of not being able to use an already-loaded page, see above
+define("PhantomJS_reproxy",default=True,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster on a different port. This allows PhantomJS to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a PhantomJS instance if the remote server is down.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with PhantomJS) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS_reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
 define("PhantomJS_jslinks",default=True,help="When PhantomJS is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
 define("PhantomJS_multiprocess",default=True,help="When PhantomJS is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available. This might be more robust.")
-define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only). This can make better use of multi-core CPUs and stops the main event loop from being stalled by buggy SSL libraries (at the expense of more RAM).")
+define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only). This can make better use of multi-core CPUs and stops the main event loop from being stalled by buggy SSL libraries, at the expense of more RAM.")
 
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
@@ -298,6 +301,8 @@ define("skipLinkCheck",multiple=True,help="Comma-separated list of regular expre
 define("extensions",help="Name of a custom Python module to load to handle certain requests; this might be more efficient than setting up a separate Tornado-based server. The module's handle() function will be called with the URL and RequestHandler instance as arguments, and should return True if it processed the request, but anyway it should return as fast as possible. This module does NOT take priority over forwarding the request to fasterServer.")
 
 define("loadBalancer",default=False,help="Set this to True if you have a default_site set and you are behind any kind of \"load balancer\" that works by issuing a GET / with no browser string. This option will detect such requests and avoid passing them to the remote site.")
+define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)") # ; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server).  linux/net/core/sock_reuseport.c reuseport_select_sock uses either a Berkeley Packet Filter or a random hash from inet_ehashfn to choose which core gets an incoming connection.
+define("compress_responses",default=True,help="Use gzip to compress responses for clients that indicate they are compatible with it. You may want to turn this off if your server's CPU is more important than your network bandwidth (e.g. browser on same machine).")
 
 # THIS MUST BE THE LAST SECTION because it continues into
 # the note below about Tornado logging options.  (The order
@@ -305,7 +310,7 @@ define("loadBalancer",default=False,help="Set this to True if you have a default
 # sorted alphabetically by Tornado.)
 heading("Logging options")
 define("profile",default=0,help="Log timing statistics every N seconds (only when not idle)")
-define("profile_lines",default=5,help="Number of lines to log when profile option is in use")
+define("profile_lines",default=5,help="Number of lines to log when profile option is in use (not applicable if using --multicore)")
 define("renderLog",default=False,help="Whether or not to log requests for character-set renderer images. Note that this can generate a LOT of log entries on some pages.")
 define("logUnsupported",default=False,help="Whether or not to log attempts at requests using unsupported HTTP methods. Note that this can sometimes generate nearly as many log entries as renderLog if some browser (or malware) tries to do WebDAV PROPFIND requests on each of the images.")
 define("logRedirectFiles",default=True,help="Whether or not to log requests that result in the browser being simply redirected to the original site when the redirectFiles option is on.") # (Since this still results in a HEAD request being sent to the remote site, this option defaults to True in case you need it to diagnose "fair use of remote site" problems)
@@ -321,7 +326,9 @@ if not tornado:
     print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <tt>python adjuster.py --help</tt> to see a full list of the ones available on your setup. They typically include <tt>log_file_max_size</tt>, <tt>log_file_num_backups</tt>, <tt>log_file_prefix</tt> and <tt>log_to_stderr</tt>." # and --logging=debug but that may generate a lot of entries from curl_httpclient
     raise SystemExit
 
-import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,json,base64,htmlentitydefs,signal,traceback
+import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,base64,htmlentitydefs,signal,traceback
+try: import simplejson as json # Python 2.5, and faster?
+except: import json # Python 2.6
 from HTMLParser import HTMLParser,HTMLParseError
 
 try: # can we page the help text?
@@ -435,6 +442,8 @@ def errExit(msg):
         # in case run from crontab w/out output (and e.g. PATH not set properly)
         # (but don't do this if not options.background, as log_to_stderr is likely True and it'll be more cluttered than the simple sys.stderr.write below)
     except: pass # options or logging not configured yet
+    try: CrossProcessLogging.shutdown()
+    except: pass
     sys.stderr.write(msg+"\n")
     sys.exit(1)
 
@@ -477,13 +486,58 @@ def readOptions():
         configsDone.add((config,oldDir))
     parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files)
 
-def preprocessOptions():
-    if options.ssl_fork and options.log_file_prefix:
+class CrossProcessLogging(logging.Handler):
+    def needed(self): return (options.multicore or options.ssl_fork or (options.PhantomJS and options.PhantomJS_multiprocess)) and options.log_file_prefix # (not needed if stderr-only or if won't fork)
+    def init(self):
+        self.multiprocessing = False
+        if not self.needed(): return
         try: logging.getLogger().handlers
-        except: errExit("The logging module on this system is not suitable for --log-file-prefix with --ssl-fork") # because we won't know how to clear its handlers and start again in the child processes
-    if not options.background:
-        global fork_before_listen
-        fork_before_listen = False
+        except: errExit("The logging module on this system is not suitable for --log-file-prefix with --ssl-fork or --PhantomJS-multiprocess") # because we won't know how to clear its handlers and start again in the child processes
+        try: import multiprocessing
+        except ImportError: multiprocessing = None
+        self.multiprocessing = multiprocessing
+        if not self.multiprocessing: return
+        self.loggingQ=multiprocessing.Queue()
+        def logListener():
+          try:
+            while True: logging.getLogger().handle(self.loggingQ.get())
+          except KeyboardInterrupt: pass
+        self.p = multiprocessing.Process(target=logListener) ; self.p.start()
+        logging.getLogger().handlers = [] # clear what Tornado has already put in place when it read the configuration
+        logging.getLogger().addHandler(self)
+    def initChild_multiproc(self):
+        if self.multiprocessing:
+            try: self.multiprocessing.process.current_process()._children.clear() # so it doesn't try to join() to children it doesn't have (multiprocessing wasn't really designed for the parent to fork() outside of multiprocessing later on)
+            except: pass # probably wrong version
+    def initChild(self,toAppend=""):
+        if not options.log_file_prefix: return # stderr is OK
+        self.initChild_multiproc()
+        if self.multiprocessing: return # will be OK
+        logging.getLogger().handlers = [] # clear Tornado's
+        if toAppend: options.log_file_prefix += "-"+toAppend
+        else: options.log_file_prefix += "-"+str(os.getpid())
+        # and get Tornado to (re-)initialise logging with these parameters:
+        if hasattr(tornado.options,"enable_pretty_logging"): tornado.options.enable_pretty_logging() # Tornado 2
+        else: # Tornado 4
+            import tornado.log
+            tornado.log.enable_pretty_logging()
+    def shutdown(self):
+        try: self.p.terminate() # in case KeyboardInterrupt hasn't already stopped it
+        except: pass
+    def emit(self, record): # simplified from Python 3.2:
+        try:
+            ei = record.exc_info
+            if ei:
+                dummy = self.format(record) # record.exc_text
+                record.exc_info = None
+            self.loggingQ.put(record)
+        except (KeyboardInterrupt, SystemExit): raise
+        except: self.handleError(record)
+
+def preprocessOptions():
+    global CrossProcessLogging
+    CrossProcessLogging = CrossProcessLogging()
+    CrossProcessLogging.init()
     if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
     if options.restart and options.watchdog and options.watchdogDevice=="/dev/watchdog" and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
     if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
@@ -519,8 +573,22 @@ def preprocessOptions():
     global upstream_proxy_host, upstream_proxy_port
     upstream_proxy_host = upstream_proxy_port = None
     global upstream_rewrite_ssl ; upstream_rewrite_ssl=False
+    global cores ; cores = 1
+    if options.multicore:
+        if not 'linux' in sys.platform: errExit("multicore option not supported on this platform") # it does work on BSD/Mac, but some incoming connections get 'lost' so it's not a good idea
+        import tornado.process
+        cores = tornado.process.cpu_count()
+        if cores==1: options.multicore = False
+        elif options.PhantomJS and options.PhantomJS_instances % cores:
+            old = options.PhantomJS_instances
+            options.PhantomJS_instances += (cores - (options.PhantomJS_instances % cores))
+            sys.stderr.write("multicore: changing PhantomJS_instances %d -> %d (%d per core x %d cores)\n" % (old,options.PhantomJS_instances,options.PhantomJS_instances/cores,cores))
+    global PhantomJS_per_core
+    PhantomJS_per_core = options.PhantomJS_instances/cores
     if options.upstream_proxy:
-        setupCurl("upstream_proxy requires pycurl (try sudo pip install pycurl)")
+        maxCurls = 30*PhantomJS_per_core
+        if options.ssl_fork: maxCurls /= 2
+        setupCurl(maxCurls,"upstream_proxy requires pycurl (try sudo pip install pycurl)")
         if not ':' in options.upstream_proxy: options.upstream_proxy += ":80"
         upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':') # TODO: IPv6 ?
         if not upstream_proxy_host:
@@ -528,7 +596,7 @@ def preprocessOptions():
             if wsgi_mode: sys.stderr.write("Can't do SSL-rewrite for upstream proxy when in WSGI mode\n")
             else: upstream_rewrite_ssl = True
         upstream_proxy_port = int(upstream_proxy_port)
-    else: setupCurl() # and no error if not there
+    else: setupCurl(3*PhantomJS_per_core) # and no error if not there
     global codeChanges ; codeChanges = []
     if options.codeChanges:
       ccLines = [x for x in [x.strip() for x in options.codeChanges.split("\n")] if x and not x.startswith("#")]
@@ -574,6 +642,9 @@ def preprocessOptions():
     submitPathForTest = options.submitPath
     if submitPathForTest and submitPathForTest[-1]=="?": submitPathForTest = submitPathForTest[:-1] # for CGI mode: putting the ? in tells adjuster to ADD a ? before any parameters, but does not require it to be there for the base submit URL (but don't do this if not submitPathForTest because it might not be a string)
     if options.submitPath and not options.htmlText: errExit("submitPath only really makes sense if htmlText is set (or do you want users to submit actual HTML?)") # TODO: allow this? also with submitBookmarklet ??
+    if options.prominentNotice=="htmlFilter":
+        if not options.htmlFilter: errExit("prominentNotice=\"htmlFilter\" requires htmlFilter to be set")
+        if options.htmlJson or options.htmlText: errExit("prominentNotice=\"htmlFilter\" does not work with the htmlJson or htmlText options")
     if not (options.submitPath and options.htmlFilter): options.submitBookmarklet = False # TODO: bookmarklet for character rendering? (as an additional bookmarklet if there are filters as well, and update submitBookmarklet help text) although it's rare to find a machine that lacks fonts but has a bookmarklet-capable browser
     if options.submitBookmarklet and '_IHQ_' in options.submitPath: errExit("For implementation reasons, you cannot have the string _IHQ_ in submitPath when submitBookmarklet is on.") # Sorry.  See TODO in 'def bookmarklet'
     global upstreamGuard, cRecogniseAny, cRecognise1
@@ -635,34 +706,52 @@ def open_profile():
         setProfile() ; profileIdle = False
         global reqsInFlight,origReqInFlight
         reqsInFlight = set() ; origReqInFlight = set()
+def open_profile_pjsOnly(): # TODO: combine with above
+    if options.profile:
+        global profileIdle,psutil
+        try: import psutil
+        except ImportError: psutil = None
+        setProfile_pjsOnly() ; profileIdle = False
+        global reqsInFlight,origReqInFlight
+        reqsInFlight = set() ; origReqInFlight = set()
 def setProfile():
     global theProfiler, profileIdle
     theProfiler = cProfile.Profile()
     IOLoop.instance().add_timeout(time.time()+options.profile,lambda *args:pollProfile())
     profileIdle = True ; theProfiler.enable()
+def setProfile_pjsOnly():
+    IOLoop.instance().add_timeout(time.time()+options.profile,lambda *args:pollProfile_pjsOnly())
+    global profileIdle ; profileIdle = True
 def pollProfile():
     theProfiler.disable()
     if not profileIdle: showProfile()
     setProfile()
-def showProfile():
-    s = cStringIO.StringIO()
-    pstats.Stats(theProfiler,stream=s).sort_stats('cumulative').print_stats()
-    pr = "\n".join([x for x in s.getvalue().split("\n") if x and not "Ordered by" in x][:options.profile_lines])
+def pollProfile_pjsOnly():
+    if not profileIdle: showProfile(pjsOnly=True)
+    setProfile_pjsOnly()
+def showProfile(pjsOnly=False):
+    if pjsOnly: pr = ""
+    else:
+        s = cStringIO.StringIO()
+        pstats.Stats(theProfiler,stream=s).sort_stats('cumulative').print_stats()
+        pr = "\n".join([x for x in s.getvalue().split("\n") if x and not "Ordered by" in x][:options.profile_lines])
     if options.PhantomJS and len(webdriver_runner):
         global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
-        stillUsed = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running)
-        maybeStuck = sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].maybe_stuck)
-        for i in xrange(options.PhantomJS_instances): webdriver_runner[i].maybe_stuck = webdriver_runner[i].thread_running
+        stillUsed = sum(1 for i in webdriver_runner if i.thread_running)
+        maybeStuck = sum(1 for i in webdriver_runner if i.maybe_stuck)
+        for i in webdriver_runner: i.maybe_stuck = i.thread_running
         webdriver_maxBusy = max(webdriver_maxBusy,stillUsed)
         if pr: pr += "\n"
         elif not options.background: pr += ": "
-        if not webdriver_maxBusy: pr += "PhantomJS idle"
+        if options.multicore: offset = "PhantomJS(%d-%d)" % (webdriver_runner[0].start,webdriver_runner[0].start+PhantomJS_per_core-1)
+        else: offset = "PhantomJS"
+        if not webdriver_maxBusy: pr += offset+" idle"
         else:
             if webdriver_oops: served = "%d successes + %d failures = %d served" % (webdriver_mu-webdriver_oops,webdriver_oops,webdriver_mu)
             else: served = "%d served" % webdriver_mu
             if maybeStuck: stuck = "%d may be" % maybeStuck
             else: stuck = "none"
-            pr += "PhantomJS %d/%d used (%d still in use, %s stuck); queue %d (%d arrived, %s)" % (webdriver_maxBusy,options.PhantomJS_instances,stillUsed,stuck,len(webdriver_queue),webdriver_lambda,served)
+            pr += offset+" %d/%d used (%d still in use, %s stuck); queue %d (%d arrived, %s)" % (webdriver_maxBusy,len(webdriver_runner),stillUsed,stuck,len(webdriver_queue),webdriver_lambda,served)
         webdriver_lambda = webdriver_mu = 0
         webdriver_oops = 0
         webdriver_maxBusy = stillUsed
@@ -672,7 +761,7 @@ def showProfile():
     elif not options.background: pr += ": "
     pr += "%d requests in flight (%d from clients)" % (len(reqsInFlight),len(origReqInFlight))
     if options.background: logging.info(pr)
-    elif istty() and "xterm" in os.environ.get("TERM",""): sys.stderr.write("\033[35m"+(time.strftime("%X")+pr).replace("\n","\n\033[35m")+"\033[0m\n")
+    elif can_do_ansi_colour: sys.stderr.write("\033[35m"+(time.strftime("%X")+pr).replace("\n","\n\033[35m")+"\033[0m\n")
     else: sys.stderr.write(time.strftime("%X")+pr+"\n")
 
 def setProcName(name="adjuster"):
@@ -692,19 +781,6 @@ def setProcName(name="adjuster"):
         ctypes.cdll.LoadLibrary('libc.so.6').prctl(15,ctypes.byref(b),0,0,0)
     except: pass # oh well
 
-def setLogPrefix(toAppend=None):
-    if not options.log_file_prefix: return # stderr is OK
-    if not toAppend: toAppend=str(os.getpid())
-    logging.getLogger().handlers = [] # preprocessOptions checks we can do this
-    options.log_file_prefix += "-"+toAppend
-    global tornado # needed for the 'import tornado.log'
-    if hasattr(tornado.options,"enable_pretty_logging"):
-        # Tornado 2
-        tornado.options.enable_pretty_logging()
-    else: # Tornado 4
-        import tornado.log
-        tornado.log.enable_pretty_logging()
-
 def serverControl():
     if options.install:
         current_crontab = commands.getoutput("crontab -l 2>/dev/null")
@@ -721,6 +797,8 @@ def serverControl():
         pidFound = stopOther()
         if options.stop:
             if not pidFound: sys.stderr.write("Could not find which PID to stop (maybe nothing was running?)\n")
+            try: CrossProcessLogging.shutdown()
+            except: pass
             sys.exit(0)
 
 def make_WSGI_application():
@@ -749,7 +827,8 @@ sslfork_monitor_pid = None
 def sslSetup(callback1, port2):
     if options.ssl_fork: # queue it to be started by monitor
         callback2 = lambda *_:listen_on_port(Application([(r"(.*)",AliveResponder,{})],log_function=nullLog),port2,"127.0.0.1",False) # the "I'm still alive" responder is non-SSL
-        sslforks_to_monitor.append([None,callback1,callback2,port2,None])
+        if options.multicore and sslforks_to_monitor: sslforks_to_monitor[0][1] = lambda c1=callback1,c2=sslforks_to_monitor[0][1]:(c1(),c2()) # in multicore mode we'll have {N cores} * {single process handling all SSL ports}, rather than cores * processes (TODO: if one gets stuck but others on the port can still handle requests, do we want to somehow detect the individual stuck one and restart it to reduce wasted CPU load?)
+        else: sslforks_to_monitor.append([None,callback1,callback2,port2,None])
     else: callback1() # just run it on the current process
 sslFork_pingInterval = 1 # TODO: configurable?  (ping every interval, restart if down for 2*interval)  (if setting this larger, might want to track the helper threads for early termination)
 def maybe_sslfork_monitor():
@@ -766,8 +845,9 @@ def maybe_sslfork_monitor():
     try: os.setpgrp() # for stop_threads0 later
     except: pass
     signal.signal(signal.SIGTERM, terminateSslForks)
+    signal.signal(signal.SIGINT, terminateSslForks)
     setProcName("adjusterSSLmon") # 15 chars is max for some "top" implementations
-    setLogPrefix("SSL") # not SSLmon because helper IDs will be appended to it also
+    CrossProcessLogging.initChild("SSL") # not SSLmon because helper IDs will be appended to it also
     for i in xrange(len(sslforks_to_monitor)):
       if i==len(sslforks_to_monitor)-1: pid = 0 # don't bother to fork for the last one
       else: pid = os.fork()
@@ -794,8 +874,9 @@ def restart_sslfork(n,oldN):
     if not sslforks_to_monitor[n][0]==None: # not first time
         logging.error("Restarting SSL helper %d (old pid %d; not heard from it for %d seconds)" % (oldN,sslforks_to_monitor[n][0],time.time()-sslforks_to_monitor[n][4]))
         try: os.kill(sslforks_to_monitor[n][0],9)
-        except: logging.info("Unable to kill pid %d (already gone?)" % sslforks_to_monitor[n][0])
-        os.waitpid(sslforks_to_monitor[n][0], os.WNOHANG) # clear it from the process table
+        except OSError: logging.info("Unable to kill pid %d (already gone?)" % sslforks_to_monitor[n][0])
+        try: os.waitpid(sslforks_to_monitor[n][0], os.WNOHANG) # clear it from the process table
+        except OSError: pass
     # TODO: if profile_forks_too, do things with profile?
     pid = os.fork()
     if pid:
@@ -803,7 +884,7 @@ def restart_sslfork(n,oldN):
         sslforks_to_monitor[n][4] = None
     else: # child
         setProcName("adjusterSSLhelp")
-        setLogPrefix(str(n)) # TODO: or port number?
+        CrossProcessLogging.initChild(str(n)) # TODO: or port number?
         sslforks_to_monitor[n][1]() # main listener
         sslforks_to_monitor[n][2]() # 'still alive' listener
         sslforks_to_monitor = [] # nothing for us to check
@@ -812,10 +893,11 @@ def terminateSslForks(*args):
     "sslfork_monitor's SIGTERM handler"
     global sslforks_to_monitor
     for p,_,_,_,_ in sslforks_to_monitor:
+        if p==None: continue
         try: os.kill(p,signal.SIGTERM)
-        except: pass # somebody might have 'killall'd them
+        except OSError: pass # somebody might have 'killall'd them
         try: os.waitpid(p, os.WNOHANG)
-        except: pass
+        except OSError: pass
     stop_threads0()
 
 def open_extra_ports():
@@ -827,34 +909,35 @@ def open_extra_ports():
     # All calls to sslSetup and maybe_sslfork_monitor must be made before ANY other calls to listen_on_port (as we don't yet want there to be an IOLoop instance when maybe_sslfork_monitor is called)
     if options.real_proxy:
         # create a modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port
-        sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=True),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1)
+        sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=False),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1) # gzip=False because little point if we know the final client is on localhost
         nextPort += 1
         if options.ssl_fork: nextPort += 1
     nextPort_jsProxy = nextPort
     if options.PhantomJS_reproxy:
         # ditto for PhantomJS (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us)
         for i in xrange(options.PhantomJS_instances):
-            # to be done later: listen_on_port(Application([(r"(.*)",PjsRequestForwarder(i,nextPort),{})],log_function=nullLog,gzip=True),nextPort,"127.0.0.1",False)
-            sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(i,port+1),{})],log_function=nullLog,gzip=True),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2)
+            # PjsRequestForwarder to be done later
+            sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(i,port+1),{})],log_function=nullLog,gzip=False),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2)
             nextPort += 2
             if options.ssl_fork: nextPort += 1
     if upstream_rewrite_ssl:
         # This one does NOT listen on SSL: it listens on unencrypted HTTP and rewrites .0 into outgoing SSL.  But we can still run it in a different process if ssl_fork is enabled, and this will save encountering the curl_max_clients issue as well as possibly offloading *client*-side SSL to a different CPU core (TODO: could also use Tornado's multiprocessing to multi-core the client-side SSL)
-        sslSetup(lambda port=upstream_proxy_port+1:listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=True),port,"127.0.0.1",False),upstream_proxy_port+2) # TODO: document upstream_proxy_port+2 needs to be reserved if options.ssl_fork and not options.upstream_proxy_host
+        sslSetup(lambda port=upstream_proxy_port+1:listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=False),port,"127.0.0.1",False),upstream_proxy_port+2) # TODO: document upstream_proxy_port+2 needs to be reserved if options.ssl_fork and not options.upstream_proxy_host
     r = maybe_sslfork_monitor()
     if r: return r
     # NOW we can start non-sslSetup listen_on_port:
     if options.PhantomJS_reproxy:
         nextPort = nextPort_jsProxy
-        for i in xrange(options.PhantomJS_instances):
-            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(i,nextPort),{})],log_function=nullLog,gzip=True),nextPort,"127.0.0.1",False)
+        for c in xrange(cores):
+          for i in xrange(PhantomJS_per_core):
+            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(c*PhantomJS_per_core,i,nextPort),{})],log_function=nullLog,gzip=False),nextPort,"127.0.0.1",False,core=c)
             nextPort += 2
             if options.ssl_fork: nextPort += 1
 
 def makeMainApplication():
     handlers = [(r"(.*)",NormalRequestForwarder(),{})]
     if options.staticDocs: handlers.insert(0,static_handler())
-    application = Application(handlers,log_function=accessLog,gzip=True)
+    application = Application(handlers,log_function=accessLog,gzip=options.compress_responses)
     if not hasattr(application,"listen"): errExit("Your version of Tornado is too old.  Please install at least version 2.x.")
     return application
 
@@ -866,46 +949,96 @@ def phantomJS_proxy_port(index):
     if options.ssl_fork: return nextPort + 3*index # each has upstream, SSL helper, and SSL alive responder
     else: return nextPort + 2*index # no SSL alive responder
 
+def start_multicore(isChild=False):
+    "Fork child processes, set coreNo unless isChild; parent waits and exits.  Call to this must come after unixfork if want to run in the background."
+    global coreNo
+    if not options.multicore:
+        if not isChild: coreNo = 0
+        return
+    # Simplified version of Tornado fork_processes with
+    # added setupRunAndBrowser (must have the terminal)
+    children = set()
+    for i in range(cores):
+        pid = os.fork()
+        if not pid:
+            if not isChild: coreNo = i
+            return CrossProcessLogging.initChild()
+        children.add(pid)
+    if not isChild:
+        # Do the equivalent of setupRunAndBrowser() but without the IOLoop.  This can start threads, so must be afster the above fork() calls.
+        if options.browser: runBrowser()
+        if options.run: runRun()
+    # Now wait for the browser or the children to exit
+    # (and monitor for SIGTERM: we might be an SSLhelp)
+    gotTerm = False
+    def handleTerm(*_):
+        global interruptReason, gotTerm
+        interruptReason = "SIGTERM received by multicore helper"
+        for pid in children: os.kill(pid,signal.SIGTERM)
+    signal.signal(signal.SIGTERM,handleTerm)
+    try:
+      while children:
+        try: pid, status = os.wait()
+        except KeyboardInterrupt: raise # see below
+        except: continue # interrupted system call OK
+        if pid in children: children.remove(pid)
+    except KeyboardInterrupt: pass
+    try: reason = interruptReason
+    except: reason = "Keyboard interrupt"
+    if reason and not isChild:
+        reason += ", stopping child processes"
+        if options.background: logging.info(reason)
+        else: sys.stderr.write(reason+"\n")
+    for pid in children: os.kill(pid,signal.SIGTERM)
+    while children:
+        try: pid, status = os.wait()
+        except KeyboardInterrupt: raise
+        except: continue
+        if pid in children: children.remove(pid)
+    if not isChild: announceShutdown0()
+    sys.exit()
+
 def openPortsEtc():
-    application = makeMainApplication() # must be first so it can check for old Tornado
-    if fork_before_listen: banner(),unixfork()
     workaround_raspbian_IPv6_bug()
     workaround_timeWait_problem()
     stopFunc = open_extra_ports()
     if stopFunc: # we're a child process (--ssl-fork)
         dropPrivileges()
-        # If background, can't double-fork (our PID is known)
+        # can't double-fork (our PID is known)
+        start_multicore(True)
         if profile_forks_too: open_profile()
     else: # we're not a child process
       try:
-        if options.port: listen_on_port(application,options.port,options.address,options.browser)
-        openWatchdog() ; dropPrivileges() ; open_upnp()
+        if options.port: listen_on_port(makeMainApplication(),options.port,options.address,options.browser)
+        openWatchdog() ; dropPrivileges()
+        open_upnp() # make sure package avail if needed
         banner()
-        if options.background and not fork_before_listen:
+        if options.background:
             if options.PhantomJS: test_init_webdriver()
             unixfork() # MUST be before init_webdrivers (PhantomJS does NOT work if you start them before forking)
-        open_profile()
-        if options.PhantomJS: init_webdrivers()
-        setupRunAndBrowser() ; watchdog.start()
-        checkServer.setup() ; Dynamic_DNS_updater()
-        stopFunc = lambda *_:stopServer("SIGTERM received")
+        start_multicore()
+        if not options.multicore or profile_forks_too: open_profile()
+        else: open_profile_pjsOnly()
+        if options.PhantomJS: init_webdrivers(coreNo*PhantomJS_per_core,PhantomJS_per_core)
+        if not options.multicore: setupRunAndBrowser()
+        watchdog.start() # ALL cores if multicore (since only one needs to be up for us to be still working) although TODO: do we want this only if not coreNo so as to ensure Dynamic_DNS_updater is still up?
+        checkServer.setup() # (TODO: if we're multicore, can we propagate to other processes ourselves instead of having each core check the fasterServer?  Low priority because how often will a multicore box need a fasterServer)
+        if not coreNo: Dynamic_DNS_updater()
+        if options.multicore: stopFunc = lambda *_:stopServer("SIG*")
+        else: stopFunc = lambda *_:stopServer("SIGTERM received")
       except SystemExit: raise # from the unixfork, OK
       except: # oops, error during startup, stop forks if any
         if not sslfork_monitor_pid == None:
           time.sleep(0.5) # (it may have only just started: give it a chance to install its signal handler)
           try: os.kill(sslfork_monitor_pid,signal.SIGTERM)
-          except: pass
+          except OSError: pass
         raise
     signal.signal(signal.SIGTERM, stopFunc)
     try: os.setpgrp() # for stop_threads0 later
     except: pass
 
 def banner():
-    if teletext():
-        r0 = teletext_program_name()
-        r0 = "\x0c\r\n" + r0 # one of these should hopefully clear the screen or at least start a new line, if the terminal is a BBC Micro or similar, but strictly speaking Teletext should rely on padding lines to 40 characters rather than any newline code working
-    else: r0 = twoline_program_name+"\n"
-    ret = []
+    ret = [twoline_program_name]
     if options.port:
         ret.append("Listening on port %d" % options.port)
         if (options.real_proxy or options.PhantomJS_reproxy or upstream_rewrite_ssl): ret.append("with these helpers (don't connect to them yourself):")
@@ -928,84 +1061,61 @@ def banner():
         ret.append("Writing "+options.watchdogDevice+" every %d seconds" % options.watchdog)
         if options.watchdogWait: ret.append("(abort if unresponsive for %d seconds)" % options.watchdogWait)
     if options.ssl_fork and not options.background: ret.append("To inspect processes, use: pstree "+str(os.getpid()))
-    if fork_before_listen:
-        for i in xrange(len(ret)):
-            ret[i] = ret[i].replace("Listening","Child will listen").replace("Writing","Child will write")
-        ret.append("Can't report errors here as this system needs early fork") # (need some other way of checking it really started)
-    if teletext():
-        for i in xrange(len(ret)):
-            for pad in ["(don't connect","on localhost"]:
-                while len(ret[i]) % 40 and pad in ret[i]: ret[i]=ret[i].replace(pad,"\x83"+pad)
-            while len(ret[i]) % 40:
-                ret[i] += ' '
-                if len(ret[i]) % 40 and "Listening on port" in ret[i]: ret[i] = "\x85" + ret[i]
-        ret = "".join(ret)
-    else: ret = "\n".join(ret)+"\n"
-    global bannerTime ; bannerTime = time.time()
-    sys.stderr.write(r0+ret)
-bannerTime = None
-def announceStart():
-    if bannerTime==None: return # if banner() hasn't been called, we're a silent helper process
-    if options.background:
-        return logging.info("Server starting")
-    if time.time() <= bannerTime+1: return # start should be clear enough
-    # and gets here, not running in background so won't have
-    # "foreground process exitted" clue that we're ready
-    # ("listening" isn't enough if we also took time to
-    # start webdrivers after reserving the ports)
-
-    cols = set_title(aTitle())
-    if cols>60:
-        # we can make it nice and obvious (on a potentially
-        # cluttered log screen) that here is where we START
-        sys.stderr.write("""
-#   "There seemed a strangeness in the air,
-#    Vermilion light on the land's lean face;
-#    I heard a Voice from I knew not where:
-#     'The Great Adjustment is taking place!'" - Thomas Hardy
-""".replace("#","\033[31m")+"\033[0m\n") # (exact vermilion would be \033[38;2;227;66;52m but we don't know the terminal can do that and it might be less likely to fit with the background, so we go for basic 'red')
-    elif teletext(): sys.stderr.write(" "*40+"\x95"+"\xf1"*39+"\x81\"There seemed a strangeness in the air,Vermilion\x81light on the land's lean face; \x81I heard a Voice from I knew not where:'The\x82Great Adjustment\x81is taking place!'\"                      \x81 --- Thomas Hardy\x95"+"\xb3"*39)
-    else: sys.stderr.write("Ready\n")
+    sys.stderr.write("\n".join(ret)+"\n")
+    if not options.background:
+        # set window title for foreground running
+        t = "adjuster"
+        if "SSH_CONNECTION" in os.environ: t += "@"+hostSuffix() # TODO: might want to use socket.getfqdn() to save confusion if several servers are configured with the same host_suffix and/or host_suffix specifies multiple hosts?
+        set_title(t)
+coreNo = "unknown" # want it to be non-False to begin with
 def announceInterrupt():
-    if bannerTime==None: return # as above
+    if coreNo or options.multicore: return # silent helper process (coreNo=="unknown"), or we announce interrupts differently in multicore (see start_multicore)
     if options.background: logging.info("SIGINT received"+find_adjuster_in_traceback())
     else: sys.stderr.write("\nKeyboard interrupt"+find_adjuster_in_traceback()+"\n")
 def announceShutdown():
-    if bannerTime==None: return # as above
+    if coreNo or options.multicore: return # as above
+    announceShutdown0()
+def announceShutdown0():
     if options.background: logging.info("Server shutdown")
     else: sys.stderr.write("Adjuster shutdown\n")
 
 def main():
     setProcName() ; readOptions() ; preprocessOptions()
-    serverControl() ; openPortsEtc() ; announceStart()
-    workaround_tornado_fd_issue()
+    serverControl() ; openPortsEtc()
+    workaround_tornado_fd_issue() ; startServers()
     try: IOLoop.instance().start()
+# "There seemed a strangeness in the air,
+#  Vermilion light on the land's lean face;
+#  I heard a Voice from I knew not where:
+#   'The Great Adjustment is taking place!'" - Thomas Hardy
     except KeyboardInterrupt: announceInterrupt()
     announceShutdown()
     for v in kept_tempfiles.values(): unlink(v)
     if watchdog: watchdog.stop()
     stop_threads() # must be last thing
 
+def plural(number):
+    if number == 1: return ""
+    else: return "s"
 def stop_threads():
     if not sslfork_monitor_pid == None:
         try: os.kill(sslfork_monitor_pid,signal.SIGTERM) # this should cause it to propagate that signal to the monitored PIDs
-        except: pass # somebody might have killall'd it
+        except OSError: pass # somebody might have killall'd it
+    CrossProcessLogging.shutdown()
     if not helper_thread_count: return
-    if helper_thread_count>1: plural = "s"
-    else: plural = ""
-    msg = "Terminating %d helper thread%s" % (helper_thread_count,plural)
+    msg = "Terminating %d helper thread%s" % (helper_thread_count,plural(helper_thread_count))
     # in case someone needs our port quickly.
     # Most likely "runaway" thread is ip_change_command if you did a --restart shortly after the server started.
     # TODO it would be nice if the port can be released at the IOLoop.instance.stop, and make sure os.system doesn't dup any /dev/watchdog handle we might need to release, so that it's not necessary to stop the threads
-    if options.background: logging.info(msg)
-    else: sys.stderr.write(msg+"\n")
+    if not options.background and not coreNo: sys.stderr.write(msg+"\n")
     stop_threads0()
 def stop_threads0():
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     if options.run:
         global exitting ; exitting = True # so not restarted if options.runWait == 0
         try: os.kill(runningPid,signal.SIGTERM)
-        except: pass
+        except NameError: pass # runningPid not set
+        except OSError: pass # already exitted
     os.killpg(os.getpgrp(),signal.SIGTERM)
     os.abort() # if the above didn't work, this should
 
@@ -1017,9 +1127,12 @@ def static_handler():
         def set_extra_headers(self,path): fixServerHeader(self)
     return (url+"(.*)",OurStaticFileHandler,{"path":path,"default_filename":"index.html"})
 
-def listen_on_port(application,port,address,browser,**kwargs):
+theServers = {}
+def listen_on_port(application,port,address,browser,core="all",**kwargs):
+    if not core in theServers: theServers[core] = []
+    theServers[core].append(HTTPServer(application,**kwargs))
     for portTry in [5,4,3,2,1,0]:
-      try: return application.listen(port,address,**kwargs)
+      try: return theServers[core][-1].bind(port,address)
       except socket.error, e:
         if not "already in use" in e.strerror: raise
         # Maybe the previous server is taking a while to stop
@@ -1031,6 +1144,11 @@ def listen_on_port(application,port,address,browser,**kwargs):
             dropPrivileges()
             runBrowser()
         raise Exception("Can't open port "+repr(port)+" (tried for 3 seconds, "+e.strerror+")")
+
+def startServers():
+    for core,sList in theServers.items():
+        if core == "all" or core == coreNo:
+            for s in sList: s.start()
 
 def workaround_raspbian_IPv6_bug():
     """Some versions of Raspbian apparently boot with IPv6 enabled but later don't configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However, if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
@@ -1063,7 +1181,7 @@ def workaround_timeWait_problem():
     tornado.netutil.bind_sockets = newBind
     # but tornado.tcpserver may have already imported it:
     try: import tornado.tcpserver
-    except ImportError: pass # Tornado version too old
+    except ImportError: pass # Tornado version too old (TODO: as above)
     debuglog("Adding reuse_port to tornado.tcpserver.bind_sockets")
     tornado.tcpserver.bind_sockets = newBind
 
@@ -1084,39 +1202,22 @@ def workaround_tornado_fd_issue():
         except: pass
     IOLoop.instance().handle_callback_exception = newCx
 
-def aTitle(): # window title for foreground running
-    t = "adjuster"
-    if "SSH_CONNECTION" in os.environ: t += "@"+hostSuffix() # TODO: might want to use socket.getfqdn() to save confusion if several servers are configured with the same host_suffix and/or host_suffix specifies multiple hosts?
-    return t
 def istty(): return hasattr(sys.stderr,"isatty") and sys.stderr.isatty()
-def teletext(): return os.environ.get("TERM","")=="teletext" # for 'retro' demonstrations (set TERM=teletext and pipe stderr to BeebEm Mode 7); affects only the start
-def teletext_program_name():
-    i = program_name.index("(c)")
-    p1,p2 = program_name[:i].rstrip(),program_name[i:]
-    p1 = "\x84\x9d\x8d\x83"+" "*(int((40-len(p1))/2)-4)+p1
-    while len(p1)<40: p1 += ' ' # use this rather than \n
-    p2 = " "*(39-len(p2))+"\x86"+p2 # no \n
-    p3 = "\x82"+twoline_program_name.split("\n")[1].replace(", Version "," v")
-    while len(p3)<40: p3 += ' '
-    return p1+p1+p2+p3 # p1 is double-height so repeated
-def set_title(t): # and return num screen cols if xterm, or 0
-  if not istty(): return 0
+def set_title(t):
+  if not istty(): return
   term = os.environ.get("TERM","")
   is_xterm = "xterm" in term
   is_screen = (term=="screen" and os.environ.get("STY",""))
   is_tmux = (term=="screen" and os.environ.get("TMUX",""))
   if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
-  else: return 0
-  if not t: return 0
+  else: return
+  if not t: return
   import atexit
   atexit.register(set_title,"")
-  if not is_xterm: return 0
-  try: return int(os.environ['COLUMNS'])
-  except:
-      import struct, fcntl, termios
-      try: return struct.unpack('hh',fcntl.ioctl(sys.stderr,termios.TIOCGWINSZ,'xxxx'))[1]
-      except: return 0
+  global can_do_ansi_colour
+  can_do_ansi_colour = is_xterm or (is_screen and "VT 100/ANSI" in os.environ.get("TERMCAP","")) # used by showProfile (TODO: if profile_forks_too, we'd need to set this earlier than the call to banner / set_title in order to make it available to SSL forks etc, otherwise only the main one has purple profile output. Multicore is already OK (but does only counts per core).)
+can_do_ansi_colour=False
 
 def dropPrivileges():
     if options.user and not os.getuid():
@@ -1127,12 +1228,16 @@ def dropPrivileges():
         os.environ['HOME'] = pwd[5] # (so they don't try to load root's preferences etc)
         os.environ['USER']=os.environ['LOGNAME']=options.user
 
-fork_before_listen = not 'linux' in sys.platform
-
 def unixfork():
-    if os.fork(): sys.exit()
+    if os.fork():
+        try: CrossProcessLogging.initChild_multiproc()
+        except: pass
+        sys.exit()
     os.setsid()
-    if os.fork(): sys.exit()
+    if os.fork():
+        try: CrossProcessLogging.initChild_multiproc()
+        except: pass
+        sys.exit()
     devnull = os.open("/dev/null", os.O_RDWR)
     for fd in range(3): os.dup2(devnull,fd) # commenting out this line will let you see stderr after the fork (TODO debug option?)
     
@@ -1259,7 +1364,7 @@ accessLog = BrowserLogger()
 
 def MyAsyncHTTPClient(): return AsyncHTTPClient()
 def curlFinished(): pass
-def setupCurl(error=None):
+def setupCurl(maxCurls,error=None):
   global pycurl
   try:
     import pycurl # check it's there
@@ -1281,7 +1386,7 @@ def setupCurl(error=None):
         c.setopt = mySetopt
         return c
     pycurl.Curl = _newCurl
-    curl_max_clients = 1000 # TODO: configurable?  PhantomJS_instances*30 after preprocessOptions (and less if options.ssl_fork)?  but at least it's better than the default of 10 (see Tornado issue 2127), and we'll warn about the issue ourselves if we go over:
+    curl_max_clients = min(max(maxCurls,10),1000) # to work around Tornado issue 2127, and we'll warn about the issue ourselves if we go over:
     curl_inUse_clients = 0
     try: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",max_clients=curl_max_clients)
     except: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # will try in MyAsyncHTTPClient too (different versions of Tornado and all that...)
@@ -1294,7 +1399,7 @@ def setupCurl(error=None):
             curl_inUse_clients += 1
             problem = curl_inUse_clients >= curl_max_clients
         if problem:
-            if upstream_rewrite_ssl and not options.ssl_fork: logging.error("curl_max_clients too low; AsyncHTTPClient will queue requests and COULD DEADLOCK due to upstream_rewrite_ssl") # TODO: can we run the upstream_rewrite_ssl in a separate process's ioloop ?
+            if upstream_rewrite_ssl and not options.ssl_fork: logging.error("curl_max_clients too low; AsyncHTTPClient will queue requests and COULD DEADLOCK due to upstream_rewrite_ssl (try --ssl-fork if you can't increase curl_max_clients)")
             else: logging.info("curl_max_clients too low; AsyncHTTPClient will queue requests")
         try: return AsyncHTTPClient(max_clients=curl_max_clients)
         except: return AsyncHTTPClient()
@@ -1309,7 +1414,7 @@ def setupCurl(error=None):
 
 try:
     import zlib
-    enable_gzip = True
+    enable_gzip = True # for fetching remote sites
 except: # Windows?
     enable_gzip = False
     class zlib:
@@ -1414,25 +1519,26 @@ class WebdriverWrapper:
         self.theWebDriver = get_new_webdriver(*args)
     def quit(self,*args):
         if not self.theWebDriver: return
-        pid = None
+        try: pid = self.theWebDriver.service.process.pid
+        except: pid = None # TODO: log?
         try: self.theWebDriver.quit()
-        except: # e.g. sometimes get 'bad fd' in selenium's send_remote_shutdown_command _cookie_temp_file_handle
-            try: pid = self.theWebDriver.service.process.pid
-            except: pass # TODO: log?
+        except: pass # e.g. sometimes get 'bad fd' in selenium's send_remote_shutdown_command _cookie_temp_file_handle
+        # Try zapping the process ourselves anyway (even if theWebDriver.quit DIDN'T return error: seems it's sometimes still left around.  TODO: this could have unexpected consequences if the system's pid-reuse rate is excessively high.)
         self.theWebDriver = None
         if not pid: return
-        # logging.error("Trying harder to kill webdriver")
         try: os.killpg(pid,9)
-        except: pass # maybe it's not a process group
+        except OSError: pass # maybe it's not a process group
         try: import psutil
         except ImportError: pass
         try:
-            for c in psutil.Process(parent_pid).children(recursive=True):
+            for c in psutil.Process(pid).children(recursive=True):
                 try: c.kill(9)
                 except: pass
         except: pass
         try: os.kill(pid,9)
-        except: pass
+        except OSError: pass
+        try: os.waitpid(pid, os.WNOHANG) # clear it from the process table
+        except OSError: pass
     def current_url(self):
         try: return self.theWebDriver.current_url
         except: return "" # PhantomJS Issue #13114: unconditional reload for now
@@ -1443,24 +1549,42 @@ class WebdriverWrapper:
     def click_linkText(self,clickLinkText): self.theWebDriver.find_element_by_link_text(clickLinkText).click()
     def getu8(self): return self.theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8')
     def getpng(self): return self.theWebDriver.get_screenshot_as_png()
+try: from selenium.common.exceptions import TimeoutException
+except: # no Selenium or wrong version
+    class TimeoutException: pass # placeholder
 def webdriverWrapper_receiver(pipe):
     "Command receiver for WebdriverWrapper for when it's running over IPC.  Receives (command,args) and sends (return,exception)."
     setProcName("adjusterWDhelp")
-    w = WebdriverWrapper()
+    CrossProcessLogging.initChild()
+    try: w = WebdriverWrapper()
+    except KeyboardInterrupt: return
+    def raiseTimeout(*args): raise TimeoutException()
+    try: signal.signal(signal.SIGALRM, raiseTimeout)
+    except: pass # SIGALRM may be Unix-only
     while True:
         try: cmd,args = pipe.recv()
         except EOFError: return pipe.close()
         except KeyboardInterrupt: return pipe.close()
-        try: ret,exc = getattr(w,cmd)(*args), None
+        try:
+            try: signal.alarm(100) # as a backup: if Selenium timeout somehow fails, don't let this process get stuck forever (can do this only when PhantomJS_multiprocess or we won't know what thread gets it)
+            except: pass # alarm() is Unix-only
+            ret,exc = getattr(w,cmd)(*args), None
+            try: signal.alarm(0)
+            except: pass # Unix-only
         except Exception, e:
-            ret,exc,p = None,e,find_adjuster_in_traceback()
-            if p:
-                try: exc.args += (p,) # works with things like KeyError
-                except: exc.message += p # works with base Exception
-        pipe.send((ret,exc))
-def webdriverWrapper_send(pipe,cmd,args=()):
+            p = find_adjuster_in_traceback()
+            if p: # see if we can add it to the message:
+                try:
+                    if type(e.args[0])==str: e.args=(repr(e.args[0])+p,) + tuple(e.args[1:]) # should work with things like httplib.BadStatusLine that are fussy about the number of arguments they get
+                    else: e.args += (p,) # works with things like KeyError (although so should the above)
+                except: e.message += p # works with base Exception
+            ret,exc = None,e
+        try: pipe.send((ret,exc))
+        except: pass # if they closed it, we'll get EOFError on next iteration
+def webdriverWrapper_send(pipe,cmd,args=(),isFinal=False):
     "Send a command to a Webdriverwrapper over IPC, and either return its result or raise its exception in this process."
     pipe.send((cmd,args))
+    if isFinal: return pipe.close() # no return code needed
     ret,exc = pipe.recv()
     if exc: raise exc
     else: return ret
@@ -1473,8 +1597,7 @@ class WebdriverWrapperController:
     def send(self,cmd,args=()): return webdriverWrapper_send(self.pipe,cmd,args)
     def new(self,*args): self.send("new",args)
     def quit(self,final=False):
-        self.send("quit")
-        if final: self.pipe.close()
+        webdriverWrapper_send(self.pipe,"quit",(),final)
     def current_url(self): return self.send("current_url")
     def get(self,url): return self.send("get",(url,))
     def execute_script(self,script): self.send("execute_script",(script,))
@@ -1487,16 +1610,20 @@ try: import multiprocessing # Python 2.6
 except: multiprocessing = None
 class WebdriverRunner:
     "Manage a WebdriverWrapperController (or a WebdriverWrapper if we're not using IPC) from a thread of the main process"
-    def __init__(self,index=0):
-        self.index = index
+    def __init__(self,start=0,index=0):
+        self.start,self.index = start,index
         self.thread_running = False
         if options.PhantomJS_multiprocess:
             self.wrapper = WebdriverWrapperController()
         else: self.wrapper = WebdriverWrapper()
         self.renew_webdriver(True)
     def renew_webdriver(self,firstTime=False):
+        "Async if called from main thread; sync if called from our thread (i.e. inside fetch)"
+        if not self.thread_running:
+            self.thread_running = True
+            threading.Thread(target=_renew_wd,args=(self,firstTime)).start() ; return
         self.wrapper.quit()
-        self.wrapper.new(self.index,not firstTime)
+        self.wrapper.new(self.start+self.index,not firstTime)
         self.usageCount = 0 ; self.maybe_stuck = False
     def quit_webdriver(self): self.wrapper.quit(final=True)
     def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback):
@@ -1511,20 +1638,21 @@ class WebdriverRunner:
     def click_linkText(self,clickLinkText): self.wrapper.click_linkText(clickLinkText)
     def getu8(self): return self.wrapper.getu8()
     def getpng(self): return self.wrapper.getpng()
+def _renew_wd(wd,firstTime):
+    wd.renew_webdriver(firstTime)
+    wd.thread_running = False
+    IOLoop.instance().add_callback(webdriver_checkServe)
 def find_adjuster_in_traceback():
+    l = traceback.extract_tb(sys.exc_info()[2]) # must do this BEFORE the following try: (it'll overwrite it even when except: block has finished)
     try: p = sys.exc_info()[1].args[-1]
     except: p = ""
     if "adjuster line" in p: return p # for webdriverWrapper_receiver
-    l = traceback.extract_tb(sys.exc_info()[2])
     for i in xrange(len(l)-1,-1,-1):
         if "adjuster.py" in l[i][0]: return ", adjuster line "+str(l[i][1])
     return ""
 def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,manager):
     global helper_thread_count
     helper_thread_count += 1
-    try: from selenium.common.exceptions import TimeoutException
-    except: # maybe wrong Selenium version
-        class TimeoutException: pass # placeholder
     need_restart = False
     def errHandle(error,extraMsg,prefetched):
         if prefetched: toRet = "non-webdriver page" # TODO: document that this can happen?
@@ -1546,6 +1674,7 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     IOLoop.instance().add_callback(lambda *args:callback(r))
     manager.usageCount += 1
     if need_restart or (options.PhantomJS_restartAfter and manager.usageCount >= options.PhantomJS_restartAfter): manager.renew_webdriver()
+    else: manager.finishTime = time.time()
     manager.thread_running = manager.maybe_stuck = False
     IOLoop.instance().add_callback(webdriver_checkServe)
     helper_thread_count -= 1
@@ -1654,45 +1783,47 @@ def test_init_webdriver():
     sys.stderr.write("Checking webdriver configuration... ")
     get_new_webdriver(0).quit()
     sys.stderr.write("OK\n")
-def init_webdrivers():
-    if not options.background: sys.stderr.write(" "*40)
-    for i in xrange(options.PhantomJS_instances):
-        if not options.background: sys.stderr.write("\rStarting webdrivers... ")
-        webdriver_runner.append(WebdriverRunner(len(webdriver_runner)))
+def init_webdrivers(start,N):
+    informing = not options.background and not start and not (options.multicore and options.ssl_fork) # (if ssl_fork, we don't want the background 'starting N processes' messages to be interleaved with this)
+    if informing:
+        sys.stderr.write("Starting %d webdriver%s... " % (options.PhantomJS_instances,plural(options.PhantomJS_instances)))
+    for i in xrange(N):
+        webdriver_runner.append(WebdriverRunner(start,len(webdriver_runner)))
         webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
         webdriver_via.append(None)
-        if not options.background: sys.stderr.write("(%d/%d)" % (i+1,options.PhantomJS_instances))
     def quit_wd(*args):
+      if informing: sys.stderr.write("Quitting %d webdriver%s... " % (options.PhantomJS_instances,plural(options.PhantomJS_instances)))
       try:
         for i in webdriver_runner:
             try: i.quit_webdriver()
             except: pass
       except: pass
+      if informing: sys.stderr.write("done\n")
     import atexit ; atexit.register(quit_wd)
-    if not options.background:
-        if teletext():
-            l = len("Starting webdrivers... (%d/%d)" % (options.PhantomJS_instances,options.PhantomJS_instances))
-            while l % 40:
-                sys.stderr.write(' ') ; l += 1
-        else: sys.stderr.write("\n")
+    if options.PhantomJS_restartMins and not options.PhantomJS_restartAfter==1: IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
+    if informing: sys.stderr.write("done\n")
 webdriver_maxBusy = 0
 def webdriver_checkServe(*args):
     # how many queue items can be served right now?
     global webdriver_maxBusy
-    webdriver_maxBusy = max(webdriver_maxBusy,sum(1 for i in xrange(options.PhantomJS_instances) if webdriver_runner[i].thread_running))
-    for i in xrange(options.PhantomJS_instances):
+    webdriver_maxBusy = max(webdriver_maxBusy,sum(1 for i in webdriver_runner if i.thread_running))
+    for i in xrange(len(webdriver_runner)):
         if not webdriver_runner[i].thread_running:
             if not webdriver_queue: return
             while True:
                 url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate = webdriver_queue.pop(0)
                 if not tooLate(): break
                 if not webdriver_queue: return
-            debuglog("Starting fetch of "+url+" on webdriver instance "+str(i))
+            debuglog("Starting fetch of "+url+" on webdriver instance "+str(i+webdriver_runner[i].start))
             webdriver_via[i]=via
             webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback)
             global webdriver_mu ; webdriver_mu += 1
     if webdriver_queue: debuglog("All PhantomJS_instances busy; %d items still in queue" % len(webdriver_queue))
+def webdriver_checkRenew(*args):
+    for i in webdriver_runner:
+        if not i.thread_running and i.usageCount and i.finishTime + options.PhantomJS_restartMins < time.time(): i.renew_webdriver()
+    IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
 def webdriver_fetch(url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
     if tooLate(): return # probably webdriver_queue overload (which will also be logged)
     elif prefetched and prefetched.code >= 500: return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something
@@ -1716,7 +1847,10 @@ rmServerHeaders = set([
     "vary", # we modify this (see code)
 ])
 # TODO: WebSocket (and Microsoft SM) gets the client to say 'Connection: Upgrade' with a load of Sec-WebSocket-* headers, check what Tornado does with that
-rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Encoding','X-Forwarded-Host','X-Forwarded-Port','X-Forwarded-Server','X-Forwarded-Proto','X-Request-Start','Range','TE','Upgrade'] # TODO: we can pass Range to remote server if and only if we guarantee not to need to change anything  (could also add If-Range and If-None-Match to the list, but these should be harmless to pass to the remote server and If-None-Match might actually help a bit in the case where the document doesn't change)
+rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Encoding','X-Forwarded-Host','X-Forwarded-Port','X-Forwarded-Server','X-Forwarded-Proto','X-Request-Start','TE','Upgrade',
+                   'Upgrade-Insecure-Requests', # we'd better remove this from the client headers if we're removing Content-Security-Policy etc from the server's
+                   'Range', # TODO: we can pass Range to remote server if and only if we guarantee not to need to change anything  (could also add If-Range and If-None-Match to the list, but these should be harmless to pass to the remote server and If-None-Match might actually help a bit in the case where the document doesn't change)
+]
 
 class RequestForwarder(RequestHandler):
     
@@ -2427,7 +2561,7 @@ document.forms[0].i.focus()
     def debugExtras(self):
         r = " for "+self.request.method+" "+self.request.uri
         if self.WA_UseSSL: r += " WA_UseSSL"
-        if self.isPjsUpstream: r += " isPjsUpstream instance "+str(self.WA_PjsIndex)
+        if self.isPjsUpstream: r += " isPjsUpstream instance "+str(self.WA_PjsIndex+self.WA_PjsStart)
         if self.isSslUpstream: r += " isSslUpstream"
         return r
 
@@ -2467,7 +2601,6 @@ document.forms[0].i.focus()
         if self.isPjsUpstream:
             if options.PhantomJS_UA and options.PhantomJS_UA.startswith("*"): self.request.headers["User-Agent"] = options.PhantomJS_UA[1:]
             webdriver_inProgress[self.WA_PjsIndex].add(self.request.uri)
-            self._gzipping = False # little point if we know the final client is on localhost
         elif not self.isSslUpstream:
             if self.handleSSHTunnel(): return
             if self.handleSpecificIPs(): return
@@ -2986,7 +3119,8 @@ document.forms[0].i.focus()
             if do_css_process: body=re.sub(important,"",body)
             else: adjustList.append(transform_in_selected_tag("style",lambda s:re.sub(important,"",s))) # (do_html_process must be True here)
         if adjustList: body = HTML_adjust_svc(body,adjustList)
-        callback = lambda out,err:self.doResponse2(out,do_html_process,do_json_process)
+        if options.prominentNotice=="htmlFilter": callback = lambda out,err: self.doResponse2(body,do_html_process,do_json_process,out)
+        else: callback = lambda out,err:self.doResponse2(out,do_html_process,do_json_process)
         htmlFilter = self.getHtmlFilter()
         if do_html_process and htmlFilter:
             if options.htmlText: runFilterOnText(htmlFilter,find_text_in_HTML(body),callback)
@@ -3011,13 +3145,13 @@ document.forms[0].i.focus()
             if anf=="0": return htmlFilter[0]
             else: return htmlFilter[int(anf)-1]
         else: return options.htmlFilter
-    def doResponse2(self,body,do_html_process,do_json_process):
+    def doResponse2(self,body,do_html_process,do_json_process,htmlFilterOutput=None):
         debuglog("doResponse2"+self.debugExtras())
         # 2nd stage (domain change and external filter
         # has been run) - now add scripts etc, and render
         canRender = options.render and (do_html_process or (do_json_process and options.htmlJson)) and not self.checkBrowser(options.renderOmit)
         jsCookieString = ';'.join(self.request.headers.get_list("Cookie"))
-        if do_html_process: body = html_additions(body,self.cssAndAttrsToAdd(),self.checkBrowser(options.cssNameReload),self.cookieHostToSet(),jsCookieString,canRender,self.cookie_host(),self.is_password_domain,not do_html_process=="noFilterOptions") # noFilterOptions is used by bookmarklet code (to avoid confusion between filter options on current screen versus bookmarklets)
+        if do_html_process: body = html_additions(body,self.cssAndAttrsToAdd(),self.checkBrowser(options.cssNameReload),self.cookieHostToSet(),jsCookieString,canRender,self.cookie_host(),self.is_password_domain,not do_html_process=="noFilterOptions",htmlFilterOutput) # noFilterOptions is used by bookmarklet code (to avoid confusion between filter options on current screen versus bookmarklets)
         if canRender and not "adjustNoRender=1" in jsCookieString:
             if do_html_process: func = find_text_in_HTML
             else: func=lambda body:find_HTML_in_JSON(body,find_text_in_HTML)
@@ -3144,18 +3278,19 @@ rmHjGlInkZKbj3jEsGSxU4oKRDBM5syJgm1XYi5vPRNOUu4CXUGJAXhzJtd9teqB
         except: continue
     raise Exception("Can't write the duff certificate anywhere?")
 
-def MakeRequestForwarder(useSSL,connectPort,isPJS=False,index=0):
+def MakeRequestForwarder(useSSL,connectPort,isPJS=False,start=0,index=0):
     class MyRequestForwarder(RequestForwarder):
         WA_UseSSL = useSSL
         WA_connectPort = connectPort
         isPjsUpstream = isPJS
+        WA_PjsStart = start
         WA_PjsIndex = index
         isSslUpstream = False
     return MyRequestForwarder # the class, not an instance
 def NormalRequestForwarder(): return MakeRequestForwarder(False,options.port+1)
 def SSLRequestForwarder(): return MakeRequestForwarder(True,options.port+1)
-def PjsRequestForwarder(index,port): return MakeRequestForwarder(False,port+1,True,index)
-def PjsSslRequestForwarder(index,port): return MakeRequestForwarder(True,port,True,index)
+def PjsRequestForwarder(start,index,port): return MakeRequestForwarder(False,port+1,True,start,index)
+def PjsSslRequestForwarder(index,port): return MakeRequestForwarder(True,port,True,0,index)
 
 class UpSslRequestForwarder(RequestForwarder):
     "A RequestForwarder for running upstream of upstream_proxy, rewriting its .0 requests back into SSL requests"
@@ -3264,8 +3399,6 @@ def bookmarklet(submit_url,local_submit_url):
     if not options.htmlFilterName: names=['filter']
     elif '#' in options.htmlFilter: names=options.htmlFilterName.split('#')[1:]
     else: names = [options.htmlFilterName]
-    if len(names)>1: plural="s"
-    else: plural=""
     class C:
         def __init__(self): self.reset()
         def __call__(self):
@@ -3281,7 +3414,7 @@ def bookmarklet(submit_url,local_submit_url):
     # noIOS spans added because the "Plus" bookmarklets say no "frames loophole" on any tested version of iOS
     if options.submitBookmarkletDomain: locProto = '(location.protocol=="https:"?"https:":"http:")+' # use http if it's file: etc
     else: locProto = ""
-    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPhone/),a=n.match(/Android/),p=n.match(/iPad/),c="",t=0,j="javascript:",u="var r=new XMLHttpRequest();r.open(\'GET\','+locProto.replace('"',"'")+"'"+submit_url+'",v="\',false);r.send();eval(r.responseText)"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var b=d.body;var fs=d.createElement(\'frameset\'),h=d.createElement(\'html\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(b.firstChild)h.appendChild(b.removeChild(b.firstChild));b.appendChild(fs);window.doneMasterFrame=1;window.setTimeout(function(){if(!window.frames[0].document.body.innerHTML){var d=document;var b=d.body;while(b.firstChild)b.removeChild(b.firstChild);while(h.firstChild)b.appendChild(h.removeChild(h.firstChild));alert(\'The bookmarklet cannot annotate the whole site because your browser does not seem to have the frames loophole it needs. Falling back to annotating this page only. (To avoid this message in future, install the not Plus bookmarklet.)\')}},1000)}"+u+"B";u=j+u+"b";if(i||a||p){t="'+local_submit_url+'"+(i?"i":(p?"p":"a"));u="#"+u;u2="#"+u2}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a||p)?"On "+(i?"iPhone":(p?"iPad":"Android"))+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;<span class=noIOS>Basic bookmarklet'+plural+' (to process <b>one page</b> when activated): </span>'+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'<span class=noIOS>. Advanced bookmarklet'+plural+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'</span>&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural+'</a></span>').replace('@]@','"')+'");if(i||p) document.write("<style>.noIOS{display:none;visibility:hidden}</style>")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
+    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPhone/),a=n.match(/Android/),p=n.match(/iPad/),c="",t=0,j="javascript:",u="var r=new XMLHttpRequest();r.open(\'GET\','+locProto.replace('"',"'")+"'"+submit_url+'",v="\',false);r.send();eval(r.responseText)"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var b=d.body;var fs=d.createElement(\'frameset\'),h=d.createElement(\'html\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(b.firstChild)h.appendChild(b.removeChild(b.firstChild));b.appendChild(fs);window.doneMasterFrame=1;window.setTimeout(function(){if(!window.frames[0].document.body.innerHTML){var d=document;var b=d.body;while(b.firstChild)b.removeChild(b.firstChild);while(h.firstChild)b.appendChild(h.removeChild(h.firstChild));alert(\'The bookmarklet cannot annotate the whole site because your browser does not seem to have the frames loophole it needs. Falling back to annotating this page only. (To avoid this message in future, install the not Plus bookmarklet.)\')}},1000)}"+u+"B";u=j+u+"b";if(i||a||p){t="'+local_submit_url+'"+(i?"i":(p?"p":"a"));u="#"+u;u2="#"+u2}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a||p)?"On "+(i?"iPhone":(p?"iPad":"Android"))+", you can install a special kind of bookmark (called a \'bookmarklet\'), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;<span class=noIOS>Basic bookmarklet'+plural(len(names))+' (to process <b>one page</b> when activated): </span>'+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'<span class=noIOS>. Advanced bookmarklet'+plural(len(names))+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'</span>&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural(len(names))+'</a></span>').replace('@]@','"')+'");if(i||p) document.write("<style>.noIOS{display:none;visibility:hidden}</style>")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
     # 'loophole': https://bugzilla.mozilla.org/show_bug.cgi?id=1123694 (+ 'seem to' because I don't know if the timeout value is enough; however we don't want it to hang around too long) (don't do else h=null if successful because someone else may hv used that var?)
     # 'resetting the current page': so you lose anything you typed in text boxes etc
     # (DO hide bookmarklets by default, because don't want to confuse users if they're named the same as the immediate-action filter selections at the bottom of the page)
@@ -3429,12 +3562,17 @@ def sync_runFilter(cmd,text,callback,textmode=True):
     callback(out,err)
 
 def runBrowser(*args):
+    mainPid = os.getpid()
     def browser_thread():
         global helper_thread_count
         helper_thread_count += 1
         os.system(options.browser)
         helper_thread_count -= 1
-        stopServer("Browser command finished")
+        if options.multicore: # main thread will still be in start_multicore, not IOLoop
+            global interruptReason
+            interruptReason = "Browser command finished"
+            os.kill(mainPid,signal.SIGINT)
+        else: stopServer("Browser command finished")
     threading.Thread(target=browser_thread,args=()).start()
 def runRun(*args):
     def runner_thread():
@@ -3456,7 +3594,7 @@ def setupRunAndBrowser():
 
 def stopServer(reason=None):
     def stop(*args):
-        if reason and not reason=="SIG*":
+        if reason and not reason=="SIG*" and not coreNo:
             # logging from signal handler is not safe, so we
             # defer it until this inner function is called
             if options.background: logging.info(reason)
@@ -3629,7 +3767,7 @@ class StripJSEtc:
     def handle_data(self,data):
         if self.suppressing: return ""
 
-class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will probably break the site's scripts in non-htmlOnly): make external links go back to URL box and act as though the link had been typed in
+class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will probably break the site's scripts in non-htmlOnly): make external links go back to URL box and act as though the link had been typed in.  TODO: rewrite ALL links so history works (and don't need a whole domain, like the old Web Access Gateway)? but if doing that, wld hv to deal w.relative links (whether or not starting with a / ) & base href.
     def __init__(self, rqPrefix): self.rqPrefix = rqPrefix
     def init(self,parser): self.parser = parser
     def handle_starttag(self, tag, attrs):
@@ -3652,13 +3790,10 @@ def check_LXML():
     try:
         from lxml import etree
         from StringIO import StringIO # not cStringIO, need Unicode
-        etree.HTMLParser(target=None) # works on lxml 2.3.2
-    except ImportError:
-        sys.stderr.write("LXML library not found - ignoring useLXML option\n")
-        options.useLXML = False
-    except TypeError: # no target= option in 1.x
-        sys.stderr.write("LXML library too old - ignoring useLXML option\n")
-        options.useLXML = False
+        return etree.HTMLParser(target=None) # works on lxml 2.3.2
+    except ImportError: sys.stderr.write("LXML library not found - ignoring useLXML option\n")
+    except TypeError: sys.stderr.write("LXML library too old - ignoring useLXML option\n") # no target= option in 1.x
+    options.useLXML = False
 
 def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
     # Runs an HTMLParser on htmlStr, calling multiple adjusters on adjustList.
@@ -4196,7 +4331,7 @@ def htmlFind(html,markup):
     def blankOut(m): return " "*(m.end()-m.start())
     return re.sub("<!--.*?-->",blankOut,html,flags=re.DOTALL).lower().find(markup) # TODO: improve efficiency of this? (blankOut doesn't need to go through the entire document)
 
-def html_additions(html,(cssToAdd,attrsToAdd),slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain,addHtmlFilterOptions):
+def html_additions(html,(cssToAdd,attrsToAdd),slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain,addHtmlFilterOptions,htmlFilterOutput):
     # Additions to make to HTML only (not on HTML embedded in JSON)
     # called from doResponse2 if do_html_process is set
     if html.startswith("<?xml"): link_close = " /"
@@ -4260,18 +4395,21 @@ if(!%s&&document.readyState!='complete')document.write('<a href="javascript:docu
 //--></script>""" % (detect_iframe,adjust_domain_cookieName,adjust_domain_none,cookieExpires,cookieHostToSet+publicPortStr(),cookieHostToSet+publicPortStr()) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
     if options.headAppend: headAppend += options.headAppend
     if options.headAppendRuby: bodyPrepend += rubyScript
-    if options.prominentNotice and not is_password_domain:
+    if options.prominentNotice=="htmlFilter": pn = htmlFilterOutput
+    elif options.prominentNotice and not is_password_domain: pn = options.prominentNotice
+    else: pn = None
+    if pn:
         # if JS is available, use fixed positioning (so it still works on sites that do that, in case we're not overriding it via user CSS) and a JS acknowledge button
-        styleAttrib="style=\"width: 80% !important; margin: 10%; border: red solid !important; background: black !important; color: white !important; text-align: center !important; display: block !important; left:0px; top:0px; z-index:99999; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important;\""
+        styleAttrib="style=\"width: 80% !important; margin: 10%; border: red solid !important; background: black !important; color: white !important; text-align: center !important; display: block !important; left:0px; top:0px; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important; max-height: 80% !important; overflow: auto !important; \""
         if slow_CSS_switch: # use a slow version for this as well (TODO document that we do this?) (TODO the detect_iframe exclusion of the whole message)
-            if not "_WA_warnOK=1" in jsCookieString: bodyPrepend += "<div id=_WA_warn0 "+styleAttrib+">"+options.prominentNotice+r"""<script><!--
+            if not "_WA_warnOK=1" in jsCookieString: bodyPrepend += "<div id=_WA_warn0 "+styleAttrib+">"+pn+r"""<script><!--
 if(document.readyState!='complete'&&document.cookie.indexOf("_WA_warnOK=1")==-1)document.write("<br><button style=\"color: black !important;background:#c0c0c0 !important;border: white solid !important\" onClick=\"document.cookie='_WA_warnOK=1;path=/';location.reload(true)\">Acknowledge<\/button>")
 //--></script></div><script><!--
 if(document.getElementById) document.getElementById('_WA_warn0').style.position="fixed"
 }
 //--></script>"""
             #" # (this comment helps XEmacs21's syntax highlighting)
-        else: bodyPrepend += "<div id=_WA_warn0 "+styleAttrib+">"+options.prominentNotice+r"""</div><script><!--
+        else: bodyPrepend += "<div id=_WA_warn0 "+styleAttrib+">"+pn+r"""</div><script><!--
 if(document.getElementById) {
   var w=document.getElementById('_WA_warn0');
   if(w.innerHTML) {
@@ -4283,8 +4421,9 @@ if(document.getElementById) {
   else w.innerHTML += "<br><button style=\"color: black !important;background:#c0c0c0 !important;border: white solid !important\" onClick=\"document.cookie='_WA_warnOK=1;path=/';document.body.removeChild(document.getElementById('_WA_warn0'))\">Acknowledge</button>";
 }}
 //--></script>"""
-    #" # (this comment helps XEmacs21's syntax highlighting)
-    # (Above code works around a bug in MSIE 9 by setting the cookie BEFORE doing the removeChild.  Otherwise the cookie does not persist.)
+        #" # (this comment helps XEmacs21's syntax highlighting)
+        # (Above code works around a bug in MSIE 9 by setting the cookie BEFORE doing the removeChild.  Otherwise the cookie does not persist.)
+        if options.prominentNotice=="htmlFilter": bodyPrepend = bodyPrepend.replace("document.cookie='_WA_warnOK=1;path=/';","") # don't set the 'seen' cookie if the notice will be different on every page and if that's the whole point of htmlFilter
     if options.headAppendRuby: bodyAppend += rubyEndScript
     if headAppend:
         i=htmlFind(html,"</head")

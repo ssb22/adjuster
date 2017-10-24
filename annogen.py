@@ -97,7 +97,7 @@ parser.add_option("--no-input",
                   action="store_true",default=False,
                   help="Don't actually read the input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change).")
 
-parser.add_option("--c-filename",default="",help="Where to write the C program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
+parser.add_option("--c-filename",default="",help="Where to write the C program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
 
 parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
 # If compiling an experimental annotator quickly, you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc.
@@ -851,9 +851,10 @@ version_stamp = time.strftime("generated %Y-%m-%d by ")+program_name[:program_na
 
 if ios: c_name = "Objective-C"
 else: c_name = "C"
-c_start = "/* -*- coding: "+outcode+" -*- */\n/* "+c_name+" code "+version_stamp+" */\n"
+if ndk: c_start = "" # because #!/bin/bash comes next
+else: c_start = "/* -*- coding: "+outcode+" -*- */\n/* "+c_name+" code "+version_stamp+" */\n"
 c_start += c_preamble+r"""
-enum { ybytes = %%YBYTES%% }; /* for Yarowsky matching, minimum readahead */
+enum { ybytes = %%YBYTES%% }; /* for Yarowsky-like matching, minimum readahead */
 static int nearbytes = ybytes;
 #define setnear(n) (nearbytes = (n))
 """ + c_defs + r"""static int needSpace=0;
@@ -2496,7 +2497,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     badStarts = getBadStarts(nonAnnot,okStarts)
     if not badStarts:
       if nonAnnot==diagnose: diagnose_write("%s has no badStarts" % (withAnnot_unistr,))
-      yield True ; return # rule always works, no Yarowsky indicators needed
+      yield True ; return # rule always works, no Yarowsky-like indicators needed
     if can_be_default and len(okStarts) > len(badStarts) and len(nonAnnot)==1:
       if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len=1 rule" % (withAnnot_unistr,))
       yield True ; return # duplicate of code below (can test for this case early before reducing-down badStarts)
