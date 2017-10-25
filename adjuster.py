@@ -182,7 +182,7 @@ define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct 
 define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
 define("PhantomJS_jslinks",default=True,help="When PhantomJS is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
 define("PhantomJS_multiprocess",default=True,help="When PhantomJS is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available. This might be more robust.")
-define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only). This can make better use of multi-core CPUs and stops the main event loop from being stalled by buggy SSL libraries, at the expense of more RAM.")
+define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only) to stop the main event loop from being stalled by buggy SSL libraries. This costs RAM, but adding --multicore too will limit the number of helpers to one per core instead of one per port, so --ssl-fork --multicore is recommended if you want more PhantomJS instances than cores.")
 
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
@@ -301,7 +301,7 @@ define("skipLinkCheck",multiple=True,help="Comma-separated list of regular expre
 define("extensions",help="Name of a custom Python module to load to handle certain requests; this might be more efficient than setting up a separate Tornado-based server. The module's handle() function will be called with the URL and RequestHandler instance as arguments, and should return True if it processed the request, but anyway it should return as fast as possible. This module does NOT take priority over forwarding the request to fasterServer.")
 
 define("loadBalancer",default=False,help="Set this to True if you have a default_site set and you are behind any kind of \"load balancer\" that works by issuing a GET / with no browser string. This option will detect such requests and avoid passing them to the remote site.")
-define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)") # ; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server).  linux/net/core/sock_reuseport.c reuseport_select_sock uses either a Berkeley Packet Filter or a random hash from inet_ehashfn to choose which core gets an incoming connection.
+define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)") # and --ssl-fork if there's not TOO many instances taking up the RAM; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server).  linux/net/core/sock_reuseport.c reuseport_select_sock uses either Berkeley Packet Filter (BPF) bytecode (TODO: customise it?), or a random hash from inet_ehashfn, to choose which core gets an incoming connection.
 define("compress_responses",default=True,help="Use gzip to compress responses for clients that indicate they are compatible with it. You may want to turn this off if your server's CPU is more important than your network bandwidth (e.g. browser on same machine).")
 
 # THIS MUST BE THE LAST SECTION because it continues into
@@ -604,7 +604,9 @@ def preprocessOptions():
         if len(ccLines)<3: errExit("codeChanges must be a multiple of 3 lines (see --help)")
         codeChanges.append(tuple(ccLines[:3]))
         ccLines = ccLines[3:]
-    if options.real_proxy: options.open_proxy=True
+    if options.real_proxy:
+        options.open_proxy=True
+        if options.browser and "lynx" in options.browser and not "I_PROMISE_NOT_TO_LYNX_DUMP_SSL" in os.environ and not "-stdin" in options.browser and ("-dump" in options.browser or "-source" in options.browser or "-mime_header" in options.browser): errExit("Don't do that.  If Lynx wants to ask you about our self-signed certificates, it'll assume the answer is No when running non-interactively, and this will cause it to fetch the page directly (not via our proxy) which could confuse you into thinking the adjuster's not working.  If you know what you're doing, put I_PROMISE_NOT_TO_LYNX_DUMP_SSL in the environment to suppress this message (but if using PhantomJS beware of redirect to SSL).  Or you can use wget --no-check-certificate -O - | lynx -dump -stdin") # TODO: could we configure Lynx to always accept when running non-interactively?
     if options.htmlFilter and '#' in options.htmlFilter and not len(options.htmlFilter.split('#'))+1 == len(options.htmlFilterName.split('#')): errExit("Wrong number of #s in htmlFilterName for this htmlFilter setting")
     if not options.port:
         if wsgi_mode:
@@ -828,8 +830,11 @@ def sslSetup(callback1, port2):
     if options.ssl_fork: # queue it to be started by monitor
         callback2 = lambda *_:listen_on_port(Application([(r"(.*)",AliveResponder,{})],log_function=nullLog),port2,"127.0.0.1",False) # the "I'm still alive" responder is non-SSL
         if options.multicore and sslforks_to_monitor: sslforks_to_monitor[0][1] = lambda c1=callback1,c2=sslforks_to_monitor[0][1]:(c1(),c2()) # in multicore mode we'll have {N cores} * {single process handling all SSL ports}, rather than cores * processes (TODO: if one gets stuck but others on the port can still handle requests, do we want to somehow detect the individual stuck one and restart it to reduce wasted CPU load?)
-        else: sslforks_to_monitor.append([None,callback1,callback2,port2,None])
+        else:
+            sslforks_to_monitor.append([None,callback1,callback2,port2,None])
+            return port2 + 1 # where to put the next listener
     else: callback1() # just run it on the current process
+    return port2 # next listener can use what would have been the monitor port
 sslFork_pingInterval = 1 # TODO: configurable?  (ping every interval, restart if down for 2*interval)  (if setting this larger, might want to track the helper threads for early termination)
 def maybe_sslfork_monitor():
     "Returns SIGTERM callback if we're now a child process"
@@ -872,7 +877,7 @@ def maybe_sslfork_monitor():
 def restart_sslfork(n,oldN):
     global sslforks_to_monitor
     if not sslforks_to_monitor[n][0]==None: # not first time
-        logging.error("Restarting SSL helper %d (old pid %d; not heard from it for %d seconds)" % (oldN,sslforks_to_monitor[n][0],time.time()-sslforks_to_monitor[n][4]))
+        logging.error("Restarting SSL helper %d (old pid %d; not heard from its port %d for %d seconds)" % (oldN,sslforks_to_monitor[n][0],sslforks_to_monitor[n][3],time.time()-sslforks_to_monitor[n][4]))
         try: os.kill(sslforks_to_monitor[n][0],9)
         except OSError: logging.info("Unable to kill pid %d (already gone?)" % sslforks_to_monitor[n][0])
         try: os.waitpid(sslforks_to_monitor[n][0], os.WNOHANG) # clear it from the process table
@@ -904,22 +909,19 @@ def open_extra_ports():
     "Returns the stop function if we're now a child process that shouldn't run anything else"
     nextPort = options.port + 1
     # don't add any other ports here: NormalRequestForwarder assumes the real_proxy SSL helper will be at port+1
-    # banner() must be kept in sync with these port numbers,
-    # as must phantomJS_proxy_port()
+    # banner() must be kept in sync with these port numbers
     # All calls to sslSetup and maybe_sslfork_monitor must be made before ANY other calls to listen_on_port (as we don't yet want there to be an IOLoop instance when maybe_sslfork_monitor is called)
-    if options.real_proxy:
-        # create a modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port
-        sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=False),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1) # gzip=False because little point if we know the final client is on localhost
-        nextPort += 1
-        if options.ssl_fork: nextPort += 1
-    nextPort_jsProxy = nextPort
+    if options.real_proxy: nextPort = sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=False),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1) # gzip=False because little point if we know the final client is on localhost.  A modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port.
     if options.PhantomJS_reproxy:
         # ditto for PhantomJS (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us)
-        for i in xrange(options.PhantomJS_instances):
+        global phantomJS_proxy_port
+        phantomJS_proxy_port = []
+        for c in xrange(cores):
+          for i in xrange(PhantomJS_per_core):
             # PjsRequestForwarder to be done later
-            sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(i,port+1),{})],log_function=nullLog,gzip=False),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2)
-            nextPort += 2
-            if options.ssl_fork: nextPort += 1
+            phantomJS_proxy_port.append(nextPort)
+            nextPort = sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(c*PhantomJS_per_core,i),{})],log_function=nullLog,gzip=False),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2)
+        phantomJS_proxy_port.append(nextPort-1) # highest port in use, for banner()
     if upstream_rewrite_ssl:
         # This one does NOT listen on SSL: it listens on unencrypted HTTP and rewrites .0 into outgoing SSL.  But we can still run it in a different process if ssl_fork is enabled, and this will save encountering the curl_max_clients issue as well as possibly offloading *client*-side SSL to a different CPU core (TODO: could also use Tornado's multiprocessing to multi-core the client-side SSL)
         sslSetup(lambda port=upstream_proxy_port+1:listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=False),port,"127.0.0.1",False),upstream_proxy_port+2) # TODO: document upstream_proxy_port+2 needs to be reserved if options.ssl_fork and not options.upstream_proxy_host
@@ -927,27 +929,14 @@ def open_extra_ports():
     if r: return r
     # NOW we can start non-sslSetup listen_on_port:
     if options.PhantomJS_reproxy:
-        nextPort = nextPort_jsProxy
         for c in xrange(cores):
           for i in xrange(PhantomJS_per_core):
-            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(c*PhantomJS_per_core,i,nextPort),{})],log_function=nullLog,gzip=False),nextPort,"127.0.0.1",False,core=c)
-            nextPort += 2
-            if options.ssl_fork: nextPort += 1
+            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(c*PhantomJS_per_core,i),{})],log_function=nullLog,gzip=False),phantomJS_proxy_port[c*PhantomJS_per_core+i],"127.0.0.1",False,core=c)
 
 def makeMainApplication():
     handlers = [(r"(.*)",NormalRequestForwarder(),{})]
     if options.staticDocs: handlers.insert(0,static_handler())
-    application = Application(handlers,log_function=accessLog,gzip=options.compress_responses)
-    if not hasattr(application,"listen"): errExit("Your version of Tornado is too old.  Please install at least version 2.x.")
-    return application
-
-def phantomJS_proxy_port(index):
-    nextPort = options.port + 1
-    if options.real_proxy:
-      nextPort += 1
-      if options.ssl_fork: nextPort += 1
-    if options.ssl_fork: return nextPort + 3*index # each has upstream, SSL helper, and SSL alive responder
-    else: return nextPort + 2*index # no SSL alive responder
+    return Application(handlers,log_function=accessLog,gzip=options.compress_responses) # TODO: gzip= deprecated in Tornado 4.x (if they remove it, we may have to check Tornado version and send either gzip= or compress_response= as appropriate, in all calls to Application)
 
 def start_multicore(isChild=False):
     "Fork child processes, set coreNo unless isChild; parent waits and exits.  Call to this must come after unixfork if want to run in the background."
@@ -1042,19 +1031,13 @@ def banner():
     if options.port:
         ret.append("Listening on port %d" % options.port)
         if (options.real_proxy or options.PhantomJS_reproxy or upstream_rewrite_ssl): ret.append("with these helpers (don't connect to them yourself):")
-        nextPort = options.port + 1
         if options.real_proxy:
-            if options.ssl_fork:
-                ret.append("--real_proxy SSL helper on localhost:%d-%d" % (nextPort,nextPort+1))
-                nextPort += 2
-            else:
-                ret.append("--real_proxy SSL helper on localhost:%d" % nextPort)
-                nextPort += 1
+            if options.ssl_fork: ret.append("--real_proxy SSL helper on localhost:%d-%d" % (options.port+1,options.port+2))
+            else: ret.append("--real_proxy SSL helper on localhost:%d" % (options.port+1))
         if options.PhantomJS_reproxy:
-            ret.append("--PhantomJS_reproxy helpers on localhost:%d-%d" % (nextPort,phantomJS_proxy_port(options.PhantomJS_instances)-1))
-            nextPort = phantomJS_proxy_port(options.PhantomJS_instances) # although currently unused
+            ret.append("--PhantomJS_reproxy helpers on localhost:%d-%d" % (phantomJS_proxy_port[0],phantomJS_proxy_port[-1]))
         if upstream_rewrite_ssl:
-            if options.ssl_fork: ret.append("--upstream-proxy back-connection helper on localhost:%d-%d" % (upstream_proxy_port+1,upstream_proxy_port+2))
+            if options.ssl_fork and not (options.multicore and (options.real_proxy or options.PhantomJS_reproxy)): ret.append("--upstream-proxy back-connection helper on localhost:%d-%d" % (upstream_proxy_port+1,upstream_proxy_port+2))
             else: ret.append("--upstream-proxy back-connection helper on localhost:%d" % (upstream_proxy_port+1,))
     else: ret.append("Not listening (--port=0 set)")
     if options.watchdog:
@@ -1436,15 +1419,24 @@ cookieExpires = "Tue Jan 19 03:14:07 2038" # TODO: S2G
 
 set_window_onerror = False # for debugging Javascript on some mobile browsers (TODO make this a config option? but will have to check which browsers do and don't support window.onerror)
 
+debug_connections = False
+def myRepr(d):
+    if re.search("[\x00-\x09\x0e-\x1f]",d): return "%d bytes" % len(d)
+    else: return repr(d)
+def peerName(socket):
+    if socket: return socket.getpeername()
+    else: return "(no socket??)"
 def writeAndClose(stream,data):
     # This helper function is needed for CONNECT and own_server handling because, contrary to Tornado docs, some Tornado versions (e.g. 2.3) send the last data packet in the FIRST callback of IOStream's read_until_close
     if data:
+        if debug_connections: print "Writing",myRepr(data),"to",peerName(stream.socket),"and closing it"
         try: stream.write(data,lambda *args:True)
         except: pass # ignore errors like client disconnected
     if not stream.closed():
         try: stream.close()
         except: pass
 def writeOrError(name,stream,data):
+    if debug_connections: print "Writing",myRepr(data),"to",peerName(stream.socket)
     try: stream.write(data)
     except:
         if name: logging.error("Error writing data to "+name)
@@ -1563,8 +1555,8 @@ def webdriverWrapper_receiver(pipe):
     except: pass # SIGALRM may be Unix-only
     while True:
         try: cmd,args = pipe.recv()
-        except EOFError: return pipe.close()
         except KeyboardInterrupt: return pipe.close()
+        if cmd=="EOF": return pipe.close()
         try:
             try: signal.alarm(100) # as a backup: if Selenium timeout somehow fails, don't let this process get stuck forever (can do this only when PhantomJS_multiprocess or we won't know what thread gets it)
             except: pass # alarm() is Unix-only
@@ -1581,10 +1573,10 @@ def webdriverWrapper_receiver(pipe):
             ret,exc = None,e
         try: pipe.send((ret,exc))
         except: pass # if they closed it, we'll get EOFError on next iteration
-def webdriverWrapper_send(pipe,cmd,args=(),isFinal=False):
+def webdriverWrapper_send(pipe,cmd,args=()):
     "Send a command to a Webdriverwrapper over IPC, and either return its result or raise its exception in this process."
     pipe.send((cmd,args))
-    if isFinal: return pipe.close() # no return code needed
+    if cmd=="EOF": return pipe.close() # no return code
     ret,exc = pipe.recv()
     if exc: raise exc
     else: return ret
@@ -1592,12 +1584,12 @@ class WebdriverWrapperController:
     "Proxy for WebdriverWrapper if it's running over IPC"
     def __init__(self):
         self.pipe, cPipe = multiprocessing.Pipe()
-        p = multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,))
-        p.daemon = True ; p.start()
+        multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,)).start()
     def send(self,cmd,args=()): return webdriverWrapper_send(self.pipe,cmd,args)
     def new(self,*args): self.send("new",args)
     def quit(self,final=False):
-        webdriverWrapper_send(self.pipe,"quit",(),final)
+        self.send("quit")
+        if final: self.send("EOF")
     def current_url(self): return self.send("current_url")
     def get(self,url): return self.send("get",(url,))
     def execute_script(self,script): self.send("execute_script",(script,))
@@ -1692,6 +1684,7 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         except: # possibly a timeout; did we get some of it?
             currentUrl = manager.current_url()
             if not currentUrl==url: raise # didn't get any
+            debuglog("Ignoring webdriver exception because it seems we did get something")
         # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
         debuglog("webdriver %d loaded" % manager.index)
         if options.PhantomJS_reproxy:
@@ -1728,7 +1721,7 @@ def _get_new_webdriver(index,renewing):
     sa = ['--ssl-protocol=any']
     if options.PhantomJS_reproxy:
         sa.append('--ignore-ssl-errors=true')
-        sa.append('--proxy=127.0.0.1:%d' % phantomJS_proxy_port(index))
+        sa.append('--proxy=127.0.0.1:%d' % phantomJS_proxy_port[index])
     elif options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
     try: from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
     except:
@@ -1819,7 +1812,7 @@ def webdriver_checkServe(*args):
             webdriver_via[i]=via
             webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback)
             global webdriver_mu ; webdriver_mu += 1
-    if webdriver_queue: debuglog("All PhantomJS_instances busy; %d items still in queue" % len(webdriver_queue))
+    if webdriver_queue: debuglog("All of this core's PhantomJS_instances are busy; %d items still in queue" % len(webdriver_queue))
 def webdriver_checkRenew(*args):
     for i in webdriver_runner:
         if not i.thread_running and i.usageCount and i.finishTime + options.PhantomJS_restartMins < time.time(): i.renew_webdriver()
@@ -2081,6 +2074,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         self.request.headers[header] = val+toAdd
 
     def forwardFor(self,server,serverType="ownServer"):
+        debuglog("forwardFor "+server)
         if wsgi_mode: raise Exception("Not yet implemented for WSGI mode") # no .connection; we'd probably have to repeat the request with HTTPClient
         if server==options.own_server and options.ownServer_useragent_ip:
             r = self.request.headers.get("User-Agent","")
@@ -2226,7 +2220,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             self.set_status(400) ; self.myfinish() ; return True
         if options.ssl_fork and self.request.headers.get("X-WA-FromSSLHelper",""):
             self.request.connection.isFromSslHelper = True # (it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it)
-        if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, so the host asked for must be a .0 host for https
+        if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, or we're on port+0 and forked SSL helper has forwarded it to us, so the host asked for must be a .0 host for https
             if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
             
     def handleSSHTunnel(self):
@@ -2659,8 +2653,8 @@ document.forms[0].i.focus()
               if self.canWriteBody(): self.write(htmlhead("")+auth_error+"</body></html>")
               return self.myfinish()
         # Authentication is now OK
+        fixServerHeader(self)
         if not self.isPjsUpstream and not self.isSslUpstream:
-          fixServerHeader(self)
           if self.handleGoAway(realHost,maybeRobots): return
           # Now check if it's an image request:
           _olduri = self.request.uri
@@ -2944,7 +2938,9 @@ document.forms[0].i.focus()
             if not isProxyRequest:
                 value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"))
                 offsite = (value==old_value_1 and (value.startswith("http://") or value.startswith("https://"))) # i.e. domain_process didn't change it, and it's not relative
-            else: offsite = False # proxy requests are never "offsite"
+            else: # isProxyRequest
+                offsite = False # proxy requests are never "offsite"
+                if upstream_rewrite_ssl and not self.isSslUpstream and re.match("http://[^/]*.0",value): value="https"+value[4:].replace(".0","",1) # if the upstream proxy's saying .0 due to upstream_rewrite_ssl, then we have to take it out if we want https URLs unchanged in a client-side proxy request
             old_value_2 = value # after domain_process but before PDF/EPUB-etc rewrites
             if do_pdftotext: # is it still going to be pdf after the redirect?
               if value.lower().endswith(".pdf") or guessCMS(value,"pdf"): value += pdftotext_suffix
@@ -3283,14 +3279,14 @@ def MakeRequestForwarder(useSSL,connectPort,isPJS=False,start=0,index=0):
         WA_UseSSL = useSSL
         WA_connectPort = connectPort
         isPjsUpstream = isPJS
-        WA_PjsStart = start
-        WA_PjsIndex = index
+        WA_PjsStart = start # (for multicore)
+        WA_PjsIndex = index # (relative to start)
         isSslUpstream = False
     return MyRequestForwarder # the class, not an instance
 def NormalRequestForwarder(): return MakeRequestForwarder(False,options.port+1)
 def SSLRequestForwarder(): return MakeRequestForwarder(True,options.port+1)
-def PjsRequestForwarder(start,index,port): return MakeRequestForwarder(False,port+1,True,start,index)
-def PjsSslRequestForwarder(index,port): return MakeRequestForwarder(True,port,True,0,index)
+def PjsRequestForwarder(start,index): return MakeRequestForwarder(False,phantomJS_proxy_port[start+index]+1,True,start,index)
+def PjsSslRequestForwarder(start,index): return MakeRequestForwarder(True,phantomJS_proxy_port[start+index]+1,True,start,index)
 
 class UpSslRequestForwarder(RequestForwarder):
     "A RequestForwarder for running upstream of upstream_proxy, rewriting its .0 requests back into SSL requests"
