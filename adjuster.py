@@ -862,10 +862,12 @@ def maybe_sslfork_monitor():
         if i < len(sslforks_to_monitor)-1:
             sslforks_to_monitor = [sslforks_to_monitor[i]]
             i = 0 # we'll monitor only one in the child
+        try: urlopen = urllib2.build_opener(urllib2.ProxyHandler({})).open # don't use the system proxy if set
+        except: urlopen = urllib2.urlopen # wrong version?
         while True:
             t = time.time()
             try:
-                urllib2.urlopen("http://localhost:%d/" % sslforks_to_monitor[i][3],timeout=sslFork_pingInterval)
+                urlopen("http://localhost:%d/" % sslforks_to_monitor[i][3],timeout=sslFork_pingInterval)
                 sslforks_to_monitor[i][4]=time.time()
             except: # URLError etc
               t2 = sslforks_to_monitor[i][4]
@@ -1422,10 +1424,11 @@ set_window_onerror = False # for debugging Javascript on some mobile browsers (T
 debug_connections = False
 def myRepr(d):
     if re.search("[\x00-\x09\x0e-\x1f]",d): return "%d bytes" % len(d)
+    elif len(d) >= 512: return repr(d[:500]+"...")
     else: return repr(d)
 def peerName(socket):
-    if socket: return socket.getpeername()
-    else: return "(no socket??)"
+    try: return socket.getpeername()
+    except: return "(no socket??)"
 def writeAndClose(stream,data):
     # This helper function is needed for CONNECT and own_server handling because, contrary to Tornado docs, some Tornado versions (e.g. 2.3) send the last data packet in the FIRST callback of IOStream's read_until_close
     if data:
@@ -1555,14 +1558,15 @@ def webdriverWrapper_receiver(pipe):
     except: pass # SIGALRM may be Unix-only
     while True:
         try: cmd,args = pipe.recv()
-        except KeyboardInterrupt: return pipe.close()
+        except KeyboardInterrupt:
+            try: w.quit()
+            except: pass
+            pipe.send(("INT","INT"))
+            return pipe.close()
         if cmd=="EOF": return pipe.close()
-        try:
-            try: signal.alarm(100) # as a backup: if Selenium timeout somehow fails, don't let this process get stuck forever (can do this only when PhantomJS_multiprocess or we won't know what thread gets it)
-            except: pass # alarm() is Unix-only
-            ret,exc = getattr(w,cmd)(*args), None
-            try: signal.alarm(0)
-            except: pass # Unix-only
+        try: signal.alarm(100) # as a backup: if Selenium timeout somehow fails, don't let this process get stuck forever (can do this only when PhantomJS_multiprocess or we won't know what thread gets it)
+        except: pass # alarm() is Unix-only
+        try: ret,exc = getattr(w,cmd)(*args), None
         except Exception, e:
             p = find_adjuster_in_traceback()
             if p: # see if we can add it to the message:
@@ -1571,13 +1575,17 @@ def webdriverWrapper_receiver(pipe):
                     else: e.args += (p,) # works with things like KeyError (although so should the above)
                 except: e.message += p # works with base Exception
             ret,exc = None,e
+        try: signal.alarm(0)
+        except: pass # Unix-only
         try: pipe.send((ret,exc))
         except: pass # if they closed it, we'll get EOFError on next iteration
 def webdriverWrapper_send(pipe,cmd,args=()):
     "Send a command to a Webdriverwrapper over IPC, and either return its result or raise its exception in this process."
-    pipe.send((cmd,args))
+    try: pipe.send((cmd,args))
+    except IOError: return # already closed
     if cmd=="EOF": return pipe.close() # no return code
     ret,exc = pipe.recv()
+    if ret==exc=="INT": return pipe.close()
     if exc: raise exc
     else: return ret
 class WebdriverWrapperController:
@@ -2220,6 +2228,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             self.set_status(400) ; self.myfinish() ; return True
         if options.ssl_fork and self.request.headers.get("X-WA-FromSSLHelper",""):
             self.request.connection.isFromSslHelper = True # (it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it)
+            del self.request.headers["X-WA-FromSSLHelper"] # (don't pass it to upstream servers)
         if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, or we're on port+0 and forked SSL helper has forwarded it to us, so the host asked for must be a .0 host for https
             if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
             
