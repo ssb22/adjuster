@@ -1564,19 +1564,21 @@ def webdriverWrapper_receiver(pipe):
             pipe.send(("INT","INT"))
             return pipe.close()
         if cmd=="EOF": return pipe.close()
-        try: signal.alarm(100) # as a backup: if Selenium timeout somehow fails, don't let this process get stuck forever (can do this only when PhantomJS_multiprocess or we won't know what thread gets it)
-        except: pass # alarm() is Unix-only
-        try: ret,exc = getattr(w,cmd)(*args), None
-        except Exception, e:
-            p = find_adjuster_in_traceback()
-            if p: # see if we can add it to the message:
+        try:
+          try: signal.alarm(100) # as a backup: if Selenium timeout somehow fails, don't let this process get stuck forever (can do this only when PhantomJS_multiprocess or we won't know what thread gets it)
+          except: pass # alarm() is Unix-only
+          try: ret,exc = getattr(w,cmd)(*args), None
+          except Exception, e:
+              p = find_adjuster_in_traceback()
+              if p: # see if we can add it to the message:
                 try:
                     if type(e.args[0])==str: e.args=(repr(e.args[0])+p,) + tuple(e.args[1:]) # should work with things like httplib.BadStatusLine that are fussy about the number of arguments they get
                     else: e.args += (p,) # works with things like KeyError (although so should the above)
                 except: e.message += p # works with base Exception
-            ret,exc = None,e
-        try: signal.alarm(0)
-        except: pass # Unix-only
+              ret,exc = None,e
+          try: signal.alarm(0)
+          except: pass # Unix-only
+        except Exception, e: ret,exc = None,e # e.g. if 1st 'except' block catches a non-sigalarm exception but then the alarm goes off while it's being handled
         try: pipe.send((ret,exc))
         except: pass # if they closed it, we'll get EOFError on next iteration
 def webdriverWrapper_send(pipe,cmd,args=()):
