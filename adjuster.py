@@ -176,6 +176,8 @@ define("PhantomJS_instances",default=1,help="The number of virtual browsers to l
 define("PhantomJS_429",default=True,help="Return HTTP error 429 (too many requests) if PhantomJS queue is too long") # RFC 6585, April 2012 ('too long' = 'longer than 2*PhantomJS_instances', but in the case of --PhantomJS_reproxy this is inspected before the prefetch: once we decide to prefetch a page, we'll queue it no matter what (unless the client goes away or the prefetch fails), so the queue can get longer than 2*PhantomJS_instances if more items are in prefetch)
 define("PhantomJS_restartAfter",default=10,help="When PhantomJS is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --PhantomJS-instances (and hardware to match) you could also try --PhantomJS-restartAfter=1 (restart after every request) to work around runaway or unresponsive PhantomJS processes.") # (although that would preclude a faster response when a PhantomJS instance is already loaded with the page requested, although TODO faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load); RAM usage is a regression from 2.0.1 ?
 define("PhantomJS_restartMins",default=10,help="Restart an idle PhantomJS instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --PhantomJS-restartAfter=1.") # Setting it low does have the disadvantage of not being able to use an already-loaded page, see above
+define("PhantomJS_retry",default=True,help="If a PhantomJS fails, restart it and try the same fetch again while the remote client is still waiting")
+define("PhantomJS_fallback",default=True,help="If a PhantomJS fails (even after PhantomJS_retry if set), serve the page without Javascript processing instead of serving an error")
 define("PhantomJS_reproxy",default=True,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster on a different port. This allows PhantomJS to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a PhantomJS instance if the remote server is down.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with PhantomJS) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
 define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS_reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
 define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
@@ -547,7 +549,10 @@ def preprocessOptions():
     if options.render:
         try: import PIL
         except ImportError: errExit("render requires PIL")
-    if options.PhantomJS_multiprocess:
+    if options.PhantomJS:
+      try: from selenium import webdriver
+      except: errExit("PhantomJS requires selenium")
+      if options.PhantomJS_multiprocess:
         try: import multiprocessing # Python 2.6
         except ImportError: # can't do it then
             options.PhantomJS_multiprocess = False
@@ -1537,7 +1542,13 @@ class WebdriverWrapper:
     def current_url(self):
         try: return self.theWebDriver.current_url
         except: return "" # PhantomJS Issue #13114: unconditional reload for now
-    def get(self,url): self.theWebDriver.get(url)
+    def get(self,url):
+        self.theWebDriver.get(url)
+        if options.logDebug:
+          try:
+            for e in self.theWebDriver.get_log('browser'):
+                print "webdriver log:",e['message']
+          except: print "webdriver log exception"
     def execute_script(self,script): self.theWebDriver.execute_script(script)
     def click_id(self,clickElementID): self.theWebDriver.find_element_by_id(clickElementID).click()
     def click_xpath(self,xpath): self.theWebDriver.find_element_by_xpath(xpath).click()
@@ -1657,7 +1668,8 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     helper_thread_count += 1
     need_restart = False
     def errHandle(error,extraMsg,prefetched):
-        if prefetched: toRet = "non-webdriver page" # TODO: document that this can happen?
+        if not options.PhantomJS_fallback: prefetched=None
+        if prefetched: toRet = "non-webdriver page"
         else: toRet = "error"
         logging.error(extraMsg+" returning "+toRet)
         global webdriver_oops
@@ -1667,11 +1679,15 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
     except TimeoutException: r = errHandle("timeout","webdriver "+str(manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched)
     except:
-        logging.info("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+find_adjuster_in_traceback()+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
-        manager.renew_webdriver()
-        try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
-        except:
-            r = errHandle("error","webdriver error on "+url+" even after restart, so re-restarting and",prefetched)
+        if options.PhantomJS_retry:
+            logging.info("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+find_adjuster_in_traceback()+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
+            manager.renew_webdriver()
+            try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
+            except:
+                r = errHandle("error","webdriver error on "+url+" even after restart, so re-restarting and",prefetched)
+                need_restart = True
+        else: # no retry
+            r = errHandle("error","webdriver error on "+url+", so restarting and",prefetched)
             need_restart = True
     IOLoop.instance().add_callback(lambda *args:callback(r))
     manager.usageCount += 1
@@ -1693,14 +1709,19 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         try: manager.get(url) # waits for onload
         except: # possibly a timeout; did we get some of it?
             currentUrl = manager.current_url()
-            if not currentUrl==url: raise # didn't get any
+            if not currentUrl==url: # didn't get any
+                debuglog("webdriver %d .get exception; currentUrl=%s so re-raising" % (manager.index,repr(currentUrl)))
+                raise
             debuglog("Ignoring webdriver exception because it seems we did get something")
         # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
         debuglog("webdriver %d loaded" % manager.index)
         if options.PhantomJS_reproxy:
+          wasActive = True
           for _ in xrange(40): # up to 8+ seconds in steps of 0.2 (on top of the inital load)
             time.sleep(0.2) # unconditional first-wait hopefully long enough to catch XMLHttpRequest delayed-send, very-low-value setTimeout etc, but we don't want to wait a whole second if the page isn't GOING to make any requests (TODO: monitor the js going through the upstream proxy to see if it contains any calls to this? but we'll have to deal with PhantomJS's cache, unless set it to not cache and we cache upstream)
-            if not webdriver_inProgress[manager.index]: break # TODO: wait a tiny bit longer to allow processing of response? or check if the call to find_element_by_xpath below is synchronous with the page's js (still a race condition though)
+            active = webdriver_inProgress[manager.index]
+            if not active and not wasActive: break # TODO: wait longer than 0.2-0.4 to see if it restarts another request?
+            wasActive = active
         else: time.sleep(1) # can't do much if we're not reproxying, so just sleep 1sec and hope for the best
         currentUrl = None
     if clickElementID or clickLinkText:
@@ -1729,6 +1750,7 @@ def _get_new_webdriver(index,renewing):
     log_complaints = (index==0 and not renewing)
     from selenium import webdriver
     sa = ['--ssl-protocol=any']
+    # if options.logDebug: sa.append("--debug=true") # doesn't work: we don't see the debug output on stdout or stderr
     if options.PhantomJS_reproxy:
         sa.append('--ignore-ssl-errors=true')
         sa.append('--proxy=127.0.0.1:%d' % phantomJS_proxy_port[index])
@@ -1848,6 +1870,7 @@ rmServerHeaders = set([
     "x-host","x-http-reason", # won't necessarily be the same
     "content-security-policy","x-webkit-csp","x-content-security-policy", # sorry but if we're adjusting the site by adding our own scripts/styles we are likely to be broken by a CSP that restricts which of these we're allowed to do. (Even if we adjust the domains listed on those headers, what if our scripts rely on injecting inline code?)  Sites shouldn't *depend* on CSP to prevent XSS: it's just a belt-and-braces that works only in recent browsers.  Hopefully our added styles etc will break the XSS-introduced ones if we hit a lazy site.
     "vary", # we modify this (see code)
+    "alt-svc",
 ])
 # TODO: WebSocket (and Microsoft SM) gets the client to say 'Connection: Upgrade' with a load of Sec-WebSocket-* headers, check what Tornado does with that
 rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Encoding','X-Forwarded-Host','X-Forwarded-Port','X-Forwarded-Server','X-Forwarded-Proto','X-Request-Start','TE','Upgrade',
@@ -2144,10 +2167,10 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                     self.request.remote_ip = xff[0]
                     return
         if not options.ipTrustReal in [self.request.remote_ip,'*']: return
-        try: self.request.remote_ip = self.request.connection.confirmed_ip
+        try: self.request.remote_ip = self.request.connection.stream.confirmed_ip
         except:
             self.request.remote_ip = self.request.headers.get("X-Real-Ip",self.request.remote_ip)
-            try: self.request.connection.confirmed_ip = self.request.remote_ip # keep it for keepalive connections (X-Real-Ip is set only on the 1st request)
+            try: self.request.connection.stream.confirmed_ip = self.request.remote_ip # keep it for keepalive connections (X-Real-Ip is set only on the 1st request)
             except: pass
         try: del self.request.headers["X-Real-Ip"]
         except: pass
@@ -2213,9 +2236,6 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         # forward the request back to the original PID in
         # case it needs to do things with webdrivers etc.
         self.request.headers["X-WA-FromSSLHelper"] = "1"
-        # disable keep-alive (seems to cause trouble here, TODO: why doesn't self.request.connection stay the same object)
-        self.request.version = "HTTP/1.0"
-        if "Connection" in self.request.headers: del self.request.headers["Connection"]
         self.forwardFor("127.0.0.1:%d" % (self.WA_connectPort-1),"SSL helper")
         return True
     def handleFullLocation(self):
@@ -2229,9 +2249,9 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         elif not self.request.uri.startswith("/"): # invalid
             self.set_status(400) ; self.myfinish() ; return True
         if options.ssl_fork and self.request.headers.get("X-WA-FromSSLHelper",""):
-            self.request.connection.isFromSslHelper = True # (it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it)
+            self.request.connection.stream.isFromSslHelper = True # (it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it)
             del self.request.headers["X-WA-FromSSLHelper"] # (don't pass it to upstream servers)
-        if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, or we're on port+0 and forked SSL helper has forwarded it to us, so the host asked for must be a .0 host for https
+        if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection.stream,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, or we're on port+0 and forked SSL helper has forwarded it to us, so the host asked for must be a .0 host for https
             if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
             
     def handleSSHTunnel(self):
@@ -2565,7 +2585,7 @@ document.forms[0].i.focus()
 
     def debugExtras(self):
         r = " for "+self.request.method+" "+self.request.uri
-        if self.WA_UseSSL: r += " WA_UseSSL"
+        if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection.stream,"isFromSslHelper")): r += " WA_UseSSL"
         if self.isPjsUpstream: r += " isPjsUpstream instance "+str(self.WA_PjsIndex+self.WA_PjsStart)
         if self.isSslUpstream: r += " isSslUpstream"
         return r
@@ -3021,7 +3041,7 @@ document.forms[0].i.focus()
             # ignore response.body and put our own in
             return self.redirect(doRedirect,response.code)
         body = response.body
-        if not body: return self.myfinish() # might just be a redirect (TODO: if it's not, set type to text/html and report error?)
+        if not body or not self.canWriteBody(): return self.myfinish() # TODO: if canWriteBody() but not body and it's not just a redirect, set type to text/html and report empty?
         if do_html_process:
             # Normalise the character set
             charset2, body = get_and_remove_httpequiv_charset(body)
