@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.261 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.262 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -64,7 +64,7 @@ define("config",help="Name of the configuration file to read, if any. The proces
 define("version",help="Just print program version and exit")
 
 heading("Network listening and security settings")
-define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix); setting it to 0 disables request-processing entirely (if you want to use only the Dynamic DNS and watchdog options). For --real_proxy and related options, additional unused ports are needed immediately above this number: they listen only on localhost and are used for SSL helpers etc.") # when not in WSGI mode ('CONNECT' is not supported in WSGI mode, neither is PhantomJS_reproxy).  If running on Openshift in non-WSGI mode, you'd better not use real_proxy or PhantomJS_reproxy because Openshift won't let you open ports other than OPENSHIFT_PYTHON_PORT (TODO: find some way to multiplex everything on one port? how to authenticate our PhantomJS connections if the load-balancer makes remote connections to that port also seem to come from our IP?)
+define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix); setting it to 0 disables request-processing entirely (if you want to use only the Dynamic DNS and watchdog options). For --real_proxy and related options, additional unused ports are needed immediately above this number: they listen only on localhost and are used for SSL helpers etc.") # when not in WSGI mode ('CONNECT' is not supported in WSGI mode, neither is js_reproxy).  If running on Openshift in non-WSGI mode, you'd better not use real_proxy or js_reproxy because Openshift won't let you open ports other than OPENSHIFT_PYTHON_PORT (TODO: find some way to multiplex everything on one port? how to authenticate our JS-interpreter connections if the load-balancer makes remote connections to that port also seem to come from our IP?)
 define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.")
 define("user",help="The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.")
 define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real_proxy.")
@@ -171,20 +171,20 @@ define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate
 define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.") # e.g. example.rhcloud.com (although that does introduce the disadvantage of tying bookmarklet installations to the current URLs of the OpenShift service rather than your own domain)
 
 heading("Javascript execution options")
-define("PhantomJS",default=False,help="Use PhantomJS (via webdriver, which must be installed) to execute Javascript for users who choose \"HTML-only mode\".  If you have multiple users, beware logins etc may be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when PhantomJS is switched on, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then PhantomJS URLs may also be followed by .screenshot")
-define("PhantomJS_instances",default=1,help="The number of virtual browsers to load when PhantomJS is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
-define("PhantomJS_429",default=True,help="Return HTTP error 429 (too many requests) if PhantomJS queue is too long") # RFC 6585, April 2012 ('too long' = 'longer than 2*PhantomJS_instances', but in the case of --PhantomJS_reproxy this is inspected before the prefetch: once we decide to prefetch a page, we'll queue it no matter what (unless the client goes away or the prefetch fails), so the queue can get longer than 2*PhantomJS_instances if more items are in prefetch)
-define("PhantomJS_restartAfter",default=10,help="When PhantomJS is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --PhantomJS-instances (and hardware to match) you could also try --PhantomJS-restartAfter=1 (restart after every request) to work around runaway or unresponsive PhantomJS processes.") # (although that would preclude a faster response when a PhantomJS instance is already loaded with the page requested, although TODO faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load); RAM usage is a regression from 2.0.1 ?
-define("PhantomJS_restartMins",default=10,help="Restart an idle PhantomJS instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --PhantomJS-restartAfter=1.") # Setting it low does have the disadvantage of not being able to use an already-loaded page, see above
-define("PhantomJS_retry",default=True,help="If a PhantomJS fails, restart it and try the same fetch again while the remote client is still waiting")
-define("PhantomJS_fallback",default=True,help="If a PhantomJS fails (even after PhantomJS_retry if set), serve the page without Javascript processing instead of serving an error")
-define("PhantomJS_reproxy",default=True,help="When PhantomJS is in use, have it send its upstream requests back through the adjuster on a different port. This allows PhantomJS to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a PhantomJS instance if the remote server is down.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with PhantomJS) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
-define("PhantomJS_UA",help="Custom user-agent string for PhantomJS requests, if for some reason you don't want to use PhantomJS's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--PhantomJS_reproxy) so scripts running in PhantomJS itself will see its original user-agent.")
-define("PhantomJS_images",default=True,help="When PhantomJS is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if PhantomJS_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
-define("PhantomJS_size",default="1024x768",help="The virtual screen dimensions of the browser when PhantomJS is in use (changing it might be useful for screenshots)")
-define("PhantomJS_jslinks",default=True,help="When PhantomJS is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
-define("PhantomJS_multiprocess",default=True,help="When PhantomJS is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available. This might be more robust.")
-define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only) to stop the main event loop from being stalled by buggy SSL libraries. This costs RAM, but adding --multicore too will limit the number of helpers to one per core instead of one per port, so --ssl-fork --multicore is recommended if you want more PhantomJS instances than cores.")
+define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS or HeadlessChrome, and must have the appropriate one installed along with Selenium (and ChromeDriver if you're using HeadlessChrome).  If you have multiple users, beware logins etc may be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
+define("js_instances",default=1,help="The number of virtual browsers to load when js_interpreter is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
+define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long") # RFC 6585, April 2012 ('too long' = 'longer than 2*js_instances', but in the case of --js_reproxy this is inspected before the prefetch: once we decide to prefetch a page, we'll queue it no matter what (unless the client goes away or the prefetch fails), so the queue can get longer than 2*js_instances if more items are in prefetch)
+define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive js_interpreter processes.") # (although that would preclude a faster response when a js_interpreter instance is already loaded with the page requested, although TODO faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load); RAM usage is a regression from 2.0.1 ?
+define("js_restartMins",default=10,help="Restart an idle js_interpreter instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --js-restartAfter=1.") # Setting it low does have the disadvantage of not being able to use an already-loaded page, see above
+define("js_retry",default=True,help="If a js_interpreter fails, restart it and try the same fetch again while the remote client is still waiting")
+define("js_fallback",default=True,help="If a js_interpreter fails (even after js_retry if set), serve the page without Javascript processing instead of serving an error")
+define("js_reproxy",default=True,help="When js_interpreter is in use, have it send its upstream requests back through the adjuster on a different port. This allows js_interpreter to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a js_interpreter instance if the remote server is down.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with js_interpreter) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
+define("js_UA",help="Custom user-agent string for js_interpreter requests, if for some reason you don't want to use the JS browser's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--js_reproxy) so scripts running in the JS browser itself will see its original user-agent.")
+define("js_images",default=True,help="When js_interpreter is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if js_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
+define("js_size",default="1024x768",help="The virtual screen dimensions of the browser when js_interpreter is in use (changing it might be useful for screenshots)")
+define("js_links",default=True,help="When js_interpreter is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
+define("js_multiprocess",default=True,help="When js_interpreter is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available. This might be more robust.")
+define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only) to stop the main event loop from being stalled by buggy SSL libraries. This costs RAM, but adding --multicore too will limit the number of helpers to one per core instead of one per port, so --ssl-fork --multicore is recommended if you want more js_interpreter instances than cores.")
 
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
@@ -286,6 +286,7 @@ define("ip_force_interval",default=7*24*3600,help="Number of seconds before ip_c
 
 heading("Speedup options")
 define("useLXML",default=False,help="Use the LXML library for parsing HTML documents. This is usually faster, but it can fail if your system does not have a good installation of LXML and its dependencies. Use of LXML libraries may also result in more changes to all HTML markup: this should be harmless for browsers, but beware when using options like bodyAppendGoesAfter then you might or might not be dealing with the original HTML depending on which filters are switched on.") # (hence bodyAppendGoesAfter now takes regexps as of adjuster 0.1836) / dependencies: did have ", or if the websites you visit are badly broken" but it turns out some breakages are actually better handled by LXML than by HTMLParser, e.g. <div id=something">
+define("usepycurl",default=True,help="Use the pycurl library if available (setting this to False might save a little RAM at the expense of remote-server tolerance)")
 define("renderBlocks",default=False,help="Treat all characters rendered by the character-set renderer as \"blocks\" that are guaranteed to have the same dimensions (true for example if you are using the renderer for Chinese characters only). This is faster than checking words individually, but it may produce incorrect HEIGHT and WIDTH attributes if given a range of characters whose dimensions do differ.") # TODO: blocksRange option for if want to render some that do and some that don't? (but profile it: PIL's getsize just might turn out to be quicker than the high-level range-check code)
 define("fasterServer",help="Address:port of another instance of Web Adjuster to which we forward all traffic whenever it is available. When the other instance is not available, traffic will be handled by this one. Use for example if you have a slower always-on machine and a faster not-always-on machine and you want the slower machine to delegate to the faster machine when available. See also ipTrustReal.")
 define("ipTrustReal",help="IP address of a machine that we trust, for example a machine that is using us as fasterServer. Any traffic coming from this machine with an X-Real-Ip header will be logged as though it originated at the value of its X-Real-Ip header. Setting this to * will cause X-Real-Ip to be trusted from ANY connection.") # , which might be useful in an environment where you know the adjuster can be reached only via a proxy but the proxy's address can change; see also trust_XForwardedFor. (TODO: multiple IPs option like ip_messages?  but might need to make it ipv6 ready)
@@ -454,8 +455,8 @@ def parse_command_line(final):
         rest = tornado.options.parse_command_line()
     else:
         rest=tornado.options.parse_command_line(final=final)
-    if rest: errExit("Unrecognised command-line argument '%s'" % rest[0])
-def parse_config_file(cfg, final): # similarly
+    if rest: errExit("Unrecognised command-line argument '%s'" % rest[0]) # maybe they missed a '--' at the start of an option: don't want result to be ignored without anyone noticing
+def parse_config_file(cfg, final):
     check_config_file(cfg)
     if not tornado.options.parse_config_file.func_defaults: # Tornado 2.x
         tornado.options.parse_config_file(cfg)
@@ -489,12 +490,12 @@ def readOptions():
     parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files)
 
 class CrossProcessLogging(logging.Handler):
-    def needed(self): return (options.multicore or options.ssl_fork or (options.PhantomJS and options.PhantomJS_multiprocess)) and options.log_file_prefix # (not needed if stderr-only or if won't fork)
+    def needed(self): return (options.multicore or options.ssl_fork or (options.js_interpreter and options.js_multiprocess)) and options.log_file_prefix # (not needed if stderr-only or if won't fork)
     def init(self):
         self.multiprocessing = False
         if not self.needed(): return
         try: logging.getLogger().handlers
-        except: errExit("The logging module on this system is not suitable for --log-file-prefix with --ssl-fork or --PhantomJS-multiprocess") # because we won't know how to clear its handlers and start again in the child processes
+        except: errExit("The logging module on this system is not suitable for --log-file-prefix with --ssl-fork or --js-multiprocess") # because we won't know how to clear its handlers and start again in the child processes
         try: import multiprocessing
         except ImportError: multiprocessing = None
         self.multiprocessing = multiprocessing
@@ -549,13 +550,15 @@ def preprocessOptions():
     if options.render:
         try: import PIL
         except ImportError: errExit("render requires PIL")
-    if options.PhantomJS:
+    if options.js_interpreter:
+      global webdriver
       try: from selenium import webdriver
-      except: errExit("PhantomJS requires selenium")
-      if options.PhantomJS_multiprocess:
+      except: errExit("js_interpreter requires selenium")
+      check_jsInterpreter_valid()
+      if options.js_multiprocess:
         try: import multiprocessing # Python 2.6
         except ImportError: # can't do it then
-            options.PhantomJS_multiprocess = False
+            options.js_multiprocess = False
     create_inRenderRange_function(options.renderRange)
     if type(options.renderOmit)==type(""): options.renderOmit=options.renderOmit.split(',')
     if options.renderOmitGoAway:
@@ -584,15 +587,16 @@ def preprocessOptions():
         import tornado.process
         cores = tornado.process.cpu_count()
         if cores==1: options.multicore = False
-        elif options.PhantomJS and options.PhantomJS_instances % cores:
-            old = options.PhantomJS_instances
-            options.PhantomJS_instances += (cores - (options.PhantomJS_instances % cores))
-            sys.stderr.write("multicore: changing PhantomJS_instances %d -> %d (%d per core x %d cores)\n" % (old,options.PhantomJS_instances,options.PhantomJS_instances/cores,cores))
-    global PhantomJS_per_core
-    PhantomJS_per_core = options.PhantomJS_instances/cores
+        elif options.js_interpreter and options.js_instances % cores:
+            old = options.js_instances
+            options.js_instances += (cores - (options.js_instances % cores))
+            sys.stderr.write("multicore: changing js_instances %d -> %d (%d per core x %d cores)\n" % (old,options.js_instances,options.js_instances/cores,cores))
+    global js_per_core
+    js_per_core = options.js_instances/cores
     if options.upstream_proxy:
-        maxCurls = 30*PhantomJS_per_core
+        maxCurls = 30*js_per_core
         if options.ssl_fork: maxCurls /= 2
+        if not options.usepycurl: errExit("upstream_proxy is not compatible with --usepycurl=False")
         setupCurl(maxCurls,"upstream_proxy requires pycurl (try sudo pip install pycurl)")
         if not ':' in options.upstream_proxy: options.upstream_proxy += ":80"
         upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':') # TODO: IPv6 ?
@@ -601,7 +605,7 @@ def preprocessOptions():
             if wsgi_mode: sys.stderr.write("Can't do SSL-rewrite for upstream proxy when in WSGI mode\n")
             else: upstream_rewrite_ssl = True
         upstream_proxy_port = int(upstream_proxy_port)
-    else: setupCurl(3*PhantomJS_per_core) # and no error if not there
+    elif options.usepycurl and not options.submitPath=='/': setupCurl(3*js_per_core) # and no error if not there
     global codeChanges ; codeChanges = []
     if options.codeChanges:
       ccLines = [x for x in [x.strip() for x in options.codeChanges.split("\n")] if x and not x.startswith("#")]
@@ -611,14 +615,14 @@ def preprocessOptions():
         ccLines = ccLines[3:]
     if options.real_proxy:
         options.open_proxy=True
-        if options.browser and "lynx" in options.browser and not "I_PROMISE_NOT_TO_LYNX_DUMP_SSL" in os.environ and not "-stdin" in options.browser and ("-dump" in options.browser or "-source" in options.browser or "-mime_header" in options.browser): errExit("Don't do that.  If Lynx wants to ask you about our self-signed certificates, it'll assume the answer is No when running non-interactively, and this will cause it to fetch the page directly (not via our proxy) which could confuse you into thinking the adjuster's not working.  If you know what you're doing, put I_PROMISE_NOT_TO_LYNX_DUMP_SSL in the environment to suppress this message (but if using PhantomJS beware of redirect to SSL).  Or you can use wget --no-check-certificate -O - | lynx -dump -stdin") # TODO: could we configure Lynx to always accept when running non-interactively?
+        if options.browser and "lynx" in options.browser and not "I_PROMISE_NOT_TO_LYNX_DUMP_SSL" in os.environ and not "-stdin" in options.browser and ("-dump" in options.browser or "-source" in options.browser or "-mime_header" in options.browser): errExit("Don't do that.  If Lynx wants to ask you about our self-signed certificates, it'll assume the answer is No when running non-interactively, and this will cause it to fetch the page directly (not via our proxy) which could confuse you into thinking the adjuster's not working.  If you know what you're doing, put I_PROMISE_NOT_TO_LYNX_DUMP_SSL in the environment to suppress this message (but if using js_interpreter beware of redirect to SSL).  Or you can use wget --no-check-certificate -O - | lynx -dump -stdin") # TODO: could we configure Lynx to always accept when running non-interactively?
     if options.htmlFilter and '#' in options.htmlFilter and not len(options.htmlFilter.split('#'))+1 == len(options.htmlFilterName.split('#')): errExit("Wrong number of #s in htmlFilterName for this htmlFilter setting")
     if not options.port:
         if wsgi_mode:
             sys.stderr.write("Warning: port=0 won't work in WSGI mode, assuming 80\n")
             options.port = 80
         else:
-            options.real_proxy=options.PhantomJS_reproxy=False ; options.fasterServer=""
+            options.real_proxy=options.js_reproxy=False ; options.fasterServer=""
             options.open_proxy = True # bypass the check
     if not options.publicPort:
         options.publicPort = options.port
@@ -695,8 +699,8 @@ def preprocessOptions():
         else: allowConnectHost,allowConnectPort = sp,"22"
     if not options.default_site: options.default_site = ""
     # (so we can .split it even if it's None or something)
-    if not options.PhantomJS: options.PhantomJS_reproxy=False
-    elif not options.htmlonly_mode: errExit("PhantomJS requires htmlonly_mode")
+    if not options.js_interpreter: options.js_reproxy=False
+    elif not options.htmlonly_mode: errExit("js_interpreter requires htmlonly_mode")
 def open_upnp():
     if options.ip_query_url2=="upnp":
         global miniupnpc ; import miniupnpc # sudo pip install miniupnpc or apt-get install python-miniupnpc
@@ -742,7 +746,7 @@ def showProfile(pjsOnly=False):
         s = cStringIO.StringIO()
         pstats.Stats(theProfiler,stream=s).sort_stats('cumulative').print_stats()
         pr = "\n".join([x for x in s.getvalue().split("\n") if x and not "Ordered by" in x][:options.profile_lines])
-    if options.PhantomJS and len(webdriver_runner):
+    if options.js_interpreter and len(webdriver_runner):
         global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
         stillUsed = sum(1 for i in webdriver_runner if i.thread_running)
         maybeStuck = sum(1 for i in webdriver_runner if i.maybe_stuck)
@@ -750,8 +754,8 @@ def showProfile(pjsOnly=False):
         webdriver_maxBusy = max(webdriver_maxBusy,stillUsed)
         if pr: pr += "\n"
         elif not options.background: pr += ": "
-        if options.multicore: offset = "PhantomJS(%d-%d)" % (webdriver_runner[0].start,webdriver_runner[0].start+PhantomJS_per_core-1)
-        else: offset = "PhantomJS"
+        if options.multicore: offset = "js_interpreter(%d-%d)" % (webdriver_runner[0].start,webdriver_runner[0].start+js_per_core-1)
+        else: offset = "js_interpreter"
         if not webdriver_maxBusy: pr += offset+" idle"
         else:
             if webdriver_oops: served = "%d successes + %d failures = %d served" % (webdriver_mu-webdriver_oops,webdriver_oops,webdriver_mu)
@@ -815,11 +819,11 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy PhantomJS_reproxy ssl_fork'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
-        # (PhantomJS itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But PhantomJS_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
+    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+        # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt):
             sys.stderr.write("Warning: '%s' option may not work in WSGI mode\n" % opt)
-    options.PhantomJS_reproxy = False # for now (see above)
+    options.js_reproxy = False # for now (see above)
     if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
         options.pdfepubkeep=0 ; options.waitpage = False
         sys.stderr.write("Warning: pdfepubkeep and waitpage may not work in WSGI mode; clearing them\n") # both rely on one process doing all requests (not guaranteed in WSGI mode), and both rely on ioloop's add_timeout being FULLY functional
@@ -919,26 +923,26 @@ def open_extra_ports():
     # banner() must be kept in sync with these port numbers
     # All calls to sslSetup and maybe_sslfork_monitor must be made before ANY other calls to listen_on_port (as we don't yet want there to be an IOLoop instance when maybe_sslfork_monitor is called)
     if options.real_proxy: nextPort = sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=False),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1) # gzip=False because little point if we know the final client is on localhost.  A modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port.
-    if options.PhantomJS_reproxy:
-        # ditto for PhantomJS (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us)
-        global phantomJS_proxy_port
-        phantomJS_proxy_port = []
+    if options.js_reproxy:
+        # ditto for js_interpreter (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us)
+        global js_proxy_port
+        js_proxy_port = []
         for c in xrange(cores):
-          for i in xrange(PhantomJS_per_core):
+          for i in xrange(js_per_core):
             # PjsRequestForwarder to be done later
-            phantomJS_proxy_port.append(nextPort)
-            nextPort = sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(c*PhantomJS_per_core,i),{})],log_function=nullLog,gzip=False),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2)
-        phantomJS_proxy_port.append(nextPort-1) # highest port in use, for banner()
+            js_proxy_port.append(nextPort)
+            nextPort = sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(c*js_per_core,i),{})],log_function=nullLog,gzip=False),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2)
+        js_proxy_port.append(nextPort-1) # highest port in use, for banner()
     if upstream_rewrite_ssl:
         # This one does NOT listen on SSL: it listens on unencrypted HTTP and rewrites .0 into outgoing SSL.  But we can still run it in a different process if ssl_fork is enabled, and this will save encountering the curl_max_clients issue as well as possibly offloading *client*-side SSL to a different CPU core (TODO: could also use Tornado's multiprocessing to multi-core the client-side SSL)
         sslSetup(lambda port=upstream_proxy_port+1:listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=False),port,"127.0.0.1",False),upstream_proxy_port+2) # TODO: document upstream_proxy_port+2 needs to be reserved if options.ssl_fork and not options.upstream_proxy_host
     r = maybe_sslfork_monitor()
     if r: return r
     # NOW we can start non-sslSetup listen_on_port:
-    if options.PhantomJS_reproxy:
+    if options.js_reproxy:
         for c in xrange(cores):
-          for i in xrange(PhantomJS_per_core):
-            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(c*PhantomJS_per_core,i),{})],log_function=nullLog,gzip=False),phantomJS_proxy_port[c*PhantomJS_per_core+i],"127.0.0.1",False,core=c)
+          for i in xrange(js_per_core):
+            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(c*js_per_core,i),{})],log_function=nullLog,gzip=False),js_proxy_port[c*js_per_core+i],"127.0.0.1",False,core=c)
 
 def makeMainApplication():
     handlers = [(r"(.*)",NormalRequestForwarder(),{})]
@@ -1010,12 +1014,12 @@ def openPortsEtc():
         open_upnp() # make sure package avail if needed
         banner()
         if options.background:
-            if options.PhantomJS: test_init_webdriver()
-            unixfork() # MUST be before init_webdrivers (PhantomJS does NOT work if you start them before forking)
+            if options.js_interpreter: test_init_webdriver()
+            unixfork() # MUST be before init_webdrivers (js_interpreter does NOT work if you start them before forking)
         start_multicore()
         if not options.multicore or profile_forks_too: open_profile()
         else: open_profile_pjsOnly()
-        if options.PhantomJS: init_webdrivers(coreNo*PhantomJS_per_core,PhantomJS_per_core)
+        if options.js_interpreter: init_webdrivers(coreNo*js_per_core,js_per_core)
         if not options.multicore: setupRunAndBrowser()
         watchdog.start() # ALL cores if multicore (since only one needs to be up for us to be still working) although TODO: do we want this only if not coreNo so as to ensure Dynamic_DNS_updater is still up?
         checkServer.setup() # (TODO: if we're multicore, can we propagate to other processes ourselves instead of having each core check the fasterServer?  Low priority because how often will a multicore box need a fasterServer)
@@ -1037,14 +1041,14 @@ def banner():
     ret = [twoline_program_name]
     if options.port:
         ret.append("Listening on port %d" % options.port)
-        if (options.real_proxy or options.PhantomJS_reproxy or upstream_rewrite_ssl): ret.append("with these helpers (don't connect to them yourself):")
+        if (options.real_proxy or options.js_reproxy or upstream_rewrite_ssl): ret.append("with these helpers (don't connect to them yourself):")
         if options.real_proxy:
             if options.ssl_fork: ret.append("--real_proxy SSL helper on localhost:%d-%d" % (options.port+1,options.port+2))
             else: ret.append("--real_proxy SSL helper on localhost:%d" % (options.port+1))
-        if options.PhantomJS_reproxy:
-            ret.append("--PhantomJS_reproxy helpers on localhost:%d-%d" % (phantomJS_proxy_port[0],phantomJS_proxy_port[-1]))
+        if options.js_reproxy:
+            ret.append("--js_reproxy helpers on localhost:%d-%d" % (js_proxy_port[0],js_proxy_port[-1]))
         if upstream_rewrite_ssl:
-            if options.ssl_fork and not (options.multicore and (options.real_proxy or options.PhantomJS_reproxy)): ret.append("--upstream-proxy back-connection helper on localhost:%d-%d" % (upstream_proxy_port+1,upstream_proxy_port+2))
+            if options.ssl_fork and not (options.multicore and (options.real_proxy or options.js_reproxy)): ret.append("--upstream-proxy back-connection helper on localhost:%d-%d" % (upstream_proxy_port+1,upstream_proxy_port+2))
             else: ret.append("--upstream-proxy back-connection helper on localhost:%d" % (upstream_proxy_port+1,))
     else: ret.append("Not listening (--port=0 set)")
     if options.watchdog:
@@ -1576,7 +1580,7 @@ def webdriverWrapper_receiver(pipe):
             return pipe.close()
         if cmd=="EOF": return pipe.close()
         try:
-          try: signal.alarm(100) # as a backup: if Selenium timeout somehow fails, don't let this process get stuck forever (can do this only when PhantomJS_multiprocess or we won't know what thread gets it)
+          try: signal.alarm(100) # as a backup: if Selenium timeout somehow fails, don't let this process get stuck forever (can do this only when js_multiprocess or we won't know what thread gets it)
           except: pass # alarm() is Unix-only
           try: ret,exc = getattr(w,cmd)(*args), None
           except Exception, e:
@@ -1626,7 +1630,7 @@ class WebdriverRunner:
     def __init__(self,start=0,index=0):
         self.start,self.index = start,index
         self.thread_running = False
-        if options.PhantomJS_multiprocess:
+        if options.js_multiprocess:
             self.wrapper = WebdriverWrapperController()
         else: self.wrapper = WebdriverWrapper()
         self.renew_webdriver(True)
@@ -1668,7 +1672,7 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     helper_thread_count += 1
     need_restart = False
     def errHandle(error,extraMsg,prefetched):
-        if not options.PhantomJS_fallback: prefetched=None
+        if not options.js_fallback: prefetched=None
         if prefetched: toRet = "non-webdriver page"
         else: toRet = "error"
         logging.error(extraMsg+" returning "+toRet)
@@ -1679,7 +1683,7 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
     except TimeoutException: r = errHandle("timeout","webdriver "+str(manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched)
     except:
-        if options.PhantomJS_retry:
+        if options.js_retry:
             logging.info("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+find_adjuster_in_traceback()+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
             manager.renew_webdriver()
             try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
@@ -1691,7 +1695,7 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
             need_restart = True
     IOLoop.instance().add_callback(lambda *args:callback(r))
     manager.usageCount += 1
-    if need_restart or (options.PhantomJS_restartAfter and manager.usageCount >= options.PhantomJS_restartAfter): manager.renew_webdriver()
+    if need_restart or (options.js_restartAfter and manager.usageCount >= options.js_restartAfter): manager.renew_webdriver()
     else: manager.finishTime = time.time()
     manager.thread_running = manager.maybe_stuck = False
     IOLoop.instance().add_callback(webdriver_checkServe)
@@ -1715,10 +1719,10 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
             debuglog("Ignoring webdriver exception because it seems we did get something")
         # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
         debuglog("webdriver %d loaded" % manager.index)
-        if options.PhantomJS_reproxy:
+        if options.js_reproxy:
           wasActive = True
           for _ in xrange(40): # up to 8+ seconds in steps of 0.2 (on top of the inital load)
-            time.sleep(0.2) # unconditional first-wait hopefully long enough to catch XMLHttpRequest delayed-send, very-low-value setTimeout etc, but we don't want to wait a whole second if the page isn't GOING to make any requests (TODO: monitor the js going through the upstream proxy to see if it contains any calls to this? but we'll have to deal with PhantomJS's cache, unless set it to not cache and we cache upstream)
+            time.sleep(0.2) # unconditional first-wait hopefully long enough to catch XMLHttpRequest delayed-send, very-low-value setTimeout etc, but we don't want to wait a whole second if the page isn't GOING to make any requests (TODO: monitor the js going through the upstream proxy to see if it contains any calls to this? but we'll have to deal with js_interpreter's cache, unless set it to not cache and we cache upstream)
             active = webdriver_inProgress[manager.index]
             if not active and not wasActive: break # TODO: wait longer than 0.2-0.4 to see if it restarts another request?
             wasActive = active
@@ -1733,7 +1737,7 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
             elif not "'" in clickLinkText: manager.click_xpath(u"//a[text()='"+clickLinkText+"']")
             else: manager.click_linkText(clickLinkText) # least reliable
         time.sleep(0.2) # TODO: more? what if the click results in fetching a new URL, had we better wait for XMLHttpRequests to finish?  (loop as above but how do we know when they've started?)  currentUrl code below should at least show us the new URL even if it hasn't finished loading, and then there's a delay while the client browser is told to fetch it, but that might not be enough
-      except: debuglog("PhantomJS_jslinks find_element exception ignored",False)
+      except: debuglog("js_links find_element exception ignored",False)
       currentUrl = None
     if currentUrl == None: # we need to ask for it again
         currentUrl = manager.current_url()
@@ -1746,29 +1750,73 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % manager.current_url().replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+manager.current_url()),302)
     if asScreenshot: return wrapResponse(manager.getpng(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
     else: return wrapResponse(get_and_remove_httpequiv_charset(manager.getu8())[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
-def _get_new_webdriver(index,renewing):
+def check_jsInterpreter_valid():
+    if options.js_interpreter and not options.js_interpreter in ["PhantomJS","HeadlessChrome"]: errExit("js_interpreter (if set) must be PhantomJS or HeadlessChrome")
+    # TODO: add HeadlessFirefox ? (firefox with "-headless" as an arg, 56+) but similar issues with SSL certificates as with HeadlessChrome:
+    if options.js_reproxy and options.js_interpreter=="HeadlessChrome": errExit("HeadlessChrome currently requires --js_reproxy=False due to Chromium bug 721739 (you'll still need to use PhantomJS for production)") # (unless you don't ever want to fetch any SSL, or TODO: upstream-proxy rewrite SSL to non-SSL w/out changing domain (http://domain:443 or sthg??) but it could go wrong if miss some rewrites)
+def get_new_webdriver(index,renewing=False):
+    if options.js_interpreter == "HeadlessChrome":
+        return get_new_HeadlessChrome(index,renewing)
+    else: return get_new_PhantomJS(index,renewing)
+def get_new_HeadlessChrome(index,renewing):
     log_complaints = (index==0 and not renewing)
-    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    opts = Options()
+    opts.add_argument("--headless")
+    opts.add_argument("--disable-gpu")
+    if options.js_reproxy:
+        opts.add_argument("--proxy-server=127.0.0.1:%d" % js_proxy_port[index])
+        opts.add_argument("--allow-insecure-localhost") # TODO: does this work for proxies, not just localhost as a domain? and requires Chrome 62+ (not 59)
+        # opts.add_argument("--ignore-certificate-errors") # dropped before headless started in Chrome 59?
+    elif options.upstream_proxy: opts.add_argument('--proxy-server='+options.upstream_proxy)
+    if options.logDebug: opts.add_argument("--verbose")
+    if options.js_UA and not options.js_UA.startswith("*"): opts.add_argument("--user-agent="+options.js_UA)
+    if not options.js_images: opts.add_experimental_option("prefs",{"profile.managed_default_content_settings.images":2})
+    # TODO: do we need to disable Javascript's ability to open new windows and tabs, plus target="_blank" etc, especially if using clickElementID?
+    if options.via and not options.js_reproxy and log_complaints: sys.stderr.write("Warning: --via ignored when running HeadlessChrome without --js-reproxy\n") # unless you want to implement a Chrome extension to do it
+    if "x" in options.js_size:
+        w,h = options.js_size.split("x",1)
+    else: w,h = options.js_size,768
+    try: w,h = int(w),int(h)
+    except: w,h = 0,0
+    if not (w and h):
+        if log_complaints: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.js_size)
+        w,h = 1024,768
+    opts.add_argument("--window-size=%d,%d" % (w,h))
+    debuglog("Instantiating webdriver.Chrome")
+    while True:
+        try: p = webdriver.Chrome(chrome_options=opts)
+        except:
+            if log_complaints: raise
+            logging.error("Unhandled exception when instantiating webdriver %d, retrying in 5sec" % index)
+            time.sleep(5) ; p = None
+        if p: break
+    debuglog("webdriver.Chrome instantiated")
+    try: p.set_page_load_timeout(30) # TODO: configurable?
+    except: logging.info("Couldn't set HeadlessChrome page load timeout")
+    return p
+def _get_new_PhantomJS(index,renewing):
+    log_complaints = (index==0 and not renewing)
     sa = ['--ssl-protocol=any']
     # if options.logDebug: sa.append("--debug=true") # doesn't work: we don't see the debug output on stdout or stderr
-    if options.PhantomJS_reproxy:
+    if options.js_reproxy:
         sa.append('--ignore-ssl-errors=true')
-        sa.append('--proxy=127.0.0.1:%d' % phantomJS_proxy_port[index])
+        sa.append('--proxy=127.0.0.1:%d' % js_proxy_port[index])
     elif options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
     try: from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
     except:
         if log_complaints:
             sys.stderr.write("Your Selenium installation is too old to set PhantomJS custom options.\n")
-            if options.PhantomJS_reproxy: sys.stderr.write("This means --PhantomJS_reproxy won't work.") # because we can't set the UA string or custom headers
-        if options.PhantomJS_reproxy:
+            if options.js_reproxy: sys.stderr.write("This means --js_reproxy won't work.") # because we can't set the UA string or custom headers
+        if options.js_reproxy:
             sa.pop()
             if options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
         return webdriver.PhantomJS(service_args=sa)
     dc = dict(DesiredCapabilities.PHANTOMJS)
-    if options.PhantomJS_UA and not options.PhantomJS_UA.startswith("*"): dc["phantomjs.page.settings.userAgent"]=options.PhantomJS_UA
-    if not options.PhantomJS_images: dc["phantomjs.page.settings.loadImages"]=False
+    if options.js_UA and not options.js_UA.startswith("*"): dc["phantomjs.page.settings.userAgent"]=options.js_UA
+    if not options.js_images: dc["phantomjs.page.settings.loadImages"]=False
     dc["phantomjs.page.settings.javascriptCanOpenWindows"]=dc["phantomjs.page.settings.javascriptCanCloseWindows"]=False # TODO: does this cover target="_blank" in clickElementID etc (which could have originated via DOM manipulation, so stripping them on the upstream proxy is insufficient; close/restart the driver every so often?)
-    if options.via and not options.PhantomJS_reproxy: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?) (don't have to worry about this if PhantomJS_reproxy)
+    if options.via and not options.js_reproxy: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?) (don't have to worry about this if js_reproxy)
     debuglog("Instantiating webdriver.PhantomJS "+' '.join(sa))
     while True:
         try: p = webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
@@ -1779,25 +1827,25 @@ def _get_new_webdriver(index,renewing):
         if p: break
     debuglog("webdriver.PhantomJS instantiated")
     return p
-def get_new_webdriver(index,renewing=False):
-    wd = _get_new_webdriver(index,renewing)
+def get_new_PhantomJS(index,renewing=False):
+    wd = _get_new_PhantomJS(index,renewing)
     log_complaints = (index==0 and not renewing)
-    if log_complaints and not options.PhantomJS_reproxy:
+    if log_complaints and not options.js_reproxy:
      try: is_v2 = wd.capabilities['version'].startswith("2.")
      except: is_v2 = False
-     if is_v2: sys.stderr.write("\nWARNING: You may be affected by PhantomJS issue #13114.\nRelative links may be wrong after a redirect if the site sets Content-Security-Policy.\nTry --PhantomJS_reproxy, or downgrade your PhantomJS to version 1.9.8\n\n")
-    if "x" in options.PhantomJS_size:
-        w,h = options.PhantomJS_size.split("x",1)
-    else: w,h = options.PhantomJS_size,768
+     if is_v2: sys.stderr.write("\nWARNING: You may be affected by PhantomJS issue #13114.\nRelative links may be wrong after a redirect if the site sets Content-Security-Policy.\nTry --js_reproxy, or downgrade your PhantomJS to version 1.9.8\n\n")
+    if "x" in options.js_size:
+        w,h = options.js_size.split("x",1)
+    else: w,h = options.js_size,768
     try: w,h = int(w),int(h)
     except: w,h = 0,0
     if not (w and h):
-        if log_complaints: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.PhantomJS_size)
+        if log_complaints: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.js_size)
         w,h = 1024,768
     try: wd.set_window_size(w, h)
-    except: logging.info("Couldn't set webdriver window size")
+    except: logging.info("Couldn't set PhantomJS window size")
     try: wd.set_page_load_timeout(30) # TODO: configurable?
-    except: logging.info("Couldn't set webdriver page load timeout")
+    except: logging.info("Couldn't set PhantomJS page load timeout")
     return wd
 webdriver_runner = [] ; webdriver_prefetched = []
 webdriver_via = []
@@ -1811,14 +1859,14 @@ def test_init_webdriver():
 def init_webdrivers(start,N):
     informing = not options.background and not start and not (options.multicore and options.ssl_fork) # (if ssl_fork, we don't want the background 'starting N processes' messages to be interleaved with this)
     if informing:
-        sys.stderr.write("Starting %d webdriver%s... " % (options.PhantomJS_instances,plural(options.PhantomJS_instances)))
+        sys.stderr.write("Starting %d webdriver%s... " % (options.js_instances,plural(options.js_instances)))
     for i in xrange(N):
         webdriver_runner.append(WebdriverRunner(start,len(webdriver_runner)))
         webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
         webdriver_via.append(None)
     def quit_wd(*args):
-      if informing: sys.stderr.write("Quitting %d webdriver%s... " % (options.PhantomJS_instances,plural(options.PhantomJS_instances)))
+      if informing: sys.stderr.write("Quitting %d webdriver%s... " % (options.js_instances,plural(options.js_instances)))
       try:
         for i in webdriver_runner:
             try: i.quit_webdriver()
@@ -1826,7 +1874,7 @@ def init_webdrivers(start,N):
       except: pass
       if informing: sys.stderr.write("done\n")
     import atexit ; atexit.register(quit_wd)
-    if options.PhantomJS_restartMins and not options.PhantomJS_restartAfter==1: IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
+    if options.js_restartMins and not options.js_restartAfter==1: IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
     if informing: sys.stderr.write("done\n")
 webdriver_maxBusy = 0
 def webdriver_checkServe(*args):
@@ -1844,15 +1892,15 @@ def webdriver_checkServe(*args):
             webdriver_via[i]=via
             webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback)
             global webdriver_mu ; webdriver_mu += 1
-    if webdriver_queue: debuglog("All of this core's PhantomJS_instances are busy; %d items still in queue" % len(webdriver_queue))
+    if webdriver_queue: debuglog("All of this core's js_instances are busy; %d items still in queue" % len(webdriver_queue))
 def webdriver_checkRenew(*args):
     for i in webdriver_runner:
-        if not i.thread_running and i.usageCount and i.finishTime + options.PhantomJS_restartMins < time.time(): i.renew_webdriver()
+        if not i.thread_running and i.usageCount and i.finishTime + options.js_restartMins < time.time(): i.renew_webdriver()
     IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
 def webdriver_fetch(url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
     if tooLate(): return # probably webdriver_queue overload (which will also be logged)
     elif prefetched and prefetched.code >= 500: return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something
-    elif wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do PhantomJS anyway; where else might we have threaded wsgi?  PhantomJS really is better run in non-wsgi mode anyway, so can PhantomJS_reproxy)
+    elif wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do js_interpreter anyway; where else might we have threaded wsgi?  js_interpreter really is better run in non-wsgi mode anyway, so can js_reproxy)
     webdriver_queue.append((url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate))
     global webdriver_lambda ; webdriver_lambda += 1
     debuglog("webdriver_queue len=%d after adding %s" % (len(webdriver_queue),url))
@@ -1942,9 +1990,9 @@ class RequestForwarder(RequestHandler):
 
     def checkViewsource(self):
         # if URI ends with .viewsource, return True and take it out of the URI and all arguments (need to do this before further processing)
-        # - and in PhantomJS mode, recognise .screenshot too and return "screenshot", also (webdriver_click_code + .*)
+        # - and in js_interpreter mode, recognise .screenshot too and return "screenshot", also (webdriver_click_code + .*)
         toRemove = ret = None
-        if options.PhantomJS and options.PhantomJS_jslinks and webdriver_click_code in self.request.uri:
+        if options.js_interpreter and options.js_links and webdriver_click_code in self.request.uri:
             toRemove = self.request.uri[self.request.uri.index(webdriver_click_code):]
             ret2 = urllib.unquote(toRemove[len(webdriver_click_code):])
         elif not options.viewsource: return False
@@ -1953,7 +2001,7 @@ class RequestForwarder(RequestHandler):
             if toRemove: ret2 = ret2[:-len(".viewsource")]
             else: toRemove = ".viewsource"
             ret = True
-        elif options.PhantomJS and self.request.uri.endswith(".screenshot"):
+        elif options.js_interpreter and self.request.uri.endswith(".screenshot"):
             if toRemove: ret2 = ret2[:-len(".screenshot")]
             else: toRemove = ".screenshot",
             ret = "screenshot"
@@ -2024,7 +2072,7 @@ class RequestForwarder(RequestHandler):
             debuglog("Rerouting CONNECT to "+host+":"+str(port))
         def callback(*args):
           client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError("upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
-          if self.isPjsUpstream: clientErr=None # we won't mind if our PhantomJS client gives up on an upstream fetch
+          if self.isPjsUpstream: clientErr=None # we won't mind if our js_interpreter client gives up on an upstream fetch
           else: clientErr = "client "+self.request.remote_ip+self.debugExtras()
           upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError(clientErr,client,data))
           try: client.write('HTTP/1.0 200 Connection established\r\n\r\n')
@@ -2203,10 +2251,10 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 self.setCookie_with_dots(htmlmode_cookie_name+"="+val)
     def htmlOnlyMode(self,isProxyRequest=False):
         if not options.htmlonly_mode: return False
-        if hasattr(self.request,"old_cookie"): ck = self.request.old_cookie # so this can be called between change_request_headers and restore_request_headers, e.g. at the start of send_request for PhantomJS mode
+        if hasattr(self.request,"old_cookie"): ck = self.request.old_cookie # so this can be called between change_request_headers and restore_request_headers, e.g. at the start of send_request for js_interpreter mode
         else: ck = ';'.join(self.request.headers.get_list("Cookie"))
         return htmlmode_cookie_name+"=1" in ck or self.auto_htmlOnlyMode(isProxyRequest)
-    def auto_htmlOnlyMode(self,isProxyRequest): return options.PhantomJS and (isProxyRequest or (not options.wildcard_dns and not "" in options.default_site.split("/")))
+    def auto_htmlOnlyMode(self,isProxyRequest): return options.js_interpreter and (isProxyRequest or (not options.wildcard_dns and not "" in options.default_site.split("/")))
     
     def handle_URLbox_query(self,v):
         self.set_htmlonly_cookie()
@@ -2624,7 +2672,7 @@ document.forms[0].i.focus()
         if self.forwardToOtherPid(): return
         if self.handleFullLocation(): return # if returns here, URL is invalid; if not, handleFullLocation has 'normalised' self.request.host and self.request.uri
         if self.isPjsUpstream:
-            if options.PhantomJS_UA and options.PhantomJS_UA.startswith("*"): self.request.headers["User-Agent"] = options.PhantomJS_UA[1:]
+            if options.js_UA and options.js_UA.startswith("*"): self.request.headers["User-Agent"] = options.js_UA[1:]
             webdriver_inProgress[self.WA_PjsIndex].add(self.request.uri)
         elif not self.isSslUpstream:
             if self.handleSSHTunnel(): return
@@ -2830,7 +2878,7 @@ document.forms[0].i.focus()
         if not body: body = None # required by some Tornado versions
         if self.isSslUpstream: ph,pp = None,None
         else: ph,pp = upstream_proxy_host,upstream_proxy_port
-        if options.PhantomJS and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and not self.request.method.lower()=="head":
+        if options.js_interpreter and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and not self.request.method.lower()=="head":
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
             if body or self.request.method.lower()=="post":
@@ -2851,15 +2899,15 @@ document.forms[0].i.focus()
                   try: origReqInFlight.remove(id(self))
                   except: pass
               return r
-            if options.PhantomJS_429 and len(webdriver_queue) >= 2*options.PhantomJS_instances: # TODO: do we want to allow for 'number of requests currently in prefetch stage' as well?  (but what if we're about to get a large number of prefetch-failures anyway?)  + update comment by define("PhantomJS_429") above
+            if options.js_429 and len(webdriver_queue) >= 2*options.js_instances: # TODO: do we want to allow for 'number of requests currently in prefetch stage' as well?  (but what if we're about to get a large number of prefetch-failures anyway?)  + update comment by define("js_429") above
                 try: self.set_status(429,"Too many requests")
                 except: self.set_status(429)
-                self.add_header("Retry-After",str(10*len(webdriver_queue)/options.PhantomJS_instances)) # TODO: increase this if multiple clients?
+                self.add_header("Retry-After",str(10*len(webdriver_queue)/options.js_instances)) # TODO: increase this if multiple clients?
                 if self.canWriteBody(): self.write("Too many requests (HTTP 429)")
                 if not self.request.remote_ip in options.ipNoLog: logging.error("Returning HTTP 429 (too many requests) for "+self.urlToFetch+" to "+self.request.remote_ip)
                 self.request.suppress_logging = True
                 self.myfinish() ; return
-            if options.PhantomJS_reproxy:
+            if options.js_reproxy:
               def prefetch():
                 # prefetch the page, don't tie up a PJS until
                 # we have the page in hand
@@ -2876,13 +2924,13 @@ document.forms[0].i.focus()
                                     prefetched_response,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
-                        lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True),tooLate),
+                        lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,js=True),tooLate),
                   follow_redirects=False)
               def prefetch_when_ready(t0):
-                if len(webdriver_queue) < 2*options.PhantomJS_instances: return prefetch()
+                if len(webdriver_queue) < 2*options.js_instances: return prefetch()
                 # If too many PJS instances already tied up,
                 # don't start the prefetch yet
-                again = time.time()+1 # TODO: in extreme cases this can result in hundreds or thousands of calls to prefetch_when_ready per second; need a second queue? (tooLate() should mitigate it if client goes away, + won't get here unless --PhantomJS_429=False)
+                again = time.time()+1 # TODO: in extreme cases this can result in hundreds or thousands of calls to prefetch_when_ready per second; need a second queue? (tooLate() should mitigate it if client goes away, + won't get here unless --js_429=False)
                 global last_Qoverload_time, Qoverload_max
                 try: last_Qoverload_time
                 except: last_Qoverload_time=Qoverload_max=0
@@ -2896,9 +2944,9 @@ document.forms[0].i.focus()
                 webdriver_fetch(self.urlToFetch,None,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
-                        lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,phantomJS=True),tooLate)
+                        lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,js=True),tooLate)
         else:
-            if options.PhantomJS and self.isPjsUpstream and webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
+            if options.js_interpreter and self.isPjsUpstream and webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
             httpfetch(self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # Tornado's default is usually something like 20 seconds each; be more generous to slow servers (TODO: customise?)
                   proxy_host=ph, proxy_port=pp,
@@ -2910,7 +2958,7 @@ document.forms[0].i.focus()
         # (Don't have to worry about auth_username/auth_password: should just work by passing on the headers)
         # TODO: header_callback (run with each header line as it is received, and headers will be empty in the final response); streaming_callback (run with each chunk of data as it is received, and body and buffer will be empty in the final response), but how to abort a partial transfer if we realise we don't want it (e.g. large file we don't want to modify on site that doesn't mind client being redirected there directly)
 
-    def doResponse(self,response,converterFlags,viewSource,isProxyRequest,phantomJS=False):
+    def doResponse(self,response,converterFlags,viewSource,isProxyRequest,js=False):
         curlFinished()
         debuglog("doResponse"+self.debugExtras()+" isProxyRequest="+repr(isProxyRequest))
         self.restore_request_headers()
@@ -2939,9 +2987,9 @@ document.forms[0].i.focus()
         if viewSource:
             def h2html(h): return "<br>".join("<b>"+txt2html(k)+"</b>: "+txt2html(v) for k,v in sorted(h.get_all()))
             r = "<html><head><title>Source of "+ampEncode(self.urlToFetch)+" - Web Adjuster</title></head><body>"
-            if not phantomJS: r += "<a href=\"#1\">Headers sent</a> | <a href=\"#2\">Headers received</a> | <a href=\"#3\">Page source</a> | <a href=\"#4\">Bottom</a>"
+            if not js: r += "<a href=\"#1\">Headers sent</a> | <a href=\"#2\">Headers received</a> | <a href=\"#3\">Page source</a> | <a href=\"#4\">Bottom</a>"
             r += "<br>Fetched "+ampEncode(self.urlToFetch)
-            if phantomJS: r += " <ul><li>using PhantomJS (see <a href=\"%s.screenshot\">screenshot</a>)</ul>" % self.urlToFetch
+            if js: r += " <ul><li>using js_interpreter (see <a href=\"%s.screenshot\">screenshot</a>)</ul>" % self.urlToFetch
             else: r += "<h2><a name=\"1\"></a>Headers sent</h2>"+h2html(self.request.headers)+"<a name=\"2\"></a><h2>Headers received</h2>"+h2html(response.headers)+"<a name=\"3\"></a>"
             return self.doResponse2(r+"<h2>Page source</h2>"+txt2html(response.body)+"<hr><a name=\"4\"></a>This is "+serverName_html,True,False)
         headers_to_add = []
@@ -3101,7 +3149,7 @@ document.forms[0].i.focus()
             return
         if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host,https=self.urlToFetch.startswith("https")) # first, so filters to run and scripts to add can mention new domains without these being redirected back
         # Must also do things like 'delete' BEFORE the filters, especially if lxml is in use and might change the code so the delete patterns aren't recognised.  But do JS process BEFORE delete, as might want to pick up on something that was there originally.  (Must do it AFTER domain process though.)
-        if self.isPjsUpstream and do_html_process: # add a CSS rule to help with PhantomJS screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
+        if self.isPjsUpstream and do_html_process: # add a CSS rule to help with js_interpreter screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
             i = htmlFind(body,"<head")
             if i==-1: i=htmlFind(body,"<html")
             if not i==-1: i = body.find('>',i)+1
@@ -3118,7 +3166,7 @@ document.forms[0].i.focus()
           if self.htmlOnlyMode(isProxyRequest):
               if cookie_host:
                   adjustList.append(RewriteExternalLinks("http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?"+adjust_domain_cookieName+"=0&pr=on&q="))
-              if options.PhantomJS_jslinks:
+              if options.js_links:
                   if isProxyRequest: url = self.urlToFetch
                   else: url = domain_process(self.urlToFetch,cookie_host,True,self.urlToFetch.startswith("https"))
                   adjustList.append(AddClickCodes(url))
@@ -3191,7 +3239,7 @@ document.forms[0].i.focus()
         if self.canWriteBody(): self.write(body)
         self.myfinish()
     def sendHead(self,forPjs=False):
-        # forPjs is for options.PhantomJS_reproxy: we've identified the request as coming from PhantomJS and being its main document (not images etc).  Just check it's not a download link.
+        # forPjs is for options.js_reproxy: we've identified the request as coming from js_interpreter and being its main document (not images etc).  Just check it's not a download link.
         # else for options.redirectFiles: it looks like we have a "no processing necessary" request that we can tell the browser to get from the real site.  But just confirm it's not a mis-named HTML document.
         body = self.request.body
         if not body: body = None
@@ -3223,7 +3271,7 @@ document.forms[0].i.focus()
             if not reason: return self.sendRequest([False]*4,False,True,follow_redirects=False)
             self.set_status(200)
             self.add_header("Content-Type","text/html")
-            if self.canWriteBody(): self.write(htmlhead()+"PhantomJS cannot load "+ampEncode(self.urlToFetch)+" as "+reason+"</body></html>") # TODO: provide a direct link if the original request wasn't a proxy request?  (or even if it was a proxy request, give webdriver a placeholder (so it can still handle cookies etc) and bypass it with the actual response body?  but don't expect to load non-HTML files via PhantomJS: its currentUrl will be unchanged, sometimes from about:blank)
+            if self.canWriteBody(): self.write(htmlhead()+"js_interpreter cannot load "+ampEncode(self.urlToFetch)+" as "+reason+"</body></html>") # TODO: provide a direct link if the original request wasn't a proxy request?  (or even if it was a proxy request, give webdriver a placeholder (so it can still handle cookies etc) and bypass it with the actual response body?  but don't expect to load non-HTML files via PhantomJS: its currentUrl will be unchanged, sometimes from about:blank)
             self.myfinish() ; return
         might_need_processing_after_all = True
         if response.code < 400: # this 'if' is a workaround for content-distribution networks that misconfigure their servers to serve Referrer Denied messages as HTML without changing the Content-Type from the original file: if the code is >=400 then assume might_need_processing_after_all is True no matter what the Content-Type is
@@ -3316,8 +3364,8 @@ def MakeRequestForwarder(useSSL,connectPort,isPJS=False,start=0,index=0):
     return MyRequestForwarder # the class, not an instance
 def NormalRequestForwarder(): return MakeRequestForwarder(False,options.port+1)
 def SSLRequestForwarder(): return MakeRequestForwarder(True,options.port+1)
-def PjsRequestForwarder(start,index): return MakeRequestForwarder(False,phantomJS_proxy_port[start+index]+1,True,start,index)
-def PjsSslRequestForwarder(start,index): return MakeRequestForwarder(True,phantomJS_proxy_port[start+index]+1,True,start,index)
+def PjsRequestForwarder(start,index): return MakeRequestForwarder(False,js_proxy_port[start+index]+1,True,start,index)
+def PjsSslRequestForwarder(start,index): return MakeRequestForwarder(True,js_proxy_port[start+index]+1,True,start,index)
 
 class UpSslRequestForwarder(RequestForwarder):
     "A RequestForwarder for running upstream of upstream_proxy, rewriting its .0 requests back into SSL requests"
@@ -3771,7 +3819,7 @@ class StripJSEtc:
         if tag=="img" and not options.htmlonly_css:
             self.parser.addDataFromTagHandler(dict(attrs).get("alt",""),1)
             return True
-        elif tag=='script' or (tag=="noscript" and options.PhantomJS) or (tag=='style' and not options.htmlonly_css): # (in PhantomJS mode we want to suppress 'noscript' alternatives to document.write()s or we'll get both; anyway some versions of PhantomJS will ampersand-encode anything inside 'noscript' when we call find_element_by_xpath)
+        elif tag=='script' or (tag=="noscript" and options.js_interpreter) or (tag=='style' and not options.htmlonly_css): # (in js_interpreter mode we want to suppress 'noscript' alternatives to document.write()s or we'll get both; anyway some versions of PhantomJS will ampersand-encode anything inside 'noscript' when we call find_element_by_xpath)
             self.suppressing = True ; return True
         elif tag=="body":
             if not self.transparent:
@@ -3787,7 +3835,7 @@ class StripJSEtc:
         if tag=="head":
             self.parser.addDataFromTagHandler('<meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head>',True) # TODO: document that htmlonly_mode adds this; might also want to have it when CSS is on
             return True # suppress </head> because we've done it ourselves in the above (had to or addDataFromTagHandler would have added it AFTER the closing tag)
-        if tag=='script' or (tag=='style' and not options.htmlonly_css) or (tag=="noscript" and options.PhantomJS):
+        if tag=='script' or (tag=='style' and not options.htmlonly_css) or (tag=="noscript" and options.js_interpreter):
             self.suppressing = False ; return True
         elif tag=='noscript': return True
         else: return self.suppressing
@@ -3871,7 +3919,7 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
             self.out.append(data)
             self.lastStart = dataStart+len(oldData)
         def handle_entityref(self,name):
-            if any(l.handle_data('-')=="" for l in adjustList): # suppress entities when necessary, e.g. when suppressing noscript in PhantomJS-processed pages
+            if any(l.handle_data('-')=="" for l in adjustList): # suppress entities when necessary, e.g. when suppressing noscript in js_interpreter-processed pages
                 dataStart = self.getBytePos()
                 self.out.append(htmlStr[self.lastStart:dataStart])
                 self.lastStart = dataStart+len(name)+2
