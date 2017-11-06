@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.627 (c) 2012-17 Silas S. Brown"
+program_name = "Annotator Generator v0.628 (c) 2012-17 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -85,6 +85,10 @@ parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz or .bz2 file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
+parser.add_option("--glossmiss-omit",
+                  action="store_true",
+                  default=False,
+                  help="Omit rules containing any word not mentioned in glossfile.  Might be useful if you want to train on a text that uses proprietary terms and don't want to accidentally 'leak' those terms.  Words may also be listed in glossfile with an empty gloss field to indicate that no gloss is available but rules using this word needn't be omitted.")
 
 parser.add_option("--manualrules",
                   help="Filename of an optional text file (or compressed .gz or .bz2 file) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
@@ -3084,7 +3088,7 @@ else:
   outLang_true = "1"
   outLang_false = "0"
 
-def matchingAction(rule,glossDic,glossMiss):
+def matchingAction(rule,glossDic,glossMiss,whitelist):
   # called by addRule, returns (actionList, did-we-actually-annotate).  Also applies reannotator and compression (both of which will require 2 passes if present)
   action = []
   gotAnnot = False
@@ -3092,6 +3096,8 @@ def matchingAction(rule,glossDic,glossMiss):
     wStart = w.index(markupStart)+len(markupStart)
     wEnd = w.index(markupMid,wStart)
     text_unistr = w[wStart:wEnd]
+    if whitelist and not text_unistr in whitelist:
+      return text_unistr+" not whitelisted",None
     mStart = wEnd+len(markupMid)
     annotation_unistr = w[mStart:w.index(markupEnd,mStart)]
     if mreverse: text_unistr,annotation_unistr = annotation_unistr,text_unistr
@@ -3138,14 +3144,18 @@ def matchingAction(rule,glossDic,glossMiss):
 
 def outputParser(rulesAndConds):
     sys.stderr.write("Generating byte cases...\n")
-    glossDic = {} ; glossMiss = set()
+    glossDic = {} ; glossMiss = set() ; whitelist = set()
     if glossfile:
         for l in openfile(glossfile).xreadlines():
             if not l.strip(): continue
             l=l.decode(incode) # TODO: glosscode ?
             try: word,annot,gloss = l.split("\t",2)
-            except: sys.stderr.write("Gloss: Ignoring incorrectly-formatted line "+l.strip()+"\n")
+            except:
+              word = l.split("\t",1)[0] ; annot = gloss = ""
+              if glossmiss_omit: pass # they can list words without glosses; no error if missing \t
+              else: sys.stderr.write("Gloss: Ignoring incorrectly-formatted line "+l.strip()+"\n")
             word,annot,gloss = word.strip(),annot.strip(),gloss.strip()
+            if glossmiss_omit and word: whitelist.add(word)
             if not word or not gloss: continue
             if annot: glossDic[(word,annot)] = gloss
             else: glossDic[word] = gloss
@@ -3159,8 +3169,8 @@ def outputParser(rulesAndConds):
         byteSeq_to_action_dict['\n'] = [(newline_action,[])]
     def addRule(rule,conds,byteSeq_to_action_dict,manualOverride=False):
         byteSeq = markDown(rule).encode(outcode)
-        action,gotAnnot = matchingAction(rule,glossDic,glossMiss)
-        if not gotAnnot: return # probably some spurious o("{","") rule that got in due to markup corruption
+        action,gotAnnot = matchingAction(rule,glossDic,glossMiss,whitelist)
+        if not gotAnnot: return # not whitelisted, or some spurious o("{","") rule that got in due to markup corruption
         if manualOverride or not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
         if not data_driven: action = ' '.join(action)
         byteSeq_to_action_dict[byteSeq].append((action,conds))
