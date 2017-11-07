@@ -417,7 +417,7 @@ def protocolAndHost(realHost):
     # (the dot will be represented as a hyphen by dedot/redot,
     # but some servers e.g. GAE can't cope with any part of the
     # wildcard domain ending with a hyphen, so add the 0;
-    # TODO: what about fetching from IP addresses)
+    # TODO: what about fetching from IP addresses, although it's rare to get a server with IP ending .0 because it used to represent "the network")
     if realHost.endswith(".0"): return "https://",realHost[:-2]
     else: return "http://",realHost
 def protocolWithHost(realHost):
@@ -2101,7 +2101,7 @@ class RequestForwarder(RequestHandler):
         except: pass
 
     def redirect(self,redir,status=301):
-        debuglog("redirect ("+repr(status)+" to "+repr(redir)+")"+self.debugExtras())
+        debuglog("Serving redirect ("+repr(status)+" to "+repr(redir)+")"+self.debugExtras())
         self.set_status(status)
         for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # so redirect() can be called AFTER a site's headers are copied in
         self.add_header("Location",redir)
@@ -2633,6 +2633,7 @@ document.forms[0].i.focus()
 
     def debugExtras(self):
         r = " for "+self.request.method+" "+self.request.uri
+        if not self.request.uri.startswith("http"): r += " host="+str(self.request.host)
         if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection.stream,"isFromSslHelper")): r += " WA_UseSSL"
         if self.isPjsUpstream: r += " isPjsUpstream instance "+str(self.WA_PjsIndex+self.WA_PjsStart)
         if self.isSslUpstream: r += " isSslUpstream"
@@ -2772,8 +2773,7 @@ document.forms[0].i.focus()
                 self.request.uri = self.request.uri[:-len(suffix)]
                 converterFlags.append(True)
             else: converterFlags.append(False)
-        if upstream_rewrite_ssl and not self.isSslUpstream:
-            protocol = "http://" # keep the .0 in and call protocolAndHost again on the isSslUpstream pass
+        if upstream_rewrite_ssl and not self.isSslUpstream and not (options.js_interpreter and not self.isPjsUpstream): protocol = "http://" # keep the .0 in and call protocolAndHost again on the isSslUpstream pass
         else: protocol,realHost = protocolAndHost(realHost)
         self.change_request_headers(realHost,isProxyRequest)
         self.urlToFetch = protocol+self.request.headers["Host"]+self.request.uri
@@ -3011,15 +3011,11 @@ document.forms[0].i.focus()
                   "access-control-allow-origin", # better rewrite this for JSON responses to scripts that are used on a site's other domains
                   "link", # RFC 5988 equivalent to link elements in body; includes preloads; might want to adjust the resulting CSS or scripts (especially if the server won't support a fetch from a browser that supplies us as Referer)
                   # "x-associated-content" # see comment in rmServerHeaders
-                  ]: value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"))
+                  ]: value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"),isProxyRequest=isProxyRequest,isSslUpstream=self.isSslUpstream)
           elif name.lower()=="location": # TODO: do we need to delete this header if response.code not in [301,302,303,307] ?
             old_value_1 = value # before domain_process
-            if not isProxyRequest:
-                value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"))
-                offsite = (value==old_value_1 and (value.startswith("http://") or value.startswith("https://"))) # i.e. domain_process didn't change it, and it's not relative
-            else: # isProxyRequest
-                offsite = False # proxy requests are never "offsite"
-                if upstream_rewrite_ssl and not self.isSslUpstream and re.match("http://[^/]*.0",value): value="https"+value[4:].replace(".0","",1) # if the upstream proxy's saying .0 due to upstream_rewrite_ssl, then we have to take it out if we want https URLs unchanged in a client-side proxy request
+            value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"),isProxyRequest=isProxyRequest,isSslUpstream=self.isSslUpstream)
+            offsite = (not isProxyRequest and value==old_value_1 and (value.startswith("http://") or value.startswith("https://"))) # i.e. domain_process didn't change it, and it's not relative
             old_value_2 = value # after domain_process but before PDF/EPUB-etc rewrites
             if do_pdftotext: # is it still going to be pdf after the redirect?
               if value.lower().endswith(".pdf") or guessCMS(value,"pdf"): value += pdftotext_suffix
@@ -3047,7 +3043,7 @@ document.forms[0].i.focus()
             elif cookie_host and offsite and self.htmlOnlyMode() and not options.htmlonly_css: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally
                 value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
           elif "set-cookie" in name.lower():
-            if not isProxyRequest: value=cookie_domain_process(value,cookie_host)
+            if not isProxyRequest: value=cookie_domain_process(value,cookie_host) # (never doing this if isProxyRequest, therefore don't have to worry about the upstream_rewrite_ssl exception that applies to normal domain_process isProxyRequest)
             for ckName in upstreamGuard: value=value.replace(ckName,ckName+"1")
           headers_to_add.append((name,value))
           if name.lower()=="content-type":
@@ -4241,12 +4237,18 @@ def find_HTML_in_JSON(jsonStr,htmlListFunc=None):
     codeTextList.append(jsonStr[i:])
     return codeTextList
 
-def domain_process(text,cookieHost=None,stopAtOne=False,https=None):
+def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyRequest=False,isSslUpstream=False):
+    if isProxyRequest: # called for Location: headers etc (not for document bodies)
+        if upstream_rewrite_ssl and not isSslUpstream:
+            # Although we don't need a full domain_process when the client is sending us a proxy request, we still have to beware of our UPstream proxy saying .0 in a Location: URL due to upstream_rewrite_ssl: take it out
+            m = re.match(r"http(://[A-Za-z0-9.-]*)\.0(?![A-Za-z0-9.-])",text)
+            if m: return "https"+m.group(1)
+        return text
     # Change the domains on appropriate http:// and https:// URLs.
     # Also on // URLs using 'https' as default (if it's not None).
     # Hope that there aren't any JS-computed links where
     # the domain is part of the computation.
-    # TODO: what of links to alternate ports or user:password links, currently we leave them unchanged (could use .<portNo> as an extension of the 'HTTPS hack' of .0, but allowing the public to request connects to any port could be a problem)
+    # TODO: what of links to alternate ports or user:password links, currently we leave them unchanged (could use .<portNo> as an extension of the 'HTTPS hack' of .0, but allowing the public to request connects to any port could be a problem, and IP addresses would have to be handled carefully: can no longer rely on ".0 used to mean the network" sort-of saving us)
     # TODO: leave alone URLs in HTML text/comments and JS comments? but script overload can make it hard to judge what is and isn't text. (NB this function is also called for Location headers)
     if "<!DOCTYPE" in text:
         # don't touch URLs inside the doctype!
