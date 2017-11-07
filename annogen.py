@@ -3096,11 +3096,11 @@ def matchingAction(rule,glossDic,glossMiss,whitelist):
     wStart = w.index(markupStart)+len(markupStart)
     wEnd = w.index(markupMid,wStart)
     text_unistr = w[wStart:wEnd]
-    if whitelist and not text_unistr in whitelist:
-      return text_unistr+" not whitelisted",None
     mStart = wEnd+len(markupMid)
     annotation_unistr = w[mStart:w.index(markupEnd,mStart)]
     if mreverse: text_unistr,annotation_unistr = annotation_unistr,text_unistr
+    if whitelist and not text_unistr in whitelist:
+      return text_unistr+" not whitelisted",None
     gloss = glossDic.get((text_unistr,annotation_unistr),glossDic.get(text_unistr,None))
     if gloss: gloss = gloss.replace('&','&amp;').replace('"','&quot;') # because it'll be in a title= attribute
     if reannotator:
