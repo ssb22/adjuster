@@ -2878,6 +2878,7 @@ document.forms[0].i.focus()
         if not body: body = None # required by some Tornado versions
         if self.isSslUpstream: ph,pp = None,None
         else: ph,pp = upstream_proxy_host,upstream_proxy_port
+        # if pp: pp += 1 # for 'dry running' upstream_rewrite_ssl without actually using the proxy (just connect directly to our parent-proxy port).  If a site breaks when upstream_rewrite_ssl is in effect, and uncommenting this line 'fixes' the site, then we should (hopefully) know the problem is with the upstream proxy and not with our upstream_rewrite_ssl code. TODO: make this an option? debug variable?
         if options.js_interpreter and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and not self.request.method.lower()=="head":
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
