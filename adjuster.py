@@ -171,7 +171,7 @@ define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate
 define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.") # e.g. example.rhcloud.com (although that does introduce the disadvantage of tying bookmarklet installations to the current URLs of the OpenShift service rather than your own domain)
 
 heading("Javascript execution options")
-define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS or HeadlessChrome, and must have the appropriate one installed along with Selenium (and ChromeDriver if you're using HeadlessChrome).  If you have multiple users, beware logins etc may be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
+define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with Selenium (and ChromeDriver if you're using HeadlessChrome, and the exact right version of Selenium etc if you're using HeadlessFirefox, which is notorious for breaking at the slightest version mismatch).  If you have multiple users, beware logins etc may be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
 define("js_instances",default=1,help="The number of virtual browsers to load when js_interpreter is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
 define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long") # RFC 6585, April 2012 ('too long' = 'longer than 2*js_instances', but in the case of --js_reproxy this is inspected before the prefetch: once we decide to prefetch a page, we'll queue it no matter what (unless the client goes away or the prefetch fails), so the queue can get longer than 2*js_instances if more items are in prefetch)
 define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive js_interpreter processes.") # (although that would preclude a faster response when a js_interpreter instance is already loaded with the page requested, although TODO faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load); RAM usage is a regression from 2.0.1 ?
@@ -445,8 +445,6 @@ def errExit(msg):
         # in case run from crontab w/out output (and e.g. PATH not set properly)
         # (but don't do this if not options.background, as log_to_stderr is likely True and it'll be more cluttered than the simple sys.stderr.write below)
     except: pass # options or logging not configured yet
-    try: CrossProcessLogging.shutdown()
-    except: pass
     sys.stderr.write(msg+"\n")
     sys.exit(1)
 
@@ -499,7 +497,7 @@ class CrossProcessLogging(logging.Handler):
         try: import multiprocessing
         except ImportError: multiprocessing = None
         self.multiprocessing = multiprocessing
-        if not self.multiprocessing: return
+        if not self.multiprocessing: return # we'll have to open multiple files in initChild instead
         self.loggingQ=multiprocessing.Queue()
         def logListener():
           try:
@@ -508,14 +506,12 @@ class CrossProcessLogging(logging.Handler):
         self.p = multiprocessing.Process(target=logListener) ; self.p.start()
         logging.getLogger().handlers = [] # clear what Tornado has already put in place when it read the configuration
         logging.getLogger().addHandler(self)
-    def initChild_multiproc(self):
+    def initChild(self,toAppend=""):
+        if not options.log_file_prefix: return # stderr is OK
         if self.multiprocessing:
             try: self.multiprocessing.process.current_process()._children.clear() # so it doesn't try to join() to children it doesn't have (multiprocessing wasn't really designed for the parent to fork() outside of multiprocessing later on)
             except: pass # probably wrong version
-    def initChild(self,toAppend=""):
-        if not options.log_file_prefix: return # stderr is OK
-        self.initChild_multiproc()
-        if self.multiprocessing: return # will be OK
+            return # should be OK now
         logging.getLogger().handlers = [] # clear Tornado's
         if toAppend: options.log_file_prefix += "-"+toAppend
         else: options.log_file_prefix += "-"+str(os.getpid())
@@ -537,10 +533,12 @@ class CrossProcessLogging(logging.Handler):
         except (KeyboardInterrupt, SystemExit): raise
         except: self.handleError(record)
 
-def preprocessOptions():
+def initLogging(): # MUST be after unixfork() if background
     global CrossProcessLogging
     CrossProcessLogging = CrossProcessLogging()
     CrossProcessLogging.init()
+
+def preprocessOptions():
     if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
     if options.restart and options.watchdog and options.watchdogDevice=="/dev/watchdog" and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
     if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
@@ -1001,10 +999,14 @@ def start_multicore(isChild=False):
 def openPortsEtc():
     workaround_raspbian_IPv6_bug()
     workaround_timeWait_problem()
+    early_fork = (options.ssl_fork and options.background)
+    if early_fork: banner(True),unixfork()
+    if options.ssl_fork: initLogging() # even if not early_fork (i.e. not background)
     stopFunc = open_extra_ports()
     if stopFunc: # we're a child process (--ssl-fork)
+        assert not options.background or early_fork
         dropPrivileges()
-        # can't double-fork (our PID is known)
+        # can't double-fork (our PID is known), hence early_fork above
         start_multicore(True)
         if profile_forks_too: open_profile()
     else: # we're not a child process
@@ -1012,10 +1014,11 @@ def openPortsEtc():
         if options.port: listen_on_port(makeMainApplication(),options.port,options.address,options.browser)
         openWatchdog() ; dropPrivileges()
         open_upnp() # make sure package avail if needed
-        banner()
-        if options.background:
+        if not early_fork: banner()
+        if options.background and not early_fork:
             if options.js_interpreter: test_init_webdriver()
             unixfork() # MUST be before init_webdrivers (js_interpreter does NOT work if you start them before forking)
+        if not options.ssl_fork: initLogging() # as we hadn't done it before (must be after unixfork)
         start_multicore()
         if not options.multicore or profile_forks_too: open_profile()
         else: open_profile_pjsOnly()
@@ -1037,7 +1040,7 @@ def openPortsEtc():
     try: os.setpgrp() # for stop_threads0 later
     except: pass
 
-def banner():
+def banner(delayed=False):
     ret = [twoline_program_name]
     if options.port:
         ret.append("Listening on port %d" % options.port)
@@ -1046,7 +1049,8 @@ def banner():
             if options.ssl_fork: ret.append("--real_proxy SSL helper on localhost:%d-%d" % (options.port+1,options.port+2))
             else: ret.append("--real_proxy SSL helper on localhost:%d" % (options.port+1))
         if options.js_reproxy:
-            ret.append("--js_reproxy helpers on localhost:%d-%d" % (js_proxy_port[0],js_proxy_port[-1]))
+            try: ret.append("--js_reproxy helpers on localhost:%d-%d" % (js_proxy_port[0],js_proxy_port[-1]))
+            except NameError: ret.append("--js_reproxy helpers (ports to be determined)") # early_fork
         if upstream_rewrite_ssl:
             if options.ssl_fork and not (options.multicore and (options.real_proxy or options.js_reproxy)): ret.append("--upstream-proxy back-connection helper on localhost:%d-%d" % (upstream_proxy_port+1,upstream_proxy_port+2))
             else: ret.append("--upstream-proxy back-connection helper on localhost:%d" % (upstream_proxy_port+1,))
@@ -1055,7 +1059,9 @@ def banner():
         ret.append("Writing "+options.watchdogDevice+" every %d seconds" % options.watchdog)
         if options.watchdogWait: ret.append("(abort if unresponsive for %d seconds)" % options.watchdogWait)
     if options.ssl_fork and not options.background: ret.append("To inspect processes, use: pstree "+str(os.getpid()))
-    sys.stderr.write("\n".join(ret)+"\n")
+    ret = "\n".join(ret)+"\n"
+    if delayed: ret=ret.replace("Listening","Will listen").replace("Writing","Will write") # for --ssl-fork --background (need early fork, TODO: unless write a PID somewhere)
+    sys.stderr.write(ret)
     if not options.background:
         # set window title for foreground running
         t = "adjuster"
@@ -1223,15 +1229,9 @@ def dropPrivileges():
         os.environ['USER']=os.environ['LOGNAME']=options.user
 
 def unixfork():
-    if os.fork():
-        try: CrossProcessLogging.initChild_multiproc()
-        except: pass
-        sys.exit()
+    if os.fork(): sys.exit()
     os.setsid()
-    if os.fork():
-        try: CrossProcessLogging.initChild_multiproc()
-        except: pass
-        sys.exit()
+    if os.fork(): sys.exit()
     devnull = os.open("/dev/null", os.O_RDWR)
     for fd in range(3): os.dup2(devnull,fd) # commenting out this line will let you see stderr after the fork (TODO debug option?)
     
@@ -1751,12 +1751,13 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
     if asScreenshot: return wrapResponse(manager.getpng(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
     else: return wrapResponse(get_and_remove_httpequiv_charset(manager.getu8())[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
 def check_jsInterpreter_valid():
-    if options.js_interpreter and not options.js_interpreter in ["PhantomJS","HeadlessChrome"]: errExit("js_interpreter (if set) must be PhantomJS or HeadlessChrome")
-    # TODO: add HeadlessFirefox ? (firefox with "-headless" as an arg, 56+) but similar issues with SSL certificates as with HeadlessChrome:
-    if options.js_reproxy and options.js_interpreter=="HeadlessChrome": errExit("HeadlessChrome currently requires --js_reproxy=False due to Chromium bug 721739 (you'll still need to use PhantomJS for production)") # (unless you don't ever want to fetch any SSL, or TODO: upstream-proxy rewrite SSL to non-SSL w/out changing domain (http://domain:443 or sthg??) but it could go wrong if miss some rewrites)
+    if options.js_interpreter and not options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox"]: errExit("js_interpreter (if set) must be PhantomJS, HeadlessChrome or HeadlessFirefox")
+    if options.js_reproxy and options.js_interpreter in ["HeadlessChrome","HeadlessFirefox"]: errExit("HeadlessChrome and HeadlessFirefox currently require --js_reproxy=False due to Chromium bug 721739 and a similar issue with Firefox; you'll still need to use PhantomJS for production") # (unless you don't ever want to fetch any SSL, or TODO: upstream-proxy rewrite SSL to non-SSL w/out changing domain (http://domain:443 or sthg??) but it could go wrong if miss some rewrites)
 def get_new_webdriver(index,renewing=False):
     if options.js_interpreter == "HeadlessChrome":
         return get_new_HeadlessChrome(index,renewing)
+    elif options.js_interpreter == "HeadlessFirefox":
+        return get_new_HeadlessFirefox(index,renewing)
     else: return get_new_PhantomJS(index,renewing)
 def get_new_HeadlessChrome(index,renewing):
     log_complaints = (index==0 and not renewing)
@@ -1794,6 +1795,37 @@ def get_new_HeadlessChrome(index,renewing):
     debuglog("webdriver.Chrome instantiated")
     try: p.set_page_load_timeout(30) # TODO: configurable?
     except: logging.info("Couldn't set HeadlessChrome page load timeout")
+    return p
+def get_new_HeadlessFirefox(index,renewing):
+    os.environ['MOZ_HEADLESS'] = '1' # in case -headless not yet working
+    from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
+    from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
+    profile = FirefoxProfile()
+    log_complaints = (index==0 and not renewing) ; op = None
+    if options.js_reproxy: profile.set_proxy("127.0.0.1:%d" % js_proxy_port[index]) # TODO: any way to ignore certs ?
+    elif options.upstream_proxy: profile.set_proxy(options.upstream_proxy)
+    if options.js_UA and not options.js_UA.startswith("*"): profile.set_preference("general.useragent.override",options.js_UA)
+    if not options.js_images: profile.set_preference("permissions.default.image", 2)
+    if options.via and not options.js_reproxy and log_complaints: sys.stderr.write("Warning: --via ignored when running HeadlessFirefox without --js-reproxy\n") # unless you want to implement a Firefox extension to do it
+    # TODO: do any other options need to be set?  disable plugins, Firefox-update prompts, new windows/tabs with JS, etc?  or does Selenium do that?
+    if options.logDebug: binary=FirefoxBinary(log_file=sys.stderr) # TODO: support logDebug to a file as well
+    else: binary=FirefoxBinary()
+    binary.add_command_line_options('-headless')
+    binary.add_command_line_options('-no-remote')
+    if "x" in options.js_size: binary.add_command_line_options("-width",options.js_size.split("x")[0],"-height",options.js_size.split("x")[1])
+    elif options.js_size: binary.add_command_line_options("-width",options.js_size)
+    debuglog("Instantiating webdriver.Firefox")
+    while True:
+        import selenium.webdriver.firefox.firefox_profile
+        try: p = webdriver.Firefox(firefox_profile=profile,firefox_binary=binary)
+        except:
+            if log_complaints: raise
+            logging.error("Unhandled exception when instantiating webdriver %d, retrying in 5sec" % index)
+            time.sleep(5) ; p = None
+        if p: break
+    debuglog("webdriver.Firefox instantiated")
+    try: p.set_page_load_timeout(30) # TODO: configurable?
+    except: logging.info("Couldn't set HeadlessFirefox page load timeout")
     return p
 def _get_new_PhantomJS(index,renewing):
     log_complaints = (index==0 and not renewing)
@@ -1925,6 +1957,8 @@ rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Enco
                    'Upgrade-Insecure-Requests', # we'd better remove this from the client headers if we're removing Content-Security-Policy etc from the server's
                    'Range', # TODO: we can pass Range to remote server if and only if we guarantee not to need to change anything  (could also add If-Range and If-None-Match to the list, but these should be harmless to pass to the remote server and If-None-Match might actually help a bit in the case where the document doesn't change)
 ]
+
+dryrun_upstream_rewrite_ssl = False # for debugging
 
 class RequestForwarder(RequestHandler):
     
@@ -2878,7 +2912,7 @@ document.forms[0].i.focus()
         if not body: body = None # required by some Tornado versions
         if self.isSslUpstream: ph,pp = None,None
         else: ph,pp = upstream_proxy_host,upstream_proxy_port
-        # if pp: pp += 1 # for 'dry running' upstream_rewrite_ssl without actually using the proxy (just connect directly to our parent-proxy port).  If a site breaks when upstream_rewrite_ssl is in effect, and uncommenting this line 'fixes' the site, then we should (hopefully) know the problem is with the upstream proxy and not with our upstream_rewrite_ssl code. TODO: make this an option? debug variable?
+        if dryrun_upstream_rewrite_ssl and pp and upstream_rewrite_ssl: pp += 1
         if options.js_interpreter and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and not self.request.method.lower()=="head":
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
@@ -3242,12 +3276,16 @@ document.forms[0].i.focus()
         if not body: body = None
         if hasattr(self,"original_referer"): self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers.get("Referer","") # we'll send the request with the user's original Referer, to check it still works
         ph,pp = upstream_proxy_host, upstream_proxy_port
+        if dryrun_upstream_rewrite_ssl and pp and upstream_rewrite_ssl: pp += 1
         httpfetch(self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # same TODO as above
                   proxy_host=ph, proxy_port=pp,
                   method="HEAD", headers=self.request.headers, body=body,
                   callback=lambda r:self.headResponse(r,forPjs),follow_redirects=True)
     def headResponse(self,response,forPjs):
+        debuglog("headResponse "+repr(response.code)+self.debugExtras())
+        if response.code == 503: # might be a cache error (check for things like X-Squid-Error ERR_DNS_FAIL 0 that can be due to a missing newline before the "never_direct allow all" after the "cache_peer" setting in Squid)
+            for name,value in response.headers.get_all(): debuglog(name+": "+value)
         curlFinished()
         self.restore_request_headers()
         if hasattr(self,"original_referer"): # undo the change made above, in case it goes to sendRequest below
