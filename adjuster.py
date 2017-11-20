@@ -3691,9 +3691,17 @@ def runRun(*args):
         helper_thread_count += 1
         global exitting ; exitting = 0
         while True:
+            startTime = time.time()
             sp=subprocess.Popen(options.run,shell=True,stdin=subprocess.PIPE)
             global runningPid ; runningPid = sp.pid
             ret = sp.wait()
+            if exitting: break
+            if time.time() < startTime + 5:
+                logging.info("run command exitted after only %d seconds" % (time.time() - startTime))
+                logging.info("run: trying to catch errors with subprocess.communicate")
+                sp=subprocess.Popen(options.run,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                stdout,stderr = sp.communicate()
+                logging.info("run: stdout="+repr(stdout)+" stderr="+repr(stderr))
             time.sleep(options.runWait)
             if exitting: break
             logging.info("Restarting run command after %dsec (last exit = %d)" % (options.runWait,ret))
