@@ -305,7 +305,26 @@ define("skipLinkCheck",multiple=True,help="Comma-separated list of regular expre
 define("extensions",help="Name of a custom Python module to load to handle certain requests; this might be more efficient than setting up a separate Tornado-based server. The module's handle() function will be called with the URL and RequestHandler instance as arguments, and should return True if it processed the request, but anyway it should return as fast as possible. This module does NOT take priority over forwarding the request to fasterServer.")
 
 define("loadBalancer",default=False,help="Set this to True if you have a default_site set and you are behind any kind of \"load balancer\" that works by issuing a GET / with no browser string. This option will detect such requests and avoid passing them to the remote site.")
-define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)") # and --ssl-fork if there's not TOO many instances taking up the RAM; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server).  Regarding which core gets an incoming connection, linux/net/core/sock_reuseport.c's reuseport_select_sock uses either a random hash (from inet_ehashfn), or some bytecode written in the BPF (Berkeley Packet Filter) language (see SO_ATTACH_REUSEPORT_ options in man 7 socket) (TODO? would need cores to open their sockets in a known order so the index numbers make sense; may be able to use an eBPF map of len(webdriver_queue)+len(webdriver_runner) rather than reloading)
+define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)") # and --ssl-fork if there's not TOO many instances taking up the RAM; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server)
+# Note: start_multicore() does NOT use SO_REUSEPORT multiplexing: it forks AFTER we've started listening to the port, and processes share the SAME socket (SO_REUSEPORT is for different sockets).
+# If rewriting for SO_REUSEPORT multiplexing (open socket after fork): Linux 3.9+ uses a hash (including remote IP + source port) to decide which process gets it; contrary to some articles, it does not account for which of the port-sharing processes are currently blocking on accept() (which is not relevant to Tornado anyway): that approach would require processes to share the SAME socket with a bunch of threads calling accept().  With so_reuseport a process would have to close and reopen its port if it wants to temporarily shut itself off (and this is NOT recommended because changing the number of open ports mid-flight can cause ACKs to get lost in some kernel versions).
+# Linux 4.6+ adds a BPF bytecode option (see SO_ATTACH_REUSEPORT_ options in man 7 socket): if using this for js_interpreter balancing, would need cores to open their sockets in a known order so the index numbers make sense; the more basic CBPF option would be:
+# # From linux/include/uapi/linux/bpf_common.h :
+# BPF_LD,BPF_LDX,BPF_ST,BPF_STX,BPF_ALU,BPF_JMP,BPF_RET,BPF_MISC=range(8) # instruction classes
+# BPF_W,BPF_H,BPF_B = 0,8,16 # ld/ldx fields
+# BPF_IMM,BPF_ABS,BPF_IND,BPF_MEM,BPF_LEN,BPF_MSH = 0,32,64,96,128,160 # ld/ldx modes
+# BPF_ADD,BPF_SUB,BPF_MUL,BPF_DIV,BPF_OR,BPF_AND,BPF_LSH,BPF_RSH,BPF_NEG,BPF_MOD,BPF_XOR = range(0,161,16) # ALU fields
+# BPF_JA,BPF_JEQ,BPF_JGT,BPF_JGE,BPF_JSET = range(0,65,16) # JMP fields
+# BPF_K,BPF_X = 0,8
+# def bpf_instruction(code,k,jumpTrue=0,jumpFalse=0): return struct.pack('HBBI', code, jumpTrue, jumpFalse, k)
+# def bpf_random(): return bpf_instruction(32,0xfffff038) # = ld rand (loads a random uint32 into A), from bpf_asm -c
+# def bpf_jumpIfGreater(k,toSkip): return bpf_instruction(JGT,k,toSkip)
+# # etc
+# filterProg = [ ] # list of bpf_random() bpf_jumpIfGreater() etc calls
+# b = ctypes.create_string_buffer(''.join(filterProg))
+# socket.setsockopt(socket.SOL_SOCKET, 51, struct.pack('HL', len(filterProg), ctypes.addressof(b)))
+# but would then need periodically to update the program to use a different random distribution depending on the current values of len(webdriver_queue)+len(webdriver_runner) or similar (would probably need to forward all metrics to coreNo 0, as must be handled by one of the listening processes not by an extra process)
+# eBPF can pass data to/from the BPF program via "maps", which might be more efficient than reloading the program.  Would need to do socket.setsockopt(socket.SOL_SOCKET, 52, fd) but need a C module to call the bpf() syscall to get that fd.  Would probably need something like https://github.com/iovisor/bcc/ (recent distro required).
 define("compress_responses",default=True,help="Use gzip to compress responses for clients that indicate they are compatible with it. You may want to turn this off if your server's CPU is more important than your network bandwidth (e.g. browser on same machine).")
 
 # THIS MUST BE THE LAST SECTION because it continues into
@@ -583,6 +602,8 @@ def preprocessOptions():
     global cores ; cores = 1
     if options.multicore:
         if not 'linux' in sys.platform: errExit("multicore option not supported on this platform") # it does work on BSD/Mac, but some incoming connections get 'lost' so it's not a good idea
+        # Not needed unless we're rewriting multicore to use SO_REUSEPORT:
+        # if tuple(int(x) for x in open("/proc/version").readline().split()[2].split('.',2)[:2]) < (3,9): errExit("Linux kernel version must be at least 3.9 for multicore to work (SO_REUSEPORT)")
         import tornado.process
         cores = tornado.process.cpu_count()
         if cores==1: options.multicore = False
