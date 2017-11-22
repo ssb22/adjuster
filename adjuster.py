@@ -1132,8 +1132,10 @@ theServers = {}
 def listen_on_port(application,port,address,browser,core="all",**kwargs):
     if not core in theServers: theServers[core] = []
     theServers[core].append((port,HTTPServer(application,**kwargs)))
+    if options.multicore and options.js_429 and options.js_interpreter: backlog = 0 # so pauseOrRestartMainServer can work (except it still doesn't)
+    else: backlog = 128 # the default
     for portTry in [5,4,3,2,1,0]:
-      try: return theServers[core][-1][1].bind(port,address)
+      try: return theServers[core][-1][1].bind(port,address,backlog=backlog)
       except socket.error, e:
         if not "already in use" in e.strerror: raise
         # Maybe the previous server is taking a while to stop
@@ -1151,8 +1153,7 @@ def startServers():
         if core == "all" or core == coreNo:
             for port,s in sList: s.start()
 def pauseOrRestartMainServer(shouldRun=1):
-    return
-    # This does NOT work.  New requests are NOT necessarily served by other cores: they are still accepted by THIS core, but wait indefinitely for processing.
+    return # This function does NOT work.  New requests are NOT necessarily served by other cores: they are still accepted by THIS core, but wait indefinitely for processing.
     if not (options.multicore and options.js_429): return
     global mainServerPaused
     try: mainServerPaused
