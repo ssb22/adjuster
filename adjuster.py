@@ -174,7 +174,7 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 heading("Javascript execution options")
 define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with Selenium (and ChromeDriver if you're using HeadlessChrome, and the exact right version of Selenium etc if you're using HeadlessFirefox, which is notorious for breaking at the slightest version mismatch).  If you have multiple users, beware logins etc may be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
 define("js_instances",default=1,help="The number of virtual browsers to load when js_interpreter is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
-define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. (Currently disabled addition) When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances (this can result in all cores being closed to new requests when load is high)") # HTTP 429 is from RFC 6585, April 2012 ('too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely)
+define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances (this can result in all cores being closed to new requests when load is high)") # HTTP 429 is from RFC 6585, April 2012 ('too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely)
 define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive js_interpreter processes.") # (although that would preclude a faster response when a js_interpreter instance is already loaded with the page requested, although TODO faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load); RAM usage is a regression from 2.0.1 ?
 define("js_restartMins",default=10,help="Restart an idle js_interpreter instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --js-restartAfter=1.") # Setting it low does have the disadvantage of not being able to use an already-loaded page, see above
 define("js_retry",default=True,help="If a js_interpreter fails, restart it and try the same fetch again while the remote client is still waiting")
@@ -1132,10 +1132,8 @@ theServers = {}
 def listen_on_port(application,port,address,browser,core="all",**kwargs):
     if not core in theServers: theServers[core] = []
     theServers[core].append((port,HTTPServer(application,**kwargs)))
-    if options.multicore and options.js_429 and options.js_interpreter: backlog = 0 # so pauseOrRestartMainServer can work (except it still doesn't)
-    else: backlog = 128 # the default
     for portTry in [5,4,3,2,1,0]:
-      try: return theServers[core][-1][1].bind(port,address,backlog=backlog)
+      try: return theServers[core][-1][1].bind(port,address)
       except socket.error, e:
         if not "already in use" in e.strerror: raise
         # Maybe the previous server is taking a while to stop
@@ -1153,20 +1151,22 @@ def startServers():
         if core == "all" or core == coreNo:
             for port,s in sList: s.start()
 def pauseOrRestartMainServer(shouldRun=1):
-    return # This function does NOT work.  New requests are NOT necessarily served by other cores: they are still accepted by THIS core, but wait indefinitely for processing.
     if not (options.multicore and options.js_429): return
     global mainServerPaused
     try: mainServerPaused
     except: mainServerPaused = False
     if (not shouldRun) == mainServerPaused: return
     mainServerPaused = not mainServerPaused
-    print "paused",mainServerPaused,"on core",coreNo
+    debuglog("Paused=%s on core %s" % (repr(mainServerPaused),repr(coreNo)))
     for core,sList in theServers.items():
         if core == "all" or core == coreNo:
             for port,s in sList:
+                if not hasattr(s,"_sockets"): return # probably wrong Tornado version to do this (TODO: say something?)
                 if port==options.port:
-                    if shouldRun: s.start()
-                    else: s.stop()
+                    if shouldRun: s.add_sockets(s._sockets.values())
+                    else:
+                        for fd, sock in s._sockets.items():
+                            s.io_loop.remove_handler(fd)
 
 def workaround_raspbian_IPv6_bug():
     """Some versions of Raspbian apparently boot with IPv6 enabled but later don't configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However, if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
@@ -1945,8 +1945,7 @@ def webdriver_checkServe(*args):
             webdriver_via[i]=via
             webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback)
             global webdriver_mu ; webdriver_mu += 1
-    if webdriver_queue:
-        debuglog("All of this core's js_instances are busy; %d items still in queue" % len(webdriver_queue))
+    if webdriver_queue: debuglog("All of this core's js_instances are busy; %d items still in queue" % len(webdriver_queue))
 def webdriver_checkRenew(*args):
     for i in webdriver_runner:
         if not i.thread_running and i.usageCount and i.finishTime + options.js_restartMins < time.time(): i.renew_webdriver()
