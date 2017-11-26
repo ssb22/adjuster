@@ -1175,7 +1175,8 @@ android_src = r"""
 """+additional_js_instructions+r"""
        You can also set ANNOGEN_ANDROID_URLS to a
        whitespace-separated list of URL prefixes to
-       offer to be a browser for.  For example,
+       offer to be a browser for (when a matching URL
+       is opened by another application).  For example,
        ANNOGEN_ANDROID_URLS="http://example.com http://example.org/documents"
 */
 
