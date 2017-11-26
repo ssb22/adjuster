@@ -1203,10 +1203,12 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         browser = (WebView)findViewById(R.id.browser);
         // ---------------------------------------------
-        // Delete the following long line if you DON'T want caching (Android 2.1+); caching is useful for persistence if app is removed from memory and then switched back to while user is offline
+        // Delete the following long line if you DON'T want caching on Android 2.1+ (caching is useful for persistence if app is removed from memory and then switched back to while user is offline)
         if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheMaxSize(10*1048576) /* if API==7 i.e. exactly Android 2.1 (deprecated in API 8) */ ; browser.getSettings().setAppCacheEnabled(true); if(Integer.valueOf(android.os.Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); } // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below)
         // ---------------------------------------------
-        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) WebView.setWebContentsDebuggingEnabled(true); // so you can use chrome://inspect in desktop Chromium when connected via USB to Android 4.4+
+        // Delete the following line if you DON'T want to be able to use chrome://inspect in desktop Chromium when connected via USB to Android 4.4+
+        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) WebView.setWebContentsDebuggingEnabled(true);
+        // ---------------------------------------------
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
         class A {
