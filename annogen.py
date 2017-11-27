@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.628 (c) 2012-17 Silas S. Brown"
+program_name = "Annotator Generator v0.6281 (c) 2012-17 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -31,7 +31,7 @@ else: exe=""
 #  =========== INPUT OPTIONS ==============
 
 parser.add_option("--infile",
-                  help="Filename of a text file (or a compressed .gz or .bz2 file) to read the input examples from. If this is not specified, standard input is used.")
+                  help="Filename of a text file (or a compressed .gz, .bz2 or .xz file) to read the input examples from. If this is not specified, standard input is used.")
 
 parser.add_option("--incode",default="utf-8",
                   help="Character encoding of the input file (default %default)")
@@ -83,20 +83,20 @@ parser.add_option("--keep-whitespace",
                   help="Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the --annot-whitespace option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).")
 
 parser.add_option("--glossfile",
-                  help="Filename of an optional text file (or compressed .gz or .bz2 file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
+                  help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
 parser.add_option("--glossmiss-omit",
                   action="store_true",
                   default=False,
-                  help="Omit rules containing any word not mentioned in glossfile.  Might be useful if you want to train on a text that uses proprietary terms and don't want to accidentally 'leak' those terms.  Words may also be listed in glossfile with an empty gloss field to indicate that no gloss is available but rules using this word needn't be omitted.")
+                  help="Omit rules containing any word not mentioned in glossfile.  Might be useful if you want to train on a text that uses proprietary terms and don't want to accidentally 'leak' those terms (assuming they're not accidentally included in glossfile also).  Words may also be listed in glossfile with an empty gloss field to indicate that no gloss is available but rules using this word needn't be omitted.")
 
 parser.add_option("--manualrules",
-                  help="Filename of an optional text file (or compressed .gz or .bz2 file) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
+                  help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
 
 #  =========== OUTPUT OPTIONS ==============
 
-parser.add_option("--rulesFile",help="Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz or .bz2 for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will be read from it and incrementally updated. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.") # You may however change whether or not a --single-words / --max-words option applies to the new examples (but hopefully shouldn't have to)
+parser.add_option("--rulesFile",help="Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will be read from it and incrementally updated. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.") # You may however change whether or not a --single-words / --max-words option applies to the new examples (but hopefully shouldn't have to)
 
 parser.add_option("--no-input",
                   action="store_true",default=False,
@@ -128,7 +128,7 @@ parser.add_option("--no-summary",
                   help="Don't add a large rules-summary comment at the end of the parser code")
 
 parser.add_option("-O", "--summary-omit",
-                  help="Filename of a text file (or a compressed .gz or .bz2 file) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary (but still included in the parser).  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.")
+                  help="Filename of a text file (or a compressed .gz, .bz2 or .xz file) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary (but still included in the parser).  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.")
 
 parser.add_option("--maxrefs",default=3,
                   help="The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is %default.")
@@ -3106,7 +3106,7 @@ def matchingAction(rule,glossDic,glossMiss,whitelist):
     if whitelist and not text_unistr in whitelist:
       return text_unistr+" not whitelisted",None
     gloss = glossDic.get((text_unistr,annotation_unistr),glossDic.get(text_unistr,None))
-    if gloss: gloss = gloss.replace('&','&amp;').replace('"','&quot;') # because it'll be in a title= attribute
+    if gloss: gloss = gloss.replace('&','&amp;').replace('"','&quot;').replace('\n','&#10;') # because it'll be in a title= attribute
     if reannotator:
       if reannotator.startswith('##'): toAdd = text_unistr + '#' + annotation_unistr
       elif reannotator[0]=='#': toAdd=annotation_unistr
@@ -3154,11 +3154,11 @@ def outputParser(rulesAndConds):
             if not l.strip(): continue
             l=l.decode(incode) # TODO: glosscode ?
             try: word,annot,gloss = l.split("\t",2)
-            except:
+            except: # not enough tabs
               word = l.split("\t",1)[0] ; annot = gloss = ""
               if glossmiss_omit: pass # they can list words without glosses; no error if missing \t
               else: sys.stderr.write("Gloss: Ignoring incorrectly-formatted line "+l.strip()+"\n")
-            word,annot,gloss = word.strip(),annot.strip(),gloss.strip()
+            word,annot,gloss = word.strip(),annot.strip(),gloss.strip().replace("\t","\n")
             if glossmiss_omit and word: whitelist.add(word)
             if not word or not gloss: continue
             if annot: glossDic[(word,annot)] = gloss
@@ -3370,6 +3370,9 @@ def openfile(fname,mode='r'):
         import gzip ; return gzip.open(fname,mode)
     elif fname.endswith(".bz2"):
         import bz2 ; return bz2.BZ2File(fname,mode)
+    elif fname.endswith(".xz"):
+        import lzma # 'pip install lzma' may be required for .xz files
+        return lzma.LZMAFile(fname,mode)
     else: return open(fname,mode)
 def open_try_bz2(fname,mode='r'): # use .bz2 iff available (for checkpoints)
   try: return openfile(fname+".bz2",mode)
