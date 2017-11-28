@@ -56,7 +56,8 @@ else:
     from tornado.options import define,options
     def heading(h): pass
     if 'port' in options:
-        # we may be being imported by an extension, and some Tornado versions don't compile if 'define' is run twice
+        # Looks like we're being imported by an extension
+        # Some Tornado versions don't compile if 'define' is run twice
         def define(*args,**kwargs): pass
 getfqdn_default = "is the machine's domain name" # default is ... (avoid calling getfqdn unnecessarily, as the server might be offline/experimental and we don't want to block on an nslookup with every adjuster start)
 
@@ -502,7 +503,7 @@ class CrossProcessLogging(logging.Handler):
         self.loggingQ=multiprocessing.Queue()
         def logListener():
           try:
-            while True: logging.getLogger().handle(self.loggingQ.get())
+            while True: logging.getLogger().handle(logging.makeLogRecord(self.loggingQ.get()))
           except KeyboardInterrupt: pass
         self.p = multiprocessing.Process(target=logListener) ; self.p.start()
         logging.getLogger().handlers = [] # clear what Tornado has already put in place when it read the configuration
@@ -524,13 +525,14 @@ class CrossProcessLogging(logging.Handler):
     def shutdown(self):
         try: self.p.terminate() # in case KeyboardInterrupt hasn't already stopped it
         except: pass
-    def emit(self, record): # simplified from Python 3.2:
+    def emit(self, record): # simplified from Python 3.2 (but put just the dictionary, not the record obj itself, to make pickling errors less likely)
         try:
-            ei = record.exc_info
-            if ei:
+            if record.exc_info:
                 dummy = self.format(record) # record.exc_text
                 record.exc_info = None
-            self.loggingQ.put(record)
+            d = record.__dict__
+            d['msg'],d['args'] = record.getMessage(),None
+            self.loggingQ.put(d)
         except (KeyboardInterrupt, SystemExit): raise
         except: self.handleError(record)
 
@@ -983,9 +985,9 @@ def start_multicore(isChild=False):
         if pid in children: children.remove(pid)
     except KeyboardInterrupt: pass
     try: reason = interruptReason
-    except: reason = "Keyboard interrupt"
+    except: reason = "keyboard interrupt"
     if reason and not isChild:
-        reason += ", stopping child processes"
+        reason = "Adjuster multicore handler: "+reason+", stopping child processes"
         if options.background: logging.info(reason)
         else: sys.stderr.write(reason+"\n")
     for pid in children: os.kill(pid,signal.SIGTERM)
@@ -995,7 +997,7 @@ def start_multicore(isChild=False):
         except: continue
         if pid in children: children.remove(pid)
     if not isChild: announceShutdown0()
-    sys.exit()
+    stop_threads() # must be last thing
 
 def openPortsEtc():
     workaround_raspbian_IPv6_bug()
@@ -1074,7 +1076,7 @@ def announceInterrupt():
     if options.background: logging.info("SIGINT received"+find_adjuster_in_traceback())
     else: sys.stderr.write("\nKeyboard interrupt"+find_adjuster_in_traceback()+"\n")
 def announceShutdown():
-    if coreNo or options.multicore: return # as above
+    if coreNo or options.multicore: return # silent helper process (coreNo=="unknown"), or we announce interrupts differently in multicore (see start_multicore)
     announceShutdown0()
 def announceShutdown0():
     if options.background: logging.info("Server shutdown")
