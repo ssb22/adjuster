@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.262 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.263 (c) 2012-17 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -164,6 +164,7 @@ define("htmlText",default=False,help="Causes the HTML to be parsed, and only the
 define("separator",help="If you are using htmlFilter with htmlJson and/or htmlText, you can set separator to any text string to be used as a separator between multiple items of data when passing them to the external program. By default, newlines are used for this, but you can set it to any other character or sequence of characters that cannot be added or removed by the program. (It does not matter if a website's text happens to use the separator characters.) If separator is set, not only will it be used as a separator BETWEEN items of data but also it will be added before the first and after the last item, thus allowing you to use an external program that outputs extra text before the first and after the last item. The extra text will be discarded. If however you do not set separator then the external program should not add anything extra before/after the document.")
 define("leaveTags",multiple=True,default="script,style,title,textarea,option",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names whose enclosed text should NOT be sent to the external program for modification. For this to work, the website must properly close these tags and must not nest them. (This list is also used for character-set rendering.)") # not including 'option' can break pages that need character-set rendering
 define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names which should be deleted if they occur in any section of running text. For example, \"wbr\" (word-break opportunity) tags (listed by default) might cause problems with phrase-based annotators.") # TODO: <span class="whatever">&nbsp;</span> (c.f. annogen's JS) ?  have already added to the bookmarklet JS (undocumented! see 'awkwardSpan') but not to the proxy version (the two find_text_in_HTML functions)
+define("htmlUrl",default=False,help="Add a line containing the document's URL to the start of what gets sent to htmlFilter (useful for writing filters that behave differently for some sites; not yet implemented for submitBookmarklet, which will show a generic URL). The URL line must not be included in the filter's response.")
 
 define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.") # (see comments in serve_submitPage; "with htmlFilter" TODO: do we add "(or --render)" to this? but charset submit not entirely tested with all old browsers; TODO: consider use of chardet.detect(buf) in python-chardet)
 define("submitPrompt",default="Type or paste in some text to adjust",help="What to say before the form allowing users to enter their own text when submitPath is set (compare boxPrompt)")
@@ -814,7 +815,7 @@ def serverControl():
             sys.exit(0)
 
 def make_WSGI_application():
-    global errExit, wsgi_mode, runFilter, sync_runFilter
+    global errExit, wsgi_mode, runFilter
     wsgi_mode = True ; runFilter = sync_runFilter
     def errExit(m): raise Exception(m)
     global main
@@ -1083,6 +1084,7 @@ def announceShutdown0():
     else: sys.stderr.write("Adjuster shutdown\n")
 
 def main():
+    check_injected_globals()
     setProcName() ; readOptions() ; preprocessOptions()
     serverControl() ; openPortsEtc()
     workaround_tornado_fd_issue() ; startServers()
@@ -1544,25 +1546,20 @@ class WebdriverWrapper:
     def quit(self,*args):
         if not self.theWebDriver: return
         try: pid = self.theWebDriver.service.process.pid
-        except: pid = None # TODO: log?
+        except: pid = debuglog("WebdriverWrapper: Unable to get self.theWebDriver.service.process.pid")
         try: self.theWebDriver.quit()
-        except: pass # e.g. sometimes get 'bad fd' in selenium's send_remote_shutdown_command _cookie_temp_file_handle
+        except: debuglog("WebdriverWrapper: exception on quit") # e.g. sometimes get 'bad fd' in selenium's send_remote_shutdown_command _cookie_temp_file_handle
         # Try zapping the process ourselves anyway (even if theWebDriver.quit DIDN'T return error: seems it's sometimes still left around.  TODO: this could have unexpected consequences if the system's pid-reuse rate is excessively high.)
         self.theWebDriver = None
         if not pid: return
-        try: os.killpg(pid,9)
-        except OSError: pass # maybe it's not a process group
-        try: import psutil
-        except ImportError: pass
         try:
+            import psutil
             for c in psutil.Process(pid).children(recursive=True):
                 try: c.kill(9)
                 except: pass
-        except: pass
-        try: os.kill(pid,9)
-        except OSError: pass
-        try: os.waitpid(pid, os.WNOHANG) # clear it from the process table
-        except OSError: pass
+        except: pass # no psutil, or process already gone
+        try: os.kill(pid,9),os.waitpid(pid, 0) # the waitpid is necessary to clear it from the process table, but we should NOT use os.WNOHANG, as if we do, there's a race condition with the os.kill taking effect (even -9 isn't instant)
+        except OSError: pass # maybe pid already gone
     def current_url(self):
         try: return self.theWebDriver.current_url
         except: return "" # PhantomJS Issue #13114: unconditional reload for now
@@ -2625,7 +2622,9 @@ document.forms[0].i.focus()
                 if h=="Content-Type": return "text/html; charset=utf-8"
                 else: return d
             def get_all(self): return [("Content-Type","text/html; charset=utf-8")]
-        runFilterOnText(self.getHtmlFilter(),find_text_in_HTML("""%s<h3>Your text</h3>%s<hr>This is %s. %s</body></html>""" % (htmlhead("Uploaded Text - Web Adjuster"),txt2html(txt),serverName_html,backScriptNoBr)),lambda out,err:self.doResponse2(out,True,False)) # backScriptNoBr AFTER the server notice to save vertical space
+        if options.htmlUrl: line1 = "about:submitted\n"
+        else: line1 = ""
+        runFilterOnText(self.getHtmlFilter(),find_text_in_HTML("""%s<h3>Your text</h3>%s<hr>This is %s. %s</body></html>""" % (htmlhead("Uploaded Text - Web Adjuster"),txt2html(txt),serverName_html,backScriptNoBr)),lambda out,err:self.doResponse2(out,True,False),prefix=line1) # backScriptNoBr AFTER the server notice to save vertical space
     def serve_bookmarklet_code(self,xtra,forceSameWindow):
         self.add_header("Content-Type","application/javascript")
         self.add_header("Access-Control-Allow-Origin","*")
@@ -2660,7 +2659,9 @@ document.forms[0].i.focus()
             self.add_header("Content-Type","application/json")
             if self.canWriteBody(): self.write(json.dumps([i.decode('utf-8','replace') for i in out[1:].split(chr(0))])) # 'replace' here because we don't want utf-8 errors to time-out the entire request (although hopefully the filter WON'T produce utf-8 errors...)
             self.finish()
-        runFilterOnText(self.getHtmlFilter(filterNo),codeTextList,callback)
+        if options.htmlUrl: line1 = "about:bookmarklet\n" # TODO: get the bookmarklet to report the location.href of the site (and update htmlUrl help text)
+        else: line1 = ""
+        runFilterOnText(self.getHtmlFilter(filterNo),codeTextList,callback,prefix=line1)
     def serve_backend_post(self,filterNo):
         l = self.request.body
         runFilter(self.getHtmlFilter(filterNo),self.request.body,lambda out,err: (self.write(out),self.finish()))
@@ -3251,13 +3252,15 @@ document.forms[0].i.focus()
         if options.prominentNotice=="htmlFilter": callback = lambda out,err: self.doResponse2(body,do_html_process,do_json_process,out)
         else: callback = lambda out,err:self.doResponse2(out,do_html_process,do_json_process)
         htmlFilter = self.getHtmlFilter()
+        if options.htmlUrl: line1 = self.urlToFetch+"\n"
+        else: line1 = ""
         if do_html_process and htmlFilter:
-            if options.htmlText: runFilterOnText(htmlFilter,find_text_in_HTML(body),callback)
-            else: runFilter(htmlFilter,body,callback)
+            if options.htmlText: runFilterOnText(htmlFilter,find_text_in_HTML(body),callback,prefix=line1)
+            else: runFilter(htmlFilter,line1+body,callback)
         elif do_json_process and options.htmlJson and htmlFilter:
             if options.htmlText: htmlFunc = find_text_in_HTML
             else: htmlFunc = None
-            runFilterOnText(htmlFilter,find_HTML_in_JSON(body,htmlFunc),callback,True)
+            runFilterOnText(htmlFilter,find_HTML_in_JSON(body,htmlFunc),callback,True,prefix=line1)
         elif do_mp3 and options.bitrate:
             runFilter("lame --quiet --mp3input -m m --abr %d - -o -" % options.bitrate,body,callback,False) # -m m = mono (TODO: optional?)
         else: callback(body,"")
@@ -3353,7 +3356,7 @@ document.forms[0].i.focus()
 the_duff_certfile = None
 def duff_certfile():
     global the_duff_certfile
-    if the_duff_certfile: return the_duff_certfile # (we don't need to worry about /tmp reaping here because we're called only twice at start)
+    if the_duff_certfile: return the_duff_certfile # (we shouldn't need to worry about it having been deleted by /tmp reaping, because we're called only twice at start)
     for n in ['/dev/shm/dummy.pem','/tmp/dummy.pem','dummy.pem']:
         try:
             # Here's one I made earlier, unsigned localhost:
@@ -3407,7 +3410,9 @@ rmHjGlInkZKbj3jEsGSxU4oKRDBM5syJgm1XYi5vPRNOUu4CXUGJAXhzJtd9teqB
 8FHasZQjl5aqS0j2vPREQl6fnw4i9/sOBvgZLgw03XZXtXr6Ow==
 -----END CERTIFICATE-----
 """)
-            the_duff_certfile = n ; return n
+            the_duff_certfile = n
+            kept_tempfiles[n] = n # so can clean up on exit
+            return n
         except: continue
     raise Exception("Can't write the duff certificate anywhere?")
 
@@ -3746,7 +3751,7 @@ def stopServer(reason=None):
 
 def json_reEscape(u8str): return json.dumps(u8str.decode('utf-8','replace'))[1:-1] # omit ""s (necessary as we might not have the whole string here)
 
-def runFilterOnText(cmd,codeTextList,callback,escape=False,separator=None):
+def runFilterOnText(cmd,codeTextList,callback,escape=False,separator=None,prefix=""):
     # codeTextList is a list of alternate [code, text, code, text, code]. Any 'text' element can itself be a list of [code, text, code] etc.
     # Pick out all the 'text' elements, separate them, send to the filter, and re-integrate assuming separators preserved
     # If escape is True, on re-integration escape anything that comes under a top-level 'text' element so they can go into JSON strings (see find_HTML_in_JSON)
@@ -3782,7 +3787,7 @@ def runFilterOnText(cmd,codeTextList,callback,escape=False,separator=None):
         toSend=separator+toSend+separator
         sortout = lambda out:out.split(separator)[1:-1]
     else: sortout = lambda out:out.split(separator)
-    runFilter(cmd,toSend,lambda out,err:callback("".join(getText(codeTextList,sortout(out),True)),err))
+    runFilter(cmd,prefix+toSend,lambda out,err:callback("".join(getText(codeTextList,sortout(out),True)),err))
 
 def extractCharsetEquals(value):
     charset=value[value.index("charset=")+len("charset="):]
@@ -4958,6 +4963,7 @@ checkServer=checkServer()
 
 lastDebugMsg = "None" # for 'stopping watchdog ping'
 def debuglog(msg,logRepeats=True,stillIdle=False):
+    # This function *must* return None.
     global lastDebugMsg, profileIdle
     if not stillIdle: profileIdle = False
     if logRepeats or not msg==lastDebugMsg:
@@ -4966,4 +4972,14 @@ def debuglog(msg,logRepeats=True,stillIdle=False):
         else: sys.stderr.write(time.strftime("%X ")+msg+"\n")
     lastDebugMsg = msg
 
+def check_injected_globals():
+    try: defined_globals
+    except: return
+    for s in set(globals().keys()).difference(defined_globals):
+        if s in options: errExit("Error: adjuster.%s should be adjuster.options.%s" % (s,s)) # (tell them off, don't try to patch up: this could go more subtly wrong if they do it again with something we happened to have defined in our module before)
+        elif type(eval(s)) in [str,bool,int]: errExit("Don't understand injected %s %s (mis-spelled option?)" % (repr(type(eval(s))),s))
+
 if __name__ == "__main__": main()
+else:
+    defined_globals = True # so included in itself
+    defined_globals = set(globals().keys())
