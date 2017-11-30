@@ -4094,7 +4094,7 @@ def transform_in_selected_tag(intag,transformFunc,events=False):
             elif intag in ["script","style"]:
               changed = False ; r=[]
               for k,v in items(attrs):
-                  if k==intag or (events and k.startswith("on")) or (intag=="script" and k=="id"):
+                  if not v==None and (k==intag or (events and k.startswith("on")) or (intag=="script" and k=="id")):
                       v2 = transformFunc(v)
                       if not v2 and k=="id": v2 = v # don't change IDs just because we're removing scripts altogether
                       changed = changed or not v==v2
