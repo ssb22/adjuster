@@ -2493,7 +2493,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def serve_URLbox(self):
         if not options.wildcard_dns: self.clearUnrecognisedCookies() # TODO: optional?
         self.addCookieFromURL()
-        self.doResponse2(urlbox_html(self.htmlOnlyMode(),self.cssOptionsHtml(),self.getArg("q") or self.getArg("d")),True,False) # TODO: run htmlFilter on it also? (render etc will be done by doResponse2)
+        self.doResponse2(urlbox_html(self.htmlOnlyMode() or self.checkBrowser(["Lynx/"]),self.cssOptionsHtml(),self.getArg("q") or self.getArg("d")),True,False) # TODO: run htmlFilter on it also? (render etc will be done by doResponse2)
 
     def serve_hostError(self):
         l = []
