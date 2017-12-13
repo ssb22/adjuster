@@ -772,10 +772,12 @@ def showProfile(pjsOnly=False):
         webdriver_maxBusy = stillUsed
         # TODO: also measure lambda/mu of other threads e.g. htmlFilter ?
         if psutil: pr += "; system RAM %.1f%% used" % (psutil.virtual_memory().percent)
+    try: pr2 += "%d requests in flight (%d from clients)" % (len(reqsInFlight),len(origReqInFlight))
+    except NameError: pr2="" # no reqsInFlight
+    if not pr and not pr2: return
     if pr: pr += "\n"
     elif not options.background: pr += ": "
-    try: pr += "%d requests in flight (%d from clients)" % (len(reqsInFlight),len(origReqInFlight))
-    except NameError: pass # no reqsInFlight
+    pr += pr2
     if options.background: logging.info(pr)
     elif can_do_ansi_colour: sys.stderr.write("\033[35m"+(time.strftime("%X")+pr).replace("\n","\n\033[35m")+"\033[0m\n")
     else: sys.stderr.write(time.strftime("%X")+pr+"\n")
