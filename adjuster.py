@@ -325,7 +325,7 @@ define("ipNoLog",multiple=True,help="A comma-separated list of IP addresses whic
 define("squashLogs",default=True,help="Try to remove some duplicate information from consecutive log entries, to make logs easier to check. You might want to set this to False if you plan to use automatic search tools on the logs.") # (word 'some' is important as not all duplicate info is guaranteed to be removed)
 define("whois",default=False,help="Try to log the Internet service provider for each IP address in the logs.  Requires the 'whois' program.  The extra information is written as separate log entries when it becomes available, and not for recent duplicate IPs or IPs that do not submit valid requests.")
 define("errorHTML",default="Adjuster error has been logged",help="What to say when an uncaught exception (due to a misconfiguration or programming error) has been logged. HTML markup is allowed in this message. If for some reason you have trouble accessing the log files, the traceback can usually be included in the page itself by placing {traceback} in the message.") # TODO: this currently requires Tornado 2.1+ (document this? see TODO in write_error)
-define("logDebug",default=False,help="Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules.") # see debuglog()
+define("logDebug",default=False,help="Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules. On Unix you may also toggle this at runtime by sending SIGUSR1 to the process(es).") # see debuglog()
 # and continuing into the note below:
 if not tornado:
     print "</dl>"
@@ -543,6 +543,8 @@ def initLogging(): # MUST be after unixfork() if background
     CrossProcessLogging.init()
 
 def preprocessOptions():
+    if hasattr(signal,"SIGUSR1"):
+        signal.signal(signal.SIGUSR1, toggleLogDebug)
     if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
     if options.restart and options.watchdog and options.watchdogDevice=="/dev/watchdog" and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
     if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
@@ -772,7 +774,8 @@ def showProfile(pjsOnly=False):
         if psutil: pr += "; system RAM %.1f%% used" % (psutil.virtual_memory().percent)
     if pr: pr += "\n"
     elif not options.background: pr += ": "
-    pr += "%d requests in flight (%d from clients)" % (len(reqsInFlight),len(origReqInFlight))
+    try: pr += "%d requests in flight (%d from clients)" % (len(reqsInFlight),len(origReqInFlight))
+    except NameError: pass # no reqsInFlight
     if options.background: logging.info(pr)
     elif can_do_ansi_colour: sys.stderr.write("\033[35m"+(time.strftime("%X")+pr).replace("\n","\n\033[35m")+"\033[0m\n")
     else: sys.stderr.write(time.strftime("%X")+pr+"\n")
@@ -4970,7 +4973,21 @@ def debuglog(msg,logRepeats=True,stillIdle=False):
         if not options.logDebug: logging.debug(msg)
         elif options.background: logging.info(msg)
         else: sys.stderr.write(time.strftime("%X ")+msg+"\n")
-    lastDebugMsg = msg
+    lastDebugMsg = msg ; global debuglog_toggled
+    if debuglog_toggled:
+        debuglog_toggled = False
+        global psutil
+        try: import psutil
+        except ImportError: psutil = None
+        showProfile(pjsOnly=True) # TODO: document that SIGUSR1 also does this? (but doesn't count reqsInFlight if profile wasn't turned on, + it happens on next debuglog call (and shown whether toggled on OR off, to allow rapid toggle just to show this))
+debuglog_toggled = False
+def toggleLogDebug(*args):
+    "SIGUSR1 handler (see logDebug option help)"
+    # Don't log anything from the signal handler
+    # (as another log message might be in progress)
+    # Just toggle the logDebug flag
+    options.logDebug = not options.logDebug
+    global debuglog_toggled ; debuglog_toggled = True
 
 def check_injected_globals():
     try: defined_globals
