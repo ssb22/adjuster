@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6281 (c) 2012-17 Silas S. Brown"
+program_name = "Annotator Generator v0.6282 (c) 2012-17 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1209,6 +1209,9 @@ public class MainActivity extends Activity {
         // Delete the following line if you DON'T want to be able to use chrome://inspect in desktop Chromium when connected via USB to Android 4.4+
         if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) WebView.setWebContentsDebuggingEnabled(true);
         // ---------------------------------------------
+        // Delete the following long line if you DON'T want to link pop-ups to Pleco (when installed):
+        try { getApplicationContext().getPackageManager().getPackageInfo("com.pleco.chinesesystem", 0); gotPleco = true; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
+        // ---------------------------------------------
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
         class A {
@@ -1230,6 +1233,17 @@ public class MainActivity extends Activity {
                                         ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
                                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
                                 }
+                        });
+                        if(gotPleco) d.setNeutralButton("Pleco", new android.content.DialogInterface.OnClickListener() {
+                            public void onClick(android.content.DialogInterface dialog,int id) {
+                                Intent i = new Intent(Intent.ACTION_MAIN);
+                                i.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity"));
+                                i.addCategory(Intent.CATEGORY_LAUNCHER);
+                                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                                i.putExtra("launch_section", "dictSearch");
+                                i.putExtra("replacesearchtext", tt);
+                                startActivity(i);
+                            }
                         });
                         d.setPositiveButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
                         d.create().show();
@@ -1276,6 +1290,7 @@ public class MainActivity extends Activity {
         else return false; return true;
     }
     String sentText = null;
+    boolean gotPleco = false;
     static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); "+jsAddRubyCss,"var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
     android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
