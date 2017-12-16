@@ -3167,7 +3167,7 @@ def outputParser(rulesAndConds):
     if glossfile:
         for l in openfile(glossfile).xreadlines():
             if not l.strip(): continue
-            l=l.decode(incode) # TODO: glosscode ?
+            l=l.decode(incode,errors='replace') # TODO: glosscode ? (errors=replace because we said it's not necessary to completely debug glossfile; we don't want this to be brought down by one bad UTF8 sequence or whatever)
             try: word,annot,gloss = l.split("\t",2)
             except: # not enough tabs
               word = l.split("\t",1)[0] ; annot = gloss = ""
