@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.263 (c) 2012-17 Silas S. Brown"
+program_name = "Web Adjuster v0.264 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -79,6 +79,7 @@ define("real_proxy",default=False,help="Whether or not to accept requests with o
 define("via",default=True,help="Whether or not to update the Via: and X-Forwarded-For: HTTP headers when forwarding requests") # (Via is "must" in RFC 2616)
 define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP header when forwarding requests, as a courtesy to site administrators who wonder what's happening in their logs (and don't log Via: etc)")
 define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.") # TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, see comments in request_no_external_referer)
+define("just_me",default=False,help="Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.")
 
 define("upstream_proxy",help="address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options, own_server or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.") # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies. The ":port"-only option rewrites URLs in requests but NOT ones referred to in documents: we assume the proxy can cope with that.
 
@@ -630,7 +631,12 @@ def preprocessOptions():
             options.open_proxy = True # bypass the check
     if not options.publicPort:
         options.publicPort = options.port
-    if not options.password and not options.open_proxy and not options.submitPath=='/' and not options.stop: errExit("Please set a password, or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
+    if options.just_me:
+        options.address = "localhost"
+        try: socket.socket().connect(('localhost',113))
+        except: errExit("--just_me requires an ident server to be running on port 113")
+        import getpass ; global myUsername ; myUsername = getpass.getuser()
+    elif not options.password and not options.open_proxy and not options.submitPath=='/' and not options.stop: errExit("Please set a password (or --just_me), or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
     if options.submitBookmarkletDomain and not options.publicPort==80: errExit("submitBookmarkletDomain option requires public port to be 80 (and HTTPS-capable on port 443)")
     if options.pdftotext and not "pdftotext version" in os.popen4("pdftotext -h")[1].read(): errExit("pdftotext command does not seem to be usable\nPlease install it, or unset the pdftotext option")
     if options.epubtotext and not "calibre" in os.popen4("ebook-convert -h")[1].read(): errExit("ebook-convert command does not seem to be usable\nPlease install calibre, or unset the epubtotext option")
@@ -826,7 +832,7 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt):
             sys.stderr.write("Warning: '%s' option may not work in WSGI mode\n" % opt)
@@ -2703,8 +2709,22 @@ document.forms[0].i.focus()
         return r
 
     def canWriteBody(self): return not self.request.method in ["HEAD","OPTIONS"]
-    
+
+    def justMeCheck(self):
+        # Ideally we should do this asynchronously, but as
+        # it's only for the --just-me option and we assume a
+        # local ident server, we can probably get away with:
+        try:
+            s = socket.socket()
+            s.connect(('localhost',113))
+            s.send("%d, %d\r\n" % (self.request.connection.stream.socket.getpeername()[1], options.publicPort))
+            if s.recv(1024).split(':')[-1].strip()==myUsername: return True
+            else: logging.error("ident server didn't confirm username: rejecting this connection")
+        except Exception,e: logging.error("Trouble connecting to ident server (%s): rejecting this connection" % repr(e))
+        self.myfinish()
+
     def doReq(self):
+        if options.just_me and not self.justMeCheck(): return
         debuglog("doReq"+self.debugExtras()) # MUST keep this here: it also sets profileIdle=False
         try: reqsInFlight.add(id(self)) # for profile
         except: pass
