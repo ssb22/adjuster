@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.264 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.265 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -175,7 +175,8 @@ define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate
 define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.") # e.g. example.rhcloud.com (although that does introduce the disadvantage of tying bookmarklet installations to the current URLs of the OpenShift service rather than your own domain)
 
 heading("Javascript execution options")
-define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with Selenium (and ChromeDriver if you're using HeadlessChrome, and the exact right version of Selenium etc if you're using HeadlessFirefox, which is notorious for breaking at the slightest version mismatch).  If you have multiple users, beware logins etc may be shared!  Only the remote site's script is executed: scripts in --headAppend etc are still sent to the client.   If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
+define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with Selenium (and ChromeDriver if you're using HeadlessChrome, and the exact right version of Selenium etc if you're using HeadlessFirefox, which is notorious for breaking at the slightest version mismatch).  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
+define("js_upstream",default=False,help="Handle --headAppend, --bodyPrepend, --bodyAppend and --codeChanges upstream of our Javascript interpreter instead of making these changes as code is sent to the client, and make --staticDocs available to our interpreter as well as to the client.  This is for running experimental 'bookmarklets' etc with browsers like Lynx.")
 define("js_instances",default=1,help="The number of virtual browsers to load when js_interpreter is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
 define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances.") # (js_429 + multicore can result in ALL cores putting new requests on hold when js_interpreter load is high, even if some of those new requests won't immediately require js_interpreter work.  But it's better than having an excessively uneven distribution under load.)  HTTP 429 is from RFC 6585, April 2012 ('too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely)
 define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive js_interpreter processes.") # (although that would preclude a faster response when a js_interpreter instance is already loaded with the page requested, although TODO faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load); RAM usage is a regression from 2.0.1 ?
@@ -564,6 +565,8 @@ def preprocessOptions():
         try: import multiprocessing # Python 2.6
         except ImportError: # can't do it then
             options.js_multiprocess = False
+    elif options.js_upstream: errExit("js_upstream requires a js_interpreter to be set")
+    assert not (options.js_upstream and set_window_onerror), "Must have set_window_onerror==False when using options.js_upstream"
     create_inRenderRange_function(options.renderRange)
     if type(options.renderOmit)==type(""): options.renderOmit=options.renderOmit.split(',')
     if options.renderOmitGoAway:
@@ -955,12 +958,17 @@ def open_extra_ports():
     if options.js_reproxy:
         for c in xrange(cores):
           for i in xrange(js_per_core):
-            listen_on_port(Application([(r"(.*)",PjsRequestForwarder(c*js_per_core,i),{})],log_function=nullLog,gzip=False),js_proxy_port[c*js_per_core+i],"127.0.0.1",False,core=c)
+            listen_on_port(makePjsApplication(c*js_per_core,i),js_proxy_port[c*js_per_core+i],"127.0.0.1",False,core=c)
 
 def makeMainApplication():
     handlers = [(r"(.*)",NormalRequestForwarder(),{})]
     if options.staticDocs: handlers.insert(0,static_handler())
     return Application(handlers,log_function=accessLog,gzip=options.compress_responses) # TODO: gzip= deprecated in Tornado 4.x (if they remove it, we may have to check Tornado version and send either gzip= or compress_response= as appropriate, in all calls to Application)
+
+def makePjsApplication(x,y):
+    handlers = [(r"(.*)",PjsRequestForwarder(x,y),{})]
+    if options.js_upstream and options.staticDocs: handlers.insert(0,static_handler())
+    return Application(handlers,log_function=nullLog,gzip=False)
 
 def start_multicore(isChild=False):
     "Fork child processes, set coreNo unless isChild; parent waits and exits.  Call to this must come after unixfork if want to run in the background."
@@ -2721,6 +2729,8 @@ document.forms[0].i.focus()
             if s.recv(1024).split(':')[-1].strip()==myUsername: return True
             else: logging.error("ident server didn't confirm username: rejecting this connection")
         except Exception,e: logging.error("Trouble connecting to ident server (%s): rejecting this connection" % repr(e))
+        self.set_status(401)
+        self.write("Connection from wrong account (ident check failed)")
         self.myfinish()
 
     def doReq(self):
@@ -3229,13 +3239,18 @@ document.forms[0].i.focus()
             return
         if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host,https=self.urlToFetch.startswith("https")) # first, so filters to run and scripts to add can mention new domains without these being redirected back
         # Must also do things like 'delete' BEFORE the filters, especially if lxml is in use and might change the code so the delete patterns aren't recognised.  But do JS process BEFORE delete, as might want to pick up on something that was there originally.  (Must do it AFTER domain process though.)
-        if self.isPjsUpstream and do_html_process: # add a CSS rule to help with js_interpreter screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
+        if self.isPjsUpstream:
+          if do_html_process:
+            # add a CSS rule to help with js_interpreter screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
             i = htmlFind(body,"<head")
             if i==-1: i=htmlFind(body,"<html")
             if not i==-1: i = body.find('>',i)+1
             if i: body=body[:i]+"<style>html{background:#fff}</style>"+body[i:] # setting on 'html' rather than 'body' allows body bgcolor= to override.  (body background= is not supported in HTML5 and PhantomJS will ignore it anyway.)
-        if self.isPjsUpstream or self.isSslUpstream: return self.doResponse3(body) # write & finish
-        if do_js_process: body = js_process(body,self.urlToFetch)
+            if options.js_upstream: body = html_additions(body,(None,None),False,"","",False,"","PjsUpstream",False,"") # just headAppend,bodyPrepend,bodyAppend (no css,ruby,render,UI etc, nor htmlFilter from below)
+          if do_js_process and options.js_upstream: body = js_process(body,self.urlToFetch)
+          return self.doResponse3(body) # write & finish
+        elif self.isSslUpstream: return self.doResponse3(body)
+        elif do_js_process and not options.js_upstream: body = js_process(body,self.urlToFetch)
         if not self.checkBrowser(options.deleteOmit):
             body = process_delete(body)
         if do_css_process:
@@ -4516,7 +4531,7 @@ def html_additions(html,(cssToAdd,attrsToAdd),slow_CSS_switch,cookieHostToSet,js
     if not "<body" in html.lower() and "<frameset" in html.lower(): return html # but allow HTML without <body if can't determine it's a frameset (TODO: what about <noframes> blocks?  although browsers that use those are unlikely to apply the kind of CSS/JS/etc things that html_additions puts in)
     bodyAppend = bodyAppend1 = ""
     bodyPrepend = options.bodyPrepend
-    if not bodyPrepend: bodyPrepend = ""
+    if not bodyPrepend or (options.js_upstream and not is_password_domain=="PjsUpstream"): bodyPrepend = ""
     headAppend = ""
     if set_window_onerror: headAppend += r"""<script><!--
 window.onerror=function(msg,url,line){alert(msg); return true}
@@ -4570,9 +4585,10 @@ if(!%s&&document.readyState!='complete')document.write('<a href="http://%s/?%s=%
         else: bodyAppend += r"""<script><!--
 if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';if(location.href==\'http://%s/\')location.reload(true);else location.href=\'http://%s/?nocache=\'+Math.random()">Back to URL box<\/a>')
 //--></script>""" % (detect_iframe,adjust_domain_cookieName,adjust_domain_none,cookieExpires,cookieHostToSet+publicPortStr(),cookieHostToSet+publicPortStr()) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
-    if options.headAppend: headAppend += options.headAppend
-    if options.headAppendRuby: bodyPrepend += rubyScript
-    if options.prominentNotice=="htmlFilter": pn = htmlFilterOutput
+    if options.headAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): headAppend += options.headAppend
+    if options.headAppendRuby and not is_password_domain=="PjsUpstream": bodyPrepend += rubyScript
+    if is_password_domain=="PjsUpstream": pn = None
+    elif options.prominentNotice=="htmlFilter": pn = htmlFilterOutput
     elif options.prominentNotice and not is_password_domain: pn = options.prominentNotice
     else: pn = None
     if pn:
@@ -4601,7 +4617,7 @@ if(document.getElementById) {
         #" # (this comment helps XEmacs21's syntax highlighting)
         # (Above code works around a bug in MSIE 9 by setting the cookie BEFORE doing the removeChild.  Otherwise the cookie does not persist.)
         if options.prominentNotice=="htmlFilter": bodyPrepend = bodyPrepend.replace("document.cookie='_WA_warnOK=1;path=/';","") # don't set the 'seen' cookie if the notice will be different on every page and if that's the whole point of htmlFilter
-    if options.headAppendRuby: bodyAppend += rubyEndScript
+    if options.headAppendRuby and not is_password_domain=="PjsUpstream": bodyAppend += rubyEndScript
     if headAppend:
         i=htmlFind(html,"</head")
         if i==-1: # no head section?
@@ -4622,7 +4638,7 @@ if(document.getElementById) {
             if i>-1: html=html[:i+1]+bodyPrepend+html[i+1:]
     if bodyAppend1 and bodyAppend: bodyAppend = '<span style="float:left">' + bodyAppend1 + '</span><span style="float:left;width:1em"><br></span><span style="float: right">'+bodyAppend+'</span><span style="clear:both"></span>' # (the <br> is in case CSS is off or overrides float)
     elif bodyAppend1: bodyAppend = bodyAppend1
-    if options.bodyAppend: bodyAppend = options.bodyAppend + bodyAppend
+    if options.bodyAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): bodyAppend = options.bodyAppend + bodyAppend
     elif bodyAppend: bodyAppend='<p>'+bodyAppend # TODO: ?
     if bodyAppend:
         i = -1
