@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6282 (c) 2012-17 Silas S. Brown"
+program_name = "Annotator Generator v0.6283 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -340,6 +340,8 @@ diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
 if no_input and diagnose_manual: errExit("--diagnose-manual is not compatible with --no-input") # it needs the input for diagnostic purposes
+needAnnoType = False # HIGHLY EXPERIMENTAL - DO NOT USE
+if needAnnoType and (windows_clipboard or ios or (java and not ndk) or c_sharp or golang): errExit("needAnnoType not yet implemented in Windows clipboard, iOS, Java without Android NDK, C# or Go")
 
 def nearCall(negate,conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
@@ -506,7 +508,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
                 ret.append("if ("+nearCall(negate,conds,subFuncs,subFuncL)+") {")
                 ret.append((action+" return;").strip())
                 ret.append("}")
-            else:
+            else: # no conds
                 if default_action:
                   sys.stderr.write("WARNING! More than one default action in "+repr(byteSeq_to_action_dict[""])+" - earlier one discarded!\n")
                   if rulesFile: sys.stderr.write("(This might indicate invalid markup in the corpus, but it might just be due to a small change or capitalisation update during an incremental run, which can be ignored.)\n") # TODO: don't write this warning at all if accum.amend_rules was set at the end of analyse() ?
@@ -696,7 +698,11 @@ int near(char* string) {
     return 0;
 }
 void matchAll();
-JNIEXPORT jstring JNICALL Java_%PACKAGE%_MainActivity_jniAnnotate(JNIEnv *env, jclass theClass, jstring jIn) {
+JNIEXPORT jstring JNICALL Java_%PACKAGE%_MainActivity_jniAnnotate(JNIEnv *env, jclass theClass, jstring jIn"""
+  if needAnnoType: c_defs += ", jint aType"
+  c_defs += ") {"
+  if needAnnoType: c_defs += "annotation_type = aType;"
+  c_defs += r"""
   startPtr=(char*)(*env)->GetStringUTFChars(env,jIn,NULL);
   readPtr = startPtr; writePtr = startPtr;
   outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
@@ -708,7 +714,8 @@ JNIEXPORT jstring JNICALL Java_%PACKAGE%_MainActivity_jniAnnotate(JNIEnv *env, j
   jstring ret=(*env)->NewStringUTF(env,outBytes);
   free(outBytes); return ret;
 }
-""".replace("%PACKAGE%",ndk.replace('.','_'))
+"""
+  c_defs = c_defs.replace("%PACKAGE%",ndk.replace('.','_'))
   c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the Android code
 elif windows_clipboard:
   c_preamble = r"""/*
@@ -858,6 +865,7 @@ if ios: c_name = "Objective-C"
 else: c_name = "C"
 if ndk: c_start = "" # because #!/bin/bash comes next
 else: c_start = "/* -*- coding: "+outcode+" -*- */\n/* "+c_name+" code "+version_stamp+" */\n"
+if needAnnoType: c_defs += "int annotation_type=0;\n"
 c_start += c_preamble+r"""
 enum { ybytes = %%YBYTES%% }; /* for Yarowsky-like matching, minimum readahead */
 static int nearbytes = ybytes;
@@ -1053,21 +1061,29 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
   DestroyWindow(win); // TODO: needed?
 }
 """
-else: c_end += r"""
+else:
+  c_end += r"""
 #ifndef Omit_main
 int main(int argc,char*argv[]) {
   int i; for(i=1; i<argc; i++) {
     if(!strcmp(argv[i],"--help")) {
-      puts("Use --ruby to output ruby markup (default)");
-      puts("Use --raw to output just the annotations without the base text");
-      puts("Use --braces to output as {base-text|annotation}");
+      printf("%s [options]"""
+  if needAnnoType: c_end += " [annotation type number]"
+  c_end += r"""\nOptions:\n",argv[0]);
+      puts("--ruby   = output ruby markup (default)");
+      puts("--raw    = output just the annotations without the base text");
+      puts("--braces = output as {base-text|annotation}");
       return 0;
     } else if(!strcmp(argv[i],"--ruby")) {
       annotation_mode = ruby_markup;
     } else if(!strcmp(argv[i],"--raw")) {
       annotation_mode = annotations_only;
     } else if(!strcmp(argv[i],"--braces")) {
-      annotation_mode = brace_notation;
+      annotation_mode = brace_notation;"""
+  if needAnnoType: c_end += r"""
+    } else if(sscanf(argv[i],"%d",&annotation_type)==1) { /* pass */
+  """
+  c_end += r"""
     } else {
       fprintf(stderr,"Unknown argument '%s'\n(Text should be on standard input)\n",argv[i]); return 1;
     }
@@ -1189,7 +1205,14 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.os.Bundle;
 import android.view.KeyEvent;
-public class MainActivity extends Activity {
+public class MainActivity extends Activity {"""
+if ndk:
+  android_src += r"""
+    static { System.loadLibrary("Annotator"); }
+    static synchronized native String jniAnnotate(String in"""
+  if needAnnoType: android_src += ", int aType"
+  android_src += ');'
+android_src += r"""
     @SuppressLint("SetJavaScriptEnabled")
     @android.annotation.TargetApi(19) // 19 for setWebContentsDebuggingEnabled; 7 for setAppCachePath; 3 for setBuiltInZoomControls (but only API 1 is required)
     @SuppressWarnings("deprecation") // for conditional SDK below
@@ -1216,8 +1239,17 @@ public class MainActivity extends Activity {
         browser.setWebChromeClient(new WebChromeClient());
         class A {
             public A(MainActivity act) { this.act = act; }
-            MainActivity act; String copiedText="";
-            @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) { String r=new %%JPACKAGE%%.Annotator(t).result(); if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPopAll(this)\""); return r; } // now we have a Copy button, it's convenient to put this on ALL ruby elements, not just ones with title
+            MainActivity act;"""
+if needAnnoType: android_src += r"""
+            int annotation_type = 0;
+            @android.webkit.JavascriptInterface public void setAnnotationType(int t) { annotation_type = t; }
+            @android.webkit.JavascriptInterface public int getAnnotationType() { return annotation_type; }"""
+android_src += r""" String copiedText="";
+            @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) { String r="""
+if ndk and needAnnoType: android_src += 'jniAnnotate(t,annotation_type)'
+elif ndk: android_src += 'jniAnnotate(t)'
+else: android_src += 'new %%JPACKAGE%%.Annotator(t).result()'
+android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPopAll(this)\""); return r; } // now we have a Copy button, it's convenient to put this on ALL ruby elements, not just ones with title
             @android.webkit.JavascriptInterface public void alert(String t,String a) {
                 class DialogTask implements Runnable {
                     String tt,aa;
@@ -1328,7 +1360,7 @@ public class MainActivity extends Activity {
     WebView browser;
 }
 """
-if ndk: c_start = c_start.replace("%%android_src%%",android_src.replace("Put *.java into src/%%JPACK2%%","Optionally edit this file, but beware it will be overwritten if the script to generate it is re-run").replace('new %%JPACKAGE%%.Annotator(t).result()','jniAnnotate(t)').replace('%%JPACKAGE%%',ndk).replace('public class MainActivity extends Activity {','public class MainActivity extends Activity {\n    static { System.loadLibrary("Annotator"); }\n    static synchronized native String jniAnnotate(String in);').replace('%%ANDROID-URL%%',android))
+if ndk: c_start = c_start.replace("%%android_src%%",android_src.replace("Put *.java into src/%%JPACK2%%","Optionally edit this file, but beware it will be overwritten if the script to generate it is re-run").replace('%%ANDROID-URL%%',android))
 android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
 <script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg); return true}</script>
     <h3>Clipboard</h3>
@@ -1701,14 +1733,17 @@ func Annotate(src io.Reader, dest io.Writer) {
 class BytecodeAssembler:
   # Bytecode for a virtual machine run by the Javascript version etc
   opcodes = {
-    'jump': 50, # params: address
-    'call': 51, # params: function address
-    'return': 52, # (or 'end program' if top level)
-    'switchbyte': 60, # switch(NEXTBYTE) (params: numBytes-1, bytes (sorted, TODO take advantage of this), addresses, default address)
-    'copyBytes':71,'o':72,'o2':73, # (don't change these numbers, they're hard-coded below)
-    'savepos':80, # local to the function
-    'restorepos':81,
-    'neartest':90, # params: true-label, false-label, byte nbytes, addresses of conds strings until first of the 2 labels is reached (normally true-label, unless the whole neartest is negated)
+    'jump': 50, # '2' params: address
+    'call': 51, # '3' params: function address
+    'return': 52, # '4' (or 'end program' if top level)
+    'switchbyte': 60, # '<' switch(NEXTBYTE) (params: numBytes-1, bytes (sorted, TODO take advantage of this), addresses, default address)
+    'copyBytes':71,'o':72,'o2':73, # 'G','H','I' (don't change these numbers, they're hard-coded below)
+    'savepos':80, # 'P', local to the function
+    'restorepos':81, # 'Q'
+    'neartest':90, # 'Z' params: true-label, false-label, byte nbytes, addresses of conds strings until first of the 2 labels is reached (normally true-label, unless the whole neartest is negated)
+    'typetest':100, # 'd' for needAnnoType; params: false-label, byte num of acceptable type numbers, (string of) bytes acceptable type numbers
+    # RESERVED by additional_compact_opcodes:
+    # 128-255 for short jumps, 0-19 for short switchbyte (1 to 20 items), 20-31 for short typetest (1 to 12 types)
   }
   def __init__(self):
     self.l = []
@@ -1740,6 +1775,10 @@ class BytecodeAssembler:
       self.addBytes(len(byteArray)-1) # num of bytes in list - 1 (so all 256 values can be accounted for if needed)
       self.addBytes("".join(byteArray))
       for i in labelArray: self.addRef(i)
+  def addTypetest(self,okATypeList,falseLabel):
+      self.addOpcode('typetest') ; self.addRef(falseLabel)
+      self.addBytes(len(okATypeList))
+      self.addBytes("".join(chr(n) for n in okATypeList))
   def addActions(self,actionList):
     # assert type(actionList) in [list,tuple], repr(actionList)
     for a in actionList:
@@ -1772,7 +1811,7 @@ class BytecodeAssembler:
         byteSeq_to_action_dict[""] = [("",[])] # for the end of this func
         self.addOpcode('return')
     elif allBytes:
-      allBytes = list(allBytes)
+      allBytes = sorted(list(allBytes))
       labels = [self.makeLabel() for b in allBytes+[0]]
       self.addByteswitch(allBytes,labels)
       for case in allBytes:
@@ -1838,7 +1877,7 @@ class BytecodeAssembler:
     def f(*args): raise Exception("Must call link() only once")
     self.link = f
     sys.stderr.write("Linking... ")
-    for dat,ref in self.d2l.iteritems():
+    for dat,ref in self.d2l.iteritems(): # the functions and data to add to the end of self.l in no particular order
         assert type(ref)==tuple and type(ref[0])==int
         self.l.append((-ref[0],)) # the label
         if type(dat)==str:
@@ -1857,92 +1896,108 @@ class BytecodeAssembler:
     del self.d2l
     # elements of self.l are now:
     # - byte strings (just copied in)
-    # - positive integers (labels)
+    # - positive integers (labels for code)
     # - negative integers (references to labels)
-    # - +ve or -ve integers in tuples (reserved labels: a different counter, used for functions etc)
+    # - +ve or -ve integers in tuples (labels for functions and text strings: different 'namespace')
     # strings in tuples: opcodes
     # 1st byte of o/p is num bytes needed per address
     class TooNarrow(Exception): pass
-    for numBytes in xrange(1,256):
-        sys.stderr.write("(%d-bit) " % (numBytes*8))
+    for addrSize in xrange(1,256):
+        sys.stderr.write("(%d-bit) " % (8*addrSize))
+        src = self.l[:] # must start with fresh copy, because compaction modifies src and we don't want a false start with wrong addrSize to affect us
         try:
-          lDic = {} # the label dictionary
-          for P in [1,2,3]:
-            labelMove = 0 # amount future labels have to move by, due to instructions taking longer than we thought on pass 2.  NB: this labelMove logic relies on the assumption that, if a short-forward-jump is confirmed in pass 2, then the instructions it jumps over will not have to expand in that pass (otherwise it's possible that the label it jumps to will be moved out of range and the instruction will have to expand on pass 3, causing labels to move on pass 3 which would necessitate another pass; assert should catch this). Assumption should hold in the code we generate ('nested switch' stuff: a 'break' from an inner switch can't possibly refer to a label that occurs after the one referred to by 'break's in the outer switch before that inner switch started, hence if the outer switch is confirmed to be within range of its end label then the inner switch must necessarily be in range of ITS end label) but this might not hold if the generator were to start to emit spaghetti state jumps
-            compacted = 0
-            labels_seen_this_pass = set() # to avoid backward jumps (as we can't just apply labelMove to them and see if they're behind the program counter, since need to know if they're backward before knowing if labelMove applies)
-            r = [chr(numBytes)] ; ll = 1
-            count = 0
-            while count < len(self.l):
-                i = self.l[count] ; count += 1
+          compacted = 0 ; compaction_types = set()
+          if additional_compact_opcodes:
+            # The compact opcodes all rely on relative addressing (relative to AFTER the compact instruction) that goes only forward.  Easiest way to deal with that is to work backwards from the end, inlining the compactions, before running a conventional 2-pass assembly.
+            # TODO: Could move the below loop into this one in its entirety, and just assemble backwards.  Most within-function label references point forwards anyway.  (Would still need some backward refs for functions though)
+            bytesFromEnd = 0
+            lDic = {} # labelNo -> bytesFromEnd
+            def LGet(lRef,origOperandsLen):
+              # return the number of bytes between the end of the new instruction and the label.  Since bytesFromEnd includes origOperandsLen, we need to subtract that out, which would then leave bytes from end of code to end of new instruction (no matter what the length of the new instruction will be)
+              if not -lRef in lDic: return -1
+              return bytesFromEnd-origOperandsLen-lDic[-lRef]
+            for count in xrange(len(src)-1,-1,-1):
+                i = src[count]
                 if type(i)==tuple and type(i[0])==str:
-                    # an opcode: consider rewriting with additional_compact_opcodes if present
-                    opcode = i[0]
-                    i = chr(BytecodeAssembler.opcodes[opcode])
-                    if additional_compact_opcodes:
-                      if opcode=='jump' and type(self.l[count])==int:
-                        # Maybe we can use a 1-byte relative forward jump (up to 128 bytes), useful for 'break;' in a small switch
-                        bytesSaved = numBytes # as we're having a single byte instead of byte + numBytes-addr
-                        if P==1: i = ' ' # optimistic placeholder on pass 1 (might have to replace with a normal jump if the label turns out to be too far away)
-                        elif -self.l[count] in lDic and not -self.l[count] in labels_seen_this_pass and lDic[-self.l[count]]+labelMove-(ll+1) < 0x80: # it fits
-                          compacted += bytesSaved
-                          i = chr(0x80 | (lDic[-self.l[count]]+labelMove-(ll+1)))
-                        else:
-                          if P==2: labelMove += bytesSaved # because we need a normal jump (if P==3 then the labels should already have been moved into place on pass 2)
-                          count -= 1 # counteract the below
-                        count += 1
-                      elif opcode=='switchbyte' and self.l[count] < 20: # might be able to do the short version of switchbyte as well
-                        numItems = self.l[count]+1 # it's len-1
-                        # self.l[count+1] is the bytes; labels start at self.l[count+2]
-                        numLabels = numItems+1 # there's an extra default label at the end
-                        instrLen = 1+numItems+numLabels # 1-byte len, bytes, 1-byte address offsets
-                        bytesSaved = 1+1+numItems+numBytes*numLabels-instrLen
-                        if P==1: i=' '*instrLen # optimistic
-                        elif all(type(self.l[count+N])==int and -self.l[count+N] in lDic and not -self.l[count+N] in labels_seen_this_pass and lDic[-self.l[count+N]]+labelMove-(ll+instrLen) <= 0xFF for N in xrange(2,2+numLabels)): # it fits
-                          compacted += bytesSaved
-                          i = chr(self.l[count])+self.l[count+1]+''.join(chr(self.l[count+N]) for N in xrange(2,2+numLabels))
-                        else:
-                          if P==2: labelMove += bytesSaved
-                          count -= 2+numLabels
-                        count += 2+numLabels
-                    # end of opcode handling/rewriting
-                if type(i) in [int,tuple]: # labels
-                    if type(i)==int: i2,iKey = i,-i
-                    else: i2,iKey = i[0],(-i[0],)
+                    opcode = i[0] ; i = "-"
+                    if opcode=='jump' and 0 <= LGet(src[count+1],addrSize) < 0x80: # we can use a 1-byte relative forward jump (up to 128 bytes), useful for 'break;' in a small switch
+                      src[count] = i = chr(0x80 | (LGet(src[count+1],addrSize))) # new instr: 0x80|offset
+                      del src[count+1] # zap the label
+                      compacted += addrSize # as we're having a single byte instead of byte + address
+                      bytesFromEnd -= addrSize
+                      compaction_types.add(opcode)
+                    elif opcode=='switchbyte':
+                      numItems = len(src[count+2])
+                      if 1 <= numItems <= 20:
+                       numLabels = numItems+1 # there's an extra default label at the end
+                       origOperandsLen = 1+numItems+numLabels*addrSize # number + N bytes + the labels
+                       if all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF for N in xrange(3,3+numLabels)):
+                        src[count] = i = src[count+1]+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)) for N in xrange(3,3+numLabels)) # opcode_including_nItems, string of bytes, offsets
+                        del src[count+1:count+3+numLabels]
+                        newOperandsLen = numItems*2+1 # for each byte, the byte itself and an offset, + 1 more offset
+                        compacted += origOperandsLen-newOperandsLen
+                        bytesFromEnd -= origOperandsLen # will add new opCode + operands below
+                        compaction_types.add(opcode)
+                    elif opcode=="typetest" and 1<=src[count+1]<=12 and 0 <= LGet(src[count+1],addrSize+1+ord(src[count+2])) <= 0xFF: # similarly with the short version of typetest:
+                      numItems = ord(src[count+2])
+                      instrLen = numItems+2 # N acceptable types + short-jump + opcode-including-N
+                      src[count] = i = chr(numItems+19)+chr(LGet(src[count+1],addrSize))+src[count+3] # we assume all acceptable annotation-type numbers are in one string at count+3 (after count+1 is falseLabel and count+2 is number of acceptable annotation types)
+                      compacted += addrSize # as full instruction is opcode + falseLabel + byte for N + n bytes, compacted instruction is opcode_including_N + 1 (shortened falseLabel) + n bytes, so difference is (addrSize-1) + 1 = addrSize
+                      bytesFromEnd -= addrSize+1+ord(src[count+2])
+                      compaction_types.add(opcode)
+                      del src[count+1:count+4] # jumpIfFalse, numItems, itemString
+                elif type(i) in [int,tuple]: # labels
+                    if type(i)==int: i2 = i
+                    else: i2 = i[0]
                     assert type(i2)==int
-                    # iKey is the lDic key *IF* i is a reference (i.e. i2 is -ve).  But i might also be the label itself, in which case lKey is irrelevant.
-                    if i2 > 0: # label going in here
-                        labels_seen_this_pass.add(i)
-                        assert not (i in lDic and not lDic[i] == ll-labelMove), "Changing %s from %d to %d (labelMove=%d P=%d)\n" % (repr(i),lDic[i],ll,labelMove,P)
+                    if i2 > 0:
+                        lDic[i] = bytesFromEnd ; i = ""
+                        if bytesFromEnd >> (8*addrSize+1): raise TooNarrow() # fair assumption (but do this every label, not every instruction)
+                    else: i = "-"*addrSize # a reference
+                bytesFromEnd += len(i)
+          # End of additional_compact_opcodes
+          lDic = {} # label dictionary: labelNo -> address
+          for P in [1,2]:
+            r = [chr(addrSize)] # List to hold the output bytecode, initialised with a byte indicating how long our addresses will be.
+            ll = 1 # cumulative length of output list
+            count = 0 # reading through src opcodes etc
+            while count < len(src):
+                i = src[count] ; count += 1
+                if type(i)==tuple and type(i[0])==str: i = chr(BytecodeAssembler.opcodes[i[0]])
+                elif type(i) in [int,tuple]: # labels
+                    if type(i)==int: i2,iKey = i,-i # +ve integers are labels, -ve integers are references to them
+                    else: i2,iKey = i[0],(-i[0],) # reserved labels (a different counter)
+                    assert type(i2)==int
+                    # At this point, if i2<0 then iKey will be the lDic key for looking up the label.
+                    if i2 > 0: # label going in here: set lDic etc (without outputting any bytes of course)
+                        if (ll >> (8*addrSize)): raise TooNarrow() # on the assumption that somebody will reference this label, figure out early that we need more bits
+                        if i in lDic:
+                          assert lDic[i] == ll, "%s moved %d->%d" % (repr(i),lDic[i],ll)
                         lDic[i] = ll ; i = ""
                     elif iKey in lDic: # known label
-                        i = lDic[iKey]
-                        shift = 8*numBytes
+                        i = lDic[iKey] # the address to convert to MSB-LSB bytes and output:
+                        shift = 8*addrSize
                         if (i >> shift): raise TooNarrow()
                         j = []
-                        for b in xrange(numBytes):
+                        for b in xrange(addrSize):
                             # MSB-LSB (easier to do in JS)
                             shift -= 8
                             j.append(chr((i>>shift)&0xFF))
                         i = "".join(j)
-                        assert len(i)==numBytes
-                    else: # as-yet unknown label
+                        assert len(i)==addrSize
+                    else: # ref to as-yet unknown label
                         assert P==1, "undefined label %d" % -i
-                        ll += numBytes
-                        i = ""
+                        i = "-"*addrSize # placeholder (well we could just advance ll, but setting this makes things easier if you ever want to inspect partial results)
                 if len(i):
                   r.append(i) ; ll += len(i)
-            if P==2:
-              if not additional_compact_opcodes: break # need only 2 passes if have fixed-length addressing
-            else: assert not labelMove, "Labels move only on pass 2"
-            sys.stderr.write('.')
+            sys.stderr.write(".")
           r = "".join(r)
           if zlib:
             self.origLen = ll # needed for efficient malloc in the C code later
             r = zlib.compress(r,9)
-            if additional_compact_opcodes: sys.stderr.write("%d bytes (zlib compressed from %d after opcode compaction saved %d)\n" % (len(r),ll,compacted))
+            if additional_compact_opcodes: sys.stderr.write("%d bytes (zlib compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),ll,compacted,','.join(list(compaction_types))))
             else: sys.stderr.write("%d bytes (zlib compressed from %d)\n" % (len(r),ll))
-          elif additional_compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d)\n" % (ll,compacted))
+          elif additional_compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(list(compaction_types))))
           else: sys.stderr.write("%d bytes\n" % ll)
           return r
         except TooNarrow: pass
@@ -1953,7 +2008,9 @@ js_start = '/* Javascript '+version_stamp+r"""
 Usage:
 
  - You could just include this code and then call the
-   annotate() function i.e. var result = annotate(input)
+   annotate() function i.e. var result = annotate(input"""
+if needAnnoType: js_start += ",annotation_type"
+js_start += r""")
 
  - Or you could use (and perhaps extend) the Annotator
    object, and call its annotate() method.  If you have
@@ -1971,7 +2028,11 @@ Usage:
 var Annotator={
 version: '"""+version_stamp+"',\n"
 js_end = r"""
-annotate: function(input) {
+annotate: function(input"""
+if needAnnoType: js_end += ",annotation_type"
+js_end += ") {"
+if needAnnoType: js_end += "\n if (annotation_type==undefined) annotation_type=0;"
+js_end += r"""
 /* TODO: if input is a whole html doc, insert css in head
    (e.g. from annoclip and/or adjuster), and hope there's
    no stuff that's not to be annotated (form fields...) */
@@ -2056,7 +2117,16 @@ function readData() {
                 var found = 0;
                 while (dPtr < tPtr && dPtr < fPtr) if (tStr.indexOf(readRefStr()) != -1) { found = 1; break; }
                 dPtr = found ? tPtr : fPtr; break;
-                }
+                }"""
+if needAnnoType: js_end += r"""
+            case 100: {
+                var fPtr = readAddr();
+                var okbytes = data.charCodeAt(dPtr++);
+                var found = 0;
+                while(okbytes--) if(data.charCodeAt(dPtr++)==annotation_type) found=1;
+                if(!found) dPtr=fPtr; break;
+                }"""
+js_end += r"""
         default: throw("corrupt data table at "+(dPtr-1)+" ("+data.charCodeAt(dPtr-1)+")");
             }
         }
@@ -2070,9 +2140,17 @@ if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
 return decodeURIComponent(escape(output.join(""))); // from UTF-8 back to Unicode
 } // end of annotate function
 };
-function annotate(input) { return Annotator.annotate(input); }
+function annotate(input"""
+if needAnnoType: js_end += ",aType"
+js_end += r""") { return Annotator.annotate(input"""
+if needAnnoType: js_end += ",aType"
+js_end += r"""); }
 
-if (typeof Backbone != "undefined" && Backbone.Model) { Annotator = Backbone.Model.extend(Annotator); annotate=function(input) { return new Annotator().annotate(input) } }
+if (typeof Backbone != "undefined" && Backbone.Model) { Annotator = Backbone.Model.extend(Annotator); annotate=function(input"""
+if needAnnoType: js_end += ",aType"
+js_end += r""") { return new Annotator().annotate(input"""
+if needAnnoType: js_end += ",aType"
+js_end += r""") } }
 if (typeof require != "undefined" && typeof module != "undefined" && require.main === module) {
   // Node.js command-line test
   fs=require('fs');
@@ -2092,14 +2170,17 @@ py_start = '# Python '+version_stamp+r"""
 # 'ruby' (default), 'raw' (annotation only) or 'braces'.
 
 """
+if needAnnoType: py_start += "# Optional third argument is annotation type number.\n\n"
 py_end = r"""
 class Annotator:
  version="""+'"'+version_stamp+r""""
- def __call__(self,inStr,aType):
-  if aType=="ruby": self.startA,self.midA,self.endA = "<ruby><rb>","</rb><rt>","</rt></ruby>"
-  elif aType=="raw": self.startA=self.midA=self.endA = ""
-  elif aType=="braces": self.startA,self.midA,self.endA = "{","|","}"
-  else: raise Exception("Unrecognised annotation type "+repr(aType))
+ def __call__(self,inStr,aFormat"""
+if needAnnoType: py_end += ",annotation_type"
+py_end += r"""):
+  if aFormat=="ruby": self.startA,self.midA,self.endA = "<ruby><rb>","</rb><rt>","</rt></ruby>"
+  elif aFormat=="raw": self.startA=self.midA=self.endA = ""
+  elif aFormat=="braces": self.startA,self.midA,self.endA = "{","|","}"
+  else: raise Exception("Unrecognised annotation format "+repr(aFormat))
   assert type(inStr)==str
   self.inStr = inStr
   self.addrLen = ord(data[0])
@@ -2107,7 +2188,9 @@ class Annotator:
   self.p = 0 # read-ahead pointer
   self.copyP = 0 # copy pointer
   self.output = []
-  self.needSpace = 0 ; out = self.output
+  self.needSpace = 0 ; out = self.output"""
+if needAnnoType: py_end += " ; self.annotation_type = annotation_type"
+py_end += r"""
   while self.p < self.inputLength:
     oldPos = self.p
     self.dPtr = 1 ; self.readData()
@@ -2188,17 +2271,36 @@ class Annotator:
         if self.readRefStr() in tStr:
           found = 1 ; break
       if found: self.dPtr = tPtr
+      else: self.dPtr = fPtr"""
+if needAnnoType: py_end += r"""
+    elif d==100:
+      fPtr = self.readAddr()
+      nOK = ord(data[self.dPtr]) ; self.dPtr += 1
+      if chr(self.annotation_type) in data[self.dPtr:self.dPtr+nOK]: self.dPtr += nOK
       else: self.dPtr = fPtr
+"""
+py_end += r"""
     else: raise Exception("corrupt data table at "+str(self.dPtr-1)+" ("+str(ord(data[self.dPtr-1]))+")")
 
-def annotate(inStr,p="ruby"): return Annotator()(inStr,p)
+def annotate(inStr,p="ruby" """[:-1]
+if needAnnoType: py_end += ",annotation_type=0"
+py_end += r"""): return Annotator()(inStr,p"""
+if needAnnoType: py_end += ",annotation_type"
+py_end += r""")
 def main():
-  import sys
-  if sys.argv[-1].startswith("--"): param=sys.argv[-1][2:]
-  else: param = "ruby"
-  sys.stdout.write(annotate(sys.stdin.read(),param))
+  import sys ; aFormat = 'ruby'"""
+if needAnnoType: py_end += " ; aType = 0"
+py_end += r"""
+  for a in sys.argv[1:]:
+    if a.startswith("--"): aFormat=a[2:]"""
+if needAnnoType: py_end += r"""
+    else: aType = int(a)"""
+py_end += r"""
+  sys.stdout.write(annotate(sys.stdin.read(),aFormat"""
+if needAnnoType: py_end += ",aType"
+py_end += r"""))
 if __name__=="__main__": main()
-"""
+""" # TODO: annotation-type option from command line in py
 
 c_zlib = r"""static unsigned char *data=NULL;
 static void init() {
@@ -2231,7 +2333,13 @@ static void readData() {
       unsigned char byte=(unsigned char)NEXTBYTE;
       int i;
       for (i=0; i<c; i++) if(byte==dPtr[i]) break;
-      dPtr += c+c+1 + dPtr[c+i]; // relative from end of switch (after all bytes, 1-byte addresses and the 1-byte default address: up to 256 bytes after)
+      dPtr += c+c+1 + dPtr[c+i]; // relative from end of switch (after all bytes, 1-byte addresses and the 1-byte default address: up to 256 bytes after)"""
+if needAnnoType: c_datadrive += r"""
+    } else if(c < 32) { // typetest with short jumps
+      unsigned char falseOffset=*dPtr++; int found=0;
+      for(c-=19;c--;) if(annotation_type==*dPtr++) { found=1; dPtr+=c; break; }
+      if(!found) dPtr += falseOffset;"""
+c_datadrive += r"""
     } else switch(c) {
     case 50: /* jump */ dPtr = readAddr(); break;
     case 51: /* call */ {
@@ -2274,7 +2382,15 @@ static void readData() {
       unsigned char *falsePtr = readAddr();
       setnear(*dPtr++); int found=0;
       while(dPtr < truePtr && dPtr < falsePtr) if(near((char*)readAddr())) { found = 1; break; }
-      dPtr = found ? truePtr : falsePtr; break; }
+      dPtr = found ? truePtr : falsePtr; break; }"""
+if needAnnoType: c_datadrive += r"""
+    case 100: /* typetest */ {
+      unsigned char *falsePtr = readAddr();
+      int nOK = *dPtr++, found=0;
+      while(nOK--) if(*dPtr++==annotation_type) {
+        found=1; dPtr += nOK; break;
+      } if(!found) dPtr = falsePtr; break; }"""
+c_datadrive += r"""
       // default: TODO: error about corrupt data?
     }
   }
