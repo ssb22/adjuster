@@ -1106,9 +1106,13 @@ android_src = r"""
        Leave everything else as default
        but make a note of the project directory
        (usually on the second setup screen as "location")
-    4. Put *.java into src/%%JPACK2%%
-       (If you DON'T want the app to run in full screen,
-       see "Delete the following line if you don't want full screen" below)
+    4. """
+if ndk: android_src += r"""Optionally edit this file, but beware
+       it will be overwritten if the script to generate it is re-run."""
+else: android_src += "Put *.java into src/%%JPACK2%%"
+android_src += r"""
+       (see "Delete the following line" comments below for
+        things you can customise)
     5. Edit project.properties and add the line
         dex.force.jumbo=true
     6. Edit AndroidManifest.xml and make it look as below
@@ -1337,7 +1341,7 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
     WebView browser;
 }
 """
-if ndk: c_start = c_start.replace("%%android_src%%",android_src.replace("Put *.java into src/%%JPACK2%%","Optionally edit this file, but beware it will be overwritten if the script to generate it is re-run").replace('%%ANDROID-URL%%',android).replace("%%JPACKAGE%%",ndk))
+if ndk: c_start = c_start.replace("%%android_src%%",android_src.replace('%%ANDROID-URL%%',android).replace("%%JPACKAGE%%",ndk))
 android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
 <script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg); return true}</script>
     <h3>Clipboard</h3>
