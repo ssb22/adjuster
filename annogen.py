@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6283 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.6284 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -321,7 +321,7 @@ if zlib:
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
 if data_driven and (c_sharp or java or golang): errExit("--data-driven is not yet implemented in C#, Java or Go")
 elif javascript or python: data_driven = True
-additional_compact_opcodes = data_driven and not (python or javascript) # currently implemented only in the C version of the data-driven runtime
+additional_compact_opcodes = data_driven and not python # currently implemented only in the C and Javascript versions of the data-driven runtime
 if java or javascript or python or c_sharp or ios or ndk or golang:
   c_compiler = None
 try:
@@ -340,8 +340,6 @@ diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
 if no_input and diagnose_manual: errExit("--diagnose-manual is not compatible with --no-input") # it needs the input for diagnostic purposes
-needAnnoType = False # HIGHLY EXPERIMENTAL - DO NOT USE
-if needAnnoType and (windows_clipboard or ios or (java and not ndk) or c_sharp or golang): errExit("needAnnoType not yet implemented in Windows clipboard, iOS, Java without Android NDK, C# or Go")
 
 def nearCall(negate,conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
@@ -698,11 +696,7 @@ int near(char* string) {
     return 0;
 }
 void matchAll();
-JNIEXPORT jstring JNICALL Java_%PACKAGE%_MainActivity_jniAnnotate(JNIEnv *env, jclass theClass, jstring jIn"""
-  if needAnnoType: c_defs += ", jint aType"
-  c_defs += ") {"
-  if needAnnoType: c_defs += "annotation_type = aType;"
-  c_defs += r"""
+JNIEXPORT jstring JNICALL Java_%PACKAGE%_MainActivity_jniAnnotate(JNIEnv *env, jclass theClass, jstring jIn) {
   startPtr=(char*)(*env)->GetStringUTFChars(env,jIn,NULL);
   readPtr = startPtr; writePtr = startPtr;
   outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
@@ -865,7 +859,6 @@ if ios: c_name = "Objective-C"
 else: c_name = "C"
 if ndk: c_start = "" # because #!/bin/bash comes next
 else: c_start = "/* -*- coding: "+outcode+" -*- */\n/* "+c_name+" code "+version_stamp+" */\n"
-if needAnnoType: c_defs += "int annotation_type=0;\n"
 c_start += c_preamble+r"""
 enum { ybytes = %%YBYTES%% }; /* for Yarowsky-like matching, minimum readahead */
 static int nearbytes = ybytes;
@@ -1067,9 +1060,6 @@ else:
 int main(int argc,char*argv[]) {
   int i; for(i=1; i<argc; i++) {
     if(!strcmp(argv[i],"--help")) {
-      printf("%s [options]"""
-  if needAnnoType: c_end += " [annotation type number]"
-  c_end += r"""\nOptions:\n",argv[0]);
       puts("--ruby   = output ruby markup (default)");
       puts("--raw    = output just the annotations without the base text");
       puts("--braces = output as {base-text|annotation}");
@@ -1079,11 +1069,7 @@ int main(int argc,char*argv[]) {
     } else if(!strcmp(argv[i],"--raw")) {
       annotation_mode = annotations_only;
     } else if(!strcmp(argv[i],"--braces")) {
-      annotation_mode = brace_notation;"""
-  if needAnnoType: c_end += r"""
-    } else if(sscanf(argv[i],"%d",&annotation_type)==1) { /* pass */
-  """
-  c_end += r"""
+      annotation_mode = brace_notation;
     } else {
       fprintf(stderr,"Unknown argument '%s'\n(Text should be on standard input)\n",argv[i]); return 1;
     }
@@ -1209,10 +1195,7 @@ public class MainActivity extends Activity {"""
 if ndk:
   android_src += r"""
     static { System.loadLibrary("Annotator"); }
-    static synchronized native String jniAnnotate(String in"""
-  if needAnnoType: android_src += ", int aType"
-  android_src += ');'
-android_src += r"""
+    static synchronized native String jniAnnotate(String in);
     @SuppressLint("SetJavaScriptEnabled")
     @android.annotation.TargetApi(19) // 19 for setWebContentsDebuggingEnabled; 7 for setAppCachePath; 3 for setBuiltInZoomControls (but only API 1 is required)
     @SuppressWarnings("deprecation") // for conditional SDK below
@@ -1239,15 +1222,9 @@ android_src += r"""
         browser.setWebChromeClient(new WebChromeClient());
         class A {
             public A(MainActivity act) { this.act = act; }
-            MainActivity act;"""
-if needAnnoType: android_src += r"""
-            int annotation_type = 0;
-            @android.webkit.JavascriptInterface public void setAnnotationType(int t) { annotation_type = t; }
-            @android.webkit.JavascriptInterface public int getAnnotationType() { return annotation_type; }"""
-android_src += r""" String copiedText="";
+            MainActivity act; String copiedText="";
             @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) { String r="""
-if ndk and needAnnoType: android_src += 'jniAnnotate(t,annotation_type)'
-elif ndk: android_src += 'jniAnnotate(t)'
+if ndk: android_src += 'jniAnnotate(t)'
 else: android_src += 'new %%JPACKAGE%%.Annotator(t).result()'
 android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPopAll(this)\""); return r; } // now we have a Copy button, it's convenient to put this on ALL ruby elements, not just ones with title
             @android.webkit.JavascriptInterface public void alert(String t,String a) {
@@ -1360,7 +1337,7 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
     WebView browser;
 }
 """
-if ndk: c_start = c_start.replace("%%android_src%%",android_src.replace("Put *.java into src/%%JPACK2%%","Optionally edit this file, but beware it will be overwritten if the script to generate it is re-run").replace('%%ANDROID-URL%%',android))
+if ndk: c_start = c_start.replace("%%android_src%%",android_src.replace("Put *.java into src/%%JPACK2%%","Optionally edit this file, but beware it will be overwritten if the script to generate it is re-run").replace('%%ANDROID-URL%%',android).replace("%%JPACKAGE%%",ndk))
 android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
 <script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg); return true}</script>
     <h3>Clipboard</h3>
@@ -1733,6 +1710,8 @@ func Annotate(src io.Reader, dest io.Writer) {
 class BytecodeAssembler:
   # Bytecode for a virtual machine run by the Javascript version etc
   opcodes = {
+    # 0-19    RESERVED for short switchbyte
+    # 128-255 RESERVED for short jumps
     'jump': 50, # '2' params: address
     'call': 51, # '3' params: function address
     'return': 52, # '4' (or 'end program' if top level)
@@ -1741,9 +1720,6 @@ class BytecodeAssembler:
     'savepos':80, # 'P', local to the function
     'restorepos':81, # 'Q'
     'neartest':90, # 'Z' params: true-label, false-label, byte nbytes, addresses of conds strings until first of the 2 labels is reached (normally true-label, unless the whole neartest is negated)
-    'typetest':100, # 'd' for needAnnoType; params: false-label, byte num of acceptable type numbers, (string of) bytes acceptable type numbers
-    # RESERVED by additional_compact_opcodes:
-    # 128-255 for short jumps, 0-19 for short switchbyte (1 to 20 items), 20-31 for short typetest (1 to 12 types)
   }
   def __init__(self):
     self.l = []
@@ -1775,10 +1751,6 @@ class BytecodeAssembler:
       self.addBytes(len(byteArray)-1) # num of bytes in list - 1 (so all 256 values can be accounted for if needed)
       self.addBytes("".join(byteArray))
       for i in labelArray: self.addRef(i)
-  def addTypetest(self,okATypeList,falseLabel):
-      self.addOpcode('typetest') ; self.addRef(falseLabel)
-      self.addBytes(len(okATypeList))
-      self.addBytes("".join(chr(n) for n in okATypeList))
   def addActions(self,actionList):
     # assert type(actionList) in [list,tuple], repr(actionList)
     for a in actionList:
@@ -1931,21 +1903,13 @@ class BytecodeAssembler:
                       if 1 <= numItems <= 20:
                        numLabels = numItems+1 # there's an extra default label at the end
                        origOperandsLen = 1+numItems+numLabels*addrSize # number + N bytes + the labels
-                       if all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF for N in xrange(3,3+numLabels)):
-                        src[count] = i = src[count+1]+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)) for N in xrange(3,3+numLabels)) # opcode_including_nItems, string of bytes, offsets
+                       if LGet(src[count+3],origOperandsLen)==0 and all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF for N in xrange(4,3+numLabels)):
+                        src[count] = i = src[count+1]+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset is 0 so not listed)
                         del src[count+1:count+3+numLabels]
-                        newOperandsLen = numItems*2+1 # for each byte, the byte itself and an offset, + 1 more offset
+                        newOperandsLen = numItems*2 # for each byte, the byte itself and an offset, + 1 more offset as default, - 1 because first is not given
                         compacted += origOperandsLen-newOperandsLen
                         bytesFromEnd -= origOperandsLen # will add new opCode + operands below
                         compaction_types.add(opcode)
-                    elif opcode=="typetest" and 1<=src[count+1]<=12 and 0 <= LGet(src[count+1],addrSize+1+ord(src[count+2])) <= 0xFF: # similarly with the short version of typetest:
-                      numItems = ord(src[count+2])
-                      instrLen = numItems+2 # N acceptable types + short-jump + opcode-including-N
-                      src[count] = i = chr(numItems+19)+chr(LGet(src[count+1],addrSize))+src[count+3] # we assume all acceptable annotation-type numbers are in one string at count+3 (after count+1 is falseLabel and count+2 is number of acceptable annotation types)
-                      compacted += addrSize # as full instruction is opcode + falseLabel + byte for N + n bytes, compacted instruction is opcode_including_N + 1 (shortened falseLabel) + n bytes, so difference is (addrSize-1) + 1 = addrSize
-                      bytesFromEnd -= addrSize+1+ord(src[count+2])
-                      compaction_types.add(opcode)
-                      del src[count+1:count+4] # jumpIfFalse, numItems, itemString
                 elif type(i) in [int,tuple]: # labels
                     if type(i)==int: i2 = i
                     else: i2 = i[0]
@@ -2008,9 +1972,7 @@ js_start = '/* Javascript '+version_stamp+r"""
 Usage:
 
  - You could just include this code and then call the
-   annotate() function i.e. var result = annotate(input"""
-if needAnnoType: js_start += ",annotation_type"
-js_start += r""")
+   annotate() function i.e. var result = annotate(input)
 
  - Or you could use (and perhaps extend) the Annotator
    object, and call its annotate() method.  If you have
@@ -2028,11 +1990,7 @@ js_start += r""")
 var Annotator={
 version: '"""+version_stamp+"',\n"
 js_end = r"""
-annotate: function(input"""
-if needAnnoType: js_end += ",annotation_type"
-js_end += ") {"
-if needAnnoType: js_end += "\n if (annotation_type==undefined) annotation_type=0;"
-js_end += r"""
+annotate: function(input) {
 /* TODO: if input is a whole html doc, insert css in head
    (e.g. from annoclip and/or adjuster), and hope there's
    no stuff that's not to be annotated (form fields...) */
@@ -2064,9 +2022,16 @@ function s() {
 }
 
 function readData() {
-    var sPos = new Array();
+    var sPos = new Array(), c;
     while(1) {
-        switch(data.charCodeAt(dPtr++)) {
+        c = data.charCodeAt(dPtr++);
+        if (c & 0x80) dPtr += (c&0x7F);
+        else if (c < 20) {
+            var i = ((p>=input.length)?-1:data.slice(dPtr,dPtr+(++c)).indexOf(input.charAt(p++)));
+            if (i==-1) i = c;
+            if(i) dPtr += data.charCodeAt(dPtr+c+i-1);
+            dPtr += c+c;
+        } else switch(c) {
             case 50: dPtr = readAddr(); break;
             case 51: {
               var f = readAddr(); var dO=dPtr;
@@ -2117,16 +2082,7 @@ function readData() {
                 var found = 0;
                 while (dPtr < tPtr && dPtr < fPtr) if (tStr.indexOf(readRefStr()) != -1) { found = 1; break; }
                 dPtr = found ? tPtr : fPtr; break;
-                }"""
-if needAnnoType: js_end += r"""
-            case 100: {
-                var fPtr = readAddr();
-                var okbytes = data.charCodeAt(dPtr++);
-                var found = 0;
-                while(okbytes--) if(data.charCodeAt(dPtr++)==annotation_type) found=1;
-                if(!found) dPtr=fPtr; break;
-                }"""
-js_end += r"""
+                }
         default: throw("corrupt data table at "+(dPtr-1)+" ("+data.charCodeAt(dPtr-1)+")");
             }
         }
@@ -2140,17 +2096,9 @@ if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
 return decodeURIComponent(escape(output.join(""))); // from UTF-8 back to Unicode
 } // end of annotate function
 };
-function annotate(input"""
-if needAnnoType: js_end += ",aType"
-js_end += r""") { return Annotator.annotate(input"""
-if needAnnoType: js_end += ",aType"
-js_end += r"""); }
+function annotate(input) { return Annotator.annotate(input); }
 
-if (typeof Backbone != "undefined" && Backbone.Model) { Annotator = Backbone.Model.extend(Annotator); annotate=function(input"""
-if needAnnoType: js_end += ",aType"
-js_end += r""") { return new Annotator().annotate(input"""
-if needAnnoType: js_end += ",aType"
-js_end += r""") } }
+if (typeof Backbone != "undefined" && Backbone.Model) { Annotator = Backbone.Model.extend(Annotator); annotate=function(input) { return new Annotator().annotate(input) } }
 if (typeof require != "undefined" && typeof module != "undefined" && require.main === module) {
   // Node.js command-line test
   fs=require('fs');
@@ -2170,13 +2118,10 @@ py_start = '# Python '+version_stamp+r"""
 # 'ruby' (default), 'raw' (annotation only) or 'braces'.
 
 """
-if needAnnoType: py_start += "# Optional third argument is annotation type number.\n\n"
 py_end = r"""
 class Annotator:
  version="""+'"'+version_stamp+r""""
- def __call__(self,inStr,aFormat"""
-if needAnnoType: py_end += ",annotation_type"
-py_end += r"""):
+ def __call__(self,inStr,aFormat):
   if aFormat=="ruby": self.startA,self.midA,self.endA = "<ruby><rb>","</rb><rt>","</rt></ruby>"
   elif aFormat=="raw": self.startA=self.midA=self.endA = ""
   elif aFormat=="braces": self.startA,self.midA,self.endA = "{","|","}"
@@ -2188,9 +2133,7 @@ py_end += r"""):
   self.p = 0 # read-ahead pointer
   self.copyP = 0 # copy pointer
   self.output = []
-  self.needSpace = 0 ; out = self.output"""
-if needAnnoType: py_end += " ; self.annotation_type = annotation_type"
-py_end += r"""
+  self.needSpace = 0 ; out = self.output
   while self.p < self.inputLength:
     oldPos = self.p
     self.dPtr = 1 ; self.readData()
@@ -2271,34 +2214,15 @@ py_end += r"""
         if self.readRefStr() in tStr:
           found = 1 ; break
       if found: self.dPtr = tPtr
-      else: self.dPtr = fPtr"""
-if needAnnoType: py_end += r"""
-    elif d==100:
-      fPtr = self.readAddr()
-      nOK = ord(data[self.dPtr]) ; self.dPtr += 1
-      if chr(self.annotation_type) in data[self.dPtr:self.dPtr+nOK]: self.dPtr += nOK
       else: self.dPtr = fPtr
-"""
-py_end += r"""
     else: raise Exception("corrupt data table at "+str(self.dPtr-1)+" ("+str(ord(data[self.dPtr-1]))+")")
 
-def annotate(inStr,p="ruby" """[:-1]
-if needAnnoType: py_end += ",annotation_type=0"
-py_end += r"""): return Annotator()(inStr,p"""
-if needAnnoType: py_end += ",annotation_type"
-py_end += r""")
+def annotate(inStr,p="ruby"): return Annotator()(inStr,p)
 def main():
-  import sys ; aFormat = 'ruby'"""
-if needAnnoType: py_end += " ; aType = 0"
-py_end += r"""
+  import sys ; aFormat = 'ruby'
   for a in sys.argv[1:]:
-    if a.startswith("--"): aFormat=a[2:]"""
-if needAnnoType: py_end += r"""
-    else: aType = int(a)"""
-py_end += r"""
-  sys.stdout.write(annotate(sys.stdin.read(),aFormat"""
-if needAnnoType: py_end += ",aType"
-py_end += r"""))
+    if a.startswith("--"): aFormat=a[2:]
+  sys.stdout.write(annotate(sys.stdin.read(),aFormat))
 if __name__=="__main__": main()
 """ # TODO: annotation-type option from command line in py
 
@@ -2333,13 +2257,7 @@ static void readData() {
       unsigned char byte=(unsigned char)NEXTBYTE;
       int i;
       for (i=0; i<c; i++) if(byte==dPtr[i]) break;
-      dPtr += c+c+1 + dPtr[c+i]; // relative from end of switch (after all bytes, 1-byte addresses and the 1-byte default address: up to 256 bytes after)"""
-if needAnnoType: c_datadrive += r"""
-    } else if(c < 32) { // typetest with short jumps
-      unsigned char falseOffset=*dPtr++; int found=0;
-      for(c-=19;c--;) if(annotation_type==*dPtr++) { found=1; dPtr+=c; break; }
-      if(!found) dPtr += falseOffset;"""
-c_datadrive += r"""
+      if(i) dPtr += dPtr[c+i-1]; dPtr += c+c; // relative from end of switch (after all bytes, 1-byte addresses (except 1st) and the 1-byte default address)
     } else switch(c) {
     case 50: /* jump */ dPtr = readAddr(); break;
     case 51: /* call */ {
@@ -2382,15 +2300,7 @@ c_datadrive += r"""
       unsigned char *falsePtr = readAddr();
       setnear(*dPtr++); int found=0;
       while(dPtr < truePtr && dPtr < falsePtr) if(near((char*)readAddr())) { found = 1; break; }
-      dPtr = found ? truePtr : falsePtr; break; }"""
-if needAnnoType: c_datadrive += r"""
-    case 100: /* typetest */ {
-      unsigned char *falsePtr = readAddr();
-      int nOK = *dPtr++, found=0;
-      while(nOK--) if(*dPtr++==annotation_type) {
-        found=1; dPtr += nOK; break;
-      } if(!found) dPtr = falsePtr; break; }"""
-c_datadrive += r"""
+      dPtr = found ? truePtr : falsePtr; break; }
       // default: TODO: error about corrupt data?
     }
   }
@@ -3208,6 +3118,8 @@ def c_escapeRawBytes(s): # as it won't be valid outcode; don't want to crash any
   if s.endswith(chr(0)): s=s[:-1] # as the C compiler will add a terminating 0 anyway
   return re.sub(r"(?<!\\)((?:\\\\)*\\x..)([0-9a-fA-F])",r'\1""\2',zapTrigraphs(s.replace('\\','\\\\').decode('unicode_escape').encode('unicode_escape').replace('"','\\"')))
 
+def js_escapeRawBytes(s): return re.sub("[\x00-\x1f\x7f-\xff]",lambda m:"\\x%02x"%ord(m.group()),re.sub(chr(0)+r"(?![0-9])",r"\\0",s.replace("\\",r"\\").replace('"',r'\"').replace(chr(8),r"\b").replace(chr(9),r"\t").replace(chr(10),r"\n").replace(chr(12),r"\f"))) # TODO: could also convert chars 1-7 (without following digits) to single-digit octal and 11 + 13-31 (without following digits) to double-digit octal, but deprecated in ECMAScript 5 (errors in strict mode); 11 = \v but not in MSIE 8 or below
+
 def c_length(unistr): return len(unistr.encode(outcode))
 
 if java or c_sharp or golang:
@@ -3350,7 +3262,7 @@ def outputParser(rulesAndConds):
       outfile.write(js_start)
       b = BytecodeAssembler()
       b.addActionDictSwitch(byteSeq_to_action_dict,False)
-      outfile.write("data: "+repr(b.link())+",\n")
+      outfile.write("data: \""+js_escapeRawBytes(b.link())+"\",\n")
       del b ; outfile.write(js_end+"\n")
       return # skip all of below (including no_summary etc)
     if python:
