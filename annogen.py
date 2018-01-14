@@ -3315,7 +3315,7 @@ def outputParser(rulesAndConds):
 
 def write_glossMiss(glossMiss):
   if not glossmiss: return
-  sys.stderr.write("Writing glossmiss (norefs=%s)...\n" % repr(norefs))
+  sys.stderr.write("Writing glossmiss (norefs=%s) to %s...\n" % (repr(norefs),glossmiss))
   gm = openfile(glossmiss,'wb')
   count = 1 ; t = time.time() ; prndProg=False
   for w in sorted(list(glossMiss)):
