@@ -172,7 +172,7 @@ define("submitPrompt",default="Type or paste in some text to adjust",help="What 
 define("submitBookmarklet",default=True,help="If submitPath and htmlFilter is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly. The bookmarklets should work on modern desktop browsers and on iOS and Android; they should cope with frames and with Javascript-driven changes to a page, and on some browsers an option is provided to additionally place the page into a frameset so that links to other pages on the same site can be followed without explicitly reactivating the bookmarklet (but this does have disadvantages - page must be reloaded + URL display gets 'stuck' - so it's left to the user to choose).") # (and if the other pages check their top.location, things could break there as well)
 define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",help="A Javascript expression that evaluates true if a DOM text node 'c' should be processed by the 'bookmarklet' Javascript when submitPath and submitBookmarklet are set. To process ALL text, set this option to c.nodeValue.length, but if your htmlFilter will not change certain kinds of text then you can make the Javascript run more efficiently by not processing these (quote the expression carefully). The default setting will not process text that is all ASCII.") # + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8. (Previously said "To process ALL text, simply set this option to 'true'", but that can have odd effects on some sites' empty nodes. Saying c.nodeValue.length for now; c.nodeValue.match(/[^\s]/) might be better but needs more quoting explanation. Could change bookmarkletMainScript so it alters the DOM only if replacements[i] != oldTexts[i], c.f. annogen's android code, but that would mean future passes would re-send all the unchanged nodes cluttering the XMLHttpRequests especially if they fill a chunk - annogen version has the advantage of immediate local processing)
 define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate number of characters at a time that the 'bookmarklet' Javascript will send to the server if submitPath and submitBookmarklet are set. Setting this too high could impair browser responsiveness, but too low will be inefficient with bandwidth and pages will take longer to finish.")
-define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.") # e.g. example.rhcloud.com (although that does introduce the disadvantage of tying bookmarklet installations to the current URLs of the OpenShift service rather than your own domain)
+define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster (or an identically-configured copy) can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.") # e.g. example.rhcloud.com (although that does introduce the disadvantage of tying bookmarklet installations to the current URLs of the OpenShift service rather than your own domain)
 
 heading("Javascript execution options")
 define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with Selenium (and ChromeDriver if you're using HeadlessChrome, and the exact right version of Selenium etc if you're using HeadlessFirefox, which is notorious for breaking at the slightest version mismatch).  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
@@ -453,6 +453,13 @@ def errExit(msg):
     sys.stderr.write(msg+"\n")
     sys.exit(1)
 
+def warn(msg):
+    msg = "WARNING: "+msg
+    try:
+        if not istty(): logging.error(msg)
+    except: pass
+    sys.stderr.write(msg+"\n\n")
+
 def parse_command_line(final):
     if len(tornado.options.parse_command_line.func_defaults)==1: # Tornado 2.x
         rest = tornado.options.parse_command_line()
@@ -627,7 +634,7 @@ def preprocessOptions():
     if options.htmlFilter and '#' in options.htmlFilter and not len(options.htmlFilter.split('#'))+1 == len(options.htmlFilterName.split('#')): errExit("Wrong number of #s in htmlFilterName for this htmlFilter setting")
     if not options.port:
         if wsgi_mode:
-            sys.stderr.write("Warning: port=0 won't work in WSGI mode, assuming 80\n")
+            warn("port=0 won't work in WSGI mode, assuming 80")
             options.port = 80
         else:
             options.real_proxy=options.js_reproxy=False ; options.fasterServer=""
@@ -640,7 +647,7 @@ def preprocessOptions():
         except: errExit("--just_me requires an ident server to be running on port 113")
         import getpass ; global myUsername ; myUsername = getpass.getuser()
     elif not options.password and not options.open_proxy and not options.submitPath=='/' and not options.stop: errExit("Please set a password (or --just_me), or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
-    if options.submitBookmarkletDomain and not options.publicPort==80: errExit("submitBookmarkletDomain option requires public port to be 80 (and HTTPS-capable on port 443)")
+    if options.submitBookmarkletDomain and not options.publicPort==80: warn("You will need to run another copy on "+options.submitBookmarkletDomain+" ports 80/443 for bookmarklets to work (submitBookmarkletDomain without publicPort=80)")
     if options.pdftotext and not "pdftotext version" in os.popen4("pdftotext -h")[1].read(): errExit("pdftotext command does not seem to be usable\nPlease install it, or unset the pdftotext option")
     if options.epubtotext and not "calibre" in os.popen4("ebook-convert -h")[1].read(): errExit("ebook-convert command does not seem to be usable\nPlease install calibre, or unset the epubtotext option")
     global extensions
@@ -837,12 +844,11 @@ def make_WSGI_application():
     preprocessOptions()
     for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
-        if eval('options.'+opt):
-            sys.stderr.write("Warning: '%s' option may not work in WSGI mode\n" % opt)
+        if eval('options.'+opt): warn("'%s' option may not work in WSGI mode" % opt)
     options.js_reproxy = False # for now (see above)
     if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
         options.pdfepubkeep=0 ; options.waitpage = False
-        sys.stderr.write("Warning: pdfepubkeep and waitpage may not work in WSGI mode; clearing them\n") # both rely on one process doing all requests (not guaranteed in WSGI mode), and both rely on ioloop's add_timeout being FULLY functional
+        warn("pdfepubkeep and waitpage may not work in WSGI mode; clearing them") # both rely on one process doing all requests (not guaranteed in WSGI mode), and both rely on ioloop's add_timeout being FULLY functional
     options.own_server = "" # for now, until we get forwardFor to work (TODO, and update the above list of ignored options accordingly)
     import tornado.wsgi
     handlers = [("(.*)",SynchronousRequestForwarder)]
@@ -1020,7 +1026,7 @@ def start_multicore(isChild=False):
     stop_threads() # must be last thing
 
 def openPortsEtc():
-    workaround_raspbian_IPv6_bug()
+    workaround_raspbian7_IPv6_bug()
     workaround_timeWait_problem()
     early_fork = (options.ssl_fork and options.background)
     if early_fork: banner(True),unixfork()
@@ -1191,8 +1197,8 @@ def pauseOrRestartMainServer(shouldRun=1):
                         for fd, sock in s._sockets.items():
                             s.io_loop.remove_handler(fd)
 
-def workaround_raspbian_IPv6_bug():
-    """Some versions of Raspbian apparently boot with IPv6 enabled but later don't configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However, if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
+def workaround_raspbian7_IPv6_bug():
+    """Old Debian 7 based versions of Raspbian can boot with IPv6 enabled but later fail to configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However, if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
     if options.address: return # don't need to do this if we're listening on a specific address
     flags = socket.AI_PASSIVE
     if hasattr(socket, "AI_ADDRCONFIG"): flags |= socket.AI_ADDRCONFIG
@@ -1404,11 +1410,11 @@ def setupCurl(maxCurls,error=None):
   try:
     import pycurl # check it's there
     if not ('c-ares' in pycurl.version or 'threaded' in pycurl.version):
-        if error: sys.stderr.write("WARNING: The libcurl on this system might hold up our main thread while it resolves DNS (try building curl with ./configure --enable-ares)\n")
+        if error: warn("The libcurl on this system might hold up our main thread while it resolves DNS (try building curl with ./configure --enable-ares)")
         else:
             del pycurl ; return # TODO: and say 'not using'?
     if float('.'.join(pycurl.version.split()[0].split('/')[1].rsplit('.')[:2])) < 7.5:
-        if error: sys.stderr.write("WARNING: The curl on this system is old and might hang when fetching certain SSL sites\n") # strace -p (myPID) shows busy looping on poll (TODO: option to not use it if we're not using upstream_proxy)
+        if error: warn("The curl on this system is old and might hang when fetching certain SSL sites") # strace -p (myPID) shows busy looping on poll (TODO: option to not use it if we're not using upstream_proxy)
         else:
             del pycurl ; return # TODO: as above
     _oldCurl = pycurl.Curl
@@ -1810,7 +1816,7 @@ def get_new_HeadlessChrome(index,renewing):
     if options.js_UA and not options.js_UA.startswith("*"): opts.add_argument("--user-agent="+options.js_UA)
     if not options.js_images: opts.add_experimental_option("prefs",{"profile.managed_default_content_settings.images":2})
     # TODO: do we need to disable Javascript's ability to open new windows and tabs, plus target="_blank" etc, especially if using clickElementID?
-    if options.via and not options.js_reproxy and log_complaints: sys.stderr.write("Warning: --via ignored when running HeadlessChrome without --js-reproxy\n") # unless you want to implement a Chrome extension to do it
+    if options.via and not options.js_reproxy and log_complaints: warn("--via ignored when running HeadlessChrome without --js-reproxy") # unless you want to implement a Chrome extension to do it
     if "x" in options.js_size:
         w,h = options.js_size.split("x",1)
     else: w,h = options.js_size,768
@@ -1842,7 +1848,7 @@ def get_new_HeadlessFirefox(index,renewing):
     elif options.upstream_proxy: profile.set_proxy(options.upstream_proxy)
     if options.js_UA and not options.js_UA.startswith("*"): profile.set_preference("general.useragent.override",options.js_UA)
     if not options.js_images: profile.set_preference("permissions.default.image", 2)
-    if options.via and not options.js_reproxy and log_complaints: sys.stderr.write("Warning: --via ignored when running HeadlessFirefox without --js-reproxy\n") # unless you want to implement a Firefox extension to do it
+    if options.via and not options.js_reproxy and log_complaints: warn("--via ignored when running HeadlessFirefox without --js-reproxy") # unless you want to implement a Firefox extension to do it
     # TODO: do any other options need to be set?  disable plugins, Firefox-update prompts, new windows/tabs with JS, etc?  or does Selenium do that?
     if options.logDebug: binary=FirefoxBinary(log_file=sys.stderr) # TODO: support logDebug to a file as well
     else: binary=FirefoxBinary()
@@ -1901,7 +1907,7 @@ def get_new_PhantomJS(index,renewing=False):
     if log_complaints and not options.js_reproxy:
      try: is_v2 = wd.capabilities['version'].startswith("2.")
      except: is_v2 = False
-     if is_v2: sys.stderr.write("\nWARNING: You may be affected by PhantomJS issue #13114.\nRelative links may be wrong after a redirect if the site sets Content-Security-Policy.\nTry --js_reproxy, or downgrade your PhantomJS to version 1.9.8\n\n")
+     if is_v2: warn("You may be affected by PhantomJS issue #13114.\nRelative links may be wrong after a redirect if the site sets Content-Security-Policy.\nTry --js_reproxy, or downgrade your PhantomJS to version 1.9.8")
     if "x" in options.js_size:
         w,h = options.js_size.split("x",1)
     else: w,h = options.js_size,768
@@ -2616,7 +2622,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             local_submit_url = "http://"+self.request.host+options.submitPath
             if options.submitBookmarkletDomain: submit_url = "//"+options.submitBookmarkletDomain+options.submitPath
             else: submit_url = local_submit_url
-            if (options.password and submitPathIgnorePassword) or options.submitPath=='/': urlbox_footer = "" # not much point linking them back to the URL box under these circumstances
+            if (options.password and submitPathIgnorePassword) or options.submitPath=='/' or defaultSite(): urlbox_footer = "" # not much point linking them back to the URL box under the first circumstance, and there isn't one for the other two
             else: urlbox_footer = '<p><a href="http://'+hostSuffix()+publicPortStr()+'">Process a website</a></p>'
             # TODO: what if their browser doesn't submit in the correct charset?  for example some versions of Lynx need -display_charset=UTF-8 otherwise they might double-encode pasted-in UTF-8 and remove A0 bytes even though it appears to display correctly (and no, adding accept-charset won't help: that's for if the one to be accepted differs from the document's)
             return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3>Upload Text</h3>%s:<p><span style="float:right"><input type="submit"><script><!--

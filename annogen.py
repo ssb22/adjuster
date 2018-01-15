@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6284 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.6285 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -100,7 +100,7 @@ parser.add_option("--rulesFile",help="Filename of an optional auxiliary binary f
 
 parser.add_option("--no-input",
                   action="store_true",default=False,
-                  help="Don't actually read the input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change).")
+                  help="Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.")
 
 parser.add_option("--c-filename",default="",help="Where to write the C program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
 
@@ -339,7 +339,9 @@ if diagnose: diagnose=diagnose.decode(terminal_charset)
 diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
-if no_input and diagnose_manual: errExit("--diagnose-manual is not compatible with --no-input") # it needs the input for diagnostic purposes
+read_input = not no_input
+if not reference_sep: norefs=True
+if diagnose_manual or (not norefs and (not no_summary or glossmiss)): read_input = True
 
 def nearCall(negate,conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
@@ -3329,7 +3331,6 @@ def write_glossMiss(glossMiss):
     count += 1
   if prndProg: sys.stderr.write("\n")
 
-if no_input or not reference_sep: norefs=True
 if norefs:
   def refs(rule): return ""
 else:
@@ -3459,7 +3460,7 @@ if main:
  set_title("annogen")
  if no_input:
    rulesAndConds = RulesAccumulator().rulesAndConds() # should load rulesFile
- else:
+ if read_input:
   if infile: infile=openfile(infile)
   else:
     infile = sys.stdin
@@ -3472,10 +3473,11 @@ if main:
   normalise()
   if diagnose and not suppress and not diagnose in corpus_unistr: diagnose_write(diagnose+" was in the corpus before normalisation, but not after") # (if running from a checkpoint, might want to rm normalised and redo the diagnose)
   generate_map() ; setup_other_globals()
-  executor = setup_parallelism()
-  if executor and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8')) # normalise won't have done it and the other nodes will need it (TODO: unless we're doing concurrent.futures with fork)
-  try: rulesAndConds = analyse()
-  finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
+  if not no_input:
+    executor = setup_parallelism()
+    if executor and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8')) # normalise won't have done it and the other nodes will need it (TODO: unless we're doing concurrent.futures with fork)
+    try: rulesAndConds = analyse()
+    finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
   del _gp_cache
 
 if main:
