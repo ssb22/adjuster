@@ -86,6 +86,8 @@ parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
+parser.add_option("--glossmiss-hide",
+                  help="Comma-separated list of references to hide from the glossmiss file (does not affect the glossmiss-omit option)")
 parser.add_option("--glossmiss-omit",
                   action="store_true",
                   default=False,
@@ -333,6 +335,7 @@ try: import urlparse
 except:
   if os.environ.get("ANNOGEN_ANDROID_URLS"): errExit("Need urlparse module for ANNOGEN_ANDROID_URLS") # unless we re-implement
 if keep_whitespace: keep_whitespace = set(keep_whitespace.decode(terminal_charset).split(','))
+if glossmiss_hide: glossmiss_hide = set(glossmiss_hide.decode(terminal_charset).split(','))
 if status_prefix: status_prefix += ": "
 else: status_prefix = ""
 if diagnose: diagnose=diagnose.decode(terminal_charset)
@@ -3323,8 +3326,8 @@ def write_glossMiss(glossMiss):
   for w in sorted(list(glossMiss)):
     try: num = str(len(getOkStarts(w)))+'\t'
     except: num = '?\t' # num occurrences in e.g.s
-    a,b = markDown(w),annotationOnly(w)
-    if a and b: gm.write((num+a+"\t"+b+refs(w)+'\n').encode(incode)) # TODO: glosscode ? glossMissCode ??
+    a,b,r = markDown(w),annotationOnly(w),refs(w,glossmiss_hide)
+    if a and b and not r=="\t": gm.write((num+a+"\t"+b+r+'\n').encode(incode)) # TODO: glosscode ? glossMissCode ??
     if time.time() >= t + 2:
       sys.stderr.write(("(%d of %d)" % (count,len(glossMiss)))+clear_eol)
       t = time.time() ; prndProg = True
@@ -3332,9 +3335,9 @@ def write_glossMiss(glossMiss):
   if prndProg: sys.stderr.write("\n")
 
 if norefs:
-  def refs(rule): return ""
+  def refs(rule,omit={}): return ""
 else:
-  def refs(rule):
+  def refs(rule,omit={}):
     global refMap
     try: refMap
     except:
@@ -3362,7 +3365,7 @@ else:
       app=refMap[rmPos][1]
       if not app in ret: ret.append(app)
       rmPos += 1
-    if ret: return "\t"+"; ".join(ret)
+    if ret: return "\t"+"; ".join(r for r in ret if not r in omit) # (if all in omit, still return the \t to indicate we did find some)
     else: return ""
 
 def outputRulesSummary(rulesAndConds):
