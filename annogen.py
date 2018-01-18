@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6285 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.6286 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -51,7 +51,7 @@ parser.add_option("--mend",
                   default="</rt></ruby>",
                   help="The string that ends a piece of annotation markup in the input examples; default %default")
 
-parser.add_option("--mreverse",
+parser.add_option("-r","--mreverse",
                   action="store_true",default=False,
                   help="Specifies that the annotation markup is reversed, so the text BEFORE mmid is the annotation and the text AFTER it is the base text")
 
@@ -84,11 +84,15 @@ parser.add_option("--keep-whitespace",
 
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
+parser.add_option("-C", "--gloss-closure",
+                  action="store_true",
+                  default=False,
+                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package.") # TODO: option to put variant closures into the annotator itself? but that could unnecessarily increase the annotator size considerably, and it might not be correct in all cases (using it to fill in a missing gloss is more tolerable)
 parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
 parser.add_option("--glossmiss-hide",
                   help="Comma-separated list of references to hide from the glossmiss file (does not affect the glossmiss-omit option)")
-parser.add_option("--glossmiss-omit",
+parser.add_option("-M","--glossmiss-omit",
                   action="store_true",
                   default=False,
                   help="Omit rules containing any word not mentioned in glossfile.  Might be useful if you want to train on a text that uses proprietary terms and don't want to accidentally 'leak' those terms (assuming they're not accidentally included in glossfile also).  Words may also be listed in glossfile with an empty gloss field to indicate that no gloss is available but rules using this word needn't be omitted.")
@@ -100,7 +104,7 @@ parser.add_option("--manualrules",
 
 parser.add_option("--rulesFile",help="Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will be read from it and incrementally updated. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.") # You may however change whether or not a --single-words / --max-words option applies to the new examples (but hopefully shouldn't have to)
 
-parser.add_option("--no-input",
+parser.add_option("-n","--no-input",
                   action="store_true",default=False,
                   help="Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.")
 
@@ -125,7 +129,7 @@ parser.add_option("-S", "--summary-only",
                   action="store_true",default=False,
                   help="Don't generate a parser, just write the rules summary to standard output")
 
-parser.add_option("--no-summary",
+parser.add_option("-N","--no-summary",
                   action="store_true",default=False,
                   help="Don't add a large rules-summary comment at the end of the parser code")
 
@@ -135,36 +139,36 @@ parser.add_option("-O", "--summary-omit",
 parser.add_option("--maxrefs",default=3,
                   help="The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is %default.")
 
-parser.add_option("--norefs",
+parser.add_option("-R","--norefs",
                   action="store_true",default=False,
                   help="Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if --no-input is specified.") # the speed difference is not so great as of v0.593, but needed anyway if --no-input is set
 
-parser.add_option("--newlines-reset",
+parser.add_option("-E","--newlines-reset",
                   action="store_false",
                   dest="ignoreNewlines",
                   default=True,
                   help="Have the annotator reset its state on every newline byte. By default newlines do not affect state such as whether a space is required before the next word, so that if the annotator is used with Web Adjuster's htmlText option (which defaults to using newline separators) the spacing should be handled sensibly when there is HTML markup in mid-sentence.")
 
-parser.add_option("--compress",
+parser.add_option("-z","--compress",
                   action="store_true",default=False,
                   help="Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but that might help if memory is short; see also --data-driven.")
 
 parser.add_option("--ios",
                   help="Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app (see the start of the generated C file for instructions); if it runs out of space, try using --data-driven")
 
-parser.add_option("--data-driven",
+parser.add_option("-D","--data-driven",
                   action="store_true",default=False,
                   help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's \"section too large\"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript and Python output is always data-driven anyway.") # If the resulting binary is compressed (e.g. in an APK), its compressed size will likely not change much (same information content), so I'm specifically saying "RAM size" i.e. when decompressed
 
-parser.add_option("--zlib",
+parser.add_option("-Z","--zlib",
                   action="store_true",default=False,
                   help="Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).") # and additional_compact_opcodes typically still helps no matter what the other options are
 
-parser.add_option("--windows-clipboard",
+parser.add_option("-W","--windows-clipboard",
                   action="store_true",default=False,
                   help="Include C code to read the clipboard on Windows or Windows Mobile and to write an annotated HTML file and launch a browser, instead of using the default cross-platform command-line C wrapper.  See the start of the generated C file for instructions on how to compile for Windows or Windows Mobile.")
 
-parser.add_option("--c-sharp",
+parser.add_option("-#","--c-sharp",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate C# (not quite as efficient as the C code but close; might be useful for adding an annotator to a C# project; see comments at the start for usage)")
 
@@ -175,11 +179,11 @@ parser.add_option("--android",
 parser.add_option("--ndk",
                   help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is a more complex setup than a Java-based annotator, but it improves speed and size.  The --ndk option should be set to the name of the package that will use the library, and --android should be set to the initial URL.  See comments in the output file for details.")
 
-parser.add_option("--javascript",
+parser.add_option("-j","--javascript",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
 
-parser.add_option("--python",
+parser.add_option("-Y","--python",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.")
 
@@ -208,16 +212,16 @@ parser.add_option("--ymax-threshold",default=1,
                   help="Limits the length of word that receives the narrower-range Yarowsky search when ybytes-max is in use. For words longer than this, the search will go directly to ybytes-max. This is for languages where the likelihood of a word's annotation being influenced by its immediate neighbours more than its distant collocations increases for shorter words, and less is to be gained by comparing different ranges when processing longer words. Setting this to 0 means no limit, i.e. the full range will be explored on ALL Yarowsky checks.") # TODO: see TODO below re temporary recommendation of --ymax-threshold=0
 parser.add_option("--ybytes-step",default=3,
                   help="The increment value for the loop between ybytes and ybytes-max")
-parser.add_option("--warn-yarowsky",
+parser.add_option("-k","--warn-yarowsky",
                   action="store_true",default=False,
                   help="Warn when absolutely no distinguishing Yarowsky seed collocations can be found for a word in the examples")
-parser.add_option("--yarowsky-all",
+parser.add_option("-K","--yarowsky-all",
                   action="store_true",default=False,
                   help="Accept Yarowsky seed collocations even from input characters that never occur in annotated words (this might include punctuation and example-separation markup)")
 parser.add_option("--yarowsky-debug",default=1,
                   help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
 
-parser.add_option("--single-words",
+parser.add_option("-1","--single-words",
                   action="store_true",default=False,
                   help="Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.")
 parser.add_option("--max-words",default=0,
@@ -230,18 +234,18 @@ parser.add_option("--checkpoint",help="Periodically save checkpoint files in the
 
 parser.add_option("-d","--diagnose",help="Output some diagnostics for the specified word. Use this option to help answer \"why doesn't it have a rule for...?\" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).")
 parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: %default")
-parser.add_option("--diagnose-manual",
+parser.add_option("-m","--diagnose-manual",
                   action="store_true",default=False,
                   help="Check and diagnose potential failures of --manualrules")
-parser.add_option("--diagnose-quick",
+parser.add_option("-q","--diagnose-quick",
                   action="store_true",default=False,
                   help="Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics WITHOUT these disadvantages by loading a --rulesFile instead.")
 
-parser.add_option("--time-estimate",
+parser.add_option("-t","--time-estimate",
                   action="store_true",default=False,
                   help="Estimate time to completion.  The code to do this is unreliable and is prone to underestimate.  If you turn it on, its estimate is displayed at the end of the status line as days, hours or minutes.") # Unreliable because the estimate assumes 'phrases per minute' will remain constant on average, whereas actually it will decrease because the more complex phrases are processed last
 
-parser.add_option("--single-core",
+parser.add_option("-0","--single-core",
                   action="store_true",default=False,
                   help="Use only one CPU core even when others are available. (If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is currently used only for large collocation checks in limited circumstances.)") # namely, words that occur in length-1 phrases
 
@@ -3141,6 +3145,30 @@ else:
   outLang_true = "1"
   outLang_false = "0"
 
+def allVars(u):
+  global cjk_cLookup
+  try: cjk_cLookup
+  except NameError:
+    from cjklib.characterlookup import CharacterLookup
+    cjk_cLookup = CharacterLookup("C") # param doesn't matter for getCharacterVariants, so just put "C" for now
+  done = set()
+  for t in "STCMZ":
+    for var in cjk_cLookup.getCharacterVariants(u,t):
+      if not var in done: yield var
+      done.add(var)
+def allVarsW(unistr):
+  vRest = []
+  for i in xrange(len(unistr)):
+    got_vRest = False
+    for v in allVars(unistr[i]):
+      yield unistr[:i]+v+unistr[i+1:]
+      if got_vRest:
+        for vr in vRest: yield unistr[:i]+v+vr
+      else:
+        vRest = [] ; got_vRest = True
+        for vr in allVarsW(unistr[i+1:]):
+          yield unistr[:i]+v+vr ; vRest.append(vr)
+
 def matchingAction(rule,glossDic,glossMiss,whitelist):
   # called by addRule, returns (actionList, did-we-actually-annotate).  Also applies reannotator and compression (both of which will require 2 passes if present)
   action = []
@@ -3155,6 +3183,11 @@ def matchingAction(rule,glossDic,glossMiss,whitelist):
     if whitelist and not text_unistr in whitelist:
       return text_unistr+" not whitelisted",None
     gloss = glossDic.get((text_unistr,annotation_unistr),glossDic.get(text_unistr,None))
+    if gloss_closure and not gloss and not w in glossMiss:
+      for t2 in allVarsW(text_unistr):
+        gloss = glossDic.get((t2,annotation_unistr),glossDic.get(t2,None))
+        if gloss:
+          glossDic[text_unistr] = gloss ; break
     if gloss: gloss = gloss.replace('&','&amp;').replace('"','&quot;').replace('\n','&#10;') # because it'll be in a title= attribute
     if reannotator:
       if reannotator.startswith('##'): toAdd = text_unistr + '#' + annotation_unistr
