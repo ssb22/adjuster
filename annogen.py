@@ -3149,6 +3149,7 @@ def allVars(u):
   global cjk_cLookup
   try: cjk_cLookup
   except NameError:
+    sys.stderr.write("(checking CJK closures for missing glosses)\n")
     from cjklib.characterlookup import CharacterLookup
     cjk_cLookup = CharacterLookup("C") # param doesn't matter for getCharacterVariants, so just put "C" for now
   done = set()
@@ -3365,7 +3366,7 @@ def write_glossMiss(glossMiss):
       sys.stderr.write(("(%d of %d)" % (count,len(glossMiss)))+clear_eol)
       t = time.time() ; prndProg = True
     count += 1
-  if prndProg: sys.stderr.write("\n")
+  if prndProg: sys.stderr.write("done"+clear_eol+"\n")
 
 if norefs:
   def refs(rule,omit={}): return ""
@@ -3438,7 +3439,7 @@ def outputRulesSummary(rulesAndConds):
     if ybytes: extraTab='\t'
     else: extraTab = ''
     for l in read_manual_rules(): outfile.write((markDown(l)+'\t'+annotationOnly(l)+extraTab+'\t--manualrules '+manualrules).encode(outcode)+"\n")
-    sys.stderr.write("\n")
+    sys.stderr.write("done"+clear_eol+"\n")
 
 if isatty(sys.stdout):
     if summary_only:
