@@ -2104,7 +2104,7 @@ function readData() {
                 while (dPtr < tPtr && dPtr < fPtr) if (tStr.indexOf(readRefStr()) != -1) { found = 1; break; }
                 dPtr = found ? tPtr : fPtr; break;
                 }
-        default: throw("corrupt data table at "+(dPtr-1)+" ("+data.charCodeAt(dPtr-1)+")");
+        default: throw("corrupt data table at "+(dPtr-1)+"/"+data.length+" ("+data.charCodeAt(dPtr-1)+")");
             }
         }
     }
@@ -3284,15 +3284,31 @@ def outputParser(rulesAndConds):
     if reannotator:
       sys.stderr.write("Reannotating... ")
       dryRun()
+      # Setting buffer size is not enough on all systems.
+      # To ensure the pipe does not fill its output while
+      # we are still writing its input, we use threads and
+      # don't start writing its input until we've already
+      # started reading from its output.
+      global toReannotateSet, reannotateDict
+      l = [ll for ll in toReannotateSet if ll and not "\n" in ll] # TODO: handle the case where "\n" is in ll?  (shouldn't happen in 'sensible' annotators)
+      def reader_thread():
+        global threadReading,threadRead
+        threadReading = True
+        threadRead = cout.read().decode(outcode).splitlines() # TODO: reannotatorCode instead of outcode?
       if reannotator.startswith('##'): cmd=reannotator[2:]
       elif reannotator[0]=='#': cmd=reannotator[1:]
       else: cmd = reannotator
-      cin,cout = os.popen2(cmd)
-      global toReannotateSet, reannotateDict
-      l = [ll for ll in toReannotateSet if ll and not "\n" in ll] # TODO: handle the case where "\n" is in ll?  (shouldn't happen in 'sensible' annotators)
+      import thread ; sys.setcheckinterval(100)
+      global cout ; cin,cout = os.popen2(cmd)
+      global threadReading,threadRead ; threadReading=threadRead=False
+      thread.start_new_thread(reader_thread,())
+      while threadReading == False: time.sleep(0.1)
+      # NOW ready to start writing:
       cin.write("\n".join(l).encode(outcode)+"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
-      l2 = cout.read().decode(outcode).splitlines() # TODO: ditto?
-      del cin,cout,cmd
+      while threadRead == False: time.sleep(1)
+      l2 = threadRead
+      sys.setcheckinterval(32767)
+      del cin,cout,cmd,threadRead
       while len(l2)>len(l) and not l2[-1]: del l2[-1] # don't mind extra blank line(s) at end of output
       if not len(l)==len(l2):
         open('reannotator-debug-in.txt','w').write("\n".join(l).encode(outcode)+"\n")
