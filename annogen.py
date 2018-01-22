@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6286 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.6287 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -182,6 +182,14 @@ parser.add_option("--ndk",
 parser.add_option("-j","--javascript",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
+
+parser.add_option("-8","--js-octal",
+                  action="store_true",default=False,
+                  help="When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode.")
+
+parser.add_option("-9","--ignore-ie8",
+                  action="store_true",default=False,
+                  help="When generating a Javascript annotator, do not make it backward-compatible with Microsoft Internet Explorer 8 and below. This may save a few bytes.")
 
 parser.add_option("-Y","--python",
                   action="store_true",default=False,
@@ -3128,7 +3136,12 @@ def c_escapeRawBytes(s): # as it won't be valid outcode; don't want to crash any
   if s.endswith(chr(0)): s=s[:-1] # as the C compiler will add a terminating 0 anyway
   return re.sub(r"(?<!\\)((?:\\\\)*\\x..)([0-9a-fA-F])",r'\1""\2',zapTrigraphs(s.replace('\\','\\\\').decode('unicode_escape').encode('unicode_escape').replace('"','\\"')))
 
-def js_escapeRawBytes(s): return re.sub("[\x00-\x1f\x7f-\xff]",lambda m:"\\x%02x"%ord(m.group()),re.sub(chr(0)+r"(?![0-9])",r"\\0",s.replace("\\",r"\\").replace('"',r'\"').replace(chr(8),r"\b").replace(chr(9),r"\t").replace(chr(10),r"\n").replace(chr(12),r"\f"))) # TODO: could also convert chars 1-7 (without following digits) to single-digit octal and 11 + 13-31 (without following digits) to double-digit octal, but deprecated in ECMAScript 5 (errors in strict mode); 11 = \v but not in MSIE 8 or below
+def js_escapeRawBytes(s):
+  s = s.replace("\\",r"\\").replace('"',r'\"').replace(chr(8),r"\b").replace(chr(9),r"\t").replace(chr(10),r"\n").replace(chr(12),r"\f").replace(chr(13),r"\r")
+  if ignore_ie8: s = s.replace(chr(11),r"\v")
+  if js_octal: s = re.sub("[\x00-\x1f](?![0-9])",lambda m:r"\%o"%ord(m.group()),s)
+  else: s = re.sub(chr(0)+r"(?![0-9])",r"\0",s) # \0 is allowed even if not js_octal
+  return re.sub("[\x00-\x1f\x7f-\xff]",lambda m:r"\x%02x"%ord(m.group()),s)
 
 def c_length(unistr): return len(unistr.encode(outcode))
 
