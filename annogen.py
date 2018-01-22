@@ -3140,7 +3140,7 @@ def js_escapeRawBytes(s):
   s = s.replace("\\",r"\\").replace('"',r'\"').replace(chr(8),r"\b").replace(chr(9),r"\t").replace(chr(10),r"\n").replace(chr(12),r"\f").replace(chr(13),r"\r")
   if ignore_ie8: s = s.replace(chr(11),r"\v")
   if js_octal: s = re.sub("[\x00-\x1f](?![0-9])",lambda m:r"\%o"%ord(m.group()),s)
-  else: s = re.sub(chr(0)+r"(?![0-9])",r"\0",s) # \0 is allowed even if not js_octal
+  else: s = re.sub(chr(0)+r"(?![0-9])",r"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
   return re.sub("[\x00-\x1f\x7f-\xff]",lambda m:r"\x%02x"%ord(m.group()),s)
 
 def c_length(unistr): return len(unistr.encode(outcode))
