@@ -567,7 +567,7 @@ def preprocessOptions():
       global webdriver
       try: from selenium import webdriver
       except: errExit("js_interpreter requires selenium")
-      check_jsInterpreter_valid()
+      if not options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox"]: errExit("js_interpreter (if set) must be PhantomJS, HeadlessChrome or HeadlessFirefox")
       if options.js_multiprocess:
         try: import multiprocessing # Python 2.6
         except ImportError: # can't do it then
@@ -1792,9 +1792,6 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % manager.current_url().replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+manager.current_url()),302)
     if asScreenshot: return wrapResponse(manager.getpng(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
     else: return wrapResponse(get_and_remove_httpequiv_charset(manager.getu8())[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
-def check_jsInterpreter_valid():
-    if options.js_interpreter and not options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox"]: errExit("js_interpreter (if set) must be PhantomJS, HeadlessChrome or HeadlessFirefox")
-    if options.js_reproxy and options.js_interpreter in ["HeadlessChrome","HeadlessFirefox"]: errExit("HeadlessChrome and HeadlessFirefox currently require --js_reproxy=False due to Chromium bug 721739 and a similar issue with Firefox; you'll still need to use PhantomJS for production") # (unless you don't ever want to fetch any SSL, or TODO: upstream-proxy rewrite SSL to non-SSL w/out changing domain (http://domain:443 or sthg??) but it could go wrong if miss some rewrites)
 def get_new_webdriver(index,renewing=False):
     if options.js_interpreter == "HeadlessChrome":
         return get_new_HeadlessChrome(index,renewing)
@@ -1804,13 +1801,18 @@ def get_new_webdriver(index,renewing=False):
 def get_new_HeadlessChrome(index,renewing):
     log_complaints = (index==0 and not renewing)
     from selenium.webdriver.chrome.options import Options
-    opts = Options()
+    opts = Options() ; dc = None
     opts.add_argument("--headless")
     opts.add_argument("--disable-gpu")
     if options.js_reproxy:
         opts.add_argument("--proxy-server=127.0.0.1:%d" % js_proxy_port[index])
-        opts.add_argument("--allow-insecure-localhost") # TODO: does this work for proxies, not just localhost as a domain? and requires Chrome 62+ (not 59)
-        # opts.add_argument("--ignore-certificate-errors") # dropped before headless started in Chrome 59?
+        opts.add_argument("--ignore-certificate-errors") # ignored by Chrome 59 (which was the first version to support Headless) and possibly some earlier versions
+        opts.add_argument("--allow-insecure-localhost") # Chrome 62+ can at least do *.localhost & 127.* but we'd need to domain-rewrite for this to help (proxy-host doesn't count)
+        # Chrome 65 and chromedriver 2.35/2.36? can do:
+        dc = wd_DesiredCapabilities(log_complaints)
+        if dc:
+            dc = dc.CHROME.copy()
+            dc['acceptInsecureCerts'] = True
     elif options.upstream_proxy: opts.add_argument('--proxy-server='+options.upstream_proxy)
     if options.logDebug: opts.add_argument("--verbose")
     if options.js_UA and not options.js_UA.startswith("*"): opts.add_argument("--user-agent="+options.js_UA)
@@ -1826,15 +1828,9 @@ def get_new_HeadlessChrome(index,renewing):
         if log_complaints: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.js_size)
         w,h = 1024,768
     opts.add_argument("--window-size=%d,%d" % (w,h))
-    debuglog("Instantiating webdriver.Chrome")
-    while True:
-        try: p = webdriver.Chrome(chrome_options=opts)
-        except:
-            if log_complaints: raise
-            logging.error("Unhandled exception when instantiating webdriver %d, retrying in 5sec" % index)
-            time.sleep(5) ; p = None
-        if p: break
-    debuglog("webdriver.Chrome instantiated")
+    if dc: p = wd_instantiateLoop(webdriver.Chrome,index,renewing,chrome_options=opts,desired_capabilities=dc)
+    else: p = wd_instantiateLoop(webdriver.Chrome,index,renewing,chrome_options=opts)
+    if options.js_reproxy and 59 <= int(p.capabilities['version'].split(".")[0]) < 65: warn("This version of Chrome will hang when used with js_reproxy on https pages") # TODO: is 59 really the first version to drop --ignore-certificate-errors ? + if got chromium 65+ how do we also check we have a good-enough chromedriver version?
     try: p.set_page_load_timeout(30) # TODO: configurable?
     except: logging.info("Couldn't set HeadlessChrome page load timeout")
     return p
@@ -1842,9 +1838,17 @@ def get_new_HeadlessFirefox(index,renewing):
     os.environ['MOZ_HEADLESS'] = '1' # in case -headless not yet working
     from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
     from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
-    profile = FirefoxProfile()
+    profile = FirefoxProfile() ; caps = None
     log_complaints = (index==0 and not renewing) ; op = None
-    if options.js_reproxy: profile.set_proxy("127.0.0.1:%d" % js_proxy_port[index]) # TODO: any way to ignore certs ?
+    if options.js_reproxy:
+        from selenium.webdriver.common.proxy import Proxy,ProxyType
+        profile.set_proxy(Proxy({'proxyType':ProxyType.MANUAL,'httpProxy':"127.0.0.1:%d" % js_proxy_port[index],'sslProxy':"127.0.0.1:%d" % js_proxy_port[index],'ftpProxy':'','noProxy':''}))
+        profile.accept_untrusted_certs = True # needed for some older versions?
+        caps = wd_DesiredCapabilities(log_complaints)
+        if caps:
+            caps = caps.FIREFOX.copy()
+            caps['acceptInsecureCerts'] = True
+            caps['acceptSslCerts'] = True # older versions
     elif options.upstream_proxy: profile.set_proxy(options.upstream_proxy)
     if options.js_UA and not options.js_UA.startswith("*"): profile.set_preference("general.useragent.override",options.js_UA)
     if not options.js_images: profile.set_preference("permissions.default.image", 2)
@@ -1856,18 +1860,28 @@ def get_new_HeadlessFirefox(index,renewing):
     binary.add_command_line_options('-no-remote')
     if "x" in options.js_size: binary.add_command_line_options("-width",options.js_size.split("x")[0],"-height",options.js_size.split("x")[1])
     elif options.js_size: binary.add_command_line_options("-width",options.js_size)
-    debuglog("Instantiating webdriver.Firefox")
+    if caps: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps)
+    else: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary)
+    try: p.set_page_load_timeout(30) # TODO: configurable?
+    except: logging.info("Couldn't set HeadlessFirefox page load timeout")
+    return p
+def wd_DesiredCapabilities(log_complaints):
+    try:
+        from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+        return DesiredCapabilities
+    except:
+        if log_complaints: warn("Your Selenium installation is too old to set DesiredCapabilities.\nThis is likely to stop some js options from working properly.")
+        return None
+def wd_instantiateLoop(wdClass,index,renewing,**kw):
+    debuglog("Instantiating "+wdClass.__name__+" "+repr(kw))
     while True:
-        import selenium.webdriver.firefox.firefox_profile
-        try: p = webdriver.Firefox(firefox_profile=profile,firefox_binary=binary)
+        try: p = wdClass(**kw)
         except:
-            if log_complaints: raise
+            if index==0 and not renewing: raise
             logging.error("Unhandled exception when instantiating webdriver %d, retrying in 5sec" % index)
             time.sleep(5) ; p = None
         if p: break
-    debuglog("webdriver.Firefox instantiated")
-    try: p.set_page_load_timeout(30) # TODO: configurable?
-    except: logging.info("Couldn't set HeadlessFirefox page load timeout")
+    debuglog(wdClass.__name__+" instantiated")
     return p
 def _get_new_PhantomJS(index,renewing):
     log_complaints = (index==0 and not renewing)
@@ -1877,30 +1891,15 @@ def _get_new_PhantomJS(index,renewing):
         sa.append('--ignore-ssl-errors=true')
         sa.append('--proxy=127.0.0.1:%d' % js_proxy_port[index])
     elif options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
-    try: from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
-    except:
-        if log_complaints:
-            sys.stderr.write("Your Selenium installation is too old to set PhantomJS custom options.\n")
-            if options.js_reproxy: sys.stderr.write("This means --js_reproxy won't work.") # because we can't set the UA string or custom headers
-        if options.js_reproxy:
-            sa.pop()
-            if options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
-        return webdriver.PhantomJS(service_args=sa)
-    dc = dict(DesiredCapabilities.PHANTOMJS)
-    if options.js_UA and not options.js_UA.startswith("*"): dc["phantomjs.page.settings.userAgent"]=options.js_UA
-    if not options.js_images: dc["phantomjs.page.settings.loadImages"]=False
-    dc["phantomjs.page.settings.javascriptCanOpenWindows"]=dc["phantomjs.page.settings.javascriptCanCloseWindows"]=False # TODO: does this cover target="_blank" in clickElementID etc (which could have originated via DOM manipulation, so stripping them on the upstream proxy is insufficient; close/restart the driver every so often?)
-    if options.via and not options.js_reproxy: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?) (don't have to worry about this if js_reproxy)
-    debuglog("Instantiating webdriver.PhantomJS "+' '.join(sa))
-    while True:
-        try: p = webdriver.PhantomJS(desired_capabilities=dc,service_args=sa)
-        except:
-            if log_complaints: raise
-            logging.error("Unhandled exception when instantiating webdriver %d, retrying in 5sec" % index)
-            time.sleep(5) ; p = None
-        if p: break
-    debuglog("webdriver.PhantomJS instantiated")
-    return p
+    dc = wd_DesiredCapabilities(log_complaints)
+    if dc:
+        dc = dict(dc.PHANTOMJS)
+        if options.js_UA and not options.js_UA.startswith("*"): dc["phantomjs.page.settings.userAgent"]=options.js_UA
+        if not options.js_images: dc["phantomjs.page.settings.loadImages"]=False
+        dc["phantomjs.page.settings.javascriptCanOpenWindows"]=dc["phantomjs.page.settings.javascriptCanCloseWindows"]=False # TODO: does this cover target="_blank" in clickElementID etc (which could have originated via DOM manipulation, so stripping them on the upstream proxy is insufficient; close/restart the driver every so often?)
+        if options.via and not options.js_reproxy: dc["phantomjs.page.customHeaders.Via"]="1.0 "+convert_to_via_host("")+" ("+viaName+")" # customHeaders works in PhantomJS 1.5+ (TODO: make it per-request so can include old Via headers & update protocol version, via_host + X-Forwarded-For; will webdriver.DesiredCapabilities.PHANTOMJS[k]=v work before a request?) (don't have to worry about this if js_reproxy)
+        return wd_instantiateLoop(webdriver.PhantomJS,index,renewing,desired_capabilities=dc,service_args=sa)
+    else: return wd_instantiateLoop(webdriver.PhantomJS,index,renewing,service_args=sa)
 def get_new_PhantomJS(index,renewing=False):
     wd = _get_new_PhantomJS(index,renewing)
     log_complaints = (index==0 and not renewing)
