@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6287 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.6288 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -54,6 +54,10 @@ parser.add_option("--mend",
 parser.add_option("-r","--mreverse",
                   action="store_true",default=False,
                   help="Specifies that the annotation markup is reversed, so the text BEFORE mmid is the annotation and the text AFTER it is the base text")
+def cancelOpt(opt,act="store_false",dst=None):
+  if not dst: dst=opt.replace("-","_")
+  parser.add_option("--no-"+opt,action=act,dest=dst,help="Cancels any earlier --"+opt+" option in Makefile variables etc")
+cancelOpt("mreverse")
 
 parser.add_option("--reference-sep",
                   help="Reference separator code used in the example input.  If you want to keep example source references for each rule, you can label the input with 'references' (chapter and section numbers or whatever), and use this option to specify what keyword or other markup the input will use between each 'reference'.  The name of the next reference will be whatever text immediately follows this string.  Note that the reference separator, and the reference name that follows it, should not be part of the text itself and should therefore not be part of any annotation markup.  If this option is not set then references will not be tracked.")
@@ -69,16 +73,19 @@ parser.add_option("-s", "--spaces",
                   dest="removeSpace",
                   default=True,
                   help="Set this if you are working with a language that uses whitespace in its non-markedup version (not fully tested).  The default is to assume that there will not be any whitespace in the language, which is correct for Chinese and Japanese.")
+cancelOpt("spaces","store_true","removeSpace")
 
 parser.add_option("-c", "--capitalisation",
                   action="store_true",
                   default=False,
                   help="Don't try to normalise capitalisation in the input.  Normally, to simplify the rules, the analyser will try to remove start-of-sentence capitals in annotations, so that the only remaining words with capital letters are the ones that are ALWAYS capitalised such as names.  (That's not perfect: some words might always be capitalised just because they never occur mid-sentence in the examples.)  If this option is used, the analyser will instead try to \"learn\" how to predict the capitalisation of ALL words (including start of sentence words) from their contexts.") # TODO: make the C program put the sentence capitals back
+cancelOpt("capitalisation")
 
 parser.add_option("-w", "--annot-whitespace",
                   action="store_true",
                   default=False,
                   help="Don't try to normalise the use of whitespace and hyphenation in the example annotations.  Normally the analyser will try to do this, to reduce the risk of missing possible rules due to minor typographical variations.") # TODO: can this be extended to the point where the words 'try to' can be deleted ?  see comments
+cancelOpt("annot-whitespace")
 parser.add_option("--keep-whitespace",
                   help="Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the --annot-whitespace option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).")
 
@@ -88,6 +95,7 @@ parser.add_option("-C", "--gloss-closure",
                   action="store_true",
                   default=False,
                   help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package.") # TODO: option to put variant closures into the annotator itself? but that could unnecessarily increase the annotator size considerably, and it might not be correct in all cases (using it to fill in a missing gloss is more tolerable)
+cancelOpt("gloss-closure")
 parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
 parser.add_option("--glossmiss-hide",
@@ -96,6 +104,7 @@ parser.add_option("-M","--glossmiss-omit",
                   action="store_true",
                   default=False,
                   help="Omit rules containing any word not mentioned in glossfile.  Might be useful if you want to train on a text that uses proprietary terms and don't want to accidentally 'leak' those terms (assuming they're not accidentally included in glossfile also).  Words may also be listed in glossfile with an empty gloss field to indicate that no gloss is available but rules using this word needn't be omitted.")
+cancelOpt("glossmiss-omit")
 
 parser.add_option("--manualrules",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
@@ -107,6 +116,7 @@ parser.add_option("--rulesFile",help="Filename of an optional auxiliary binary f
 parser.add_option("-n","--no-input",
                   action="store_true",default=False,
                   help="Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.")
+cancelOpt("no-input")
 
 parser.add_option("--c-filename",default="",help="Where to write the C program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
 
@@ -128,10 +138,12 @@ parser.add_option("--outcode",default="utf-8",
 parser.add_option("-S", "--summary-only",
                   action="store_true",default=False,
                   help="Don't generate a parser, just write the rules summary to standard output")
+cancelOpt("summary-only")
 
 parser.add_option("-N","--no-summary",
                   action="store_true",default=False,
                   help="Don't add a large rules-summary comment at the end of the parser code")
+cancelOpt("no-summary")
 
 parser.add_option("-O", "--summary-omit",
                   help="Filename of a text file (or a compressed .gz, .bz2 or .xz file) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary (but still included in the parser).  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.")
@@ -142,16 +154,19 @@ parser.add_option("--maxrefs",default=3,
 parser.add_option("-R","--norefs",
                   action="store_true",default=False,
                   help="Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if --no-input is specified.") # the speed difference is not so great as of v0.593, but needed anyway if --no-input is set
+cancelOpt("norefs")
 
 parser.add_option("-E","--newlines-reset",
                   action="store_false",
                   dest="ignoreNewlines",
                   default=True,
                   help="Have the annotator reset its state on every newline byte. By default newlines do not affect state such as whether a space is required before the next word, so that if the annotator is used with Web Adjuster's htmlText option (which defaults to using newline separators) the spacing should be handled sensibly when there is HTML markup in mid-sentence.")
+cancelOpt("newlines-reset","store_true","ignoreNewlines")
 
 parser.add_option("-z","--compress",
                   action="store_true",default=False,
                   help="Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but that might help if memory is short; see also --data-driven.")
+cancelOpt("compress")
 
 parser.add_option("--ios",
                   help="Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app (see the start of the generated C file for instructions); if it runs out of space, try using --data-driven")
@@ -159,18 +174,26 @@ parser.add_option("--ios",
 parser.add_option("-D","--data-driven",
                   action="store_true",default=False,
                   help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's \"section too large\"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript and Python output is always data-driven anyway.") # If the resulting binary is compressed (e.g. in an APK), its compressed size will likely not change much (same information content), so I'm specifically saying "RAM size" i.e. when decompressed
+cancelOpt("data-driven")
+parser.add_option("-F","--fast-assemble",
+                  action="store_true",default=False,
+                  help="Skip opcode compaction when using data-driven (speeds up compilation at the expense of larger code size)")
+cancelOpt("fast-assemble")
 
 parser.add_option("-Z","--zlib",
                   action="store_true",default=False,
-                  help="Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).") # and additional_compact_opcodes typically still helps no matter what the other options are
+                  help="Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).") # and compact_opcodes typically still helps no matter what the other options are
+cancelOpt("zlib")
 
 parser.add_option("-W","--windows-clipboard",
                   action="store_true",default=False,
                   help="Include C code to read the clipboard on Windows or Windows Mobile and to write an annotated HTML file and launch a browser, instead of using the default cross-platform command-line C wrapper.  See the start of the generated C file for instructions on how to compile for Windows or Windows Mobile.")
+cancelOpt("windows-clipboard")
 
 parser.add_option("-#","--c-sharp",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate C# (not quite as efficient as the C code but close; might be useful for adding an annotator to a C# project; see comments at the start for usage)")
+cancelOpt("c-sharp")
 
 parser.add_option("--java",
                   help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option, removing any existing *.java files.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
@@ -182,18 +205,22 @@ parser.add_option("--ndk",
 parser.add_option("-j","--javascript",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
+cancelOpt("javascript")
 
 parser.add_option("-8","--js-octal",
                   action="store_true",default=False,
                   help="When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode.")
+cancelOpt("js-octal")
 
 parser.add_option("-9","--ignore-ie8",
                   action="store_true",default=False,
                   help="When generating a Javascript annotator, do not make it backward-compatible with Microsoft Internet Explorer 8 and below. This may save a few bytes.")
+cancelOpt("ignore-ie8")
 
 parser.add_option("-Y","--python",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.")
+cancelOpt("python")
 
 parser.add_option("--golang",
                   help="Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on AppEngine.")
@@ -207,10 +234,12 @@ parser.add_option("--reannotator",
 parser.add_option("-o", "--allow-overlaps",
                   action="store_true",default=False,
                   help="Normally, the analyser avoids generating rules that could overlap with each other in a way that would leave the program not knowing which one to apply.  If a short rule would cause overlaps, the analyser will prefer to generate a longer rule that uses more context, and if even the entire phrase cannot be made into a rule without causing overlaps then the analyser will give up on trying to cover that phrase.  This option allows the analyser to generate rules that could overlap, as long as none of the overlaps would cause actual problems in the example phrases. Thus more of the examples can be covered, at the expense of a higher risk of ambiguity problems when applying the rules to other texts.  See also the -y option.")
+cancelOpt("allow-overlaps")
 
 parser.add_option("-P", "--primitive",
                   action="store_true",default=False,
                   help="Don't bother with any overlap or conflict checks at all, just make a rule for each word. The resulting parser is not likely to be useful, but the summary might be.")
+cancelOpt("primitive")
 
 parser.add_option("-y","--ybytes",default=0,
                   help="Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed if the seed collocations can be used to distinguish between them.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of (non-whitespace) bytes between them.")
@@ -223,15 +252,18 @@ parser.add_option("--ybytes-step",default=3,
 parser.add_option("-k","--warn-yarowsky",
                   action="store_true",default=False,
                   help="Warn when absolutely no distinguishing Yarowsky seed collocations can be found for a word in the examples")
+cancelOpt("warn-yarowsky")
 parser.add_option("-K","--yarowsky-all",
                   action="store_true",default=False,
                   help="Accept Yarowsky seed collocations even from input characters that never occur in annotated words (this might include punctuation and example-separation markup)")
+cancelOpt("yarowsky-all")
 parser.add_option("--yarowsky-debug",default=1,
                   help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
 
 parser.add_option("-1","--single-words",
                   action="store_true",default=False,
                   help="Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.")
+cancelOpt("single-words")
 parser.add_option("--max-words",default=0,
                   help="Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one.")  # (There was a bug in annogen versions before 0.58 that caused --max-words to additionally limit how far away from the start of its phrase a rule-example must be placed; this has now been fixed.  There was also a bug that resulted in too many extra rules being tested over already-catered-for phrases; as this has now been fixed, the additional benefit of a --max-words limit is now reduced, but you might want to put one in anyway.  That second bug also had the effect of the coverage % being far too low in the progress stats.)
 
@@ -245,17 +277,21 @@ parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases 
 parser.add_option("-m","--diagnose-manual",
                   action="store_true",default=False,
                   help="Check and diagnose potential failures of --manualrules")
+cancelOpt("diagnose-manual")
 parser.add_option("-q","--diagnose-quick",
                   action="store_true",default=False,
                   help="Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics WITHOUT these disadvantages by loading a --rulesFile instead.")
+cancelOpt("diagnose-quick")
 
 parser.add_option("-t","--time-estimate",
                   action="store_true",default=False,
                   help="Estimate time to completion.  The code to do this is unreliable and is prone to underestimate.  If you turn it on, its estimate is displayed at the end of the status line as days, hours or minutes.") # Unreliable because the estimate assumes 'phrases per minute' will remain constant on average, whereas actually it will decrease because the more complex phrases are processed last
+cancelOpt("time-estimate")
 
 parser.add_option("-0","--single-core",
                   action="store_true",default=False,
                   help="Use only one CPU core even when others are available. (If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is currently used only for large collocation checks in limited circumstances.)") # namely, words that occur in length-1 phrases
+cancelOpt("single-core")
 
 parser.add_option("-p","--status-prefix",help="Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running")
 
@@ -335,7 +371,7 @@ if zlib:
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
 if data_driven and (c_sharp or java or golang): errExit("--data-driven is not yet implemented in C#, Java or Go")
 elif javascript or python: data_driven = True
-additional_compact_opcodes = data_driven and not python # currently implemented only in the C and Javascript versions of the data-driven runtime
+compact_opcodes = data_driven and not fast_assemble and not python # currently implemented only in the C and Javascript versions of the data-driven runtime
 if java or javascript or python or c_sharp or ios or ndk or golang:
   c_compiler = None
 try:
@@ -914,9 +950,16 @@ c_end += r"""  while(!FINISHED) {
   }
 }"""
 
-jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table;vertical-align:bottom;-webkit-border-vertical-spacing:1px;padding-top:0.5ex;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }"+os.environ.get('ANNOGEN_EXTRA_CSS','').replace('"',r"\\42").replace("'",r"\\47")+"</style>'; d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })"
+jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }"+os.environ.get('ANNOGEN_EXTRA_CSS','').replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"</style>'"
+if android=="file:///android_asset/index.html":
+  # generic browser: add bookmarks function. TODO: mention in the --android help text that we do this? + where to say you can put android:sharedUserId in AndroidManifest.xml to share bookmarks with another app if signed by same cert
+  jsAddRubyCss += r"""+((location.href=='file:///android_asset/index.html')?(ssb_local_annotator.getBMs().replace(/,/g,'')?('<div style="border: red solid; background: black; color: white;">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style="color:#ff0000;text-decoration:none" href="javascript:ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split'+"(',')["+i+']);location.reload()">Delete</a>] <a style="color:#00ff00;text-decoration:none" href="'+url+'">'+title+'</a>'}return c+'</ul>'})()+'</div>'):''):('<span id="ssb_local_annotator_bookmarks" style="border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 40%; top: 0px; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important; overflow: auto !important;">'+(function(c1,c2,c3){return '<a href="'+c1+'">'+((function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline="top";c.font="32px Arial";c.fillText("\ud83d\udd16",0,0);return c.getImageData(16,16,1,1).data[0]})()?('\ud83d\udd16</a> <a href="'+c2+'">\ud83d\udccb</a> <a href="'+c3+'">\u274c'):('Bookmark</a> <a href="'+c2+'">Copy</a> <a href="'+c3+'">X'))+'</a>'})("javascript:ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))","javascript:ssb_local_annotator.copy(location.href,true)","javascript:var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)")+'</span>'))""".replace('"',r'\"')
+jsAddRubyCss += ";d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })"
 
-def jsAnnot(alertStr,xtra1,xtra2,annotScan,case3): return "var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } " + alertStr + " }; "+xtra1+" function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { "+xtra2+"all_frames_docs(function(d){walk(d,d,false)}) }; function annotScan() {"+os.environ.get("ANNOGEN_EXTRA_JS","")+annotScan+"}; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var ps = c.previousSibling, cNext = c.nextSibling; function isTxt(n) {return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"+r"\\"+"s*$/)}; if (c.nodeType==1 && (c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"+r"\\"+"s*$/))))) && isTxt(cNext) && isTxt(ps)) { n.removeChild(c); cNext.previousSibling.nodeValue += cNext.nodeValue; n.removeChild(cNext); cNext = ps } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&!!c.href)); break; case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"+case3+"} } c=cNext } }"
+def jsAnnot(alertStr,xtra1,xtra2,annotScan,case3):
+  r = "var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } " + alertStr + " }; "+xtra1+" function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { "+xtra2+"all_frames_docs(function(d){walk(d,d,false)}) }; function annotScan() {"+os.environ.get("ANNOGEN_EXTRA_JS","")+annotScan+"}; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var ps = c.previousSibling, cNext = c.nextSibling; function isTxt(n) {return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"+r"\\"+"s*$/)}; if (c.nodeType==1 && (c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"+r"\\"+"s*$/))))) && isTxt(cNext) && isTxt(ps)) { n.removeChild(c); cNext.previousSibling.nodeValue += cNext.nodeValue; n.removeChild(cNext); cNext = ps } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&!!c.href)); break; case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"+case3+"} } c=cNext } }"
+  assert not '"' in r.replace(r'\"',''), "Unescaped \" character in jsAnnot param"
+  return r
 
 if ios:
   c_end += r"""
@@ -953,7 +996,7 @@ if ios:
 }
 - (void)webViewDidFinishLoad:(UIWebView *)webView
 {
-    [webView stringByEvaluatingJavaScriptFromString:@" """+jsAnnot("window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a'","var texts,tLen,oldTexts,otPtr,replacements; ","texts = new Array(); tLen=0; otPtr=0; ","oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a'",r"""var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=cnv) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; if(!inLink) r=r.replace(/<ruby title=/g,'<ruby onclick=\"annotPopAll(this)\" title=');newNode.innerHTML=r; otPtr=i;} else if (tLen < 1024) { texts[texts.length]=cnv;tLen += cnv.length;} else return""")+r"""annotScan()"];
+    [webView stringByEvaluatingJavaScriptFromString:@" """+jsAnnot(alertStr="window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a'",xtra1="var texts,tLen,oldTexts,otPtr,replacements; ",xtra2="texts = new Array(); tLen=0; otPtr=0; ",annotScan="oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a'",case3=r"""var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=cnv) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; if(!inLink) r=r.replace(/<ruby title=/g,'<ruby onclick=\"annotPopAll(this)\" title=');newNode.innerHTML=r; otPtr=i;} else if (tLen < 1024) { texts[texts.length]=cnv;tLen += cnv.length;} else return""")+r"""annotScan()"];
 }
 - (BOOL)webView:(UIWebView*)webView shouldStartLoadWithRequest:(NSURLRequest*)request navigationType:(UIWebViewNavigationType)navigationType {
     NSURL *URL = [request URL];
@@ -1256,13 +1299,7 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                         android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
                         d.setTitle(tt); d.setMessage(aa);
                         d.setNegativeButton("Copy",new android.content.DialogInterface.OnClickListener() {
-                                @android.annotation.TargetApi(11)
-                                public void onClick(android.content.DialogInterface dialog,int id) {
-                                        copiedText=tt+" "+aa;
-                                if(Integer.valueOf(android.os.Build.VERSION.SDK) < android.os.Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
-                                        ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
-                                else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
-                                }
+                                public void onClick(android.content.DialogInterface dialog,int id) { copy(tt+" "+aa,false); }
                         });
                         if(gotPleco) d.setNeutralButton("Pleco", new android.content.DialogInterface.OnClickListener() {
                             public void onClick(android.content.DialogInterface dialog,int id) {
@@ -1283,6 +1320,34 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
             }
             @android.webkit.JavascriptInterface public String getClip() { String r=readClipboard(); if(r.contentEquals(copiedText)) return ""; else return r; }
             @android.webkit.JavascriptInterface public String getSentText() { return sentText; }
+            @android.webkit.JavascriptInterface @android.annotation.TargetApi(11) public void copy(String copiedText,boolean toast) {
+                if(Integer.valueOf(android.os.Build.VERSION.SDK) < android.os.Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
+                    ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
+                else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
+                if(toast) android.widget.Toast.makeText(act, "Copied \""+copiedText+"\"",android.widget.Toast.LENGTH_LONG).show();
+            }
+            @android.webkit.JavascriptInterface public void addBM(String p) {
+                android.content.SharedPreferences.Editor e;
+                do {
+                   android.content.SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
+                   String s=sp.getString("prefs", ",")+p+",";
+                e = sp.edit();
+                e.putString("prefs",s);
+                } while(!e.commit());
+                android.widget.Toast.makeText(act, "Added bookmark", android.widget.Toast.LENGTH_LONG).show();
+            }
+            @android.webkit.JavascriptInterface public void deleteBM(String p) {
+                android.content.SharedPreferences.Editor e;
+                do {
+                   android.content.SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
+                   String s=sp.getString("prefs", ",").replaceFirst(java.util.regex.Pattern.quote(p+","), ","); // TODO: prepend "," too, in case somebody has URLs in their page titles; might be better to delete by number here not in js (as they might want to delete the 2nd one of a duplicate, not the 1st)
+                e = sp.edit();
+                e.putString("prefs",s);
+                } while(!e.commit());
+            }
+            @android.webkit.JavascriptInterface public String getBMs() {
+                return getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
+            }
         }
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         browser.setWebViewClient(new WebViewClient() {
@@ -1321,7 +1386,7 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
     }
     String sentText = null;
     boolean gotPleco = false;
-    static final String js_common="""+'"'+jsAnnot("ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')","function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } }","","tw0(); "+jsAddRubyCss,"var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
+    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtra1="function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } };",xtra2="",annotScan="tw0(); "+jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
     android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
     @android.annotation.TargetApi(19)
@@ -1900,7 +1965,7 @@ class BytecodeAssembler:
         src = self.l[:] # must start with fresh copy, because compaction modifies src and we don't want a false start with wrong addrSize to affect us
         try:
           compacted = 0 ; compaction_types = set()
-          if additional_compact_opcodes:
+          if compact_opcodes:
             # The compact opcodes all rely on relative addressing (relative to AFTER the compact instruction) that goes only forward.  Easiest way to deal with that is to work backwards from the end, inlining the compactions, before running a conventional 2-pass assembly.
             # TODO: Could move the below loop into this one in its entirety, and just assemble backwards.  Most within-function label references point forwards anyway.  (Would still need some backward refs for functions though)
             bytesFromEnd = 0
@@ -1940,7 +2005,7 @@ class BytecodeAssembler:
                         if bytesFromEnd >> (8*addrSize+1): raise TooNarrow() # fair assumption (but do this every label, not every instruction)
                     else: i = "-"*addrSize # a reference
                 bytesFromEnd += len(i)
-          # End of additional_compact_opcodes
+          # End of compact_opcodes
           lDic = {} # label dictionary: labelNo -> address
           for P in [1,2]:
             r = [chr(addrSize)] # List to hold the output bytecode, initialised with a byte indicating how long our addresses will be.
@@ -1980,9 +2045,9 @@ class BytecodeAssembler:
           if zlib:
             self.origLen = ll # needed for efficient malloc in the C code later
             r = zlib.compress(r,9)
-            if additional_compact_opcodes: sys.stderr.write("%d bytes (zlib compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),ll,compacted,','.join(list(compaction_types))))
+            if compact_opcodes: sys.stderr.write("%d bytes (zlib compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),ll,compacted,','.join(list(compaction_types))))
             else: sys.stderr.write("%d bytes (zlib compressed from %d)\n" % (len(r),ll))
-          elif additional_compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(list(compaction_types))))
+          elif compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(list(compaction_types))))
           else: sys.stderr.write("%d bytes\n" % ll)
           return r
         except TooNarrow: pass
@@ -3165,9 +3230,11 @@ def allVars(u):
     sys.stderr.write("(checking CJK closures for missing glosses)\n")
     from cjklib.characterlookup import CharacterLookup
     cjk_cLookup = CharacterLookup("C") # param doesn't matter for getCharacterVariants, so just put "C" for now
+    cjk_cLookup.varCache = {} # because getCharacterVariants can be slow if it uses SQL queries
   done = set()
   for t in "STCMZ":
-    for var in cjk_cLookup.getCharacterVariants(u,t):
+    if (u,t) not in cjk_cLookup.varCache: cjk_cLookup.varCache[(u,t)] = cjk_cLookup.getCharacterVariants(u,t)
+    for var in cjk_cLookup.varCache[(u,t)]:
       if not var in done: yield var
       done.add(var)
 def allVarsW(unistr):
