@@ -1262,10 +1262,10 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.view.KeyEvent;
 public class MainActivity extends Activity {"""
-if ndk:
-  android_src += r"""
+if ndk: android_src += r"""
     static { System.loadLibrary("Annotator"); }
-    static synchronized native String jniAnnotate(String in);
+    static synchronized native String jniAnnotate(String in);"""
+android_src += r"""
     @SuppressLint("SetJavaScriptEnabled")
     @android.annotation.TargetApi(19) // 19 for setWebContentsDebuggingEnabled; 7 for setAppCachePath; 3 for setBuiltInZoomControls (but only API 1 is required)
     @SuppressWarnings("deprecation") // for conditional SDK below
