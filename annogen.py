@@ -1321,7 +1321,7 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                             }
                         }); else if(hanpingVersion!=0) d.setNeutralButton("Hanping", new android.content.DialogInterface.OnClickListener() {
                             public void onClick(android.content.DialogInterface dialog,int id) {
-                                Intent i = new Intent();
+                                Intent i = new Intent(Intent.ACTION_VIEW);
                                 i.setData(new android.net.Uri.Builder().scheme(hanpingVersion<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage.indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt.split(" ",2)[0]).build());
                                 i.setPackage(hanpingPackage);
                                 i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
