@@ -2673,8 +2673,8 @@ document.forms[0].i.focus()
         try: l = json.loads(self.request.body)
         except: return self.serve_err("Bad JSON")
         for i in xrange(len(l)):
-            if l[i]=='': l[i] = u'' # shouldn't get this (TODO: fix in bookmarkletMainScript? e.g. if submitBookmarkletFilterJS can match empty strings, or conversion to 'cnv' makes it empty, anything else?), but if we do, don't let it trip up the 'wrong data structue' below
-        if not (type(l)==list and all((type(i)==type(u"") and not chr(0) in i) for i in l)): return self.serve_err("Wrong data structure")
+            if l[i]=='': l[i] = u'' # shouldn't get this (TODO: fix in bookmarkletMainScript? e.g. if submitBookmarkletFilterJS can match empty strings, or conversion to 'cnv' makes it empty, anything else?), but if we do, don't let it trip up the 'wrong data structure' below
+        if not (type(l)==list and all(((type(i)==unicode or (type(i)==str and all(ord(c)<0x80 for c in i))) and not chr(0) in i) for i in l)): return self.serve_err("Wrong data structure")
         codeTextList = []
         for i in l:
             codeTextList.append(chr(0))
