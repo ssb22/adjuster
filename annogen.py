@@ -1287,6 +1287,8 @@ android_src += r"""
         // ---------------------------------------------
         // Delete the following long line if you DON'T want to link pop-ups to Pleco (when installed):
         try { getApplicationContext().getPackageManager().getPackageInfo("com.pleco.chinesesystem", 0); gotPleco = true; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
+        // Delete the following long line if you DON'T want to link pop-ups to Hanping (when installed) if not linking to Pleco (there's room for only one of the two in the AlertDialog)
+        if(!gotPleco) for(int i=0; i<3; i++) try { hanpingPackage="com.embermitre.hanping.cantodict.app.pro com.embermitre.hanping.app.pro com.embermitre.hanping.app.lite".split(" ")[i]; hanpingVersion=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage, 0).versionCode; break; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
         // ---------------------------------------------
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
@@ -1315,6 +1317,14 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                                 i.putExtra("launch_section", "dictSearch");
                                 i.putExtra("replacesearchtext", tt);
+                                startActivity(i);
+                            }
+                        }); else if(hanpingVersion!=0) d.setNeutralButton("Hanping", new android.content.DialogInterface.OnClickListener() {
+                            public void onClick(android.content.DialogInterface dialog,int id) {
+                                Intent i = new Intent();
+                                i.setData(new android.net.Uri.Builder().scheme(hanpingVersion<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage.indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt.split(" ",2)[0]).build());
+                                i.setPackage(hanpingPackage);
+                                i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
                                 startActivity(i);
                             }
                         });
@@ -1416,7 +1426,7 @@ android_src += r"""
         else return false; return true;
     }
     String sentText = null;
-    boolean gotPleco = false;
+    boolean gotPleco = false; int hanpingVersion = 0; String hanpingPackage = null;
     static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtra1="function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } };",xtra2="",annotScan="tw0(); "+jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
     android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
