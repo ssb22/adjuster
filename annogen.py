@@ -705,7 +705,7 @@ EOF
 cat > jni/annotator.c <<"EOF"
 #include <stdlib.h>
 #include <jni.h>
-""".replace('%%PACKAGE%%',ndk.replace('.','/'))
+"""
   if zlib: c_preamble=c_preamble.replace("LOCAL_PATH","LOCAL_LDLIBS := -lz\nLOCAL_PATH",1)
   c_defs = r"""static const char *readPtr, *writePtr, *startPtr;
 static char *outBytes;
@@ -1233,6 +1233,34 @@ android_src += r"""
        but the next does not, even if you've only fixed a
        'typo' between the versions.  Use beta test, and if
        it goes wrong then re-upload.)
+   13. You may also wish to set up command-line builds.
+       The script should look something like this:
+
+         export SDK=/usr/local/adt-bundle/sdk
+         export PLATFORM=$SDK/platforms/android-19
+         export BUILD_TOOLS=$SDK/build-tools/21.0.2
+         export KEYSTORE_USER=$(whoami)
+         export KEYSTORE_PASS='**** YOUR PASSWORD ****'
+
+         export APP_NAME=$(pwd|sed -e s,.*./,,)
+         rm -rf bin gen && mkdir bin gen &&
+         $BUILD_TOOLS/aapt package -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_ &&
+         javac -classpath $PLATFORM/android.jar -sourcepath "src;gen" -d "bin" src/%%PACKAGE%%/*.java gen/%%PACKAGE%%/R.java &&
+         $BUILD_TOOLS/dx --dex --output=bin/classes.dex bin/ &&
+         cp bin/resources.ap_ bin/$APP_NAME.ap_ &&
+         cd bin &&"""
+if ndk: android_src += r"""
+         rsync -trv ../libs/armeabi lib/ &&
+         $BUILD_TOOLS/aapt add $APP_NAME.ap_ classes.dex lib/armeabi/*.so &&"""
+else: android_src += r"""
+         $BUILD_TOOLS/aapt add $APP_NAME.ap_ classes.dex &&"""
+android_src += r"""
+         cd .. &&
+         jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore ../keystore -storepass $KEYSTORE_PASS -keypass $KEYSTORE_PASS -signedjar bin/$APP_NAME.apk bin/$APP_NAME.ap_ $KEYSTORE_USER -tsa http://timestamp.digicert.com && # -tsa option requires an Internet connection
+         rm -f ../$APP_NAME.apk &&
+         $BUILD_TOOLS/zipalign 4 bin/$APP_NAME.apk ../$APP_NAME.apk &&
+         rm bin/*ap_ bin/*apk &&
+         du -h ../$APP_NAME.apk
 
        To copy/paste from the annotated text, make sure to
        start the long-press ON a word (not in a space).  This
@@ -1250,6 +1278,7 @@ android_src += r"""
        offer to be a browser for (when a matching URL
        is opened by another application).  For example,
        ANNOGEN_ANDROID_URLS="http://example.com http://example.org/documents"
+       This will affect the AndroidManifest.xml provided above.
 */
 
 package %%JPACKAGE%%;
@@ -1464,7 +1493,8 @@ android_src += r"""
     WebView browser;
 }
 """
-if ndk: c_start = c_start.replace("%%android_src%%",android_src.replace('%%ANDROID-URL%%',android).replace("%%JPACKAGE%%",ndk))
+if ndk: c_start = c_start.replace("%%android_src%%",android_src.replace('%%ANDROID-URL%%',android).replace("%%JPACKAGE%%",ndk)).replace('%%PACKAGE%%',ndk.replace('.','/'))
+elif java: android_src = android_src.replace('%%PACKAGE%%',java.rsplit('//',1)[1])
 android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
 <script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg); return true}</script>
     <h3>Clipboard</h3>
