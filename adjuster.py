@@ -43,8 +43,8 @@ elif '--html-options' in sys.argv: # for updating the website (this option is no
         else: default=""
         def amp(h): return h.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
         help = amp(help)
-        for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]: help=help.replace(ttify,"<nobr><tt>"+ttify+"</tt></nobr>")
-        print "<dt><tt>--"+name+"</tt>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>"
+        for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]: help=help.replace(ttify,"<nobr><kbd>"+ttify+"</kbd></nobr>")
+        print "<dt><kbd>--"+name+"</kbd>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>"
 else:
     import tornado
     from tornado.httpclient import AsyncHTTPClient,HTTPClient,HTTPError
@@ -331,7 +331,7 @@ define("logDebug",default=False,help="Write debugging messages (to standard erro
 # and continuing into the note below:
 if not tornado:
     print "</dl>"
-    print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <tt>python adjuster.py --help</tt> to see a full list of the ones available on your setup. They typically include <tt>log_file_max_size</tt>, <tt>log_file_num_backups</tt>, <tt>log_file_prefix</tt> and <tt>log_to_stderr</tt>." # and --logging=debug but that may generate a lot of entries from curl_httpclient
+    print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <kbd>python adjuster.py --help</kbd> to see a full list of the ones available on your setup. They typically include <kbd>log_file_max_size</kbd>, <kbd>log_file_num_backups</kbd>, <kbd>log_file_prefix</kbd> and <kbd>log_to_stderr</kbd>." # and --logging=debug but that may generate a lot of entries from curl_httpclient
     raise SystemExit
 
 import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,base64,htmlentitydefs,signal,traceback
@@ -2591,10 +2591,10 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                     if title: title += " on current page" # because page won't be visible while choosing bookmarks, unlike on desktops
                     else: title=theSys+" bookmarklet - Web Adjuster" # will be the default name of the bookmark
                     # TODO: we say txt[0]+'z' in the instructions to display on another device below, but if there are enough filters to get up to 'z' then the title on the other device will be whatever THAT filter is; might be better to just use txt in that situation
-                    i0 = "<h3>%s bookmarklet</h3>To install this bookmarklet on %s, follow the instructions below. You might want to take some notes first, because this page will <em>not</em> be displayed throughout the process! If you have another device, you can show another copy of these instructions on it by going to <tt>http://%sz</tt>" % (theSys, theSys, self.request.host+options.submitPath+txt[0])
+                    i0 = "<h3>%s bookmarklet</h3>To install this bookmarklet on %s, follow the instructions below. You might want to take some notes first, because this page will <em>not</em> be displayed throughout the process! If you have another device, you can show another copy of these instructions on it by going to <kbd>http://%sz</kbd>" % (theSys, theSys, self.request.host+options.submitPath+txt[0])
                     if "Firefox/" in self.request.headers.get("User-Agent",""): i0 += "<h4>Not Yet Working On Mobile Firefox!</h4>Please use Chrome/Safari.<p>TODO: extension for mobile Firefox?"
                     i0 += "<h4>Instructions</h4><ol><li>"
-                    sharp = "<li>You should see a sharp sign (#). If you don't, you might have to scroll a little to the right to get it into view. When you see the sharp sign, press immediately to the right of it. (This can be difficult, depending on your eyesight and the size of your fingers. You must put the text cursor <em>immediately</em> to the right of that sharp. Keep trying until you get it in <em>exactly</em> the right place.)<li>Use the backspace key to delete everything up to and including the sharp. The code should now start with the word <tt>javascript</tt>.<li>"
+                    sharp = "<li>You should see a sharp sign (#). If you don't, you might have to scroll a little to the right to get it into view. When you see the sharp sign, press immediately to the right of it. (This can be difficult, depending on your eyesight and the size of your fingers. You must put the text cursor <em>immediately</em> to the right of that sharp. Keep trying until you get it in <em>exactly</em> the right place.)<li>Use the backspace key to delete everything up to and including the sharp. The code should now start with the word <code>javascript</code>.<li>"
                     if txt[0] in 'ip':
                         if txt[0]=='i': # iPhone
                             menu="centre square button below"
@@ -2610,7 +2610,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                     else: # Android
                         i0 += "Press Menu and Save to Bookmarks, to bookmark <b>this</b> page (on some phones that option is just a drawing of a star)<li>Change the label if you want, but <b>do not</b> press OK<li>Long-press the <em>second</em> line to get the selection on it<li>Gently drag the marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"OK\" to come back here."
                     i0 += "<li>The bookmarklet is now ready for use. Go to whatever page you want to use it on, and select it from the bookmarks to use it."
-                    if txt[0]=='a': i0 += " <b>On later versions of Android, it doesn't work to choose the bookmark directly</b>: you have to start typing <tt>javascript:</tt> in the URL box and select it that way."
+                    if txt[0]=='a': i0 += " <b>On later versions of Android, it doesn't work to choose the bookmark directly</b>: you have to start typing <kbd>javascript:</kbd> in the URL box and select it that way."
                     return self.doResponse2(htmlhead(title)+i0+"</ol></body></html>","noFilterOptions",False)
             txt = zlib.decompressobj().decompress(base64.b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
             self.request.uri = "%s (input not logged, len=%d)" % (options.submitPath,len(txt))
