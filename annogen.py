@@ -1368,11 +1368,10 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                 act.runOnUiThread(new DialogTask(t,a));
             }
             @android.webkit.JavascriptInterface public String getClip() {
-                if(!browser.getUrl().equals("file:///android_asset/clipboard.html")) return "";
                 String r=readClipboard(); if(r.contentEquals(copiedText)) return ""; else return r;
             }
             @android.webkit.JavascriptInterface public void bringToFront() {
-                if(Integer.valueOf(android.os.Build.VERSION.SDK) >= android.os.Build.VERSION_CODES.CUPCAKE && browser.getUrl().equals("file:///android_asset/clipboard.html"))
+                if(Integer.valueOf(android.os.Build.VERSION.SDK) >= android.os.Build.VERSION_CODES.CUPCAKE)
                     startService(new Intent(MainActivity.this, BringToFront.class));
             }
             @android.webkit.JavascriptInterface public String getSentText() { return sentText; }
@@ -1523,7 +1522,7 @@ public class BringToFront extends android.app.IntentService {
 if ndk: c_start = c_start.replace("%%android_src%%",android_src).replace("%%android_src2%%",android_src2).replace('%%ANDROID-URL%%',android).replace("%%JPACKAGE%%",ndk).replace('%%PACKAGE%%',ndk.replace('.','/'))
 elif java: android_src = android_src.replace('%%PACKAGE%%',java.rsplit('//',1)[1])
 android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
-<script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg); return true}</script>
+<script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg+' line '+line); return true}</script>
     <h3>Clipboard</h3>
     <div id="clip">waiting for clipboard contents</div>
     <script>
@@ -1532,7 +1531,7 @@ function update() {
 var newClip = ssb_local_annotator.getClip();
 if (newClip && newClip != curClip) {
   document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\u200b/g,'');
-  curClip = newClip; if(ssb_local_annotator.annotate(newClip,0)!=newClip) ssb_local_annotator.bringToFront();
+  curClip = newClip; if(ssb_local_annotator.annotate(newClip,false)!=newClip) ssb_local_annotator.bringToFront();
 } window.setTimeout(update,1000) } update(); </script>
 </body></html>"""
 if ndk: c_start = c_start.replace("%%android_clipboard%%",android_clipboard)
