@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6291 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.6292 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -699,6 +699,9 @@ EOF
 cat > src/%%PACKAGE%%/MainActivity.java <<"EOF"
 %%android_src%%
 EOF
+cat > src/%%PACKAGE%%/BringToFront.java <<"EOF"
+%%android_src2%%
+EOF
 cat > assets/clipboard.html <<"EOF"
 %%android_clipboard%%
 EOF
@@ -1194,6 +1197,7 @@ android_src += r"""
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-sdk android:minSdkVersion="1" android:targetSdkVersion="19" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" >
+<service android:name=".BringToFront" android:exported="false"/>
 <activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleInstance" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
 <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>"""+additional_intents+r"""
@@ -1363,7 +1367,14 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                 }
                 act.runOnUiThread(new DialogTask(t,a));
             }
-            @android.webkit.JavascriptInterface public String getClip() { String r=readClipboard(); if(r.contentEquals(copiedText)) return ""; else return r; }
+            @android.webkit.JavascriptInterface public String getClip() {
+                if(!browser.getUrl().equals("file:///android_asset/clipboard.html")) return "";
+                String r=readClipboard(); if(r.contentEquals(copiedText)) return ""; else return r;
+            }
+            @android.webkit.JavascriptInterface public void bringToFront() {
+                if(Integer.valueOf(android.os.Build.VERSION.SDK) >= android.os.Build.VERSION_CODES.CUPCAKE && browser.getUrl().equals("file:///android_asset/clipboard.html"))
+                    startService(new Intent(MainActivity.this, BringToFront.class));
+            }
             @android.webkit.JavascriptInterface public String getSentText() { return sentText; }
             @android.webkit.JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */
             @android.webkit.JavascriptInterface @android.annotation.TargetApi(11) public void copy(String copiedText,boolean toast) {
@@ -1493,7 +1504,23 @@ android_src += r"""
     WebView browser;
 }
 """
-if ndk: c_start = c_start.replace("%%android_src%%",android_src.replace('%%ANDROID-URL%%',android).replace("%%JPACKAGE%%",ndk)).replace('%%PACKAGE%%',ndk.replace('.','/'))
+android_src2=r"""package %%JPACKAGE%%;
+import android.annotation.TargetApi;
+import android.content.Intent;
+import android.os.Build;
+@TargetApi(Build.VERSION_CODES.CUPCAKE)
+public class BringToFront extends android.app.IntentService {
+    public BringToFront() { super(""); }
+    public BringToFront(String name) { super(name); }
+    @Override
+    protected void onHandleIntent(Intent workIntent) {
+        Intent i = getPackageManager().getLaunchIntentForPackage(getApplicationContext().getPackageName());
+        i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(i);
+    }
+}
+"""
+if ndk: c_start = c_start.replace("%%android_src%%",android_src).replace("%%android_src2%%",android_src2).replace('%%ANDROID-URL%%',android).replace("%%JPACKAGE%%",ndk).replace('%%PACKAGE%%',ndk.replace('.','/'))
 elif java: android_src = android_src.replace('%%PACKAGE%%',java.rsplit('//',1)[1])
 android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
 <script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg); return true}</script>
@@ -1505,7 +1532,7 @@ function update() {
 var newClip = ssb_local_annotator.getClip();
 if (newClip && newClip != curClip) {
   document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\u200b/g,'');
-  curClip = newClip;
+  curClip = newClip; if(ssb_local_annotator.annotate(newClip,0)!=newClip) ssb_local_annotator.bringToFront();
 } window.setTimeout(update,1000) } update(); </script>
 </body></html>"""
 if ndk: c_start = c_start.replace("%%android_clipboard%%",android_clipboard)
@@ -3505,6 +3532,7 @@ def outputParser(rulesAndConds):
       del subFuncL,ret
     if android and not ndk:
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace("%%JPACK2%%",jPackage.replace('.','/')).replace('%%ANDROID-URL%%',android))
+      open(java+os.sep+"BringToFront.java","w").write(android_src2.replace("%%JPACKAGE%%",jPackage))
       open(java.rsplit('//',1)[0]+"/../assets/clipboard.html",'w').write(android_clipboard)
     if c_sharp: outfile.write(cSharp_end+"\n")
     elif golang: outfile.write(golang_end+"\n")
