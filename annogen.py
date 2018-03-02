@@ -1368,7 +1368,7 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                 act.runOnUiThread(new DialogTask(t,a));
             }
             @android.webkit.JavascriptInterface public String getClip() {
-                String r=readClipboard(); if(r.contentEquals(copiedText)) return ""; else return r;
+                String r=readClipboard(); if(r.equals(copiedText)) return ""; else return r;
             }
             @android.webkit.JavascriptInterface public void bringToFront() {
                 if(Integer.valueOf(android.os.Build.VERSION.SDK) >= android.os.Build.VERSION_CODES.CUPCAKE)
@@ -1377,6 +1377,7 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
             @android.webkit.JavascriptInterface public String getSentText() { return sentText; }
             @android.webkit.JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */
             @android.webkit.JavascriptInterface @android.annotation.TargetApi(11) public void copy(String copiedText,boolean toast) {
+                this.copiedText = copiedText;
                 if(Integer.valueOf(android.os.Build.VERSION.SDK) < android.os.Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
                     ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
