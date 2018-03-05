@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.265 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2651 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1023,7 +1023,8 @@ def start_multicore(isChild=False):
         except: continue
         if pid in children: children.remove(pid)
     if not isChild: announceShutdown0()
-    stop_threads() # must be last thing
+    stop_threads() # must be last thing, except
+    raise SystemExit # (in case weren't any threads to stop)
 
 def openPortsEtc():
     workaround_raspbian7_IPv6_bug()
