@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2651 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2652 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1831,7 +1831,13 @@ def get_new_HeadlessChrome(index,renewing):
     opts.add_argument("--window-size=%d,%d" % (w,h))
     if dc: p = wd_instantiateLoop(webdriver.Chrome,index,renewing,chrome_options=opts,desired_capabilities=dc)
     else: p = wd_instantiateLoop(webdriver.Chrome,index,renewing,chrome_options=opts)
-    if options.js_reproxy and 59 <= int(p.capabilities['version'].split(".")[0]) < 65: warn("This version of Chrome will hang when used with js_reproxy on https pages") # TODO: is 59 really the first version to drop --ignore-certificate-errors ? + if got chromium 65+ how do we also check we have a good-enough chromedriver version?
+    if options.js_reproxy:
+        chromeVersion = int(p.capabilities['version'].split(".")[0])
+        if 59 <= chromeVersion < 65:
+            if [int(x) for x in p.capabilities['chrome']['chromedriverVersion'].split(".",2)[:2]] < [2,35]: extrawarn = " (and chromedriver 2.35+)"
+            else: extrawarn = ""
+            warn("This version of Chrome will hang when used with js_reproxy on https pages. Try upgrading to Chrome 65+"+extrawarn) # TODO: is 59 really the first version to drop --ignore-certificate-errors ?
+        elif chromeVersion >= 65 and not p.capabilities.get('acceptInsecureCerts',False): warn("This version of chromedriver will hang when used with js_reproxy on https pages. Your Chrome is new enough, but your chromedriver is not. Try downloading chromedriver 2.35/36+")
     try: p.set_page_load_timeout(30) # TODO: configurable?
     except: logging.info("Couldn't set HeadlessChrome page load timeout")
     return p
