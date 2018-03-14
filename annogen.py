@@ -707,6 +707,7 @@ cat > assets/clipboard.html <<"EOF"
 EOF
 cat > jni/annotator.c <<"EOF"
 #include <stdlib.h>
+#include <string.h>
 #include <jni.h>
 """
   if zlib: c_preamble=c_preamble.replace("LOCAL_PATH","LOCAL_LDLIBS := -lz\nLOCAL_PATH",1)
@@ -1182,8 +1183,11 @@ else: android_src += "Put *.java into src/%%JPACK2%%"
 android_src += r"""
        (see "Delete the following line" comments below for
         things you can customise)
-    5. Edit project.properties and add the line
-        dex.force.jumbo=true
+    5. """
+if ndk: android_src += r"""(not needed if doing NDK build)"""
+else: android_src += r"""Edit project.properties and add the line
+        dex.force.jumbo=true"""
+android_src += r"""
     6. Edit AndroidManifest.xml and make it look as below
        (you might need to change targetSdkVersion="19" if
        your SDK has a different targetSdkVersion setting,
@@ -1249,8 +1253,12 @@ android_src += r"""
          export APP_NAME=$(pwd|sed -e s,.*./,,)
          rm -rf bin gen && mkdir bin gen &&
          $BUILD_TOOLS/aapt package -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_ &&
-         javac -classpath $PLATFORM/android.jar -sourcepath "src;gen" -d "bin" src/%%PACKAGE%%/*.java gen/%%PACKAGE%%/R.java &&
-         $BUILD_TOOLS/dx --dex --output=bin/classes.dex bin/ &&
+         javac -classpath $PLATFORM/android.jar -sourcepath "src;gen" -d "bin" src/%%PACKAGE%%/*.java gen/%%PACKAGE%%/R.java &&"""
+if ndk: android_src += r"""
+         $BUILD_TOOLS/dx --dex --output=bin/classes.dex bin/ &&""" # TODO: --min-sdk-version=1 if and only if this is mentioned in dx --help
+else: android_src += r"""
+         $BUILD_TOOLS/dx --dex --force-jumbo --output=bin/classes.dex bin/ &&""" # TODO: ditto
+android_src += r"""
          cp bin/resources.ap_ bin/$APP_NAME.ap_ &&
          cd bin &&"""
 if ndk: android_src += r"""
