@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6292 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.63 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -24,7 +24,7 @@ program_name = "Annotator Generator v0.6292 (c) 2012-18 Silas S. Brown"
 
 from optparse import OptionParser
 parser = OptionParser()
-import sys,os,os.path,tempfile,time,re
+import sys,os,os.path,tempfile,time,re,commands
 if not "mac" in sys.platform and not "darwin" in sys.platform and ("win" in sys.platform or "mingw32" in sys.platform): exe=".exe" # Windows, Cygwin, etc
 else: exe=""
 
@@ -169,7 +169,7 @@ parser.add_option("-z","--compress",
 cancelOpt("compress")
 
 parser.add_option("--ios",
-                  help="Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app (see the start of the generated C file for instructions); if it runs out of space, try using --data-driven")
+                  help="Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app; see the start of the generated C file for instructions. If Xcode runs out of space, try using --data-driven")
 
 parser.add_option("-D","--data-driven",
                   action="store_true",default=False,
@@ -196,13 +196,21 @@ parser.add_option("-#","--c-sharp",
 cancelOpt("c-sharp")
 
 parser.add_option("--java",
-                  help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option, removing any existing *.java files.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
+                  help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
 parser.add_option("--android",
-                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  A function to annotate the local clipboard is also provided.  You will need the Android SDK to compile the app; see comments in MainActivity.java for details.")
+                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
 parser.add_option("--ndk",
-                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is a more complex setup than a Java-based annotator, but it improves speed and size.  The --ndk option should be set to the name of the package that will use the library, and --android should be set to the initial URL.  See comments in the output file for details.")
+                  action="store_true",default=False,
+                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is a more complex setup than a Java-based annotator, but it improves speed and size.")
+cancelOpt("ndk")
 parser.add_option("--bookmarks",
-                  help="Android bookmarks: comma-separated list of package names that share our bookmarks. If this is not specified, the browser will not be given a bookmarks function. If it is set to the same value as --java or --ndk, bookmarks are kept in just this Android app. If it is set to a comma-separated list of packages that have also been generated by annogen (presumably with different annotation types), and if each one has the same android:sharedUserId attribute in AndroidManifest.xml's 'manifest' tag and is signed by the same certificate, then bookmarks can be shared across the set of browser apps.")
+                  help="Android bookmarks: comma-separated list of package names that share our bookmarks. If this is not specified, the browser will not be given a bookmarks function. If it is set to the same value as the package specified in --java, bookmarks are kept in just this Android app. If it is set to a comma-separated list of packages that have also been generated by annogen (presumably with different annotation types), and if each one has the same android:sharedUserId attribute in AndroidManifest.xml's 'manifest' tag and is signed by the same certificate, then bookmarks can be shared across the set of browser apps.")
+parser.add_option("--android-urls",
+                  help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application")
+parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate.")
+parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android or iOS browser app")
+parser.add_option("--app-name",default="Annotating browser",
+                  help="User-visible name of the Android app")
 
 parser.add_option("-j","--javascript",
                   action="store_true",default=False,
@@ -230,6 +238,11 @@ parser.add_option("--golang",
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text, and if prefixed by ## it will be given text#annotation.  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
 # (Could just get the reannotator to post-process the 1st annotator's output, but that might be slower than generating an altered annotator with it)
+
+parser.add_option("--sharp-multi",
+                  action="store_true",default=False,
+                  help="Assume annotation (or reannotator output) contains multiple alternatives separated by # (e.g. pinyin#Yale) and include code to select one by number at runtime (starting from 0). This is to save on total space when shipping multiple annotators that share the same word grouping and gloss data, differing only in the transcription of each word.")
+cancelOpt("sharp-multi")
 
 #  =========== ANALYSIS OPTIONS ==============
 
@@ -292,14 +305,20 @@ cancelOpt("time-estimate")
 
 parser.add_option("-0","--single-core",
                   action="store_true",default=False,
-                  help="Use only one CPU core even when others are available. (If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is currently used only for large collocation checks in limited circumstances.)") # namely, words that occur in length-1 phrases
+                  help="Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is currently used only for large collocation checks in limited circumstances.") # namely, words that occur in length-1 phrases
 cancelOpt("single-core")
 
 parser.add_option("-p","--status-prefix",help="Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running")
 
 main = (__name__ == "__main__" and not os.environ.get("OMPI_COMM_WORLD_RANK","0").replace("0",""))
-if main: sys.stderr.write(program_name+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
-# else STILL parse options (if we're being imported for parallel processing)
+term = os.environ.get("TERM","")
+is_xterm = "xterm" in term
+ansi_escapes = is_xterm or term in ["screen","linux"]
+def isatty(f): return hasattr(f,"isatty") and f.isatty()
+if ansi_escapes and isatty(sys.stderr): clear_eol,reverse_on,reverse_off,bold_on,bold_off="\x1b[K\r","\x1b[7m","\x1b[0m","\x1b[1m","\x1b[0m"
+else: clear_eol,reverse_on,reverse_off,bold_on,bold_off="  \r"," **","** ","",""
+if main: sys.stderr.write(bold_on+program_name+bold_off+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
+# else (if not main), STILL parse options (if we're being imported for parallel processing)
 options, args = parser.parse_args()
 globals().update(options.__dict__)
 
@@ -309,7 +328,7 @@ import gc ; gc.disable() # should be OK if we don't create cycles (TODO: run gc.
 def warn(msg):
   if main: sys.stderr.write("Warning: "+msg+"\n")
   # else it should have already been written
-if "PyPy" in sys.version: warn("PyPy is likely to run 60% slower than python with annogen") # (not to mention concurrent.futures being less likely to be available)
+if "PyPy" in sys.version: warn("with annogen, PyPy is likely to run 60% slower than python") # (not to mention concurrent.futures being less likely to be available)
 
 if primitive and ybytes: warn("primitive will override ybytes")
 if ybytes: ybytes=int(ybytes)
@@ -326,31 +345,49 @@ def errExit(msg):
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
-if android and not (java or ndk): errExit('You must set --java=/path/to/src//name/of/package or --ndk=name.of.package when using --android')
+if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
 if ndk and not android: errExit("You must set --android=URL when using --ndk. E.g. --android=file:///android_asset/index.html")
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
+if (extra_js or extra_css) and not (android or ios): errExit("--extra-js and --extra-css require either --android or --ios")
+if not extra_js: extra_js = ""
+if extra_js.rstrip() and not extra_js.rstrip()[-1] in ';}': errExit("--extra-js must end with a semicolon or a closing brace")
+if not extra_css: extra_css = ""
 jPackage = None
 if nested_switch: nested_switch=int(nested_switch) # TODO: if java, override it?  or just rely on the help text for --nested-switch (TODO cross-reference it from --java?)
 if java:
   if not '//' in java: errExit("--java must include a // to separate the first part of the path from the package name")
-  jPackage=java.rsplit('//',1)[1].replace('/','.')
+  jSrc,jRest=java.rsplit('//',1)
+  if '.' in jRest: errExit("--java must be ...src//org/example/package not ...src//org.example.package") # (TODO: fix it automatically in both jRest and java? only on the right-hand side of the //)
+  jPackage = jRest.replace('/','.')
   if 'NewFunc' in jPackage: errExit("Currently unable to include the string 'NewFunc' in your package due to an implementation detail in annogen's search/replace operations")
-def isatty(f): return hasattr(f,"isatty") and f.isatty()
 if not c_filename and isatty(sys.stdout): # assumed false when run under MPI
   c_filename = tempfile.gettempdir()+os.sep+"annotator.c"
+def shell_escape(arg):
+  if re.match("^[A-Za-z0-9_=/.%+,:@-]*$",arg): return arg
+  return "'"+arg.replace("'",r"'\''")+"'"
 if java or javascript or python or c_sharp or golang:
     if ios: errExit("--ios not yet implemented in C#, Java, JS, Python or Go; please use C (it becomes Objective-C)")
-    if ndk: errExit("--ndk requires the output language to be C")
     if windows_clipboard: errExit("--windows-clipboard not yet implemented in C#, Java, JS, Python or Go; please use C")
     if sum(1 for x in [java,javascript,python,c_sharp,golang] if x) > 1:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
     if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript, Python, C# or Go")
-    if compress: errExit("compress not yet implemented for the Java, Javascript, Python, C# or Go versions") # (and it would probably slow down JS/Python too much if it were)
+    if compress and not ndk: errExit("compress not yet implemented for the Java, Javascript, Python, C# or Go versions (except in Android with --ndk)") # (and it would probably slow down JS/Python too much if it were implemented in that)
+    if sharp_multi:
+      if not ndk and not javascript and not java: errExit("sharp-multi not yet implemented in C#, Python or Go")
+      if ios or windows_clipboard: errExit("sharp-multi not yet implemented for ios or windows-clipboard") # would need a way to select the annotator, probably necessitating a GUI on Windows (and extra callbacks on iOS)
     if java:
-      if main:
+      if android and not "/src//" in java: errExit("When using --android, the last thing before the // in --java must be 'src' e.g. --java=/workspace/MyProject/src//org/example/package")
+      if main: # (delete previous files, only if we're not an MPI-etc subprocess)
+       os.system("mkdir -p "+shell_escape(java))
        for f in os.listdir(java):
-        if f.endswith(".java"): os.remove(java+os.sep+f)
-      c_filename = java+os.sep+"Annotator.java"
+        if f.endswith(".java") and (f.startswith("z") or f in ["topLevelMatch.java","Annotator.java"]): os.remove(java+os.sep+f) # (may want to remove topLevelMatch & Annotator if moving from non-ndk to ndk)
+      if ndk:
+        c_filename = jSrc+"/../jni/annotator.c"
+        if main: os.system("mkdir -p "+shell_escape(c_filename[:c_filename.rindex('/')]))
+      else: c_filename = java+os.sep+"Annotator.java"
+      if main:
+        os.system("rm -rf "+shell_escape(jSrc+"/../bin")) # needed to get rid of old *.class files that might be no longer used
+        for d in ["assets","bin","gen","res/layout","res/menu","res/values"]: os.system("mkdir -p "+shell_escape(jSrc+"/../"+d))
     elif c_filename.endswith(".c"):
       if javascript: c_filename = c_filename[:-2]+".js"
       elif c_sharp: c_filename = c_filename[:-2]+".cs"
@@ -365,14 +402,12 @@ elif ios:
   if ndk: errExit("Support for having both --ios and --ndk at the same time is not yet implemented")
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ios")
   if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
-elif ndk:
-  if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ndk")
 if zlib:
   del zlib ; import zlib ; data_driven = True
   if javascript: errExit("--zlib is not yet implemented in Javascript") # C or Python for now
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
-if data_driven and (c_sharp or java or golang): errExit("--data-driven is not yet implemented in C#, Java or Go")
+if data_driven and (c_sharp or java or golang) and not ndk: errExit("--data-driven and --zlib are not yet implemented in C#, Go, or Java (except with --ndk)")
 elif javascript or python: data_driven = True
 compact_opcodes = data_driven and not fast_assemble and not python # currently implemented only in the C and Javascript versions of the data-driven runtime
 if java or javascript or python or c_sharp or ios or ndk or golang:
@@ -382,9 +417,11 @@ try:
   terminal_charset = locale.getdefaultlocale()[1]
 except: terminal_charset = None
 if not terminal_charset: terminal_charset = "utf-8"
-try: import urlparse
-except:
-  if os.environ.get("ANNOGEN_ANDROID_URLS"): errExit("Need urlparse module for ANNOGEN_ANDROID_URLS") # unless we re-implement
+if android_urls:
+  if not android: errExit("--android-urls requires --android (you need to set a default URL for direct launch)")
+  try: import urlparse
+  except: errExit("--android-urls requires urlparse module") # unless we re-implement
+else: android_urls = "" # so it can still be .split()
 if keep_whitespace: keep_whitespace = set(keep_whitespace.decode(terminal_charset).split(','))
 if glossmiss_hide: glossmiss_hide = set(glossmiss_hide.decode(terminal_charset).split(','))
 if status_prefix: status_prefix += ": "
@@ -400,14 +437,14 @@ if diagnose_manual or (not norefs and (not no_summary or glossmiss)): read_input
 def nearCall(negate,conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
   if not max_or_length or len(conds) <= max_or_length:
-    if java: f="a.n"
+    if java and not ndk: f="a.n"
     else: f="near"
     ret = " || ".join(f+"(\""+outLang_escape(c)+"\")" for c in conds)
     if negate:
       if " || " in ret: ret = " ! ("+ret+")"
       else: ret = "!"+ret
     return ret
-  if java: fStart,fEnd = "package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {","} }" # put functions in separate classes to try to save the constants table of the main class
+  if java and not ndk: fStart,fEnd = "package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {","} }" # put functions in separate classes to try to save the constants table of the main class
   elif golang: fStart,fEnd = "func NewFunc() bool {","}"
   else: fStart,fEnd = outLang_bool+" NewFunc() {","}"
   if negate: rTrue,rFalse = outLang_false,outLang_true
@@ -423,13 +460,13 @@ def subFuncCall(newFunc,subFuncs,subFuncL):
     # we generated an identical one before
     subFuncName=subFuncs[newFunc]
   else:
-    if java: subFuncName="z%X" % len(subFuncs) # (try to save as many bytes as possible because it won't be compiled out and we also have to watch the compiler's footprint; start with z so MainActivity.java etc appear before rather than among this lot in IDE listings)
+    if java and not ndk: subFuncName="z%X" % len(subFuncs) # (try to save as many bytes as possible because it won't be compiled out and we also have to watch the compiler's footprint; start with z so MainActivity.java etc appear before rather than among this lot in IDE listings)
     else: subFuncName="match%d" % len(subFuncs)
     subFuncs[newFunc]=subFuncName
     if java or c_sharp or golang: static=""
     else: static="static "
     subFuncL.append(static+newFunc.replace("NewFunc",subFuncName,1))
-  if java: return jPackage+"."+subFuncName+".f(a)"
+  if java and not ndk: return jPackage+"."+subFuncName+".f(a)"
   return subFuncName+"()" # the call (without a semicolon)
 
 def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFuncs={},java_localvar_counter=None,nestingsLeft=None): # ("topLevelMatch" is also mentioned in the C code)
@@ -439,7 +476,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
     # can also be byte seq to [(action,(OR-list,nbytes))] but only if OR-list is not empty, so value[1] will always be false if OR-list is empty
     if nestingsLeft==None: nestingsLeft=nested_switch
     canNestNow = not nestingsLeft==0 # (-1 = unlimited)
-    if java: adot = "a."
+    if java and not ndk: adot = "a."
     else: adot = ""
     if java or c_sharp or golang: NEXTBYTE = adot + 'nB()'
     else: NEXTBYTE = 'NEXTBYTE'
@@ -449,7 +486,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
       java_localvar_counter=[0]
     olvc = "%X" % java_localvar_counter[0] # old localvar counter
     if funcName:
-        if java: ret.append("package "+jPackage+";\npublic class "+funcName+" { public static void f("+jPackage+".Annotator a) {")
+        if java and not ndk: ret.append("package "+jPackage+";\npublic class "+funcName+" { public static void f("+jPackage+".Annotator a) {")
         else:
           if funcName=="topLevelMatch" and not c_sharp: stat="static " # because we won't call subFuncCall on our result
           else: stat=""
@@ -479,7 +516,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
             # there's more than 1.  We use max rule len
             # as an upper bound for that instead.)
             del ret[savePos]
-            if java: ret.append("a.inPtr--;")
+            if java and not ndk: ret.append("a.inPtr--;")
             elif c_sharp or golang: ret.append("inPtr--;")
             else: ret.append("PREVBYTE;")
         elif java or c_sharp:
@@ -520,7 +557,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         elif ios and ord(case)>127: cstr=str(ord(case)-256)
         else:
           cstr=str(ord(case))
-          if java: cstr = "(byte)"+cstr
+          if java and not ndk: cstr = "(byte)"+cstr
         if use_if: ret.append("if("+NEXTBYTE+"=="+cstr+") {")
         else: ret.append("case %s:" % cstr)
         subDict = dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case])
@@ -531,7 +568,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
           # which returns 1 if we should return.
           # (TODO: this won't catch cases where there's a savePos before the inner switch; will still nest in that case.  But it shouldn't lead to big nesting in practice.)
           if nested_switch: inner = stringSwitch(subDict,subFuncL,None,subFuncs,None,None) # re-do it with full nesting counter
-          if java: myFunc,funcEnd = ["package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {"], "}}"
+          if java and not ndk: myFunc,funcEnd = ["package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {"], "}}"
           elif golang: myFunc,funcEnd=["func NewFunc() bool {"],"}"
           else: myFunc,funcEnd=[outLang_bool+" NewFunc() {"],"}"
           for x in inner:
@@ -543,7 +580,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
       ret.append("}") # end of switch or if
     restorePos()
     if funcName:
-      if java: ret.append("} }")
+      if java and not ndk: ret.append("} }")
       else: ret.append("}")
     elif "" in byteSeq_to_action_dict:
         # if the C code gets to this point, no return; happened - no suffices
@@ -555,7 +592,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
                 assert action, "conds without action in "+repr(byteSeq_to_action_dict[""])
                 if type(conds)==tuple:
                     negate,conds,nbytes = conds
-                    if java: ret.append("a.sn(%d);" % nbytes)
+                    if java and not ndk: ret.append("a.sn(%d);" % nbytes)
                     elif c_sharp or golang: ret.append("nearbytes=%d;" % nbytes)
                     else: ret.append("setnear(%d);" % nbytes)
                 else: negate = False
@@ -615,24 +652,35 @@ while(*s) {
   s++;
 }
 }"""
+  if sharp_multi: decompress_func += r"""
+static int ns; static void OutWriteNSB(int b) {
+  if(b=='#') ns++; else if(ns==numSharps) OutWriteByte(b);
+}
+static void OutWriteDecompressP(const char *s) {
+ns=0; while(*s && ns<=numSharps) {
+  int i=(unsigned char)*s;
+  if (pairs[i]) { OutWriteNSB(pairs[i]); OutWriteNSB(pairs[i|0x100]); } else OutWriteNSB(*s);
+  s++;
+}
+}"""
   def squash(byteStr):
     if squashStrings == "done":
       for k,v in squashReplacements:
         byteStr = byteStr.replace(k,v)
     else: squashStrings.add(byteStr) # for the dry run
     return byteStr
-else: decompress_func = ""
-
-additional_js_instructions = r"""
-If you need to inject additional Javascript into sites to
-fix things, set the ANNOGEN_EXTRA_JS environment variable
-before running Annotator Generator to (re)generate this
-file.  Make sure it ends with a semicolon, or the closing
-brace of an 'if', 'for', 'while' or 'try..catch' (the
-latter is probably a good idea).  The snippet will be run
-before each scan for new text to annotate.
-Similarly you can set ANNOGEN_EXTRA_CSS for CSS 'kludges'.
+elif sharp_multi: decompress_func = r"""
+static void OutWriteStrP(const char *annot) {
+    int ns = numSharps;
+    while(ns--) {
+        annot = strchr(annot,'#');
+        if (!annot) return; else annot++;
+    }
+    char* m = strchr(annot,'#');
+    if(m) OutWriteStrN(annot,m-annot); else OutWriteStr(annot);
+}
 """
+else: decompress_func = ""
 
 if ios:
   c_preamble = r"""/*
@@ -648,7 +696,6 @@ Tested on an iOS 6.1 simulator in Xcode 4.6 on Mac OS 10.7
 Swipe left to go back (as in Safari).
 If your pages refer to clip://anything then that
 link will show and annotate the local clipboard.
-"""+additional_js_instructions+r"""
 */
 
 #import <UIKit/UIKit.h>
@@ -665,7 +712,8 @@ static NSMutableData *outBytes;
 #define SETPOS(p) (readPtr=(p))
 #define PREVBYTE readPtr--
 #define FINISHED (!(*readPtr))
-static void OutWriteStr(const char *s) { [outBytes appendBytes:s length:strlen(s)]; }
+#define OutWriteStrN(s,n) [outBytes appendBytes:(s) length:(n)]
+static void OutWriteStr(const char *s) { OutWriteStrN(s,strlen(s)); }
 static void OutWriteByte(char c) { [outBytes appendBytes:(&(c)) length:1]; }
 static int near(char* string) {
     const char *startFrom = readPtr-nearbytes;
@@ -678,39 +726,11 @@ static int near(char* string) {
 """ # (strnstr is BSD-specific, but that's OK on iOS.  TODO: might be nice if all loops over outWriteByte could be reduced to direct calls of appendBytes with appropriate lengths, but it wouldn't be a major speedup)
   c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the iOS code
 elif ndk:
-  c_preamble = r"""#!/bin/bash
-#
-# Run this script in the Android workspace to set up the
-# JNI folder and compile the library (requires ndk-build).
-# Then see comments in src/%%PACKAGE%%/MainActivity.java
-#
-mkdir -p jni src/%%PACKAGE%%
-cat > jni/Android.mk <<"EOF"
-LOCAL_PATH:= $(call my-dir)
-LOCAL_SRC_FILES := annotator.c
-LOCAL_MODULE := Annotator
-LOCAL_MODULE_FILENAME := Annotator
-include $(BUILD_SHARED_LIBRARY)
-EOF
-cat > jni/Application.mk <<"EOF"
-APP_PLATFORM := android-1
-APP_ABI := armeabi
-EOF
-cat > src/%%PACKAGE%%/MainActivity.java <<"EOF"
-%%android_src%%
-EOF
-cat > src/%%PACKAGE%%/BringToFront.java <<"EOF"
-%%android_src2%%
-EOF
-cat > assets/clipboard.html <<"EOF"
-%%android_clipboard%%
-EOF
-cat > jni/annotator.c <<"EOF"
+  c_preamble = r"""
 #include <stdlib.h>
 #include <string.h>
 #include <jni.h>
 """
-  if zlib: c_preamble=c_preamble.replace("LOCAL_PATH","LOCAL_LDLIBS := -lz\nLOCAL_PATH",1)
   c_defs = r"""static const char *readPtr, *writePtr, *startPtr;
 static char *outBytes;
 static size_t outWriteLen,outWritePtr;
@@ -724,8 +744,8 @@ static size_t outWriteLen,outWritePtr;
 #define PREVBYTE readPtr--
 #define FINISHED (!(*readPtr))
 
-static void OutWriteStr(const char *s) {
-  size_t l = strlen(s), newLen = outWriteLen;
+static void OutWriteStrN(const char *s,size_t l) {
+  size_t newLen = outWriteLen;
   while (outWritePtr+l > newLen) newLen *= 2;
   if (newLen > outWriteLen) {
     char *ob2 = realloc(outBytes,newLen);
@@ -734,6 +754,9 @@ static void OutWriteStr(const char *s) {
   }
   memcpy(outBytes+outWritePtr, s, l);
   outWritePtr += l;
+}
+static void OutWriteStr(const char *s) {
+  OutWriteStrN(s,strlen(s));
 }
 static void OutWriteByte(char c) {
   if (outWritePtr >= outWriteLen) {
@@ -756,11 +779,15 @@ int near(char* string) {
     return 0;
 }
 void matchAll();
-JNIEXPORT jstring JNICALL Java_%PACKAGE%_MainActivity_jniAnnotate(JNIEnv *env, jclass theClass, jstring jIn) {
+JNIEXPORT jstring JNICALL Java_"""+jPackage.replace('.','_')+r"""_MainActivity_jniAnnotate(JNIEnv *env, jclass theClass, jstring jIn"""
+  if sharp_multi: c_defs += ", jint jAnnotNo"
+  c_defs += r""") {
   startPtr=(char*)(*env)->GetStringUTFChars(env,jIn,NULL);
   readPtr = startPtr; writePtr = startPtr;
   outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
-  outBytes = malloc(outWriteLen);
+  outBytes = malloc(outWriteLen);"""
+  if sharp_multi: c_defs += " numSharps=jAnnotNo;"
+  c_defs += r"""
   if(outBytes) { outWritePtr = 0; matchAll(); }
   (*env)->ReleaseStringUTFChars(env,jIn,startPtr);
   if(outBytes) OutWriteByte(0);
@@ -769,7 +796,6 @@ JNIEXPORT jstring JNICALL Java_%PACKAGE%_MainActivity_jniAnnotate(JNIEnv *env, j
   free(outBytes); return ret;
 }
 """
-  c_defs = c_defs.replace("%PACKAGE%",ndk.replace('.','_'))
   c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the Android code
 elif windows_clipboard:
   c_preamble = r"""/*
@@ -806,8 +832,9 @@ but RAM is likely important on the Windows Mobile device)
 #endif
 FILE* outFile = NULL;
 unsigned char *p, *copyP, *pOrig;
-#define OutWriteStr(s) fputs(s,outFile)
-#define OutWriteByte(c) fputc(c,outFile)
+#define OutWriteStr(s) fputs((s),outFile)
+#define OutWriteStrN(s,n) fwrite((s),(n),1,outFile)
+#define OutWriteByte(c) fputc((c),outFile)
 #define NEXTBYTE (*p++)
 #define NEXT_COPY_BYTE (*copyP++)
 #define COPY_BYTE_SKIP copyP++
@@ -883,7 +910,8 @@ static int near(char* string) {
 #define SETPOS(p) (readPtr=(p)) /* or set via a func */
 #define PREVBYTE readPtr--
 #define FINISHED (feof(stdin) && readPtr-bufStart == bufLen)
-#define OutWriteStr(s) fputs(s,stdout)
+#define OutWriteStr(s) fputs((s),stdout)
+#define OutWriteStrN(s,n) fwrite((s),(n),1,stdout)
 #define OutWriteByte(c) putchar(c)
 #endif
 
@@ -897,28 +925,29 @@ enum {
   brace_notation} annotation_mode = Default_Annotation_Mode;
 """
   c_switch1=r"""switch (annotation_mode) {
-  case annotations_only: OutWriteDecompress(annot); COPY_BYTE_SKIPN(numBytes); break;
+  case annotations_only: OutWriteDecompressP(annot); COPY_BYTE_SKIPN(numBytes); break;
   case ruby_markup:"""
   c_switch2=r"""break;
   case brace_notation:
     OutWriteByte('{');
     for(;numBytes;numBytes--)
       OutWriteByte(NEXT_COPY_BYTE);
-    OutWriteByte('|'); OutWriteDecompress(annot);
+    OutWriteByte('|'); OutWriteDecompressP(annot);
     OutWriteByte('}'); break;
   }"""
   c_switch3 = "if (annotation_mode == ruby_markup) {"
   c_switch4 = "} else o(numBytes,annot);"
 
-if data_driven and not ndk: c_preamble += '#include <stdlib.h>\n' # for malloc (ndk includes it anyway, above)
+if (data_driven or sharp_multi) and not ndk: c_preamble += '#include <stdlib.h>\n' # for malloc or atoi (ndk includes it anyway, above)
+if sharp_multi: c_preamble += '#include <ctype.h>\n'
 if zlib: c_preamble += '#include "zlib.h"\n'
+if sharp_multi: c_preamble += "static int numSharps=0;\n"
 
 version_stamp = time.strftime("generated %Y-%m-%d by ")+program_name[:program_name.index("(c)")].strip()
 
 if ios: c_name = "Objective-C"
 else: c_name = "C"
-if ndk: c_start = "" # because #!/bin/bash comes next
-else: c_start = "/* -*- coding: "+outcode+" -*- */\n/* "+c_name+" code "+version_stamp+" */\n"
+c_start = "/* -*- coding: "+outcode+" -*- */\n/* "+c_name+" code "+version_stamp+" */\n"
 c_start += c_preamble+r"""
 enum { ybytes = %%YBYTES%% }; /* for Yarowsky-like matching, minimum readahead */
 static int nearbytes = ybytes;
@@ -934,7 +963,7 @@ static void o(int numBytes,const char *annot) {
     OutWriteStr("<ruby><rb>");
     for(;numBytes;numBytes--)
       OutWriteByte(NEXT_COPY_BYTE);
-    OutWriteStr("</rb><rt>"); OutWriteDecompress(annot);
+    OutWriteStr("</rb><rt>"); OutWriteDecompressP(annot);
     OutWriteStr("</rt></ruby>"); """+c_switch2+r""" }
 static void o2(int numBytes,const char *annot,const char *title) {"""+c_switch3+r"""
     s();
@@ -942,10 +971,11 @@ static void o2(int numBytes,const char *annot,const char *title) {"""+c_switch3+
     OutWriteStr("\"><rb>");
     for(;numBytes;numBytes--)
       OutWriteByte(NEXT_COPY_BYTE);
-    OutWriteStr("</rb><rt>"); OutWriteDecompress(annot);
+    OutWriteStr("</rb><rt>"); OutWriteDecompressP(annot);
     OutWriteStr("</rt></ruby>"); """+c_switch4+"}"
 
-if not compress: c_start = c_start.replace("OutWriteDecompress","OutWriteStr")
+if not sharp_multi: c_start = c_start.replace("OutWriteDecompressP","OutWriteDecompress")
+if not compress: c_start = c_start.replace("OutWriteDecompress","OutWriteStr") # and hence OutWriteDecompressP to OutWriteStrP
 
 c_end = r"""
 void matchAll() {"""
@@ -957,12 +987,12 @@ c_end += r"""  while(!FINISHED) {
   }
 }"""
 
-jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }"+os.environ.get('ANNOGEN_EXTRA_CSS','').replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"</style>'"
+jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"</style>'"
 if bookmarks: jsAddRubyCss += "+((location.href=='"+android+r"""'&&!document.noBookmarks)?(ssb_local_annotator.getBMs().replace(/,/g,'')?('<div style="border: red solid; background: black; color: white;">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style="color:#ff0000;text-decoration:none" href="javascript:if(confirm(\'Delete '+title.replace(/\'/g,"&apos;").replace(/"/g,"&quot;")+"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')["+i+']);location.reload()}">Delete</a>] <a style="color:#00ff00;text-decoration:none" href="'+url+'">'+title+'</a>'}return c+'</ul>'})()+'</div>'):''):((location.href.slice(0,7)=='file://'||document.noBookmarks)?'':('<span id="ssb_local_annotator_bookmarks" style="border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 40%; bottom: 0px; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important; overflow: auto !important;">'+(function(c1,c2,c3){return '<a href="'+c1+'">'+((function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline="top";c.font="32px Arial";c.fillText("\ud83d\udd16",0,0);return c.getImageData(16,16,1,1).data[0]})()?('\ud83d\udd16</a> &nbsp; <a href="'+c2+'">\ud83d\udccb</a> &nbsp; <a href="'+c3+'">\u274c'):('Bookmark</a> <a href="'+c2+'">Copy</a> <a href="'+c3+'">X'))+'</a>'})("javascript:ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))","javascript:ssb_local_annotator.copy(location.href,true)","javascript:var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)")+'</span>')))""".replace('"',r'\"').replace(r"\'",r"\\'")
 jsAddRubyCss += ";d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })"
 
 def jsAnnot(alertStr,xtra1,xtra2,annotScan,case3):
-  r = "var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } " + alertStr + " }; "+xtra1+" function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { "+xtra2+"all_frames_docs(function(d){walk(d,d,false)}) }; function annotScan() {"+os.environ.get("ANNOGEN_EXTRA_JS","")+annotScan+"}; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var ps = c.previousSibling, cNext = c.nextSibling; function isTxt(n) {return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"+r"\\"+"s*$/)}; if (c.nodeType==1 && (c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"+r"\\"+"s*$/))))) && isTxt(cNext) && isTxt(ps)) { n.removeChild(c); cNext.previousSibling.nodeValue += cNext.nodeValue; n.removeChild(cNext); cNext = ps } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&!!c.href)); break; case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"+case3+"} } c=cNext } }"
+  r = "var leaveTags=['SCRIPT', 'STYLE', 'TITLE', 'TEXTAREA', 'OPTION'];function annotPopAll(e) { function f(c) { var i=0,r='',cn=c.childNodes; for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:'')); return r; } " + alertStr + " }; "+xtra1+" function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { "+xtra2+"all_frames_docs(function(d){walk(d,d,false)}) }; function annotScan() {"+extra_js+annotScan+"}; function walk(n,document,inLink) { var c=n.firstChild; while(c) { var ps = c.previousSibling, cNext = c.nextSibling; function isTxt(n) {return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"+r"\\"+"s*$/)}; if (c.nodeType==1 && (c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"+r"\\"+"s*$/))))) && isTxt(cNext) && isTxt(ps)) { n.removeChild(c); cNext.previousSibling.nodeValue += cNext.nodeValue; n.removeChild(cNext); cNext = ps } c=cNext; } c=n.firstChild; while(c) { var cNext = c.nextSibling; switch (c.nodeType) { case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') walk(c,document,inLink||(c.nodeName=='A'&&!!c.href)); break; case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"+case3+"} } c=cNext } }"
   assert not '"' in r.replace(r'\"',''), "Unescaped \" character in jsAnnot param"
   return r
 
@@ -1021,11 +1051,6 @@ if ios:
     return YES;
 }
 @end
-"""
-elif ndk: c_end += """
-EOF
-ndk-build
-mv -f libs/armeabi/Annotator.so libs/armeabi/libAnnotator.so >/dev/null 2>/dev/null || true
 """
 elif windows_clipboard: c_end += r"""
 #ifdef _WINCE
@@ -1119,12 +1144,19 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
   DestroyWindow(win); // TODO: needed?
 }
 """
-else:
+elif not ndk:
   c_end += r"""
 #ifndef Omit_main
 int main(int argc,char*argv[]) {
-  int i; for(i=1; i<argc; i++) {
-    if(!strcmp(argv[i],"--help")) {
+  int i=1;"""
+  if sharp_multi: c_end += r"""
+  if(i<argc && isdigit(*argv[i])) numSharps=atoi(argv[i++]);"""
+  c_end += r"""
+  for(; i<argc; i++) {
+    if(!strcmp(argv[i],"--help")) {"""
+  if sharp_multi: c_end += r"""
+      puts("Params are [annotation number] [options]");"""
+  c_end += r"""
       puts("--ruby   = output ruby markup (default)");
       puts("--raw    = output just the annotations without the base text");
       puts("--braces = output as {base-text|annotation}");
@@ -1146,57 +1178,7 @@ int main(int argc,char*argv[]) {
 
 # ANDROID: setDefaultTextEncodingName("utf-8") is included as it might be needed if you include file:///android_asset/ URLs in your app (files put into assets/) as well as remote URLs.  (If including ONLY file URLs then you don't need to set the INTERNET permission in Manifest, but then you might as well pre-annotate the files and use a straightforward static HTML app like http://people.ds.cam.ac.uk/ssb22/gradint/html2apk.html )
 # Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list)
-additional_intents=''.join(('\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" android:pathPrefix="%s" /></intent-filter>'%(urlparse.urlparse(x).scheme,urlparse.urlparse(x).netloc,urlparse.urlparse(x).path)) for x in os.environ.get("ANNOGEN_ANDROID_URLS","").split())
-if additional_intents and "?" in os.environ["ANNOGEN_ANDROID_URLS"]: errExit("Can't include '?' queries in ANNOGEN_ANDROID_URLS (it and anything after it would be ignored)")
-android_src = r"""
-/* COMPILING
-   ---------
-
-   As I've been unable to make "Android Studio" work
-   on my equipment (I'm not entirely sure why), all I
-   can offer are these instructions for compiling on the
-   older "Android Developer Tools" (ADT) set.  ADT was
-   deprecated in June 2015 and the download was removed
-   in June 2017.  App updates compiled in old ADT might
-   be rejected by Google Play Store after November 2018
-   due to new targetting requirements. But if you have it,
-   this worked for me on 21.0.1 & 22.2.1 but NOT 23.0.2
-   (23.0.2 required copying an existing project somewhere
-   else, editing/renaming, and Import into Workspace) :
-
-   1.  You might need to increase the amount of RAM it's
-       allowed to use, e.g. put -Xmx2g into eclipse.ini
-       (be sure to remove any existing -Xmx settings
-        otherwise they might override your new setting)
-   2.  Go to File / New / Android application project
-   3.  Application name = anything you want (for the phone's app menu)
-       Project name = anything you want (unique on your development machine)
-       Package name = %%JPACKAGE%%
-       Minimum Required SDK = API 1: Android 1.0
-       Leave everything else as default
-       but make a note of the project directory
-       (usually on the second setup screen as "location")
-    4. """
-if ndk: android_src += r"""Optionally edit this file, but beware
-       it will be overwritten if the script to generate it is re-run."""
-else: android_src += "Put *.java into src/%%JPACK2%%"
-android_src += r"""
-       (see "Delete the following line" comments below for
-        things you can customise)
-    5. """
-if ndk: android_src += r"""(not needed if doing NDK build)"""
-else: android_src += r"""Edit project.properties and add the line
-        dex.force.jumbo=true"""
-android_src += r"""
-    6. Edit AndroidManifest.xml and make it look as below
-       (you might need to change targetSdkVersion="19" if
-       your SDK has a different targetSdkVersion setting,
-       and if you're creating a new version of a
-       previously-released app then you might want to
-       increase the values of android:versionCode and
-       android:versionName for your new app version)
----------------------- cut here ----------------------
-<?xml version="1.0" encoding="utf-8"?>
+android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" >
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-sdk android:minSdkVersion="1" android:targetSdkVersion="19" />
@@ -1204,96 +1186,13 @@ android_src += r"""
 <service android:name=".BringToFront" android:exported="false"/>
 <activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleInstance" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
-<intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>"""+additional_intents+r"""
-</activity></application></manifest>
----------------------- cut here ----------------------
-    7. Copy new AndroidManifest.xml to the bin/ directory
-       (so there will be 2 copies, one in the top level
-        and the other in bin/ )
-    8. Edit res/layout/activity_main.xml and make it like:
----------------------- cut here ----------------------
-<?xml version="1.0" encoding="utf-8"?>
+<intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>"""
+android_layout = r"""<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_height="fill_parent" android:layout_width="fill_parent" android:orientation="vertical">
   <WebView android:id="@+id/browser" android:layout_height="match_parent" android:layout_width="match_parent" />
 </LinearLayout>
----------------------- cut here ----------------------
-    9. Restart ADT, do Run / Run As / Android application
-   10. Watch ADT's Console window until it says the app
-       has started, then interact with the Android virtual
-       device to test.  (If install fails, try again.)
-   11. .apk file should now be in the bin subdirectory.
-       On a real phone go to "Application settings" or
-       "Security" and enable "Unknown sources".  Or if
-       you're ready to ship your .apk, select it in
-       Eclipse's Package Explorer (left-hand pane) and
-       do File / Export / Export Android Application (it
-       lets you create a keystore and private signing key)
-   12. If you ship your app on Play Store, you are advised
-       to use the "beta test" facility before going live.
-       Play Store has been known to somehow 'corrupt' APKs
-       generated by Annogen, for an unknown reason.  (The
-       APK works just fine when run standalone, but fails
-       to annotate when downloaded from Play Store.)  When
-       this happens, simply incrementing the
-       version numbers in the AndroidManifest.xml files
-       and re-uploading to Play Store somehow 'fixes' it.
-       (Similarly, you might find one version works fine
-       but the next does not, even if you've only fixed a
-       'typo' between the versions.  Use beta test, and if
-       it goes wrong then re-upload.)
-   13. You may also wish to set up command-line builds.
-       The script should look something like this:
-
-         export SDK=/usr/local/adt-bundle/sdk
-         export PLATFORM=$SDK/platforms/android-19
-         export BUILD_TOOLS=$SDK/build-tools/21.0.2
-         export KEYSTORE_USER=$(whoami)
-         export KEYSTORE_PASS='**** YOUR PASSWORD ****'
-
-         export APP_NAME=$(pwd|sed -e s,.*./,,)
-         rm -rf bin gen && mkdir bin gen &&
-         $BUILD_TOOLS/aapt package -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_ &&
-         javac -classpath $PLATFORM/android.jar -sourcepath "src;gen" -d "bin" src/%%PACKAGE%%/*.java gen/%%PACKAGE%%/R.java &&"""
-if ndk: android_src += r"""
-         $BUILD_TOOLS/dx --dex --output=bin/classes.dex bin/ &&""" # TODO: --min-sdk-version=1 if and only if this is mentioned in dx --help
-else: android_src += r"""
-         $BUILD_TOOLS/dx --dex --force-jumbo --output=bin/classes.dex bin/ &&""" # TODO: ditto
-android_src += r"""
-         cp bin/resources.ap_ bin/$APP_NAME.ap_ &&
-         cd bin &&"""
-if ndk: android_src += r"""
-         rsync -trv ../libs/armeabi lib/ &&
-         $BUILD_TOOLS/aapt add $APP_NAME.ap_ classes.dex lib/armeabi/*.so &&"""
-else: android_src += r"""
-         $BUILD_TOOLS/aapt add $APP_NAME.ap_ classes.dex &&"""
-android_src += r"""
-         cd .. &&
-         jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore ../keystore -storepass $KEYSTORE_PASS -keypass $KEYSTORE_PASS -signedjar bin/$APP_NAME.apk bin/$APP_NAME.ap_ $KEYSTORE_USER -tsa http://timestamp.digicert.com && # -tsa option requires an Internet connection
-         rm -f ../$APP_NAME.apk &&
-         $BUILD_TOOLS/zipalign 4 bin/$APP_NAME.apk ../$APP_NAME.apk &&
-         rm bin/*ap_ bin/*apk &&
-         du -h ../$APP_NAME.apk
-
-       To copy/paste from the annotated text, make sure to
-       start the long-press ON a word (not in a space).  This
-       appears to be an Android/Chrome limitation (especially
-       in version 4, but I haven't been able to test all versions).
-
-       You can annotate local HTML files as well as Web pages.
-       Local HTML is placed in the 'assets' folder and referred
-       to via --android=file:///android_asset/FILENAME
-       where FILENAME is the name of your HTML file.
-       A clipboard viewer is placed in clipboard.html.
-"""+additional_js_instructions+r"""
-       You can also set ANNOGEN_ANDROID_URLS to a
-       whitespace-separated list of URL prefixes to
-       offer to be a browser for (when a matching URL
-       is opened by another application).  For example,
-       ANNOGEN_ANDROID_URLS="http://example.com http://example.org/documents"
-       This will affect the AndroidManifest.xml provided above.
-*/
-
-package %%JPACKAGE%%;
+"""
+android_src = r"""package %%JPACKAGE%%;
 import android.webkit.WebView;
 import android.webkit.WebChromeClient;
 import android.webkit.WebViewClient;
@@ -1303,8 +1202,12 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.view.KeyEvent;
 public class MainActivity extends Activity {"""
-if ndk: android_src += r"""
-    static { System.loadLibrary("Annotator"); }
+if ndk:
+  android_src += r"""
+    static { System.loadLibrary("Annotator"); }"""
+  if sharp_multi: android_src += r"""
+    static synchronized native String jniAnnotate(String in,int annotNo);"""
+  else: android_src += r"""
     static synchronized native String jniAnnotate(String in);"""
 android_src += r"""
     @SuppressLint("SetJavaScriptEnabled")
@@ -1335,10 +1238,22 @@ android_src += r"""
         browser.setWebChromeClient(new WebChromeClient());
         class A {
             public A(MainActivity act) { this.act = act; }
-            MainActivity act; String copiedText="";
+            MainActivity act; String copiedText="";"""
+if sharp_multi: android_src += r"""
+            int annotNo = 0;
+            @android.webkit.JavascriptInterface public void setAnnotNo(int no) { annotNo = no; }
+            @android.webkit.JavascriptInterface public int getAnnotNo() { return annotNo; }"""
+android_src += r"""
             @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) { String r="""
-if ndk: android_src += 'jniAnnotate(t)'
+if ndk and sharp_multi: android_src += 'jniAnnotate(t,annotNo)'
+elif ndk: android_src += 'jniAnnotate(t)'
 else: android_src += 'new %%JPACKAGE%%.Annotator(t).result()'
+if sharp_multi and not ndk: android_src += r""";
+                java.util.regex.Pattern p=java.util.regex.Pattern.compile("<rt>([^#]*)#(.*?)</rt>");
+                java.util.regex.Matcher m = p.matcher(r);
+                StringBuffer sb=new StringBuffer();
+                while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(annotNo+1)+"</rt>");
+                m.appendTail(sb); r=sb.toString();"""
 android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPopAll(this)\""); return r; } // now we have a Copy button, it's convenient to put this on ALL ruby elements, not just ones with title
             @android.webkit.JavascriptInterface public void alert(String t,String a) {
                 class DialogTask implements Runnable {
@@ -1421,7 +1336,7 @@ if bookmarks: android_src += r"""
                         e = sp.edit(); done=true;
                         e.putString("prefs",s.substring(1));
                      } while(!e.commit());
-                } catch(Exception x) {} if(done) return;""" % p for p in bookmarks.split(",") if not p==ndk and not p==java)+r"""
+                } catch(Exception x) {} if(done) return;""" % p for p in bookmarks.split(",") if not p==jPackage)+r"""
                 do {
                    android.content.SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
                    p2=","+sp.getString("prefs", ",");
@@ -1433,7 +1348,7 @@ if bookmarks: android_src += r"""
             }
             @android.webkit.JavascriptInterface public String getBMs() {
                 String s="";"""+"".join(r"""
-                try { s = createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==ndk and not p==java)+r"""
+                try { s = createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==jPackage)+r"""
                 return s+getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
             }""" # and even if not bookmarks:
 android_src += r"""
@@ -1512,7 +1427,7 @@ android_src += r"""
     WebView browser;
 }
 """
-android_src2=r"""package %%JPACKAGE%%;
+android_bringToFront=r"""package %%JPACKAGE%%;
 import android.annotation.TargetApi;
 import android.content.Intent;
 import android.os.Build;
@@ -1528,8 +1443,6 @@ public class BringToFront extends android.app.IntentService {
     }
 }
 """
-if ndk: c_start = c_start.replace("%%android_src%%",android_src).replace("%%android_src2%%",android_src2).replace('%%ANDROID-URL%%',android).replace("%%JPACKAGE%%",ndk).replace('%%PACKAGE%%',ndk.replace('.','/'))
-elif java: android_src = android_src.replace('%%PACKAGE%%',java.rsplit('//',1)[1])
 android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
 <script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg+' line '+line); return true}</script>
     <h3>Clipboard</h3>
@@ -1543,7 +1456,6 @@ if (newClip && newClip != curClip) {
   curClip = newClip; if(ssb_local_annotator.annotate(newClip,false)!=newClip) ssb_local_annotator.bringToFront();
 } window.setTimeout(update,1000) } update(); </script>
 </body></html>"""
-if ndk: c_start = c_start.replace("%%android_clipboard%%",android_clipboard)
 java_src = r"""package %%JPACKAGE%%;
 public class Annotator {
 // use: new Annotator(txt).result()
@@ -2164,7 +2076,9 @@ js_start = '/* Javascript '+version_stamp+r"""
 Usage:
 
  - You could just include this code and then call the
-   annotate() function i.e. var result = annotate(input)
+   annotate() function i.e. var result = annotate(input"""
+if sharp_multi: js_start += ", annotation_type_number"
+js_start += r""")
 
  - Or you could use (and perhaps extend) the Annotator
    object, and call its annotate() method.  If you have
@@ -2181,8 +2095,9 @@ Usage:
 
 var Annotator={
 version: '"""+version_stamp+"',\n"
-js_end = r"""
-annotate: function(input) {
+if sharp_multi: js_end = "annotate: function(input,aType) { if(aType==undefined) aType=0;"
+else: js_end = "annotate: function(input) {"
+js_end += r"""
 /* TODO: if input is a whole html doc, insert css in head
    (e.g. from annoclip and/or adjuster), and hope there's
    no stuff that's not to be annotated (form fields...) */
@@ -2285,12 +2200,24 @@ var oldPos=p;
 dPtr=1;readData();
 if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
 }
-return decodeURIComponent(escape(output.join(""))); // from UTF-8 back to Unicode
+return decodeURIComponent(escape(output.join("")))"""
+if sharp_multi: js_end += r""".replace(new RegExp("<rt>"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</rt>","g"),"<rt>$1</rt>")"""
+js_end += r"""; // from UTF-8 back to Unicode
 } // end of annotate function
 };
-function annotate(input) { return Annotator.annotate(input); }
+"""
+if sharp_multi: js_end += "function annotate(input,aType) { return Annotator.annotate(input,aType) }"
+else: js_end += "function annotate(input) { return Annotator.annotate(input) }"
+js_end += r"""
 
-if (typeof Backbone != "undefined" && Backbone.Model) { Annotator = Backbone.Model.extend(Annotator); annotate=function(input) { return new Annotator().annotate(input) } }
+if (typeof Backbone != "undefined" && Backbone.Model) {
+  Annotator = Backbone.Model.extend(Annotator);"""
+if sharp_multi: js_end += r"""
+  annotate=function(input,aType) { return new Annotator().annotate(input,aType) }"""
+else: js_end += r"""
+  annotate=function(input) { return new Annotator().annotate(input) }"""
+js_end += r"""
+}
 if (typeof require != "undefined" && typeof module != "undefined" && require.main === module) {
   // Node.js command-line test
   fs=require('fs');
@@ -3160,7 +3087,6 @@ def generate_map():
 
 def setup_parallelism():
     if single_core or not checkpoint: return # parallelise only if checkpoint (otherwise could have trouble sharing the normalised corpus and map etc)
-    import commands
     args = commands.getoutput("ps -p " + str(os.getpid()) + " -o args")
     try:
       args.index("-m mpi4py.futures") # ValueError if not found
@@ -3316,7 +3242,7 @@ def js_escapeRawBytes(s):
 
 def c_length(unistr): return len(unistr.encode(outcode))
 
-if java or c_sharp or golang:
+if (java and not ndk) or c_sharp or golang:
   if golang: outLang_escape = golang_escape
   else: outLang_escape = java_escape
   if java: outLang_bool = "boolean"
@@ -3435,7 +3361,7 @@ def outputParser(rulesAndConds):
     byteSeq_to_action_dict = {}
     if ignoreNewlines:
         if data_driven: newline_action = [(1,)]
-        elif java: newline_action = r"a.o((byte)'\n'); /* needSpace unchanged */ a.writePtr++;"
+        elif java and not ndk: newline_action = r"a.o((byte)'\n'); /* needSpace unchanged */ a.writePtr++;"
         elif c_sharp: newline_action = r"o((byte)'\n'); writePtr++;"
         elif golang: newline_action = r"oB('\n'); writePtr++;"
         else: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;"
@@ -3515,7 +3441,7 @@ def outputParser(rulesAndConds):
       if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
       outfile.write(py_end+"\n")
       return
-    if java: start = java_src.replace("%%JPACKAGE%%",jPackage)
+    if java and not ndk: start = java_src.replace("%%JPACKAGE%%",jPackage)
     elif c_sharp: start = cSharp_start
     elif golang: start = golang_start
     else: start = c_start
@@ -3529,29 +3455,57 @@ def outputParser(rulesAndConds):
       outfile.write("static unsigned char "+data+"[]=\""+c_escapeRawBytes(ddrivn)+'\";\n')
       if zlib: outfile.write(c_zlib.replace('%%ORIGLEN%%',str(b.origLen)).replace('%%ZLIBLEN%%',str(len(ddrivn)))+"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
       del b,ddrivn ; outfile.write(c_datadrive+"\n")
-    else:
+    else: # not data_driven
       subFuncL = []
       ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
-      if java:
+      if java and not ndk:
         for f in subFuncL: open(java+os.sep+f[f.index("class ")+6:].split(None,1)[0]+".java","w").write(f)
         open(java+os.sep+"topLevelMatch.java","w").write("\n".join(ret))
       elif golang: outfile.write("\n".join(subFuncL + ret).replace(';\n','\n')+"\n") # (this 'elif' line is not really necessary but it might save someone getting worried about too many semicolons)
       else: outfile.write("\n".join(subFuncL+ret)+"\n")
       del subFuncL,ret
-    if android and not ndk:
-      open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace("%%JPACK2%%",jPackage.replace('.','/')).replace('%%ANDROID-URL%%',android))
-      open(java+os.sep+"BringToFront.java","w").write(android_src2.replace("%%JPACKAGE%%",jPackage))
-      open(java.rsplit('//',1)[0]+"/../assets/clipboard.html",'w').write(android_clipboard)
-    if c_sharp: outfile.write(cSharp_end+"\n")
-    elif golang: outfile.write(golang_end+"\n")
-    elif not java: outfile.write(c_end+"\n")
+    if android:
+      open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace('%%ANDROID-URL%%',android))
+      open(java+os.sep+"BringToFront.java","w").write(android_bringToFront.replace("%%JPACKAGE%%",jPackage))
+      open(jSrc+"/../assets/clipboard.html",'w').write(android_clipboard)
+      try: manifest = open(jSrc+"/../AndroidManifest.xml").read() # keep existing version codes (don't replace with 1 and 1.0) and existing targetSdkVersion, but do update android_urls (below)
+      except IOError: manifest = android_manifest # first AndroidManifest.xml
+      def pathQ(x):
+        x = urlparse.urlparse(x)
+        if x.query: return x.path+"?"+x.query
+        else: return x.path
+      new_manifest = "\n".join(l for l in manifest.split("\n") if not '<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="' in l and not l=="</activity></application></manifest>") + ''.join(('\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" android:pathPrefix="%s" /></intent-filter>'%(urlparse.urlparse(x).scheme,urlparse.urlparse(x).netloc,pathQ(x))) for x in android_urls.split()) + "\n</activity></application></manifest>\n"
+      if not manifest==new_manifest:
+        open(jSrc+"/../AndroidManifest.xml","w").write(new_manifest)
+      if ndk:
+        outfile.write(c_end)
+        o=open(jSrc+"/../jni/Android.mk",'w')
+        if zlib: o.write("LOCAL_LDLIBS := -lz\n")
+        o.write("""LOCAL_PATH:= $(call my-dir)
+LOCAL_SRC_FILES := annotator.c
+LOCAL_MODULE := Annotator
+LOCAL_MODULE_FILENAME := Annotator
+include $(BUILD_SHARED_LIBRARY)
+""")
+        o.close()
+        open(jSrc+"/../jni/Application.mk",'w').write("""APP_PLATFORM := android-1
+APP_ABI := armeabi
+""")
+      open(jSrc+"/../res/layout/activity_main.xml","w").write(android_layout)
+      open(jSrc+"/../res/menu/main.xml","w").write('<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
+      open(jSrc+"/../res/values/dimens.xml","w").write('<resources><dimen name="activity_horizontal_margin">16dp</dimen><dimen name="activity_vertical_margin">16dp</dimen></resources>\n')
+      open(jSrc+"/../res/values/styles.xml","w").write('<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"></style></resources>\n')
+      open(jSrc+"/../res/values/strings.xml","w").write('<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="app_name">'+app_name+'</string></resources>\n')
+    elif c_sharp: outfile.write(cSharp_end)
+    elif golang: outfile.write(golang_end)
+    elif not java: outfile.write(c_end)
     outfile.write("\n")
     del byteSeq_to_action_dict
     if no_summary: return
     if reannotator:
-        outfile.write("/* Tab-delimited rules summary not yet implemented with reannotator option */\n")
+        outfile.write("\n/* Tab-delimited rules summary not yet implemented with reannotator option */\n")
         return
-    outfile.write("/* Tab-delimited summary of the rules:\n")
+    outfile.write("\n/* Tab-delimited summary of the rules:\n")
     outputRulesSummary(rulesAndConds)
     outfile.write("*/\n")
 
@@ -3670,22 +3624,11 @@ import atexit
 def set_title(t):
   if not isatty(sys.stderr): return
   if t: atexit.register(set_title,"")
-  term = os.environ.get("TERM","")
-  is_xterm = "xterm" in term
-  # and by the way:
-  global clear_eol,reverse_on,reverse_off,diagnose_colon
-  if is_xterm or term in ["screen","linux"]:
-    # use ANSI escapes instead of overwriting with spaces or using **'s (use reverse rather than bold etc, as reverse is more widely supported, but can use bold for "Diagnose:")
-    clear_eol,reverse_on,reverse_off="\x1b[K\r","\x1b[7m","\x1b[0m"
-    diagnose_colon = "\x1b[1m"+diagnose_colon+"\x1b[0m"
   is_screen = (term=="screen" and os.environ.get("STY",""))
   is_tmux = (term=="screen" and os.environ.get("TMUX",""))
   if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
-clear_eol = "  \r" # hope 2 spaces enough to overwrite old (don't want to risk going onto next line)
-reverse_on,reverse_off = " **","** "
-diagnose_colon = "Diagnose: "
-def diagnose_write(s): sys.stderr.write(diagnose_colon+s.encode(terminal_charset,'replace')+'\n')
+def diagnose_write(s): sys.stderr.write(bold_on+"Diagnose: "+bold_off+s.encode(terminal_charset,'replace')+'\n')
 try: screenWidth = int(os.environ['COLUMNS'])
 except:
   import struct, fcntl, termios
@@ -3720,6 +3663,11 @@ if main:
     finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
   del _gp_cache
 
+def cmd_or_exit(cmd):
+  sys.stderr.write(cmd+"\n")
+  r = os.system(cmd)
+  if r: sys.exit(r)
+
 if main:
  if c_filename: outfile = openfile(c_filename,"w")
  else: outfile = sys.stdout
@@ -3727,9 +3675,50 @@ if main:
  else: outputParser(rulesAndConds)
  del rulesAndConds
  outfile.close() ; sys.stderr.write("Done\n")
- if c_filename and c_compiler:
+ if android:
+   if all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS","KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]):
+     os.chdir(jSrc+"/..")
+     if ndk:
+       if "NDK" in os.environ:
+         cmd_or_exit("$NDK/ndk-build")
+       elif os.path.exists(os.environ["SDK"]+"ndk-bundle"): cmd_or_exit("$SDK/ndk-bundle/ndk-build")
+       else: cmd_or_exit("ndk-build") # need it on PATH
+       os.system("mv -f libs/armeabi/Annotator.so libs/armeabi/libAnnotator.so >/dev/null 2>/dev/null")
+     cmd_or_exit("$BUILD_TOOLS/aapt package -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_")
+     if ndk: cmd_or_exit("javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin src/"+jRest+"/*.java gen/"+jRest+"/R.java")
+     else: cmd_or_exit("find src/"+jRest+" -name '*.java' > argfile && javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long
+     if "min-sdk-version" in commands.getoutput("$BUILD_TOOLS/dx --help"): a=" --min-sdk-version=1"
+     else: a = "" # older versions of dx don't have that flag
+     if not ndk: a = " -JXmx4g --force-jumbo" + a # -J option must go first
+     cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
+     dirName0 = commands.getoutput("pwd|sed -e s,.*./,,")
+     dirName = shell_escape(dirName0)
+     cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
+     if ndk: a,b = "rsync -trv ../libs/armeabi lib/ && "," lib/armeabi/*.so"
+     else: a,b = "",""
+     cmd_or_exit("cd bin && "+a+"$BUILD_TOOLS/aapt add "+dirName+".ap_ classes.dex"+b)
+     cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore ../keystore -storepass $KEYSTORE_PASS -keypass $KEYSTORE_PASS -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ $KEYSTORE_USER -tsa http://timestamp.digicert.com") # TODO: -tsa option requires an Internet connection; option to omit it if the key expiry date is far enough in the future?
+     rm_f("../"+dirName0+".apk")
+     cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
+     cmd_or_exit("rm bin/*ap_ bin/*apk")
+     cmd_or_exit("du -h ../"+dirName+".apk")
+   else: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
+(You might need to change targetSdkVersion in AndroidManifest.xml if
+   your SDK insists on a different target version)
+To have Annogen build it for you, set these environment variables
+before the Annogen run (change the examples obviously) :
+   export SDK=/home/example/Android/Sdk
+   export NDK=/usr/local/android-ndk-r10c # if using --ndk and it's not in $SDK/ndk-bundle or on PATH
+   export PLATFORM=$SDK/platforms/android-19
+   export BUILD_TOOLS=$SDK/build-tools/21.0.2
+   export KEYSTORE_FILE=/path/to/keystore
+   export KEYSTORE_USER='your user name'
+   export KEYSTORE_PASS='your password'
+
+You may also wish to create some icons in res/drawable*
+   (using Android Studio or the earlier ADT tools)
+""")
+ elif c_filename and c_compiler:
     cmd = c_compiler # should include any -o option
     if zlib: cmd += " -lz" # TODO: is this always correct on all platforms? (although user can always simply redirect the C to a file and compile separately)
-    cmd += " \""+c_filename+"\""
-    sys.stderr.write(cmd+"\n")
-    sys.exit(os.system(cmd))
+    cmd_or_exit(cmd + " " + shell_escape(c_filename))
