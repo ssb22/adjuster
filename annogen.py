@@ -1182,6 +1182,7 @@ android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" >
 <uses-permission android:name="android.permission.INTERNET" />
 <uses-sdk android:minSdkVersion="1" android:targetSdkVersion="19" />
+<supports-screens android:largeScreens="true" android:xlargeScreens="true" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" >
 <service android:name=".BringToFront" android:exported="false"/>
 <activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleInstance" >
