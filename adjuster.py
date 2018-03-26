@@ -178,7 +178,7 @@ heading("Javascript execution options")
 define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with an appropriate version of Selenium (and ChromeDriver if you're using HeadlessChrome).  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
 define("js_upstream",default=False,help="Handle --headAppend, --bodyPrepend, --bodyAppend and --codeChanges upstream of our Javascript interpreter instead of making these changes as code is sent to the client, and make --staticDocs available to our interpreter as well as to the client.  This is for running experimental 'bookmarklets' etc with browsers like Lynx.") # TODO: what of delay? (or wait for XHRs to finish, call executeJavascript instead?)
 define("js_instances",default=1,help="The number of virtual browsers to load when js_interpreter is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
-define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances.") # (js_429 + multicore can result in ALL cores putting new requests on hold when js_interpreter load is high, even if some of those new requests won't immediately require js_interpreter work.  But it's better than having an excessively uneven distribution under load.)  HTTP 429 is from RFC 6585, April 2012 ('too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely)
+define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances.") # Even if some of those new requests won't immediately require js_interpreter work.  But it's better than having an excessively uneven distribution under load.  HTTP 429 is from RFC 6585, April 2012.  Without multicore, 'too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely.
 define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive js_interpreter processes.") # (although that would preclude a faster response when a js_interpreter instance is already loaded with the page requested, although TODO faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load); RAM usage is a regression from 2.0.1 ?
 define("js_restartMins",default=10,help="Restart an idle js_interpreter instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --js-restartAfter=1.") # Setting it low does have the disadvantage of not being able to use an already-loaded page, see above
 define("js_retry",default=True,help="If a js_interpreter fails, restart it and try the same fetch again while the remote client is still waiting")
@@ -554,6 +554,8 @@ def initLogging(): # MUST be after unixfork() if background
 def preprocessOptions():
     if hasattr(signal,"SIGUSR1"):
         signal.signal(signal.SIGUSR1, toggleLogDebug)
+        if hasattr(signal,"SIGUSR2"):
+            signal.signal(signal.SIGUSR2, requestStatusDump)
     if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
     if options.restart and options.watchdog and options.watchdogDevice=="/dev/watchdog" and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
     if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
@@ -783,6 +785,8 @@ def showProfile(pjsOnly=False):
             if maybeStuck: stuck = "%d may be" % maybeStuck
             else: stuck = "none"
             pr += offset+" %d/%d used (%d still in use, %s stuck); queue %d (%d arrived, %s)" % (webdriver_maxBusy,len(webdriver_runner),stillUsed,stuck,len(webdriver_queue),webdriver_lambda,served)
+        try: pr += "; isPaused="+repr(not not mainServerPaused)
+        except NameError: pass
         webdriver_lambda = webdriver_mu = 0
         webdriver_oops = 0
         webdriver_maxBusy = stillUsed
@@ -1679,12 +1683,12 @@ class WebdriverRunner:
         self.renew_webdriver(True)
     def renew_webdriver(self,firstTime=False):
         "Async if called from main thread; sync if called from our thread (i.e. inside fetch)"
+        self.usageCount = 0 ; self.maybe_stuck = False
         if not self.thread_running:
             self.thread_running = True
             threading.Thread(target=_renew_wd,args=(self,firstTime)).start() ; return
         self.wrapper.quit()
         self.wrapper.new(self.start+self.index,not firstTime)
-        self.usageCount = 0 ; self.maybe_stuck = False
     def quit_webdriver(self): self.wrapper.quit(final=True)
     def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback):
         assert not self.thread_running, "webdriver_checkServe did WHAT?"
@@ -5024,21 +5028,24 @@ def debuglog(msg,logRepeats=True,stillIdle=False):
         if not options.logDebug: logging.debug(msg)
         elif options.background: logging.info(msg)
         else: sys.stderr.write(time.strftime("%X ")+msg+"\n")
-    lastDebugMsg = msg ; global debuglog_toggled
-    if debuglog_toggled:
-        debuglog_toggled = False
+    lastDebugMsg = msg ; global status_dump_requested
+    if status_dump_requested:
+        status_dump_requested = False
         global psutil
         try: import psutil
         except ImportError: psutil = None
         showProfile(pjsOnly=True) # TODO: document that SIGUSR1 also does this? (but doesn't count reqsInFlight if profile wasn't turned on, + it happens on next debuglog call (and shown whether toggled on OR off, to allow rapid toggle just to show this))
-debuglog_toggled = False
+status_dump_requested = False
 def toggleLogDebug(*args):
     "SIGUSR1 handler (see logDebug option help)"
     # Don't log anything from the signal handler
     # (as another log message might be in progress)
     # Just toggle the logDebug flag
     options.logDebug = not options.logDebug
-    global debuglog_toggled ; debuglog_toggled = True
+    requestStatusDump()
+def requestStatusDump(*args):
+    "SIGUSR2 handler (requests status dump, currently from JS proxy only)" # TODO: document this (and that SIGUSR1 also calls it)
+    global status_dump_requested ; status_dump_requested = True
 
 def check_injected_globals():
     try: defined_globals
