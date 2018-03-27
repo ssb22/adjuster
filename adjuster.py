@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2652 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2653 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -188,7 +188,7 @@ define("js_UA",help="Custom user-agent string for js_interpreter requests, if fo
 define("js_images",default=True,help="When js_interpreter is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if js_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("js_size",default="1024x768",help="The virtual screen dimensions of the browser when js_interpreter is in use (changing it might be useful for screenshots)")
 define("js_links",default=True,help="When js_interpreter is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
-define("js_multiprocess",default=True,help="When js_interpreter is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available. This might be more robust.")
+define("js_multiprocess",default=True,help="When js_interpreter is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available. Recommended: if a webdriver instance gets 'stuck' in a way that somehow hangs its controlling process, we can detect and restart it.")
 define("ssl_fork",default=False,help="Run SSL-helper proxies as separate processes (Unix only) to stop the main event loop from being stalled by buggy SSL libraries. This costs RAM, but adding --multicore too will limit the number of helpers to one per core instead of one per port, so --ssl-fork --multicore is recommended if you want more js_interpreter instances than cores.")
 
 heading("Server control options")
@@ -338,6 +338,8 @@ import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,thre
 try: import simplejson as json # Python 2.5, and faster?
 except: import json # Python 2.6
 from HTMLParser import HTMLParser,HTMLParseError
+try: import psutil
+except ImportError: psutil = None
 
 try: # can we page the help text?
     # (Tornado 2 just calls the module-level print_help, but Tornado 3 includes some direct calls to the object's method, so we have to override the latter.  Have to use __dict__ because they override __setattr__.)
@@ -732,18 +734,14 @@ def open_upnp():
 profile_forks_too = False # TODO: configurable
 def open_profile():
     if options.profile:
-        global cProfile,pstats,cStringIO,profileIdle,psutil
+        global cProfile,pstats,cStringIO,profileIdle
         import cProfile, pstats, cStringIO
-        try: import psutil
-        except ImportError: psutil = None
         setProfile() ; profileIdle = False
         global reqsInFlight,origReqInFlight
         reqsInFlight = set() ; origReqInFlight = set()
 def open_profile_pjsOnly(): # TODO: combine with above
     if options.profile:
-        global profileIdle,psutil
-        try: import psutil
-        except ImportError: psutil = None
+        global profileIdle
         setProfile_pjsOnly() ; profileIdle = False
         global reqsInFlight,origReqInFlight
         reqsInFlight = set() ; origReqInFlight = set()
@@ -763,6 +761,9 @@ def pollProfile_pjsOnly():
     if not profileIdle: showProfile(pjsOnly=True)
     setProfile_pjsOnly()
 def showProfile(pjsOnly=False):
+    global _doneShowProfile
+    try: _doneShowProfile
+    except: _doneShowProfile = False
     if pjsOnly: pr = ""
     else:
         s = cStringIO.StringIO()
@@ -771,29 +772,57 @@ def showProfile(pjsOnly=False):
     if options.js_interpreter and len(webdriver_runner):
         global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
         stillUsed = sum(1 for i in webdriver_runner if i.thread_running)
-        maybeStuck = sum(1 for i in webdriver_runner if i.maybe_stuck)
-        for i in webdriver_runner: i.maybe_stuck = i.thread_running
+        maybeStuck = set() ; maybeStuckOn = set()
+        for i in webdriver_runner:
+            ms,tr = i.maybe_stuck,i.thread_running
+            if ms and ms == tr and tr+30 < time.time():
+                maybeStuck.add(ms)
+                try: maybeStuckOn.add(i.stuck_on)
+                except: maybeStuckOn.add("unknown")
+            i.maybe_stuck = tr
         webdriver_maxBusy = max(webdriver_maxBusy,stillUsed)
         if pr: pr += "\n"
         elif not options.background: pr += ": "
-        if options.multicore: offset = "js_interpreter(%d-%d)" % (webdriver_runner[0].start,webdriver_runner[0].start+js_per_core-1)
-        else: offset = "js_interpreter"
-        if not webdriver_maxBusy: pr += offset+" idle"
+        pr += "js_interpreter"
+        if options.multicore: pr += "%d" % (webdriver_runner[0].start/js_per_core,)
+        pr += " "
+        if not webdriver_maxBusy: pr += "idle"
         else:
+            try: # NameError unless js_429 and multicore
+                if mainServerPaused: pr += "closed, "
+                else: pr += "open, "
+            except NameError: pass
             if webdriver_oops: served = "%d successes + %d failures = %d served" % (webdriver_mu-webdriver_oops,webdriver_oops,webdriver_mu)
             else: served = "%d served" % webdriver_mu
-            if maybeStuck: stuck = "%d may be" % maybeStuck
-            else: stuck = "none"
-            pr += offset+" %d/%d used (%d still in use, %s stuck); queue %d (%d arrived, %s)" % (webdriver_maxBusy,len(webdriver_runner),stillUsed,stuck,len(webdriver_queue),webdriver_lambda,served)
-        try: pr += "; isPaused="+repr(not not mainServerPaused)
-        except NameError: pass
+            if webdriver_lambda==webdriver_mu==len(webdriver_queue)==0: queue = "" # "; queue unused"
+            elif not webdriver_queue: queue="; queue empty: "+served
+            else: queue = "; queue %d: %d arrived, %s" % (len(webdriver_queue),webdriver_lambda,served)
+            if not _doneShowProfile:
+                if pjsOnly: stuck = ", next SIGUSR2 checks stuck;"
+                else: stuck = ";"
+            elif maybeStuck:
+                stuck = ", %d stuck for " % len(maybeStuck)
+                t = time.time()
+                s1=int(t-max(maybeStuck)); s2=int(t-min(maybeStuck))
+                if s1==s2: stuck += str(s1)
+                else: stuck += "%d-%d" % (s1,s2)
+                stuck += "s?"
+                if maybeStuckOn and not maybeStuckOn==set("unknown"): stuck += " on "+", ".join(maybeStuckOn)+";"
+            else: stuck = ";" # or ", none stuck"
+            pr += "%d/%d busy%s " % (stillUsed,len(webdriver_runner),stuck)
+            if not webdriver_maxBusy == stillUsed:
+                pr += "maxUse=%d" % (webdriver_maxBusy,)
+            pr += queue
+            pr = pr.rstrip()
+            if pr.endswith(";"): pr = pr[:-1]
         webdriver_lambda = webdriver_mu = 0
         webdriver_oops = 0
         webdriver_maxBusy = stillUsed
         # TODO: also measure lambda/mu of other threads e.g. htmlFilter ?
-        if psutil: pr += "; system RAM %.1f%% used" % (psutil.virtual_memory().percent)
+        if psutil and not webdriver_runner[0].start: pr += "; system RAM %.1f%% used" % (psutil.virtual_memory().percent)
     try: pr2 += "%d requests in flight (%d from clients)" % (len(reqsInFlight),len(origReqInFlight))
     except NameError: pr2="" # no reqsInFlight
+    _doneShowProfile = True
     if not pr and not pr2: return
     if pr: pr += "\n"
     elif not options.background: pr += ": "
@@ -1190,17 +1219,17 @@ def pauseOrRestartMainServer(shouldRun=1):
     try: mainServerPaused
     except: mainServerPaused = False
     if (not shouldRun) == mainServerPaused: return
+    for core,sList in theServers.items():
+        if not (core == "all" or core == coreNo): continue
+        for port,s in sList:
+            if not port==options.port: continue
+            if not hasattr(s,"_sockets"): return # probably wrong Tornado version to do this (TODO: say something?)
+            if shouldRun: s.add_sockets(s._sockets.values())
+            else:
+                for fd, sock in s._sockets.items():
+                    s.io_loop.remove_handler(fd)
     mainServerPaused = not mainServerPaused
     debuglog("Paused=%s on core %s" % (repr(mainServerPaused),repr(coreNo)))
-    for core,sList in theServers.items():
-        if core == "all" or core == coreNo:
-            for port,s in sList:
-                if not hasattr(s,"_sockets"): return # probably wrong Tornado version to do this (TODO: say something?)
-                if port==options.port:
-                    if shouldRun: s.add_sockets(s._sockets.values())
-                    else:
-                        for fd, sock in s._sockets.items():
-                            s.io_loop.remove_handler(fd)
 
 def workaround_raspbian7_IPv6_bug():
     """Old Debian 7 based versions of Raspbian can boot with IPv6 enabled but later fail to configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However, if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
@@ -1333,7 +1362,7 @@ class WhoisLogger:
         if self.thread_running: # allow only one at once
             IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.reCheck(ip))
             return
-        self.thread_running = True
+        self.thread_running = time.time()
         threading.Thread(target=whois_thread,args=(ip,self)).start()
 def getWhois(ip):
     import commands
@@ -1581,15 +1610,7 @@ class WebdriverWrapper:
         except: debuglog("WebdriverWrapper: exception on quit") # e.g. sometimes get 'bad fd' in selenium's send_remote_shutdown_command _cookie_temp_file_handle
         # Try zapping the process ourselves anyway (even if theWebDriver.quit DIDN'T return error: seems it's sometimes still left around.  TODO: this could have unexpected consequences if the system's pid-reuse rate is excessively high.)
         self.theWebDriver = None
-        if not pid: return
-        try:
-            import psutil
-            for c in psutil.Process(pid).children(recursive=True):
-                try: c.kill(9)
-                except: pass
-        except: pass # no psutil, or process already gone
-        try: os.kill(pid,9),os.waitpid(pid, 0) # the waitpid is necessary to clear it from the process table, but we should NOT use os.WNOHANG, as if we do, there's a race condition with the os.kill taking effect (even -9 isn't instant)
-        except OSError: pass # maybe pid already gone
+        emergency_zap_pid_and_children(pid)
     def current_url(self):
         try: return self.theWebDriver.current_url
         except: return "" # PhantomJS Issue #13114: unconditional reload for now
@@ -1606,49 +1627,72 @@ class WebdriverWrapper:
     def click_linkText(self,clickLinkText): self.theWebDriver.find_element_by_link_text(clickLinkText).click()
     def getu8(self): return self.theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8')
     def getpng(self): return self.theWebDriver.get_screenshot_as_png()
+def emergency_zap_pid_and_children(pid):
+    if not pid: return
+    try:
+      for c in psutil.Process(pid).children(recursive=True):
+        try: c.kill(9)
+        except: pass
+    except: pass # no psutil, or process already gone
+    try: os.kill(pid,9),os.waitpid(pid, 0) # the waitpid is necessary to clear it from the process table, but we should NOT use os.WNOHANG, as if we do, there's a race condition with the os.kill taking effect (even -9 isn't instant)
+    except OSError: pass # maybe pid already gone
 try: from selenium.common.exceptions import TimeoutException
 except: # no Selenium or wrong version
     class TimeoutException: pass # placeholder
-def webdriverWrapper_receiver(pipe):
-    "Command receiver for WebdriverWrapper for when it's running over IPC.  Receives (command,args) and sends (return,exception)."
+class SeriousTimeoutException: pass
+def webdriverWrapper_receiver(pipe,lock):
+    "Command receiver for WebdriverWrapper for when it's running over IPC (--js-multiprocess).  Receives (command,args) and sends (return,exception), releasing the lock whenever it's ready to return."
     setProcName("adjusterWDhelp")
     CrossProcessLogging.initChild()
     try: w = WebdriverWrapper()
     except KeyboardInterrupt: return
-    def raiseTimeout(*args): raise TimeoutException()
-    try: signal.signal(signal.SIGALRM, raiseTimeout)
-    except: pass # SIGALRM may be Unix-only
     while True:
         try: cmd,args = pipe.recv()
-        except KeyboardInterrupt:
+        except KeyboardInterrupt: # all shutting down
             try: w.quit()
             except: pass
+            try: lock.release()
+            except ValueError: pass
             pipe.send(("INT","INT"))
             return pipe.close()
         if cmd=="EOF": return pipe.close()
-        try:
-          try: signal.alarm(100) # as a backup: if Selenium timeout somehow fails, don't let this process get stuck forever (can do this only when js_multiprocess or we won't know what thread gets it)
-          except: pass # alarm() is Unix-only
-          try: ret,exc = getattr(w,cmd)(*args), None
-          except Exception, e:
-              p = find_adjuster_in_traceback()
-              if p: # see if we can add it to the message:
-                try:
-                    if type(e.args[0])==str: e.args=(repr(e.args[0])+p,) + tuple(e.args[1:]) # should work with things like httplib.BadStatusLine that are fussy about the number of arguments they get
-                    else: e.args += (p,) # works with things like KeyError (although so should the above)
-                except: e.message += p # works with base Exception
-              ret,exc = None,e
-          try: signal.alarm(0)
-          except: pass # Unix-only
-        except Exception, e: ret,exc = None,e # e.g. if 1st 'except' block catches a non-sigalarm exception but then the alarm goes off while it's being handled
+        try: ret,exc = getattr(w,cmd)(*args), None
+        except Exception, e:
+            p = find_adjuster_in_traceback()
+            if p: # see if we can add it to the message:
+              try:
+                  if type(e.args[0])==str: e.args=(repr(e.args[0])+p,) + tuple(e.args[1:]) # should work with things like httplib.BadStatusLine that are fussy about the number of arguments they get
+                  else: e.args += (p,) # works with things like KeyError (although so should the above)
+              except: e.message += p # works with base Exception
+            ret,exc = None,e
+        lock.release()
         try: pipe.send((ret,exc))
         except: pass # if they closed it, we'll get EOFError on next iteration
-def webdriverWrapper_send(pipe,cmd,args=()):
-    "Send a command to a Webdriverwrapper over IPC, and either return its result or raise its exception in this process."
+def webdriverWrapper_send(pipe,lock,cmd,args=(),stuckReport=None):
+    "Send a command to a WebdriverWrapper over IPC, and either return its result or raise its exception in this process.  Also handle the raising of SeriousTimeoutException if needed, in which case the WebdriverWrapper should be stopped."
+    if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / acquire 0"
+    if not lock.acquire(timeout=0):
+        logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command.")
+        raise SeriousTimeoutException()
+    if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / send"
     try: pipe.send((cmd,args))
-    except IOError: return # already closed
+    except IOError: # already closed
+        if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / closed??" # shouldn't happen
+        return
     if cmd=="EOF": return pipe.close() # no return code
+    if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / acquire 100"
+    if not lock.acquire(timeout=100): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
+        # TODO: this mechanism is STILL not interrupting browsers stuck on 'new' operations ??  the child process can somehow get into a state that stops this timeout from being done ???  (trying stuck_on code)
+        logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr(cmd,args)+". Emergency restarting this process.")
+        raise SeriousTimeoutException()
+    if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / release"
+    lock.release()
+    if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / recv"
     ret,exc = pipe.recv()
+    if stuckReport:
+        if exc=="INT": stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / INT"
+        elif exc: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / exc"
+        else: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / ret"
     if ret==exc=="INT": return pipe.close()
     if exc: raise exc
     else: return ret
@@ -1656,8 +1700,13 @@ class WebdriverWrapperController:
     "Proxy for WebdriverWrapper if it's running over IPC"
     def __init__(self):
         self.pipe, cPipe = multiprocessing.Pipe()
-        multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,)).start()
-    def send(self,cmd,args=()): return webdriverWrapper_send(self.pipe,cmd,args)
+        self.lock = multiprocessing.Lock()
+        self.process = multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,self.lock))
+        self.process.start()
+    def send(self,cmd,args=()):
+        try: stuckReport = self.stuckReport
+        except: stuckReport = None
+        return webdriverWrapper_send(self.pipe,self.lock,cmd,args,stuckReport)
     def new(self,*args): self.send("new",args)
     def quit(self,final=False):
         self.send("quit")
@@ -1681,21 +1730,40 @@ class WebdriverRunner:
             self.wrapper = WebdriverWrapperController()
         else: self.wrapper = WebdriverWrapper()
         self.renew_webdriver(True)
+    def renew_controller(self): # SeriousTimeoutException
+        emergency_zap_pid_and_children(self.wrapper.process.pid)
+        self.wrapper = WebdriverWrapperController()
+        self.thread_running = False ; self.renew_webdriver()
     def renew_webdriver(self,firstTime=False):
         "Async if called from main thread; sync if called from our thread (i.e. inside fetch)"
         self.usageCount = 0 ; self.maybe_stuck = False
         if not self.thread_running:
-            self.thread_running = True
+            self.thread_running = time.time()
             threading.Thread(target=_renew_wd,args=(self,firstTime)).start() ; return
-        self.wrapper.quit()
-        self.wrapper.new(self.start+self.index,not firstTime)
+        while True:
+          try:
+            self.stuck_on = "quit"
+            self.wrapper.quit()
+            self.stuck_on = "new"
+            self.wrapper.stuckReport = self
+            r = self.wrapper.new(self.start+self.index,not firstTime)
+            del self.stuck_on, self.wrapper.stuckReport
+            return r
+          except SeriousTimeoutException: logging.error("SeriousTimeoutException while creating webdriver, retrying")
     def quit_webdriver(self): self.wrapper.quit(final=True)
-    def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback):
-        assert not self.thread_running, "webdriver_checkServe did WHAT?"
-        self.thread_running = True ; self.maybe_stuck = False
-        threading.Thread(target=wd_fetch,args=(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,self)).start()
-    def current_url(self): return self.wrapper.current_url()
-    def get(self,url): self.wrapper.get(url)
+    def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,tooLate):
+        assert not self.thread_running # webdriver_checkServe
+        self.thread_running = time.time()
+        self.maybe_stuck = False
+        threading.Thread(target=wd_fetch,args=(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,self,tooLate)).start()
+    def current_url(self):
+        self.stuck_on = "current_url"
+        r = self.wrapper.current_url()
+        del self.stuck_on ; return r
+    def get(self,url):
+        self.stuck_on = url
+        r = self.wrapper.get(url)
+        del self.stuck_on ; return r
     def execute_script(self,script): self.wrapper.execute_script(script)
     def click_id(self,clickElementID): self.wrapper.click_id(clickElementID)
     def click_xpath(self,xpath): self.wrapper.click_xpath(xpath)
@@ -1714,7 +1782,7 @@ def find_adjuster_in_traceback():
     for i in xrange(len(l)-1,-1,-1):
         if "adjuster.py" in l[i][0]: return ", adjuster line "+str(l[i][1])
     return ""
-def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,manager):
+def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,manager,tooLate):
     global helper_thread_count
     helper_thread_count += 1
     need_restart = False
@@ -1728,13 +1796,22 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
         if prefetched: return prefetched
         else: return wrapResponse("webdriver "+error)
     try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
-    except TimeoutException: r = errHandle("timeout","webdriver "+str(manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched)
+    except TimeoutException:
+        r = errHandle("timeout","webdriver "+str(manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched)
+    except SeriousTimeoutException:
+        r = errHandle("serious timeout","lost communication with webdriver "+str(manager.index)+" when fetching "+url+"; no partial result, so",prefetched)
+        need_restart = "serious"
     except:
-        if options.js_retry:
+        if options.js_retry and not tooLate():
             logging.info("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+find_adjuster_in_traceback()+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
             manager.renew_webdriver()
-            try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
-            except:
+            if tooLate(): r = errHandle("err","too late")
+            else:
+              try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
+              except SeriousTimeoutException:
+                r = errHandle("serious timeout","webdriver serious timeout on "+url+" after restart, so re-restarting and",prefetched)
+                need_restart = "serious"
+              except:
                 r = errHandle("error","webdriver error on "+url+" even after restart, so re-restarting and",prefetched)
                 need_restart = True
         else: # no retry
@@ -1742,7 +1819,10 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
             need_restart = True
     IOLoop.instance().add_callback(lambda *args:callback(r))
     manager.usageCount += 1
-    if need_restart or (options.js_restartAfter and manager.usageCount >= options.js_restartAfter): manager.renew_webdriver()
+    if need_restart or (options.js_restartAfter and manager.usageCount >= options.js_restartAfter):
+        if need_restart=="serious":
+            manager.renew_controller()
+        else: manager.renew_webdriver()
     else: manager.finishTime = time.time()
     manager.thread_running = manager.maybe_stuck = False
     IOLoop.instance().add_callback(webdriver_checkServe)
@@ -1961,25 +2041,27 @@ def init_webdrivers(start,N):
     if options.js_restartMins and not options.js_restartAfter==1: IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
     if informing: sys.stderr.write("done\n")
 webdriver_maxBusy = 0
-def webdriver_checkServe(*args):
-    # how many queue items can be served right now?
+def webdriver_allBusy():
     busyNow = sum(1 for i in webdriver_runner if i.thread_running)
     global webdriver_maxBusy
     webdriver_maxBusy = max(webdriver_maxBusy,busyNow)
-    if busyNow == len(webdriver_runner): return pauseOrRestartMainServer(0)
-    else: pauseOrRestartMainServer(1)
+    return busyNow == len(webdriver_runner)
+def webdriver_checkServe(*args):
+    # how many queue items can be served right now?
+    # (called when new item added, or when a server finished)
     for i in xrange(len(webdriver_runner)):
+        if not webdriver_queue: break # just to save a little
         if not webdriver_runner[i].thread_running:
-            if not webdriver_queue: return
-            while True:
+            while webdriver_queue:
                 url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate = webdriver_queue.pop(0)
-                if not tooLate(): break
-                if not webdriver_queue: return
-            debuglog("Starting fetch of "+url+" on webdriver instance "+str(i+webdriver_runner[i].start))
-            webdriver_via[i]=via
-            webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback)
-            global webdriver_mu ; webdriver_mu += 1
-    if webdriver_queue: debuglog("All of this core's js_instances are busy; %d items still in queue" % len(webdriver_queue))
+                if tooLate(): continue
+                debuglog("Starting fetch of "+url+" on webdriver instance "+str(i+webdriver_runner[i].start))
+                webdriver_via[i]=via
+                webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,tooLate)
+                global webdriver_mu ; webdriver_mu += 1
+                break
+    if webdriver_allBusy(): pauseOrRestartMainServer(0) # we're "paused" anyway when not in the poll wait, so might as well call this only at end, to depend on the final status (and make sure to call webdriver_allBusy() no matter what, as it has the side-effect of updating webdriver_maxBusy)
+    else: pauseOrRestartMainServer(1)
 def webdriver_checkRenew(*args):
     for i in webdriver_runner:
         if not i.thread_running and i.usageCount and i.finishTime + options.js_restartMins < time.time(): i.renew_webdriver()
@@ -5031,9 +5113,6 @@ def debuglog(msg,logRepeats=True,stillIdle=False):
     lastDebugMsg = msg ; global status_dump_requested
     if status_dump_requested:
         status_dump_requested = False
-        global psutil
-        try: import psutil
-        except ImportError: psutil = None
         showProfile(pjsOnly=True) # TODO: document that SIGUSR1 also does this? (but doesn't count reqsInFlight if profile wasn't turned on, + it happens on next debuglog call (and shown whether toggled on OR off, to allow rapid toggle just to show this))
 status_dump_requested = False
 def toggleLogDebug(*args):
