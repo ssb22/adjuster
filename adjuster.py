@@ -772,13 +772,11 @@ def showProfile(pjsOnly=False):
     if options.js_interpreter and len(webdriver_runner):
         global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
         stillUsed = sum(1 for i in webdriver_runner if i.thread_running)
-        maybeStuck = set() ; maybeStuckOn = set()
+        maybeStuck = set()
         for i in webdriver_runner:
             ms,tr = i.maybe_stuck,i.thread_running
             if ms and ms == tr and tr+30 < time.time():
                 maybeStuck.add(ms)
-                try: maybeStuckOn.add(i.stuck_on)
-                except: maybeStuckOn.add("unknown")
             i.maybe_stuck = tr
         webdriver_maxBusy = max(webdriver_maxBusy,stillUsed)
         if pr: pr += "\n"
@@ -807,7 +805,6 @@ def showProfile(pjsOnly=False):
                 if s1==s2: stuck += str(s1)
                 else: stuck += "%d-%d" % (s1,s2)
                 stuck += "s?"
-                if maybeStuckOn and not maybeStuckOn==set("unknown"): stuck += " on "+", ".join(maybeStuckOn)+";"
             else: stuck = ";" # or ", none stuck"
             pr += "%d/%d busy%s " % (stillUsed,len(webdriver_runner),stuck)
             if not webdriver_maxBusy == stillUsed:
@@ -1668,31 +1665,19 @@ def webdriverWrapper_receiver(pipe,lock):
         lock.release()
         try: pipe.send((ret,exc))
         except: pass # if they closed it, we'll get EOFError on next iteration
-def webdriverWrapper_send(pipe,lock,cmd,args=(),stuckReport=None):
+def webdriverWrapper_send(pipe,lock,cmd,args=()):
     "Send a command to a WebdriverWrapper over IPC, and either return its result or raise its exception in this process.  Also handle the raising of SeriousTimeoutException if needed, in which case the WebdriverWrapper should be stopped."
-    if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / acquire 0"
     if not lock.acquire(timeout=0):
         logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command.")
         raise SeriousTimeoutException()
-    if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / send"
     try: pipe.send((cmd,args))
-    except IOError: # already closed
-        if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / closed??" # shouldn't happen
-        return
+    except IOError: return # already closed
     if cmd=="EOF": return pipe.close() # no return code
-    if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / acquire 100"
     if not lock.acquire(timeout=100): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
-        # TODO: this mechanism is STILL not interrupting browsers stuck on 'new' operations ??  the child process can somehow get into a state that stops this timeout from being done ???  (trying stuck_on code)
         logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr(cmd,args)+". Emergency restarting this process.")
         raise SeriousTimeoutException()
-    if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / release"
     lock.release()
-    if stuckReport: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / recv"
     ret,exc = pipe.recv()
-    if stuckReport:
-        if exc=="INT": stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / INT"
-        elif exc: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / exc"
-        else: stuckReport.stuck_on = stuckReport.stuck_on.split()[0] + " / ret"
     if ret==exc=="INT": return pipe.close()
     if exc: raise exc
     else: return ret
@@ -1703,10 +1688,7 @@ class WebdriverWrapperController:
         self.lock = multiprocessing.Lock()
         self.process = multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,self.lock))
         self.process.start()
-    def send(self,cmd,args=()):
-        try: stuckReport = self.stuckReport
-        except: stuckReport = None
-        return webdriverWrapper_send(self.pipe,self.lock,cmd,args,stuckReport)
+    def send(self,cmd,args=()): return webdriverWrapper_send(self.pipe,self.lock,cmd,args)
     def new(self,*args): self.send("new",args)
     def quit(self,final=False):
         self.send("quit")
@@ -1740,17 +1722,10 @@ class WebdriverRunner:
         if not self.thread_running:
             self.thread_running = time.time()
             threading.Thread(target=_renew_wd,args=(self,firstTime)).start() ; return
-        tryNo = 0
         while True:
-          tryNo += 1
           try:
-            self.stuck_on = "quit"
             self.wrapper.quit()
-            self.stuck_on = "new"+str(tryNo) # no space
-            self.wrapper.stuckReport = self
-            r = self.wrapper.new(self.start+self.index,not firstTime)
-            del self.stuck_on, self.wrapper.stuckReport
-            return r
+            return self.wrapper.new(self.start+self.index,not firstTime)
           except: logging.error("Exception while renewing webdriver, retrying")
     def quit_webdriver(self): self.wrapper.quit(final=True)
     def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,tooLate):
@@ -1758,14 +1733,8 @@ class WebdriverRunner:
         self.thread_running = time.time()
         self.maybe_stuck = False
         threading.Thread(target=wd_fetch,args=(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,self,tooLate)).start()
-    def current_url(self):
-        self.stuck_on = "current_url"
-        r = self.wrapper.current_url()
-        del self.stuck_on ; return r
-    def get(self,url):
-        self.stuck_on = url
-        r = self.wrapper.get(url)
-        del self.stuck_on ; return r
+    def current_url(self): return self.wrapper.current_url()
+    def get(self,url): return self.wrapper.get(url)
     def execute_script(self,script): self.wrapper.execute_script(script)
     def click_id(self,clickElementID): self.wrapper.click_id(clickElementID)
     def click_xpath(self,xpath): self.wrapper.click_xpath(xpath)
