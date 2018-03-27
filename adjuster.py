@@ -813,7 +813,7 @@ def showProfile(pjsOnly=False):
             if not webdriver_maxBusy == stillUsed:
                 pr += "maxUse=%d" % (webdriver_maxBusy,)
             pr += queue
-            pr = pr.rstrip()
+            pr = pr.rstrip().replace("; ;",";")
             if pr.endswith(";"): pr = pr[:-1]
         webdriver_lambda = webdriver_mu = 0
         webdriver_oops = 0
@@ -1740,16 +1740,18 @@ class WebdriverRunner:
         if not self.thread_running:
             self.thread_running = time.time()
             threading.Thread(target=_renew_wd,args=(self,firstTime)).start() ; return
+        tryNo = 0
         while True:
+          tryNo += 1
           try:
             self.stuck_on = "quit"
             self.wrapper.quit()
-            self.stuck_on = "new"
+            self.stuck_on = "new"+str(tryNo) # no space
             self.wrapper.stuckReport = self
             r = self.wrapper.new(self.start+self.index,not firstTime)
             del self.stuck_on, self.wrapper.stuckReport
             return r
-          except SeriousTimeoutException: logging.error("SeriousTimeoutException while creating webdriver, retrying")
+          except: logging.error("Exception while renewing webdriver, retrying")
     def quit_webdriver(self): self.wrapper.quit(final=True)
     def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,tooLate):
         assert not self.thread_running # webdriver_checkServe
