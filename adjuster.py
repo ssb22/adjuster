@@ -771,10 +771,10 @@ def showProfile(pjsOnly=False):
         pr = "\n".join([x for x in s.getvalue().split("\n") if x and not "Ordered by" in x][:options.profile_lines])
     if options.js_interpreter and len(webdriver_runner):
         global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
-        stillUsed = sum(1 for i in webdriver_runner if i.thread_running)
+        stillUsed = sum(1 for i in webdriver_runner if i.wd_threadStart)
         maybeStuck = set()
         for i in webdriver_runner:
-            ms,tr = i.maybe_stuck,i.thread_running
+            ms,tr = i.maybe_stuck,i.wd_threadStart
             if ms and ms == tr and tr+30 < time.time():
                 maybeStuck.add(ms)
             i.maybe_stuck = tr
@@ -1359,7 +1359,7 @@ class WhoisLogger:
         if self.thread_running: # allow only one at once
             IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.reCheck(ip))
             return
-        self.thread_running = time.time()
+        self.thread_running = True
         threading.Thread(target=whois_thread,args=(ip,self)).start()
 def getWhois(ip):
     import commands
@@ -1668,7 +1668,7 @@ def webdriverWrapper_receiver(pipe,lock):
 def webdriverWrapper_send(pipe,lock,cmd,args=()):
     "Send a command to a WebdriverWrapper over IPC, and either return its result or raise its exception in this process.  Also handle the raising of SeriousTimeoutException if needed, in which case the WebdriverWrapper should be stopped."
     if not lock.acquire(timeout=0):
-        logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command.")
+        logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command. Did somebody start 2 threads on the same WebdriverWrapperController?")
         raise SeriousTimeoutException()
     try: pipe.send((cmd,args))
     except IOError: return # already closed
@@ -1707,30 +1707,30 @@ class WebdriverRunner:
     "Manage a WebdriverWrapperController (or a WebdriverWrapper if we're not using IPC) from a thread of the main process"
     def __init__(self,start=0,index=0):
         self.start,self.index = start,index
-        self.thread_running = False
         if options.js_multiprocess:
             self.wrapper = WebdriverWrapperController()
         else: self.wrapper = WebdriverWrapper()
-        self.renew_webdriver(True)
+        self.renew_webdriver_newThread(True) # sets wd_threadStart
     def renew_controller(self): # SeriousTimeoutException
         emergency_zap_pid_and_children(self.wrapper.process.pid)
         self.wrapper = WebdriverWrapperController()
-        self.thread_running = False ; self.renew_webdriver()
-    def renew_webdriver(self,firstTime=False):
-        "Async if called from main thread; sync if called from our thread (i.e. inside fetch)"
-        self.usageCount = 0 ; self.maybe_stuck = False
-        if not self.thread_running:
-            self.thread_running = time.time()
-            threading.Thread(target=_renew_wd,args=(self,firstTime)).start() ; return
+    def renew_webdriver_sameThread(self,firstTime=False):
         while True:
           try:
-            self.wrapper.quit()
-            return self.wrapper.new(self.start+self.index,not firstTime)
-          except: logging.error("Exception while renewing webdriver, retrying")
+              self.wrapper.quit()
+              r = self.wrapper.new(self.start+self.index,not firstTime)
+          except:
+              logging.error("Exception while renewing webdriver, retrying")
+              continue
+          self.usageCount = 0 ; self.maybe_stuck = False
+          return r
+    def renew_webdriver_newThread(self,firstTime=False):
+        self.wd_threadStart = time.time()
+        threading.Thread(target=_renew_wd,args=(self,firstTime)).start() ; return
     def quit_webdriver(self): self.wrapper.quit(final=True)
     def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,tooLate):
-        assert not self.thread_running # webdriver_checkServe
-        self.thread_running = time.time()
+        assert not self.wd_threadStart # webdriver_checkServe
+        self.wd_threadStart = time.time()
         self.maybe_stuck = False
         threading.Thread(target=wd_fetch,args=(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,self,tooLate)).start()
     def current_url(self): return self.wrapper.current_url()
@@ -1742,8 +1742,8 @@ class WebdriverRunner:
     def getu8(self): return self.wrapper.getu8()
     def getpng(self): return self.wrapper.getpng()
 def _renew_wd(wd,firstTime):
-    wd.renew_webdriver(firstTime)
-    wd.thread_running = False
+    wd.renew_webdriver_sameThread(firstTime)
+    wd.wd_threadStart = False
     IOLoop.instance().add_callback(webdriver_checkServe)
 def find_adjuster_in_traceback():
     l = traceback.extract_tb(sys.exc_info()[2]) # must do this BEFORE the following try: (it'll overwrite it even when except: block has finished)
@@ -1775,7 +1775,7 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     except:
         if options.js_retry and not tooLate():
             logging.info("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+find_adjuster_in_traceback()+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
-            manager.renew_webdriver()
+            manager.renew_webdriver_sameThread()
             if tooLate(): r = errHandle("err","too late")
             else:
               try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
@@ -1791,11 +1791,10 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     IOLoop.instance().add_callback(lambda *args:callback(r))
     manager.usageCount += 1
     if need_restart or (options.js_restartAfter and manager.usageCount >= options.js_restartAfter):
-        if need_restart=="serious":
-            manager.renew_controller()
-        else: manager.renew_webdriver()
+        if need_restart=="serious":manager.renew_controller()
+        manager.renew_webdriver_sameThread()
     else: manager.finishTime = time.time()
-    manager.thread_running = manager.maybe_stuck = False
+    manager.wd_threadStart = manager.maybe_stuck = False
     IOLoop.instance().add_callback(webdriver_checkServe)
     helper_thread_count -= 1
 def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
@@ -2000,7 +1999,7 @@ def init_webdrivers(start,N):
         webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
         webdriver_via.append(None)
-    def quit_wd(*args):
+    def quit_wd_atexit(*args):
       if informing: sys.stderr.write("Quitting %d webdriver%s... " % (options.js_instances,plural(options.js_instances)))
       try:
         for i in webdriver_runner:
@@ -2008,21 +2007,22 @@ def init_webdrivers(start,N):
             except: pass
       except: pass
       if informing: sys.stderr.write("done\n")
-    import atexit ; atexit.register(quit_wd)
+    import atexit ; atexit.register(quit_wd_atexit)
     if options.js_restartMins and not options.js_restartAfter==1: IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
     if informing: sys.stderr.write("done\n")
 webdriver_maxBusy = 0
 def webdriver_allBusy():
-    busyNow = sum(1 for i in webdriver_runner if i.thread_running)
+    busyNow = sum(1 for i in webdriver_runner if i.wd_threadStart)
     global webdriver_maxBusy
     webdriver_maxBusy = max(webdriver_maxBusy,busyNow)
     return busyNow == len(webdriver_runner)
 def webdriver_checkServe(*args):
     # how many queue items can be served right now?
-    # (called when new item added, or when a server finished)
+    # (called on IOLoop thread when new item added, or when
+    # a server is finished)
     for i in xrange(len(webdriver_runner)):
         if not webdriver_queue: break # just to save a little
-        if not webdriver_runner[i].thread_running:
+        if not webdriver_runner[i].wd_threadStart:
             while webdriver_queue:
                 url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate = webdriver_queue.pop(0)
                 if tooLate(): continue
@@ -2035,7 +2035,7 @@ def webdriver_checkServe(*args):
     else: pauseOrRestartMainServer(1)
 def webdriver_checkRenew(*args):
     for i in webdriver_runner:
-        if not i.thread_running and i.usageCount and i.finishTime + options.js_restartMins < time.time(): i.renew_webdriver()
+        if not i.wd_threadStart and i.usageCount and i.finishTime + options.js_restartMins < time.time(): i.renew_webdriver_newThread() # safe because we're running in the IOLoop thread, which therefore can't start wd_thread between our test of wd_threadStart and renew_webdriver_newThread
     IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
 def webdriver_fetch(url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
     if tooLate(): return # probably webdriver_queue overload (which will also be logged)
@@ -2044,7 +2044,7 @@ def webdriver_fetch(url,prefetched,clickElementID,clickLinkText,via,asScreenshot
     webdriver_queue.append((url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate))
     global webdriver_lambda ; webdriver_lambda += 1
     debuglog("webdriver_queue len=%d after adding %s" % (len(webdriver_queue),url))
-    webdriver_checkServe()
+    webdriver_checkServe() # safe as we're IOLoop thread
 
 def fixServerHeader(i):
     i.set_header("Server",serverName) # TODO: in "real" proxy mode, "Server" might not be the most appropriate header to set for this
