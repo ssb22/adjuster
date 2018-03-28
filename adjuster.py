@@ -1670,15 +1670,18 @@ class WebdriverWrapperController:
     def __init__(self):
         self.pipe, cPipe = multiprocessing.Pipe()
         self.timeoutLock = multiprocessing.Lock()
-        self.sendLock = threading.Lock() # for assert
+        self.sendLock = threading.Lock()
         self.process = multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,self.timeoutLock))
         self.process.start()
     def send(self,cmd,args=()):
         "Send a command to a WebdriverWrapper over IPC, and either return its result or raise its exception in this process.  Also handle the raising of SeriousTimeoutException if needed, in which case the WebdriverWrapper should be stopped."
-        assert (not self.sendLock) or self.sendLock.acquire(False), "more than one thread calling send ?? (strip the asserts and make it a 'real' lock if this becomes intentional)"
-        if self.sendLock and not self.timeoutLock.acquire(timeout=0):
-            logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command.")
-            raise SeriousTimeoutException()
+        if self.sendLock:
+            if not self.sendLock.acquire(False):
+                logging.error("REALLY serious SeriousTimeout averted: more than one thread calling send ?? cmd="+cmd)
+                self.sendLock.acquire()
+            if not self.timeoutLock.acquire(timeout=0):
+                logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command.")
+                raise SeriousTimeoutException()
         try: self.pipe.send((cmd,args))
         except IOError: return # already closed
         if cmd=="EOF":
@@ -1690,7 +1693,7 @@ class WebdriverWrapperController:
             self.timeoutLock.release()
         ret,exc = self.pipe.recv()
         if ret==exc=="INT": return self.pipe.close()
-        assert not (self.sendLock and self.sendLock.release())
+        if self.sendLock: self.sendLock.release()
         if exc: raise exc
         else: return ret
     def new(self,*args): self.send("new",args)
