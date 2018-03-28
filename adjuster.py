@@ -1638,7 +1638,7 @@ except: # no Selenium or wrong version
     class TimeoutException: pass # placeholder
 class SeriousTimeoutException: pass
 def webdriverWrapper_receiver(pipe,lock):
-    "Command receiver for WebdriverWrapper for when it's running over IPC (--js-multiprocess).  Receives (command,args) and sends (return,exception), releasing the lock whenever it's ready to return."
+    "Command receiver for WebdriverWrapper for when it's running over IPC (--js-multiprocess).  Receives (command,args) and sends (return,exception), releasing the timeout lock whenever it's ready to return."
     setProcName("adjusterWDhelp")
     CrossProcessLogging.initChild()
     try: w = WebdriverWrapper()
@@ -1719,6 +1719,8 @@ class WebdriverRunner:
           try:
               self.wrapper.quit()
               r = self.wrapper.new(self.start+self.index,not firstTime)
+          except SeriousTimeoutException: # already logged
+              self.renew_controller() ; continue
           except:
               logging.error("Exception while renewing webdriver, retrying")
               continue
