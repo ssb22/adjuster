@@ -1688,7 +1688,7 @@ class WebdriverWrapperController:
             return self.pipe.close() # no return code
         if self.sendLock:
             if not self.timeoutLock.acquire(timeout=100): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
-                logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr(cmd,args)+". Emergency restarting this process.")
+                logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr((cmd,args))+". Emergency restarting this process.")
                 raise SeriousTimeoutException()
             self.timeoutLock.release()
         ret,exc = self.pipe.recv()
@@ -1730,7 +1730,7 @@ class WebdriverRunner:
               break
           except SeriousTimeoutException: # already logged
               self.renew_controller()
-          except: logging.error("Exception while renewing webdriver, retrying")
+          except Exception,e: logging.error("Exception "+repr(e)+" while renewing webdriver, retrying")
         self.usageCount = 0 ; self.maybe_stuck = False
     def renew_webdriver_newThread(self,firstTime=False):
         self.wd_threadStart = time.time()
