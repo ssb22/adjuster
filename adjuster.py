@@ -1663,7 +1663,7 @@ def webdriverWrapper_receiver(pipe,timeoutLock):
               except: e.message += p # works with base Exception
             ret,exc = None,e
         try: timeoutLock.release()
-        except: pass # may fail if controller sync turned off during shutdown
+        except: pass # (may fail if controller's sendLock is turned off during quit_wd_atexit and it's no longer bothering to acquire the timeoutLock)
         try: pipe.send((ret,exc))
         except: pass # if they closed it, we'll get EOFError on next iteration
 class WebdriverWrapperController:
