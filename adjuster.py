@@ -1665,22 +1665,6 @@ def webdriverWrapper_receiver(pipe,lock):
         lock.release()
         try: pipe.send((ret,exc))
         except: pass # if they closed it, we'll get EOFError on next iteration
-def webdriverWrapper_send(pipe,lock,cmd,args=()):
-    "Send a command to a WebdriverWrapper over IPC, and either return its result or raise its exception in this process.  Also handle the raising of SeriousTimeoutException if needed, in which case the WebdriverWrapper should be stopped."
-    if not lock.acquire(timeout=0):
-        logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command. Did somebody start 2 threads on the same WebdriverWrapperController?")
-        raise SeriousTimeoutException()
-    try: pipe.send((cmd,args))
-    except IOError: return # already closed
-    if cmd=="EOF": return pipe.close() # no return code
-    if not lock.acquire(timeout=100): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
-        logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr(cmd,args)+". Emergency restarting this process.")
-        raise SeriousTimeoutException()
-    lock.release()
-    ret,exc = pipe.recv()
-    if ret==exc=="INT": return pipe.close()
-    if exc: raise exc
-    else: return ret
 class WebdriverWrapperController:
     "Proxy for WebdriverWrapper if it's running over IPC"
     def __init__(self):
@@ -1688,7 +1672,23 @@ class WebdriverWrapperController:
         self.lock = multiprocessing.Lock()
         self.process = multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,self.lock))
         self.process.start()
-    def send(self,cmd,args=()): return webdriverWrapper_send(self.pipe,self.lock,cmd,args)
+    def send(self,cmd,args=()):
+        "Send a command to a WebdriverWrapper over IPC, and either return its result or raise its exception in this process.  Also handle the raising of SeriousTimeoutException if needed, in which case the WebdriverWrapper should be stopped."
+        if not self.lock.acquire(timeout=0):
+            logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command. Did somebody start 2 threads on the same WebdriverWrapperController?")
+            raise SeriousTimeoutException()
+        try: self.pipe.send((cmd,args))
+        except IOError: return # already closed
+        if cmd=="EOF":
+            return self.pipe.close() # no return code
+        if not self.lock.acquire(timeout=100): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
+            logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr(cmd,args)+". Emergency restarting this process.")
+            raise SeriousTimeoutException()
+        self.lock.release()
+        ret,exc = self.pipe.recv()
+        if ret==exc=="INT": return self.pipe.close()
+        if exc: raise exc
+        else: return ret
     def new(self,*args): self.send("new",args)
     def quit(self,final=False):
         self.send("quit")
