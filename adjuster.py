@@ -1715,17 +1715,15 @@ class WebdriverRunner:
         emergency_zap_pid_and_children(self.wrapper.process.pid)
         self.wrapper = WebdriverWrapperController()
     def renew_webdriver_sameThread(self,firstTime=False):
+        self.usageCount = 0 ; self.maybe_stuck = False
         while True:
           try:
-              self.wrapper.quit()
-              r = self.wrapper.new(self.start+self.index,not firstTime)
+              self.wrapper.quit(),self.wrapper.new(self.start+self.index,not firstTime)
+              break
           except SeriousTimeoutException: # already logged
-              self.renew_controller() ; continue
-          except:
-              logging.error("Exception while renewing webdriver, retrying")
-              continue
-          self.usageCount = 0 ; self.maybe_stuck = False
-          return r
+              self.renew_controller()
+          except: logging.error("Exception while renewing webdriver, retrying")
+        self.usageCount = 0 ; self.maybe_stuck = False
     def renew_webdriver_newThread(self,firstTime=False):
         self.wd_threadStart = time.time()
         threading.Thread(target=_renew_wd,args=(self,firstTime)).start() ; return
