@@ -1662,7 +1662,8 @@ def webdriverWrapper_receiver(pipe,timeoutLock):
                   else: e.args += (p,) # works with things like KeyError (although so should the above)
               except: e.message += p # works with base Exception
             ret,exc = None,e
-        if not cmd=="quit": timeoutLock.release()
+        try: timeoutLock.release()
+        except: pass # may fail if controller sync turned off during shutdown
         try: pipe.send((ret,exc))
         except: pass # if they closed it, we'll get EOFError on next iteration
 class WebdriverWrapperController:
@@ -1688,7 +1689,8 @@ class WebdriverWrapperController:
             return self.pipe.close() # no return code
         if self.sendLock:
             if not self.timeoutLock.acquire(timeout=100): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
-                logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr((cmd,args))+". Emergency restarting this process.")
+                try: logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr((cmd,args))+". Emergency restarting this process.")
+                except: pass # absolutely do not throw anything except SeriousTimeoutException from this branch
                 raise SeriousTimeoutException()
             self.timeoutLock.release()
         ret,exc = self.pipe.recv()
