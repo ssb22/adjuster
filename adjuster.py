@@ -1637,8 +1637,8 @@ try: from selenium.common.exceptions import TimeoutException
 except: # no Selenium or wrong version
     class TimeoutException: pass # placeholder
 class SeriousTimeoutException: pass
-def webdriverWrapper_receiver(pipe,lock):
-    "Command receiver for WebdriverWrapper for when it's running over IPC (--js-multiprocess).  Receives (command,args) and sends (return,exception), releasing the timeout lock whenever it's ready to return."
+def webdriverWrapper_receiver(pipe,timeoutLock):
+    "Command receiver for WebdriverWrapper for when it's running over IPC (--js-multiprocess).  Receives (command,args) and sends (return,exception), releasing the timeoutLock whenever it's ready to return."
     setProcName("adjusterWDhelp")
     CrossProcessLogging.initChild()
     try: w = WebdriverWrapper()
@@ -1648,7 +1648,7 @@ def webdriverWrapper_receiver(pipe,lock):
         except KeyboardInterrupt: # all shutting down
             try: w.quit()
             except: pass
-            try: lock.release()
+            try: timeoutLock.release()
             except ValueError: pass
             pipe.send(("INT","INT"))
             return pipe.close()
@@ -1662,35 +1662,40 @@ def webdriverWrapper_receiver(pipe,lock):
                   else: e.args += (p,) # works with things like KeyError (although so should the above)
               except: e.message += p # works with base Exception
             ret,exc = None,e
-        lock.release()
+        if not cmd=="quit": timeoutLock.release()
         try: pipe.send((ret,exc))
         except: pass # if they closed it, we'll get EOFError on next iteration
 class WebdriverWrapperController:
     "Proxy for WebdriverWrapper if it's running over IPC"
     def __init__(self):
         self.pipe, cPipe = multiprocessing.Pipe()
-        self.lock = multiprocessing.Lock()
-        self.process = multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,self.lock))
+        self.timeoutLock = multiprocessing.Lock()
+        self.sendLock = threading.Lock() # for assert
+        self.process = multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,self.timeoutLock))
         self.process.start()
     def send(self,cmd,args=()):
         "Send a command to a WebdriverWrapper over IPC, and either return its result or raise its exception in this process.  Also handle the raising of SeriousTimeoutException if needed, in which case the WebdriverWrapper should be stopped."
-        if not self.lock.acquire(timeout=0):
-            logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command. Did somebody start 2 threads on the same WebdriverWrapperController?")
+        assert (not self.sendLock) or self.sendLock.acquire(False), "more than one thread calling send ?? (strip the asserts and make it a 'real' lock if this becomes intentional)"
+        if self.sendLock and not self.timeoutLock.acquire(timeout=0):
+            logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command.")
             raise SeriousTimeoutException()
         try: self.pipe.send((cmd,args))
         except IOError: return # already closed
         if cmd=="EOF":
             return self.pipe.close() # no return code
-        if not self.lock.acquire(timeout=100): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
-            logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr(cmd,args)+". Emergency restarting this process.")
-            raise SeriousTimeoutException()
-        self.lock.release()
+        if self.sendLock:
+            if not self.timeoutLock.acquire(timeout=100): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
+                logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr(cmd,args)+". Emergency restarting this process.")
+                raise SeriousTimeoutException()
+            self.timeoutLock.release()
         ret,exc = self.pipe.recv()
         if ret==exc=="INT": return self.pipe.close()
+        assert not (self.sendLock and self.sendLock.release())
         if exc: raise exc
         else: return ret
     def new(self,*args): self.send("new",args)
     def quit(self,final=False):
+        if final: self.sendLock = None # quit_wd_atexit could plausibly run while another thread's still processing its last command, so allow these commands to be queued in the pipe from another thread without worrying about timeout when that happens
         self.send("quit")
         if final: self.send("EOF")
     def current_url(self): return self.send("current_url")
