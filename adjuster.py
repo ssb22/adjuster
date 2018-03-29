@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2653 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2654 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1663,7 +1663,7 @@ def webdriverWrapper_receiver(pipe,timeoutLock):
               except: e.message += p # works with base Exception
             ret,exc = None,e
         try: timeoutLock.release()
-        except: pass # (may fail if controller's sendLock is turned off during quit_wd_atexit and it's no longer bothering to acquire the timeoutLock)
+        except: pass # (may fail if controller's timeoutLock is turned off during quit_wd_atexit)
         try: pipe.send((ret,exc))
         except: pass # if they closed it, we'll get EOFError on next iteration
 class WebdriverWrapperController:
@@ -1671,23 +1671,18 @@ class WebdriverWrapperController:
     def __init__(self):
         self.pipe, cPipe = multiprocessing.Pipe()
         self.timeoutLock = multiprocessing.Lock()
-        self.sendLock = threading.Lock()
         self.process = multiprocessing.Process(target=webdriverWrapper_receiver,args=(cPipe,self.timeoutLock))
         self.process.start()
     def send(self,cmd,args=()):
         "Send a command to a WebdriverWrapper over IPC, and either return its result or raise its exception in this process.  Also handle the raising of SeriousTimeoutException if needed, in which case the WebdriverWrapper should be stopped."
-        if self.sendLock:
-            if not self.sendLock.acquire(False):
-                logging.error("REALLY serious SeriousTimeout averted: more than one thread calling send ?? cmd="+cmd)
-                self.sendLock.acquire()
-            if not self.timeoutLock.acquire(timeout=0):
-                logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command.")
-                raise SeriousTimeoutException()
+        if self.timeoutLock and not self.timeoutLock.acquire(timeout=0):
+            logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command.")
+            raise SeriousTimeoutException()
         try: self.pipe.send((cmd,args))
         except IOError: return # already closed
         if cmd=="EOF":
             return self.pipe.close() # no return code
-        if self.sendLock:
+        if self.timeoutLock:
             if not self.timeoutLock.acquire(timeout=100): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
                 try: logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr((cmd,args))+". Emergency restarting this process.")
                 except: pass # absolutely do not throw anything except SeriousTimeoutException from this branch
@@ -1695,12 +1690,11 @@ class WebdriverWrapperController:
             self.timeoutLock.release()
         ret,exc = self.pipe.recv()
         if ret==exc=="INT": return self.pipe.close()
-        if self.sendLock: self.sendLock.release()
         if exc: raise exc
         else: return ret
     def new(self,*args): self.send("new",args)
     def quit(self,final=False):
-        if final: self.sendLock = None # quit_wd_atexit could plausibly run while another thread's still processing its last command, so allow these commands to be queued in the pipe from another thread without worrying about timeout when that happens
+        if final: self.timeoutLock = None # quit_wd_atexit could plausibly run while another thread's still processing its last command, so allow these commands to be queued in the pipe from another thread without worrying about timeout when that happens
         self.send("quit")
         if final: self.send("EOF")
     def current_url(self): return self.send("current_url")
@@ -3051,7 +3045,7 @@ document.forms[0].i.focus()
         if self.isSslUpstream: ph,pp = None,None
         else: ph,pp = upstream_proxy_host,upstream_proxy_port
         if dryrun_upstream_rewrite_ssl and pp and upstream_rewrite_ssl: pp += 1
-        if options.js_interpreter and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and not self.request.method.lower()=="head":
+        if options.js_interpreter and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and self.canWriteBody():
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
             if body or self.request.method.lower()=="post":
@@ -3076,7 +3070,7 @@ document.forms[0].i.focus()
                 try: self.set_status(429,"Too many requests")
                 except: self.set_status(429)
                 self.add_header("Retry-After",str(10*len(webdriver_queue)/options.js_instances)) # TODO: increase this if multiple clients?
-                if self.canWriteBody(): self.write("Too many requests (HTTP 429)")
+                self.write("Too many requests (HTTP 429)") # canWriteBody already confirmed
                 if not self.request.remote_ip in options.ipNoLog: logging.error("Returning HTTP 429 (too many requests) for "+self.urlToFetch+" to "+self.request.remote_ip)
                 self.request.suppress_logging = True
                 self.myfinish() ; return
