@@ -324,7 +324,7 @@ define("logUnsupported",default=False,help="Whether or not to log attempts at re
 define("logRedirectFiles",default=True,help="Whether or not to log requests that result in the browser being simply redirected to the original site when the redirectFiles option is on.") # (Since this still results in a HEAD request being sent to the remote site, this option defaults to True in case you need it to diagnose "fair use of remote site" problems)
 define("ownServer_useragent_ip",default=False,help="If own_server is set, and that server cannot be configured to log the X-Real-Ip header we set when we proxy for it, you can if you wish turn on this option, which will prepend the real IP to the User-Agent header on the first request of each connection (most servers can log User-Agent). This is slightly dangerous: fake IPs can be inserted into the log if keep-alive is used.") # (and it might break some user-agent detection)
 define("ipNoLog",multiple=True,help="A comma-separated list of IP addresses which can use the adjuster without being logged. If your network has a \"friendly probing\" service then you might want to use this to stop it filling up the logs.  (Any tracebacks it causes will still be logged however.)")
-define("squashLogs",default=True,help="Try to remove some duplicate information from consecutive log entries, to make logs easier to check. You might want to set this to False if you plan to use automatic search tools on the logs.") # (word 'some' is important as not all duplicate info is guaranteed to be removed)
+define("squashLogs",default=True,help="Try to remove some duplicate information from consecutive log entries, to make logs easier to check. You might want to set this to False if you plan to use automatic search tools on the logs. Currently not supported with multicore, and will automatically be set to False if multicore is enabled.") # (word 'some' is important as not all duplicate info is guaranteed to be removed. TODO: move BrowserLogger to the collection process so can collate for multicore?)
 define("whois",default=False,help="Try to log the Internet service provider for each IP address in the logs.  Requires the 'whois' program.  The extra information is written as separate log entries when it becomes available, and not for recent duplicate IPs or IPs that do not submit valid requests.")
 define("errorHTML",default="Adjuster error has been logged",help="What to say when an uncaught exception (due to a misconfiguration or programming error) has been logged. HTML markup is allowed in this message. If for some reason you have trouble accessing the log files, the traceback can usually be included in the page itself by placing {traceback} in the message.") # TODO: this currently requires Tornado 2.1+ (document this? see TODO in write_error)
 define("logDebug",default=False,help="Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules. On Unix you may also toggle this at runtime by sending SIGUSR1 to the process(es).") # see debuglog()
@@ -602,6 +602,7 @@ def preprocessOptions():
     global upstream_rewrite_ssl ; upstream_rewrite_ssl=False
     global cores ; cores = 1
     if options.multicore:
+        options.squashLogs = False
         if not 'linux' in sys.platform: errExit("multicore option not supported on this platform") # it does work on BSD/Mac, but some incoming connections get 'lost' so it's not a good idea
         import tornado.process
         cores = tornado.process.cpu_count()
@@ -1940,7 +1941,9 @@ def wd_DesiredCapabilities(log_complaints):
 def wd_instantiateLoop(wdClass,index,renewing,**kw):
     debuglog("Instantiating "+wdClass.__name__+" "+repr(kw))
     while True:
-        try: p = wdClass(**kw)
+        try:
+            p = wdClass(**kw)
+            p.capabilities['version'] # make sure it exists
         except:
             if index==0 and not renewing: raise
             logging.error("Unhandled exception when instantiating webdriver %d, retrying in 5sec" % index)
