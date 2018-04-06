@@ -1018,7 +1018,7 @@ if bookmarks:
   bookmarkLink = r'\"'+"javascript:"+bookmarkLink0+r'\"'
   copyLink = "'javascript:ssb_local_annotator.copy(location.href,true)'"
   closeLink = r'\"'+"javascript:var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)"+r'\"'
-  if bookmarks_developer: devModeStr = r"'+(ssb_local_annotator.isDevMode()?'onclick=\"if(((typeof ssb_local_annotator_dblTap==\\'undefined\\')?null:ssb_local_annotator_dblTap)==null) ssb_local_annotator_dblTap=setTimeout(function(){"+bookmarkLink0.replace("'",r"\\'")+r";ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);document.getElementById(\\'ssb_local_annotator_css\\').innerHTML+=\\'ruby:not([title]){border:thin blue solid}\\';alert(\\'Developer mode: words without glosses boxed in blue\\');ssb_local_annotator_dblTap=null}return false\" ':'')+'" # (ondblclick won't work on phones, so we have to do it ourselves)
+  if bookmarks_developer: devModeStr = r"'+(ssb_local_annotator.isDevMode()?'onclick=\"if(((typeof ssb_local_annotator_dblTap==\\'undefined\\')?null:ssb_local_annotator_dblTap)==null) ssb_local_annotator_dblTap=setTimeout(function(){"+bookmarkLink0.replace("'",r"\\'")+r";ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);document.getElementById(\\'ssb_local_annotator_css\\').innerHTML+=\\'ruby:not([title]){border:thin blue solid}\\';ssb_local_annotator.alert(\\'\\',\\'Developer mode: words without glosses boxed in blue\\');ssb_local_annotator_dblTap=null}return false\" ':'')+'" # (ondblclick won't work on phones, so we have to do it ourselves)
   else: devModeStr = ""
   toolset_string = toolset_openTag + "+(function(bookmarkLink,copyLink,closeLink){return '<a "+devModeStr+r"""href=\"'+bookmarkLink+'\">'+(("""+emoji_supported+r"""?('\ud83d\udd16</a> &nbsp; <a href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; <a href=\"'+closeLink+'\">\u274c'):('Bookmark</a> <a href=\"'+copyLink+'\">Copy</a> <a href=\"'+closeLink+'\">X'))+'</a>'})("""+bookmarkLink+","+copyLink+","+closeLink+")+"+toolset_closeTag
   toolset_string = should_suppress_toolset+"?'':("+toolset_string+")"
@@ -1301,11 +1301,13 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                     DialogTask(String t,String a) { tt=t; aa=a; }
                     public void run() {
                         android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
-                        d.setTitle(tt); d.setMessage(aa);
+                        if(tt.length()>0) d.setTitle(tt);
+                        d.setMessage(aa);
                         d.setNegativeButton("Copy",new android.content.DialogInterface.OnClickListener() {
                                 public void onClick(android.content.DialogInterface dialog,int id) { copy(tt+" "+aa,false); }
                         });
-                        if(gotPleco) d.setNeutralButton("Pleco", new android.content.DialogInterface.OnClickListener() {
+                        if(tt.length()==0) { /* Pleco or Hanping button not added if empty title i.e. error/info box */ }
+                        else if(gotPleco) d.setNeutralButton("Pleco", new android.content.DialogInterface.OnClickListener() {
                             public void onClick(android.content.DialogInterface dialog,int id) {
                                 Intent i = new Intent(Intent.ACTION_MAIN);
                                 i.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity"));
@@ -1498,7 +1500,7 @@ public class BringToFront extends android.app.IntentService {
 }
 """
 android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
-<script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('Error!',''+msg+' line '+line); return true}</script>
+<script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('',''+msg+' line '+line); return true}</script>
     <h3>Clipboard</h3>
     <div id="clip">waiting for clipboard contents</div>
     <script>
