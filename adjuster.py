@@ -1427,7 +1427,7 @@ class BrowserLogger:
             self.lastMethodStuff = methodStuff
         msg = ip+r+browser
     else: msg = '%s "%s %s%s %s" %s' % (req.remote_ip, req.method, host, req.uri, req.version, browser) # could add "- - [%s]" with time.strftime("%d/%b/%Y:%X") if don't like Tornado-logs date-time format (and - - - before the browser %s)
-    logging.info(msg)
+    logging.info(msg.replace('\x1b','[ESC]')) # terminal safe (in case of malformed URLs)
     if options.whois and hasattr(req,"valid_for_whois"): self.whoisLogger(req.remote_ip)
 
 helper_thread_count = 0
@@ -1599,6 +1599,9 @@ class WebdriverWrapper:
     "Wrapper for webdriver that might or might not be in a separate process without shared memory"
     def __init__(self): self.theWebDriver = None
     def new(self,*args):
+        try:
+            import resource ; resource.setrlimit(resource.RLIMIT_CORE,(0,0)) # in case of emergency_zap_pid_and_children
+        except: pass
         self.theWebDriver = get_new_webdriver(*args)
     def quit(self,*args):
         if not self.theWebDriver: return
@@ -1657,9 +1660,10 @@ def webdriverWrapper_receiver(pipe,timeoutLock):
         try: ret,exc = getattr(w,cmd)(*args), None
         except Exception, e:
             p = find_adjuster_in_traceback()
-            if p: # see if we can add it to the message:
+            if p: # see if we can add it to the message (note p will start with ", " so no need to add a space before it)
               try:
-                  if type(e.args[0])==str: e.args=(repr(e.args[0])+p,) + tuple(e.args[1:]) # should work with things like httplib.BadStatusLine that are fussy about the number of arguments they get
+                  if hasattr(e,"msg") and e.msg: e.msg += p # should work with WebDriverException
+                  elif type(e.args[0])==str: e.args=(repr(e.args[0])+p,) + tuple(e.args[1:]) # should work with things like httplib.BadStatusLine that are fussy about the number of arguments they get
                   else: e.args += (p,) # works with things like KeyError (although so should the above)
               except: e.message += p # works with base Exception
             ret,exc = None,e
@@ -1779,7 +1783,7 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
         need_restart = "serious"
     except:
         if options.js_retry and not tooLate():
-            logging.info("webdriver error fetching "+url+" ("+repr(sys.exc_info()[:2])+find_adjuster_in_traceback()+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
+            logging.info("webdriver error fetching "+url+" ("+exc_logStr()+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
             manager.renew_webdriver_sameThread()
             if tooLate(): r = errHandle("err","too late")
             else:
@@ -1802,6 +1806,10 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     manager.wd_threadStart = manager.maybe_stuck = False
     IOLoop.instance().add_callback(webdriver_checkServe)
     helper_thread_count -= 1
+def exc_logStr():
+    toLog = sys.exc_info()[:2]
+    if hasattr(toLog[1],"msg") and toLog[1].msg: toLog=(toLog[0],toLog[1].msg) # for WebDriverException
+    return repr(toLog)+find_adjuster_in_traceback()
 def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
     import tornado.httputil
     currentUrl = manager.current_url()
@@ -1864,6 +1872,18 @@ def get_new_HeadlessChrome(index,renewing):
     opts = Options() ; dc = None
     opts.add_argument("--headless")
     opts.add_argument("--disable-gpu")
+    # Specify user-data-dir ourselves, further to Chromium bug 795 comment 12.  Include username and port (in case others are running or have run adjuster) as well as index.
+    global myUsername
+    try: myUsername
+    except NameError:
+        try: import getpass
+        except ImportError: getpass = None
+        if getpass: myUsername = getpass.getuser()
+        else: myUsername = ""
+    path = writable_tmpdir()+"hChrome-"+myUsername+str(options.port)+"."+str(index)
+    import shutil ; shutil.rmtree(path,True) # (in case restarting from a corrupted state)
+    opts.add_argument("--user-data-dir="+path)
+    opts.add_argument("--incognito") # reduce space taken up by above
     if options.js_reproxy:
         opts.add_argument("--proxy-server=127.0.0.1:%d" % js_proxy_port[index])
         opts.add_argument("--ignore-certificate-errors") # ignored by Chrome 59 (which was the first version to support Headless) and possibly some earlier versions
@@ -1943,10 +1963,10 @@ def wd_instantiateLoop(wdClass,index,renewing,**kw):
     while True:
         try:
             p = wdClass(**kw)
-            p.capabilities['version'] # make sure it exists
+            p.capabilities['version'] # make sure it exists (if get TypeError here, probably p.capabilities == None (has been observed with webdriver.Chrome); if get KeyError, somehow got capabilities w/out 'version')
         except:
             if index==0 and not renewing: raise
-            logging.error("Unhandled exception when instantiating webdriver %d, retrying in 5sec" % index)
+            logging.error("Unhandled exception "+exc_logStr()+" when instantiating webdriver %d, retrying in 5sec" % index)
             time.sleep(5) ; p = None
         if p: break
     debuglog(wdClass.__name__+" instantiated")
@@ -2251,7 +2271,8 @@ class RequestForwarder(RequestHandler):
 
     def redirect(self,redir,status=301):
         debuglog("Serving redirect ("+repr(status)+" to "+repr(redir)+")"+self.debugExtras())
-        self.set_status(status)
+        try: self.set_status(status)
+        except ValueError: self.set_status(status, "Redirect") # e.g. 308 (not all Tornado versions handle it)
         for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # so redirect() can be called AFTER a site's headers are copied in
         self.add_header("Location",redir)
         self.add_header("Content-Type","text/html")
@@ -3147,7 +3168,10 @@ document.forms[0].i.focus()
             tryFetch = self.urlToFetch
             if self.isSslUpstream: tryFetch += " (upstream of "+options.upstream_proxy+")"
             elif options.upstream_proxy: tryFetch += " via "+options.upstream_proxy
-            logging.error(error+" when fetching "+tryFetch) # better log it for the admin, especially if options.upstream_proxy, because it might be an upstream proxy malfunction
+            if len(tryFetch) > 100: tryFetchTrunc = tryFetch[:60]+"..."
+            else: tryFetchTrunc = tryFetch
+            tryFetchTrunc = tryFetchTrunc.replace('\x1b','[ESC]') # terminal safe (in case of malformed URLs)
+            logging.error(error+" when fetching "+tryFetchTrunc) # better log it for the admin, especially if options.upstream_proxy, because it might be an upstream proxy malfunction
             error = """%s<h1>Error</h1>%s<br>Was trying to fetch %s<hr>This is %s</body></html>""" % (htmlhead("Error"),error,ampEncode(tryFetch),serverName_html)
             self.set_status(504)
             return self.doResponse2(error,True,False)
@@ -3469,14 +3493,25 @@ document.forms[0].i.focus()
             if b in ua: return warn.replace("{B}",b)
         return ""
 
-the_duff_certfile = None
+def writable_tmpdir():
+    "Returns a writeable temporary directory for small files. Prefers /dev/shm on systems that have it."
+    global the_writable_tmpdir
+    try: return the_writable_tmpdir
+    except:
+      for n in ['/dev/shm/','/tmp/','./']:
+        try:
+            open(n+".test0",'w')
+            unlink(n+".test0")
+            return n
+        except: continue
+      raise Exception("Can't find a writeable temporary directory")
 def duff_certfile():
     global the_duff_certfile
-    if the_duff_certfile: return the_duff_certfile # (we shouldn't need to worry about it having been deleted by /tmp reaping, because we're called only twice at start)
-    for n in ['/dev/shm/dummy.pem','/tmp/dummy.pem','dummy.pem']:
-        try:
-            # Here's one I made earlier, unsigned localhost:
-            open(n,'w').write("""-----BEGIN PRIVATE KEY-----
+    try: return the_duff_certfile # (we shouldn't need to worry about it having been deleted by /tmp reaping, because we're called only twice at start)
+    except:
+        # Here's one I made earlier, unsigned localhost:
+        the_duff_certfile = writable_tmpdir()+"dummy.pem"
+        open(the_duff_certfile,'w').write("""-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCrpSY8Ei98Vx3o
 mdksXcaPdstvlL2xhRpRO6RNyL7rMc/bJWIscOVdm8OlxTlnQghJ/TW4X5InE6+X
 dVbxGaEC3DYRcIJHvz7oD7myRD/xXbpWjPPkol4eVe2afyKeh7qJ8JQ9ayJCfFL2
@@ -3526,11 +3561,8 @@ rmHjGlInkZKbj3jEsGSxU4oKRDBM5syJgm1XYi5vPRNOUu4CXUGJAXhzJtd9teqB
 8FHasZQjl5aqS0j2vPREQl6fnw4i9/sOBvgZLgw03XZXtXr6Ow==
 -----END CERTIFICATE-----
 """)
-            the_duff_certfile = n
-            kept_tempfiles[n] = n # so can clean up on exit
-            return n
-        except: continue
-    raise Exception("Can't write the duff certificate anywhere?")
+        kept_tempfiles[the_duff_certfile] = the_duff_certfile # so can clean up on exit
+        return the_duff_certfile
 
 def MakeRequestForwarder(useSSL,connectPort,isPJS=False,start=0,index=0):
     class MyRequestForwarder(RequestForwarder):
