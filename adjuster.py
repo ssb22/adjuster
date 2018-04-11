@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2654 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2655 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -178,9 +178,11 @@ heading("Javascript execution options")
 define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with an appropriate version of Selenium (and ChromeDriver if you're using HeadlessChrome).  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
 define("js_upstream",default=False,help="Handle --headAppend, --bodyPrepend, --bodyAppend and --codeChanges upstream of our Javascript interpreter instead of making these changes as code is sent to the client, and make --staticDocs available to our interpreter as well as to the client.  This is for running experimental 'bookmarklets' etc with browsers like Lynx.") # TODO: what of delay? (or wait for XHRs to finish, call executeJavascript instead?)
 define("js_instances",default=1,help="The number of virtual browsers to load when js_interpreter is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
-define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances.") # Even if some of those new requests won't immediately require js_interpreter work.  But it's better than having an excessively uneven distribution under load.  HTTP 429 is from RFC 6585, April 2012.  Without multicore, 'too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely.
+define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances.") # Even if some of those new requests won't immediately require js_interpreter work.  But it's better than having an excessively uneven distribution under load.  HTTP 429 is from RFC 6585, April 2012.  Without multicore, 'too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely. TODO: close even *before* reached full share of js_instances? as there may be other pages in prefetch, which will then have to wait for instances on this core even though there might already be spare instances on other cores.
 define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive PhantomJS processes. If you have Headless Chrome you can probably set this to 0.") # (js-restartAfter=1 precludes a faster response when a js_interpreter instance is already loaded with the page requested, although faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load, and is in any event unlikely to work if running multicore with many cores); TODO: check if PhantomJS 2.1.1 RAM usage is a regression from 2.0.1 ? but it's getting less relevant now there's Headless Chrome
 define("js_restartMins",default=10,help="Restart an idle js_interpreter instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --js-restartAfter=1.") # Setting it low does have the disadvantage of not being able to use an already-loaded page, see above
+define("js_timeout1",default=30,help="When js_interpreter is in use, tell it to allow this number of seconds for initial page load. More time is allowed for XMLHttpRequest etc to finish (unless our client cuts the connection in the meantime).")
+define("js_timeout2",default=100,help="When js_interpreter is in use, this value in seconds is treated as a 'hard timeout': if a webdriver process does not respond at all within this time, it is assumed hung and emergency restarted.")
 define("js_retry",default=True,help="If a js_interpreter fails, restart it and try the same fetch again while the remote client is still waiting")
 define("js_fallback",default=True,help="If a js_interpreter fails (even after js_retry if set), serve the page without Javascript processing instead of serving an error")
 define("js_reproxy",default=True,help="When js_interpreter is in use, have it send its upstream requests back through the adjuster on a different port. This allows js_interpreter to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a js_interpreter instance if the remote server is down.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with js_interpreter) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
@@ -577,6 +579,7 @@ def preprocessOptions():
         except ImportError: # can't do it then
             options.js_multiprocess = False
     elif options.js_upstream: errExit("js_upstream requires a js_interpreter to be set")
+    if options.js_timeout2 <= options.js_timeout1: errExit("js_timeout2 must be greater than js_timeout1")
     assert not (options.js_upstream and set_window_onerror), "Must have set_window_onerror==False when using options.js_upstream"
     create_inRenderRange_function(options.renderRange)
     if type(options.renderOmit)==type(""): options.renderOmit=options.renderOmit.split(',')
@@ -611,6 +614,10 @@ def preprocessOptions():
             old = options.js_instances
             options.js_instances += (cores - (options.js_instances % cores))
             sys.stderr.write("multicore: changing js_instances %d -> %d (%d per core x %d cores)\n" % (old,options.js_instances,options.js_instances/cores,cores))
+    if options.js_interpreter=="HeadlessChrome":
+        try: maxI=int(open("/proc/sys/fs/inotify/max_user_instances")) # Linux only
+        except: maxI = -1
+        if not maxI==-1 and options.js_instances > maxI*20: warn("This system might run out of inotify instances with that number of Headless Chrome processes.  Try:\nsudo sysctl -n -w fs.inotify.max_user_watches=%d\nsudo sysctl -n -w fs.inotify.max_user_instances=%d" % (options.js_instances*40,options.js_instances*20))
     global js_per_core
     js_per_core = options.js_instances/cores
     if options.upstream_proxy:
@@ -771,7 +778,7 @@ def showProfile(pjsOnly=False):
         pstats.Stats(theProfiler,stream=s).sort_stats('cumulative').print_stats()
         pr = "\n".join([x for x in s.getvalue().split("\n") if x and not "Ordered by" in x][:options.profile_lines])
     if options.js_interpreter and len(webdriver_runner):
-        global webdriver_lambda,webdriver_mu,webdriver_maxBusy,webdriver_oops
+        global webdriver_lambda,webdriver_mu,webdriver_maxBusy
         stillUsed = sum(1 for i in webdriver_runner if i.wd_threadStart)
         maybeStuck = set()
         for i in webdriver_runner:
@@ -791,8 +798,7 @@ def showProfile(pjsOnly=False):
                 if mainServerPaused: pr += "closed, "
                 else: pr += "open, "
             except NameError: pass
-            if webdriver_oops: served = "%d successes + %d failures = %d served" % (webdriver_mu-webdriver_oops,webdriver_oops,webdriver_mu)
-            else: served = "%d served" % webdriver_mu
+            served = "%d served" % webdriver_mu
             if webdriver_lambda==webdriver_mu==len(webdriver_queue)==0: queue = "" # "; queue unused"
             elif not webdriver_queue: queue="; queue empty: "+served
             else: queue = "; queue %d: %d arrived, %s" % (len(webdriver_queue),webdriver_lambda,served)
@@ -814,7 +820,6 @@ def showProfile(pjsOnly=False):
             pr = pr.rstrip().replace("; ;",";")
             if pr.endswith(";"): pr = pr[:-1]
         webdriver_lambda = webdriver_mu = 0
-        webdriver_oops = 0
         webdriver_maxBusy = stillUsed
         # TODO: also measure lambda/mu of other threads e.g. htmlFilter ?
         if psutil and not webdriver_runner[0].start: pr += "; system RAM %.1f%% used" % (psutil.virtual_memory().percent)
@@ -1688,8 +1693,8 @@ class WebdriverWrapperController:
         if cmd=="EOF":
             return self.pipe.close() # no return code
         if self.timeoutLock:
-            if not self.timeoutLock.acquire(timeout=100): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
-                try: logging.error("SeriousTimeout: WebdriverWrapper process took over 100s to respond to "+repr((cmd,args))+". Emergency restarting this process.")
+            if not self.timeoutLock.acquire(timeout=options.js_timeout2): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
+                try: logging.error("SeriousTimeout: WebdriverWrapper process took over "+str(options.js_timeout2)+"s to respond to "+repr((cmd,args))+". Emergency restarting this process.")
                 except: pass # absolutely do not throw anything except SeriousTimeoutException from this branch
                 raise SeriousTimeoutException()
             self.timeoutLock.release()
@@ -1771,8 +1776,6 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
         if prefetched: toRet = "non-webdriver page"
         else: toRet = "error"
         logging.error(extraMsg+" returning "+toRet)
-        global webdriver_oops
-        webdriver_oops += 1
         if prefetched: return prefetched
         else: return wrapResponse("webdriver "+error)
     try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
@@ -1917,7 +1920,7 @@ def get_new_HeadlessChrome(index,renewing):
             else: extrawarn = ""
             warn("This version of Chrome will hang when used with js_reproxy on https pages. Try upgrading to Chrome 65+"+extrawarn) # TODO: is 59 really the first version to drop --ignore-certificate-errors ?
         elif chromeVersion >= 65 and not p.capabilities.get('acceptInsecureCerts',False): warn("This version of chromedriver will hang when used with js_reproxy on https pages. Your Chrome is new enough, but your chromedriver is not. Try downloading chromedriver 2.35/36+")
-    try: p.set_page_load_timeout(30) # TODO: configurable?
+    try: p.set_page_load_timeout(options.js_timeout1)
     except: logging.info("Couldn't set HeadlessChrome page load timeout")
     return p
 def get_new_HeadlessFirefox(index,renewing):
@@ -1948,7 +1951,7 @@ def get_new_HeadlessFirefox(index,renewing):
     elif options.js_size: binary.add_command_line_options("-width",options.js_size)
     if caps: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps)
     else: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary)
-    try: p.set_page_load_timeout(30) # TODO: configurable?
+    try: p.set_page_load_timeout(options.js_timeout1)
     except: logging.info("Couldn't set HeadlessFirefox page load timeout")
     return p
 def wd_DesiredCapabilities(log_complaints):
@@ -2005,13 +2008,13 @@ def get_new_PhantomJS(index,renewing=False):
         w,h = 1024,768
     try: wd.set_window_size(w, h)
     except: logging.info("Couldn't set PhantomJS window size")
-    try: wd.set_page_load_timeout(30) # TODO: configurable?
+    try: wd.set_page_load_timeout(options.js_timeout1)
     except: logging.info("Couldn't set PhantomJS page load timeout")
     return wd
 webdriver_runner = [] ; webdriver_prefetched = []
 webdriver_via = []
 webdriver_inProgress = [] ; webdriver_queue = []
-webdriver_lambda = webdriver_mu = webdriver_oops = 0
+webdriver_lambda = webdriver_mu = 0
 def test_init_webdriver():
     "Check that we CAN start a webdriver, before forking to background and starting all of them"
     sys.stderr.write("Checking webdriver configuration... ")
