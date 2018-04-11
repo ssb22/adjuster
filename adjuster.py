@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2655 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2656 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -893,15 +893,14 @@ def make_WSGI_application():
 
 sslforks_to_monitor = [] # list of [pid,callback1,callback2,port,last response time]
 sslfork_monitor_pid = None
-def sslSetup(callback1, port2):
+def sslSetup(HelperStarter, ping_portNo):
     if options.ssl_fork: # queue it to be started by monitor
-        callback2 = lambda *_:listen_on_port(Application([(r"(.*)",AliveResponder,{})],log_function=nullLog),port2,"127.0.0.1",False) # the "I'm still alive" responder is non-SSL
-        if options.multicore and sslforks_to_monitor: sslforks_to_monitor[0][1] = lambda c1=callback1,c2=sslforks_to_monitor[0][1]:(c1(),c2()) # in multicore mode we'll have {N cores} * {single process handling all SSL ports}, rather than cores * processes (TODO: if one gets stuck but others on the port can still handle requests, do we want to somehow detect the individual stuck one and restart it to reduce wasted CPU load?)
-        else:
-            sslforks_to_monitor.append([None,callback1,callback2,port2,None])
-            return port2 + 1 # where to put the next listener
-    else: callback1() # just run it on the current process
-    return port2 # next listener can use what would have been the monitor port
+        if options.multicore and sslforks_to_monitor: sslforks_to_monitor[0][1] = (lambda c1=HelperStarter,c2=sslforks_to_monitor[0][1]:(c1(),c2())) # chain it, as in multicore mode we'll have {N cores} * {single process handling all SSL ports}, rather than cores * processes (TODO: if one gets stuck but others on the port can still handle requests, do we want to somehow detect the individual stuck one and restart it to reduce wasted CPU load?)
+        else: # no multicore, or this is the first SSL helper, so we need to associate it with a (non-SSL) ping responder
+            sslforks_to_monitor.append([None,HelperStarter,(lambda *_:listen_on_port(Application([(r"(.*)",AliveResponder,{})],log_function=nullLog),ping_portNo,"127.0.0.1",False)),ping_portNo,None])
+            return ping_portNo + 1 # where to put the next listener
+    else: HelperStarter() # just run it on current process
+    return ping_portNo # next listener can use what would have been the ping-responder port as we're not using it
 sslFork_pingInterval = 1 # TODO: configurable?  (ping every interval, restart if down for 2*interval)  (if setting this larger, might want to track the helper threads for early termination)
 def maybe_sslfork_monitor():
     "Returns SIGTERM callback if we're now a child process"
@@ -937,20 +936,19 @@ def maybe_sslfork_monitor():
                 urlopen("http://localhost:%d/" % sslforks_to_monitor[i][3],timeout=sslFork_pingInterval)
                 sslforks_to_monitor[i][4]=time.time()
             except: # URLError etc
-              t2 = sslforks_to_monitor[i][4]
-              if sslforks_to_monitor[i][0]==None or (t2 and t2 + 2*sslFork_pingInterval < time.time()):
+              last_response_time = sslforks_to_monitor[i][4]
+              if sslforks_to_monitor[i][0]==None or last_response_time + 2*sslFork_pingInterval < time.time():
                 if restart_sslfork(i,oldI): # child
                     return lambda *args:stopServer("SIG*")
-              elif not t2: sslforks_to_monitor[i][4] = time.time()
+                else: sslforks_to_monitor[i][4] = time.time() # (give it at least 2*sslfork_pingInterval from NOW, not from time t above, to open its ports and start processing before we check)
             time.sleep(max(0,t+sslFork_pingInterval-time.time()))
 def restart_sslfork(n,oldN):
     global sslforks_to_monitor
     if not sslforks_to_monitor[n][0]==None: # not first time
-        logging.error("Restarting SSL helper %d (old pid %d; not heard from its port %d for %d seconds)" % (oldN,sslforks_to_monitor[n][0],sslforks_to_monitor[n][3],time.time()-sslforks_to_monitor[n][4]))
-        try: os.kill(sslforks_to_monitor[n][0],9)
-        except OSError: logging.info("Unable to kill pid %d (already gone?)" % sslforks_to_monitor[n][0])
-        try: os.waitpid(sslforks_to_monitor[n][0], os.WNOHANG) # clear it from the process table
-        except OSError: pass
+        if options.multicore: oldN = "s"
+        else: oldN = " "+str(oldN)
+        logging.error("Restarting SSL helper%s via pid %d as not heard from port %d for %d seconds" % (oldN,sslforks_to_monitor[n][0],sslforks_to_monitor[n][3],time.time()-sslforks_to_monitor[n][4]))
+        emergency_zap_pid_and_children(sslforks_to_monitor[n][0]) # (may have children if multicore)
     # TODO: if profile_forks_too, do things with profile?
     pid = os.fork()
     if pid:
@@ -989,7 +987,7 @@ def open_extra_ports():
           for i in xrange(js_per_core):
             # PjsRequestForwarder to be done later
             js_proxy_port.append(nextPort)
-            nextPort = sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(c*js_per_core,i),{})],log_function=nullLog,gzip=False),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2)
+            nextPort = sslSetup(lambda port=nextPort,cc=c,ii=i : listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(cc*js_per_core,ii),{})],log_function=nullLog,gzip=False),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2)
         js_proxy_port.append(nextPort-1) # highest port in use, for banner()
     if upstream_rewrite_ssl:
         # This one does NOT listen on SSL: it listens on unencrypted HTTP and rewrites .0 into outgoing SSL.  But we can still run it in a different process if ssl_fork is enabled, and this will save encountering the curl_max_clients issue as well as possibly offloading *client*-side SSL to a different CPU core (TODO: could also use Tornado's multiprocessing to multi-core the client-side SSL)
@@ -1531,11 +1529,16 @@ def writeAndClose(stream,data):
     if not stream.closed():
         try: stream.close()
         except: pass
-def writeOrError(name,stream,data):
+def writeOrError(opposite,name,stream,data):
     if debug_connections: print "Writing",myRepr(data),"to",peerName(stream.socket)
     try: stream.write(data)
     except:
-        if name: logging.error("Error writing data to "+name)
+        if name and not hasattr(stream,"writeOrError_already_complained"): logging.error("Error writing data to "+name)
+        stream.writeOrError_already_complained = True
+        try: stream.close()
+        except: pass
+        try: opposite.close() # (try to close the server stream we're reading if the client has gone away, and vice versa)
+        except: pass
 
 # Domain-setting cookie for when we have no wildcard_dns and no default_site:
 adjust_domain_cookieName = "_adjusterDN_"
@@ -1830,7 +1833,7 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
                 debuglog("webdriver %d .get exception; currentUrl=%s so re-raising" % (manager.index,repr(currentUrl)))
                 raise
             debuglog("Ignoring webdriver exception because it seems we did get something")
-        # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well?)
+        # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well? TODO: abort this early if currentUrl has changed and we're just going to issue a redirect? but would then need to ensure it's finished if client comes back to same instance that's still running after it follows the redirect)
         debuglog("webdriver %d loaded" % manager.index)
         if options.js_reproxy:
           wasActive = True
@@ -1883,8 +1886,14 @@ def get_new_HeadlessChrome(index,renewing):
         except ImportError: getpass = None
         if getpass: myUsername = getpass.getuser()
         else: myUsername = ""
-    path = writable_tmpdir()+"hChrome-"+myUsername+str(options.port)+"."+str(index)
-    import shutil ; shutil.rmtree(path,True) # (in case restarting from a corrupted state)
+    extra = ""
+    while True: # might be restarting from a corrupted user-data-dir state; in worst case might not even be able to cleanly remove it (TODO: what if some processes associated with an older instance somehow took a while to go away and still have named referenc to previous path: increment counter unconditionally?  still rm the old one)
+        path = writable_tmpdir()+"hChrome-"+myUsername+str(options.port)+"."+str(index)+extra
+        if not os.path.exists(path): break
+        import shutil ; shutil.rmtree(path,True)
+        if not os.path.exists(path): break
+        if extra: extra="-"+str(int(extra[1:])+1)
+        else: extra = "-0"
     opts.add_argument("--user-data-dir="+path)
     opts.add_argument("--incognito") # reduce space taken up by above
     if options.js_reproxy:
@@ -1963,14 +1972,16 @@ def wd_DesiredCapabilities(log_complaints):
         return None
 def wd_instantiateLoop(wdClass,index,renewing,**kw):
     debuglog("Instantiating "+wdClass.__name__+" "+repr(kw))
+    if not renewing: logging.error("Sleeping %ds for %d" % (min(2*(index % js_per_core),options.js_timeout2 / 2),index))
+    if not renewing: time.sleep(min(2*(index % js_per_core),options.js_timeout2 / 2)) # try not to start them all at once at the beginning (may reduce chance of failure)
     while True:
         try:
             p = wdClass(**kw)
             p.capabilities['version'] # make sure it exists (if get TypeError here, probably p.capabilities == None (has been observed with webdriver.Chrome); if get KeyError, somehow got capabilities w/out 'version')
         except:
             if index==0 and not renewing: raise
-            logging.error("Unhandled exception "+exc_logStr()+" when instantiating webdriver %d, retrying in 5sec" % index)
-            time.sleep(5) ; p = None
+            logging.error("Unhandled exception "+exc_logStr()+" when instantiating webdriver %d, retrying in 2sec" % index)
+            time.sleep(2) ; p = None
         if p: break
     debuglog(wdClass.__name__+" instantiated")
     return p
@@ -2243,10 +2254,10 @@ class RequestForwarder(RequestHandler):
             host,port = "127.0.0.1",self.WA_connectPort
             debuglog("Rerouting CONNECT to "+host+":"+str(port))
         def callback(*args):
-          client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError("upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
+          client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,"upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
           if self.isPjsUpstream: clientErr=None # we won't mind if our js_interpreter client gives up on an upstream fetch
           else: clientErr = "client "+self.request.remote_ip+self.debugExtras()
-          upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError(clientErr,client,data))
+          upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,clientErr,client,data))
           try: client.write('HTTP/1.0 200 Connection established\r\n\r\n')
           except tornado.iostream.StreamClosedError:
               if not self.isPjsUpstream: logging.error("client "+self.request.remote_ip+" closed before we said Established"+self.debugExtras())
@@ -2255,6 +2266,7 @@ class RequestForwarder(RequestHandler):
         try: self._log()
         except: pass # not all Tornado versions support this?
       else: self.set_status(400),self.myfinish()
+    def on_connection_close(self): self.myfinish()
     def myfinish(self):
         debuglog("myfinish"+self.debugExtras())
         if hasattr(self,"_finished") and self._finished: pass # try to avoid "connection closed" exceptions if browser has already gone away
@@ -2339,7 +2351,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         client = self.request.connection.stream
         if ':' in server: host, port = server.split(':')
         else: host, port = server, 80
-        upstream.connect((host, int(port)),lambda *args:(upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError(serverType+" client",client,data)),client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError(serverType+" upstream",upstream,data))))
+        upstream.connect((host, int(port)),lambda *args:(upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,serverType+" client",client,data)),client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,serverType+" upstream",upstream,data))))
         try: self.request.uri = self.request.original_uri
         except: pass
         upstream.write(self.request.method+" "+self.request.uri+" "+self.request.version+"\r\n"+"\r\n".join(("%s: %s" % (k,v)) for k,v in (list(h for h in self.request.headers.get_all() if not h[0].lower()=="x-real-ip")+[("X-Real-Ip",self.request.remote_ip)]))+"\r\n\r\n"+self.request.body)
@@ -2457,7 +2469,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         # forward the request back to the original PID in
         # case it needs to do things with webdrivers etc.
         self.request.headers["X-WA-FromSSLHelper"] = "1"
-        self.forwardFor("127.0.0.1:%d" % (self.WA_connectPort-1),"SSL helper")
+        self.forwardFor("127.0.0.1:%d" % (self.WA_connectPort-1),"SSL helper:"+str(self.WA_connectPort))
         return True
     def handleFullLocation(self):
         # HTTP 1.1 spec says ANY request can be of form http://...., not just a proxy request.  The differentiation of proxy/not-proxy depends on what host is requested.  So rewrite all http://... requests to HTTP1.0-style host+uri requests.
@@ -2816,7 +2828,7 @@ document.forms[0].i.focus()
         if self.isSslUpstream: r += " isSslUpstream"
         return r
 
-    def canWriteBody(self): return not self.request.method in ["HEAD","OPTIONS"]
+    def canWriteBody(self): return not self.request.method in ["HEAD","OPTIONS"] and not (hasattr(self,"_finished") and self._finished)
 
     def justMeCheck(self):
         # Ideally we should do this asynchronously, but as
@@ -3156,6 +3168,7 @@ document.forms[0].i.focus()
         curlFinished()
         debuglog("doResponse"+self.debugExtras()+" isProxyRequest="+repr(isProxyRequest))
         self.restore_request_headers()
+        if hasattr(self,"_finished") and self._finished: return # client has gone away anyway: no point trying to process this (probably a timeout)
         do_pdftotext,do_epubtotext,do_epubtozip,do_mp3 = converterFlags
         do_domain_process = do_html_process = do_js_process = True
         do_json_process = do_css_process = False
