@@ -1018,14 +1018,14 @@ if bookmarks:
   should_suppress_toolset = "(location.href.slice(0,7)=='file://'||document.noBookmarks)"
   toolset_openTag = r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 40%; bottom: 0px; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important; overflow: auto !important;\">'"""
   toolset_closeTag = "'</span>'"
-  emoji_supported = "function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()"
+  emoji_supported = "function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
   bookmarkLink0 = "ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))"
   bookmarkLink = r'\"'+"javascript:"+bookmarkLink0+r'\"'
   copyLink = "'javascript:ssb_local_annotator.copy(location.href,true)'"
   closeLink = r'\"'+"javascript:var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)"+r'\"'
   if bookmarks_developer: devModeStr = r"'+(ssb_local_annotator.isDevMode()?'onclick=\"if(((typeof ssb_local_annotator_dblTap==\\'undefined\\')?null:ssb_local_annotator_dblTap)==null) ssb_local_annotator_dblTap=setTimeout(function(){"+bookmarkLink0.replace("'",r"\\'")+r";ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);document.getElementById(\\'ssb_local_annotator_css\\').innerHTML+=\\'ruby:not([title]){border:thin blue solid}\\';ssb_local_annotator.alert(\\'\\',\\'Developer mode: words without glosses boxed in blue\\');ssb_local_annotator_dblTap=null}return false\" ':'')+'" # (ondblclick won't work on phones, so we have to do it ourselves)
   else: devModeStr = ""
-  toolset_string = toolset_openTag + "+(function(bookmarkLink,copyLink,closeLink){return '<a "+devModeStr+r"""href=\"'+bookmarkLink+'\">'+(("""+emoji_supported+r"""?('\ud83d\udd16</a> &nbsp; <a href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; <a href=\"'+closeLink+'\">\u274c'):('Bookmark</a> <a href=\"'+copyLink+'\">Copy</a> <a href=\"'+closeLink+'\">X'))+'</a>'})("""+bookmarkLink+","+copyLink+","+closeLink+")+"+toolset_closeTag
+  toolset_string = toolset_openTag + "+(function(bookmarkLink,copyLink,closeLink){return '<a "+devModeStr+r"""href=\"'+bookmarkLink+'\"'+(("""+emoji_supported+r"""?('>\ud83d\udd16</a> &nbsp; <a href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; <a href=\"'+closeLink+'\">\u274c'):(' style=\"color: white !important\">Bookmark</a> <a href=\"'+copyLink+'\" style=\"color: white !important\">Copy</a> <a href=\"'+closeLink+'\" style=\"color: white !important\">X'))+'</a>'})("""+bookmarkLink+","+copyLink+","+closeLink+")+"+toolset_closeTag # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
   toolset_string = should_suppress_toolset+"?'':("+toolset_string+")"
   return should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+")"
  jsAddRubyCss += "+("+bookmarkJS()+")"
@@ -1355,8 +1355,10 @@ if bookmarks_developer: android_src += r"""
             }"""
 android_src += r"""
             @android.webkit.JavascriptInterface public void bringToFront() {
-                if(Integer.valueOf(android.os.Build.VERSION.SDK) >= android.os.Build.VERSION_CODES.CUPCAKE)
+                if(Integer.valueOf(android.os.Build.VERSION.SDK) >= android.os.Build.VERSION_CODES.CUPCAKE) {
                     startService(new Intent(MainActivity.this, BringToFront.class));
+                    nextBackHides = true;
+                }
             }
             @android.webkit.JavascriptInterface public String getSentText() { return sentText; }
             @android.webkit.JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */
@@ -1467,11 +1469,13 @@ android_src += r"""
             },0);
         }
     }
+    boolean nextBackHides = false;
+    @Override public void onPause() { super.onPause(); nextBackHides = false; }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if ((keyCode == KeyEvent.KEYCODE_BACK) &&
-            browser.canGoBack()) {
-            browser.goBack(); return true;
-        } else return super.onKeyDown(keyCode, event);
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
+            if (browser.canGoBack()) { browser.goBack(); return true; }
+        } return super.onKeyDown(keyCode, event);
     }
     @SuppressWarnings("deprecation") // using getText so works on API 1 (TODO consider adding a version check and the more-modern alternative android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip(); if (c != null && c.getItemCount()>0) return c.getItemAt(0).coerceToText(this).toString(); return ""; )
     @android.annotation.TargetApi(11)
