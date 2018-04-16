@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2656 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2657 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -184,7 +184,7 @@ define("js_restartMins",default=10,help="Restart an idle js_interpreter instance
 define("js_timeout1",default=30,help="When js_interpreter is in use, tell it to allow this number of seconds for initial page load. More time is allowed for XMLHttpRequest etc to finish (unless our client cuts the connection in the meantime).")
 define("js_timeout2",default=100,help="When js_interpreter is in use, this value in seconds is treated as a 'hard timeout': if a webdriver process does not respond at all within this time, it is assumed hung and emergency restarted.")
 define("js_retry",default=True,help="If a js_interpreter fails, restart it and try the same fetch again while the remote client is still waiting")
-define("js_fallback",default=True,help="If a js_interpreter fails (even after js_retry if set), serve the page without Javascript processing instead of serving an error")
+define("js_fallback",default="X-Js-Fallback",help="If this is set to a non-empty string and a js_interpreter fails (even after js_retry if set), serve the page without Javascript processing instead of serving an error. The HTTP header specified by this option can tell the client whether or not Javascript was processed when a page is served.")
 define("js_reproxy",default=True,help="When js_interpreter is in use, have it send its upstream requests back through the adjuster on a different port. This allows js_interpreter to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a js_interpreter instance if the remote server is down.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with js_interpreter) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
 define("js_UA",help="Custom user-agent string for js_interpreter requests, if for some reason you don't want to use the JS browser's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--js_reproxy) so scripts running in the JS browser itself will see its original user-agent.")
 define("js_images",default=True,help="When js_interpreter is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if js_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
@@ -1595,6 +1595,12 @@ def wrapResponse(body,info={},code=500):
     class H:
         def __init__(self,info): self.info = info
         def get(self,h,d): return self.info.get(h,d)
+        def add(self,h,v): # for js_fallback header
+            if type(self.info)==dict:
+                self.info[h] = v
+            elif hasattr(self.info,"headers"):
+                self.info.headers.add(h,v)
+            else: self.info.add(h,v)
         def get_all(self):
             if type(self.info)==dict:
                 return self.info.items()
@@ -1777,11 +1783,17 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     def errHandle(error,extraMsg,prefetched):
         if not options.js_fallback: prefetched=None
         if prefetched: toRet = "non-webdriver page"
-        else: toRet = "error"
+        else:
+            toRet = "error"
+            prefetched = wrapResponse("webdriver "+error)
         logging.error(extraMsg+" returning "+toRet)
-        if prefetched: return prefetched
-        else: return wrapResponse("webdriver "+error)
-    try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
+        try: prefetched.headers.add(options.js_fallback,error)
+        except: logging.error("Could not add "+repr(options.js_fallback)+" to error response")
+        return prefetched
+    try:
+        r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
+        try: r.headers.add(options.js_fallback,"OK")
+        except: pass
     except TimeoutException:
         r = errHandle("timeout","webdriver "+str(manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched)
     except SeriousTimeoutException:
@@ -1972,7 +1984,6 @@ def wd_DesiredCapabilities(log_complaints):
         return None
 def wd_instantiateLoop(wdClass,index,renewing,**kw):
     debuglog("Instantiating "+wdClass.__name__+" "+repr(kw))
-    if not renewing: logging.error("Sleeping %ds for %d" % (min(2*(index % js_per_core),options.js_timeout2 / 2),index))
     if not renewing: time.sleep(min(2*(index % js_per_core),options.js_timeout2 / 2)) # try not to start them all at once at the beginning (may reduce chance of failure)
     while True:
         try:
@@ -2994,7 +3005,7 @@ document.forms[0].i.focus()
             e = u[u.rindex('.')+1:].lower()
             if not (e=="mp3" and options.bitrate and not options.askBitrate): return e
         if options.redirectFiles and not (isProxyRequest or any(converterFlags) or viewSource) and ext(self.request.uri) in redirectFiles_Extensions: self.sendHead()
-        elif self.isPjsUpstream and "text/html" in self.request.headers.get("Accept","") and not (any(converterFlags) or viewSource): self.sendHead(forPjs=True)
+        elif self.isPjsUpstream and "text/html" in self.request.headers.get("Accept","") and not (any(converterFlags) or viewSource): self.sendHead(forPjs=True) # to check it's not a download link
         else: self.sendRequest(converterFlags,viewSource,isProxyRequest,follow_redirects=False) # (DON'T follow redirects - browser needs to know about them!)
     
     def change_request_headers(self,realHost,isProxyRequest):
