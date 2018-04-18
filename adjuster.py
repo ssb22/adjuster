@@ -198,6 +198,7 @@ define("background",default=False,help="If True, fork to the background as soon 
 define("restart",default=False,help="If True, try to terminate any other process listening on our port number before we start (Unix only). Useful if Web Adjuster is running in the background and you want to quickly restart it with new options. Note that no check is made to make sure the other process is a copy of Web Adjuster; whatever it is, if it has our port open, it is asked to stop.")
 define("stop",default=False,help="Like 'restart', but don't replace the other process after stopping it. This option can be used to stop a background server (if it's configured with the same port number) without starting a new one. Unix only.") # "stop" overrides "restart", so if "restart" is set in a configuration file then you can still use "stop" on the command line
 define("install",default=False,help="Try to install the program in the current user's Unix crontab as an @reboot entry, unless it's already there.  The arguments of the cron entry will be the same as the command line, with no directory changes, so make sure you are in the home directory before doing this.  The program will continue to run normally after the installation attempt.  (If you are on Cygwin then you might need to run cron-config also.)")
+define("pidfile",default="",help="Write our process ID to this file when running in the background, so you can set up a systemd service with Type=forking and PIDFile=this instead of using crontab. (Alternatively use 'pip install sdnotify' and run in the foreground with Type=notify.)")
 define("watchdog",default=0,help="(Linux only) Ping the system's watchdog every this number of seconds, so the watchdog can reboot the system if for any reason Web Adjuster stops functioning. The default value of 0 means do not ping the watchdog. If your machine's unattended boot is no longer reliable, beware of unnecessary reboot if you remotely stop the adjuster and are unable to restart it.") # e.g. some old Raspberry Pis no longer boot 100% of the time and have watchdogs that cannot be cleanly closed with 'V'
 define("watchdogWait",default=0,help="When the watchdog option is set, wait this number of seconds before stopping the watchdog pings. This causes the watchdog pings to be sent from a separate thread and therefore not stopped when the main thread is busy; they are stopped only when the main thread has not responded for watchdogWait seconds. This can be used to work around the limitations of a hardware watchdog that cannot be set to wait that long.") # such as the Raspberry Pi's Broadcom chip which defaults to 10 seconds and has max 15; you could say watchdog=5 and watchdogWait=60 (if you have an RPi which actually reboots when the watchdog goes off, see above)
 define("watchdogDevice",default="/dev/watchdog",help="The watchdog device to use (set this to /dev/null to check main-thread responsiveness without actually pinging the watchdog)")
@@ -1083,6 +1084,7 @@ def openPortsEtc():
             if options.js_interpreter: test_init_webdriver()
             unixfork() # MUST be before init_webdrivers (js_interpreter does NOT work if you start them before forking)
         if not options.ssl_fork: initLogging() # as we hadn't done it before (must be after unixfork)
+        if not options.background: notifyReady()
         start_multicore()
         if not options.multicore or profile_forks_too: open_profile()
         else: open_profile_pjsOnly()
@@ -1220,6 +1222,7 @@ def pauseOrRestartMainServer(shouldRun=1):
     try: mainServerPaused
     except: mainServerPaused = False
     if (not shouldRun) == mainServerPaused: return
+    # if shouldRun: return # uncomment this 'once closed, stay closed' line to demonstrate the OS forwards to open cores only
     for core,sList in theServers.items():
         if not (core == "all" or core == coreNo): continue
         for port,s in sList:
@@ -1316,9 +1319,28 @@ def unixfork():
     if os.fork(): sys.exit()
     devnull = os.open("/dev/null", os.O_RDWR)
     for fd in range(3): os.dup2(devnull,fd) # commenting out this line will let you see stderr after the fork (TODO debug option?)
-    
+    if options.pidfile:
+        try: open(options.pidfile,"w").write(str(os.getpid()))
+        except: pass
+
+def notifyReady():
+    try: import sdnotify # sudo pip install sdnotify
+    except ImportError: return
+    sdnotify.SystemdNotifier().notify("READY=1") # so you can do an adjuster.service (w/out --background) with Type=notify and ExecStart=/usr/bin/python /path/to/adjuster.py --config=...
+# TODO: also send "WATCHDOG=1" so can use WatchdogSec ? (but multicore / js_interpreter could be a problem)
+
 def stopOther():
-    if not options.port: errExit("Cannot use --restart or --stop with --port=0") # because the listening port is used to identify the other process (TODO: can we have a pid file or something for the case when there are no listening ports)
+    pid = None ; done = set()
+    if options.pidfile:
+        try: pid = int(open(options.pidfile).read().strip())
+        except: pass
+        if not pid==None:
+            if not psutil or psutil.pid_exists(pid):
+                tryStop(pid,True) # will rm pidfile if had permission to send the stop signal
+                done.add(pid)
+            else: unlink(options.pidfile) # stale
+        if not options.port: return
+    elif not options.port: errExit("Cannot use --restart or --stop with --port=0 and no --pidfile") # because the listening port is used to identify the other process
     import commands,signal
     out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # >/dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
     if out.startswith("lsof: unsupported"):
@@ -1326,7 +1348,7 @@ def stopOther():
         out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # -Ts ensures will say LISTEN on the pid that's listening
         lines = filter(lambda x:"LISTEN" in x,out.split("\n")[1:])
     elif not out.strip() and not commands.getoutput("which lsof 2>/dev/null"):
-        sys.stderr.write("stopOther: no 'lsof' command on this system\n")
+        if not options.pidfile: sys.stderr.write("stopOther: no 'lsof' command on this system\n")
         return False
     else: lines = out.split("\n")[1:]
     for line in lines:
@@ -1334,14 +1356,17 @@ def stopOther():
         except:
             sys.stderr.write("stopOther: Can't make sense of lsof output %s\n" % repr(line))
             break
-        if not pid==os.getpid():
-            if options.stop: other="the"
-            else: other="other"
-            try:
-                os.kill(pid,signal.SIGTERM)
-                sys.stderr.write("Stopped %s process at PID %d\n" % (other,pid))
-            except: sys.stderr.write("Failed to stop %s process at PID %d\n" % (other,pid))
-            return True # (a pid was found, whether or not the stop was successful) (don't continue - there should be only one pid, and continuing might get duplicate listings for IPv4 and IPv6)
+        if not pid==os.getpid() and not pid in done:
+            tryStop(pid) ; done.add(pid)
+    return done
+def tryStop(pid,alsoRemovePidfile=False):
+    if options.stop: other="the"
+    else: other="other"
+    try:
+        os.kill(pid,signal.SIGTERM)
+        if alsoRemovePidfile: unlink(options.pidfile)
+        sys.stderr.write("Stopped %s process at PID %d\n" % (other,pid))
+    except: sys.stderr.write("Failed to stop %s process at PID %d\n" % (other,pid))
 
 the_supported_methods = ("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "CONNECT")
 # Don't support PROPFIND (from WebDAV) unless be careful about how to handle image requests with it
