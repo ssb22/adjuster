@@ -1142,7 +1142,9 @@ def announceShutdown():
     if coreNo or options.multicore: return # silent helper process (coreNo=="unknown"), or we announce interrupts differently in multicore (see start_multicore)
     announceShutdown0()
 def announceShutdown0():
-    if options.background: logging.info("Server shutdown")
+    if options.background:
+        logging.info("Server shutdown")
+        if options.pidfile: unlink(options.pidfile)
     else: sys.stderr.write("Adjuster shutdown\n")
 
 def main():
