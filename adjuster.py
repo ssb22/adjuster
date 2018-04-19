@@ -1332,35 +1332,30 @@ def notifyReady():
 # TODO: also send "WATCHDOG=1" so can use WatchdogSec ? (but multicore / js_interpreter could be a problem)
 
 def stopOther():
-    pid = None ; done = set()
+    pid = triedStop = None
     if options.pidfile:
         try: pid = int(open(options.pidfile).read().strip())
         except: pass
         if not pid==None:
             if not psutil or psutil.pid_exists(pid):
                 tryStop(pid,True) # will rm pidfile if had permission to send the stop signal
-                done.add(pid)
+                triedStop = pid
             else: unlink(options.pidfile) # stale
         if not options.port: return
     elif not options.port: errExit("Cannot use --restart or --stop with --port=0 and no --pidfile") # because the listening port is used to identify the other process
-    import commands,signal
-    out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # >/dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
-    if out.startswith("lsof: unsupported"):
-        # lsof 4.81 has -sTCP:LISTEN but lsof 4.78 does not.  However, not including -sTCP:LISTEN can cause lsof to make unnecessary hostname queries for established connections.  So fall back only if have to.
-        out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # -Ts ensures will say LISTEN on the pid that's listening
-        lines = filter(lambda x:"LISTEN" in x,out.split("\n")[1:])
-    elif not out.strip() and not commands.getoutput("which lsof 2>/dev/null"):
-        if not options.pidfile: sys.stderr.write("stopOther: no 'lsof' command on this system\n")
-        return False
-    else: lines = out.split("\n")[1:]
-    for line in lines:
-        try: pid=int(line.split()[1])
-        except:
-            sys.stderr.write("stopOther: Can't make sense of lsof output %s\n" % repr(line))
-            break
-        if not pid==os.getpid() and not pid in done:
-            tryStop(pid) ; done.add(pid)
-    return done
+    pids = run_lsof()
+    if pids==False: # no lsof, or couldn't make sense of it
+        # Could try "fuser -n tcp "+str(options.port), but it can be slow on a busy system.  Try netstat instead.
+        pids = run_netstat()
+        if pids==False:
+            if not options.pidfile: sys.stderr.write("stopOther: can't find understandable 'lsof' or 'netstat' commands on this system\n")
+            return False
+    try: pids.remove(os.getpid())
+    except: pass
+    for pid in pids:
+        if not pid==triedStop:
+            tryStop(pid)
+    return triedStop or pids
 def tryStop(pid,alsoRemovePidfile=False):
     if options.stop: other="the"
     else: other="other"
@@ -1369,6 +1364,33 @@ def tryStop(pid,alsoRemovePidfile=False):
         if alsoRemovePidfile: unlink(options.pidfile)
         sys.stderr.write("Stopped %s process at PID %d\n" % (other,pid))
     except: sys.stderr.write("Failed to stop %s process at PID %d\n" % (other,pid))
+def run_lsof():
+    out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # >/dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
+    if out.startswith("lsof: unsupported"):
+        # lsof 4.81 has -sTCP:LISTEN but lsof 4.78 does not.  However, not including -sTCP:LISTEN can cause lsof to make unnecessary hostname queries for established connections.  So fall back only if have to.
+        out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # -Ts ensures will say LISTEN on the pid that's listening
+        lines = filter(lambda x:"LISTEN" in x,out.split("\n")[1:])
+    elif not out.strip() and not commands.getoutput("which lsof 2>/dev/null"): return False
+    else: lines = out.split("\n")[1:]
+    pids = set()
+    for line in lines:
+        try: pids.add(int(line.split()[1]))
+        except:
+            if not pids:
+                # sys.stderr.write("stopOther: Can't make sense of lsof output %s\n" % repr(line))
+                return False # lsof not working, use something else
+            break
+        pids.add(pid)
+    return pids
+def run_netstat():
+    if not 'linux' in sys.platform or not commands.getoutput("which netstat 2>/dev/null"): return False
+    pids = set()
+    for l in commands.getoutput("netstat -tnlp").split("\n"):
+        if ':'+str(options.port)+' ' in l:
+            ps = l.split()[-1]
+            if '/' in ps:
+                pids.add(int(ps[:ps.index('/')]))
+    return pids
 
 the_supported_methods = ("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "CONNECT")
 # Don't support PROPFIND (from WebDAV) unless be careful about how to handle image requests with it
@@ -1393,7 +1415,6 @@ class WhoisLogger:
         self.thread_running = True
         threading.Thread(target=whois_thread,args=(ip,self)).start()
 def getWhois(ip):
-    import commands
     lines = commands.getoutput("whois '"+ip.replace("'",'')+"'").split('\n')
     if any(l and l.lower().split()[0]=="descr:" for l in lines): checkList = ["descr:"] # ,"netname:","address:"
     else: checkList = ["orgname:"]
@@ -1547,6 +1568,9 @@ def myRepr(d):
 def peerName(socket):
     try: return socket.getpeername()
     except: return "(no socket??)"
+def wrapped_readUntilClose(s,onLast,onChunk):
+    try: s.read_until_close(onLast,onChunk)
+    except: onLast("") # e.g. SSLError 'shutdown while in init', so tell the other side to writeAndClose or whatever
 def writeAndClose(stream,data):
     # This helper function is needed for CONNECT and own_server handling because, contrary to Tornado docs, some Tornado versions (e.g. 2.3) send the last data packet in the FIRST callback of IOStream's read_until_close
     if data:
@@ -1775,12 +1799,12 @@ class WebdriverRunner:
           except Exception,e: logging.error("Exception "+repr(e)+" while renewing webdriver, retrying")
         self.usageCount = 0 ; self.maybe_stuck = False
     def renew_webdriver_newThread(self,firstTime=False):
-        self.wd_threadStart = time.time()
+        self.wd_threadStart = time.time() # cleared in _renew_wd after renew_webdriver_sameThread returns (it loops on exception)
         threading.Thread(target=_renew_wd,args=(self,firstTime)).start() ; return
     def quit_webdriver(self): self.wrapper.quit(final=True)
     def fetch(self,url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,tooLate):
         assert not self.wd_threadStart # webdriver_checkServe
-        self.wd_threadStart = time.time()
+        self.wd_threadStart = time.time() # cleared in wd_fetch after _wd_fetch returns or throws + possible renew-loop (TODO: if wd_fetch ITSELF somehow throws an exception, should be logged but this JS instance gets tied up until next adjuster restart)
         self.maybe_stuck = False
         threading.Thread(target=wd_fetch,args=(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,self,tooLate)).start()
     def current_url(self): return self.wrapper.current_url()
@@ -2292,10 +2316,10 @@ class RequestForwarder(RequestHandler):
             host,port = "127.0.0.1",self.WA_connectPort
             debuglog("Rerouting CONNECT to "+host+":"+str(port))
         def callback(*args):
-          client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,"upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
+          wrapped_readUntilClose(client,lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,"upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
           if self.isPjsUpstream: clientErr=None # we won't mind if our js_interpreter client gives up on an upstream fetch
           else: clientErr = "client "+self.request.remote_ip+self.debugExtras()
-          upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,clientErr,client,data))
+          wrapped_readUntilClose(upstream,lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,clientErr,client,data))
           try: client.write('HTTP/1.0 200 Connection established\r\n\r\n')
           except tornado.iostream.StreamClosedError:
               if not self.isPjsUpstream: logging.error("client "+self.request.remote_ip+" closed before we said Established"+self.debugExtras())
@@ -2389,7 +2413,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         client = self.request.connection.stream
         if ':' in server: host, port = server.split(':')
         else: host, port = server, 80
-        upstream.connect((host, int(port)),lambda *args:(upstream.read_until_close(lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,serverType+" client",client,data)),client.read_until_close(lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,serverType+" upstream",upstream,data))))
+        upstream.connect((host, int(port)),lambda *args:(wrapped_readUntilClose(upstream,lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,serverType+" client",client,data)),wrapped_readUntilClose(client,lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,serverType+" upstream",upstream,data))))
         try: self.request.uri = self.request.original_uri
         except: pass
         upstream.write(self.request.method+" "+self.request.uri+" "+self.request.version+"\r\n"+"\r\n".join(("%s: %s" % (k,v)) for k,v in (list(h for h in self.request.headers.get_all() if not h[0].lower()=="x-real-ip")+[("X-Real-Ip",self.request.remote_ip)]))+"\r\n\r\n"+self.request.body)
