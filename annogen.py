@@ -1362,6 +1362,26 @@ android_src += r"""
             }
             @android.webkit.JavascriptInterface public String getSentText() { return sentText; }
             @android.webkit.JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */
+            @android.webkit.JavascriptInterface public void openPlayStore() {
+                /* ssb_local_annotator.openPlayStore() opens the Google "Play Store" page
+                   for the app (if you've deployed it there), for use in encouraging
+                   users to update to a more recent annotator etc (please don't use it
+                   to ask for ratings: that is very annoying).  Limited to only the
+                   current app just in case a site being browsed tries to hijack it. */
+                String id=getApplicationContext().getPackageName();
+                Intent i=new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("market://details?id="+id));
+                for(android.content.pm.ResolveInfo playApp: getApplicationContext().getPackageManager().queryIntentActivities(i,0)) {
+                    if (playApp.activityInfo.applicationInfo.packageName.equals("com.android.vending")) {
+                        i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        i.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                        i.setComponent(new android.content.ComponentName(playApp.activityInfo.applicationInfo.packageName,playApp.activityInfo.name));
+                        getApplicationContext().startActivity(i);
+                        return;
+                    }
+                }
+                getApplicationContext().startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://play.google.com/store/apps/details?id="+id))); // fallback
+            }
             @android.webkit.JavascriptInterface @android.annotation.TargetApi(11) public void copy(String copiedText,boolean toast) {
                 this.copiedText = copiedText;
                 if(Integer.valueOf(android.os.Build.VERSION.SDK) < android.os.Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
