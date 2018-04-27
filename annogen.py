@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.633 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.634 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1490,7 +1490,8 @@ android_src += r"""
         }
     }
     boolean nextBackHides = false;
-    @Override public void onPause() { super.onPause(); nextBackHides = false; }
+    @Override public void onPause() { super.onPause(); browser.onPause(); nextBackHides = false; }
+    @Override public void onResume() { super.onResume(); browser.onResume(); }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
