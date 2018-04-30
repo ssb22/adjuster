@@ -557,7 +557,7 @@ def initLogging(): # MUST be after unixfork() if background
     CrossProcessLogging.init()
 
 def preprocessOptions():
-    if hasattr(signal,"SIGUSR1"):
+    if hasattr(signal,"SIGUSR1") and not wsgi_mode:
         signal.signal(signal.SIGUSR1, toggleLogDebug)
         if hasattr(signal,"SIGUSR2"):
             signal.signal(signal.SIGUSR2, requestStatusDump)
@@ -1635,7 +1635,7 @@ def httpfetch(url,**kwargs):
         r = None
         try: resp = urllib2.urlopen(req,timeout=60)
         except urllib2.HTTPError, e: resp = e
-        except Exception, e: resp = r = wrapResponse(e) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
+        except Exception, e: resp = r = wrapResponse(str(e)) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
         if r==None: r = wrapResponse(resp.read(),resp.info(),resp.getcode())
     callback(r)
 def wrapResponse(body,info={},code=500):
