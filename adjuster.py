@@ -5219,7 +5219,7 @@ def check_injected_globals():
     except: return
     for s in set(globals().keys()).difference(defined_globals):
         if s in options: errExit("Error: adjuster.%s should be adjuster.options.%s" % (s,s)) # (tell them off, don't try to patch up: this could go more subtly wrong if they do it again with something we happened to have defined in our module before)
-        elif type(eval(s)) in [str,bool,int]: errExit("Don't understand injected %s %s (mis-spelled option?)" % (repr(type(eval(s))),s))
+        elif type(eval(s)) in [str,bool,int]: errExit("Don't understand injected %s %s (misspelled option?)" % (repr(type(eval(s))),s))
 
 if __name__ == "__main__": main()
 else:
