@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2657 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2658 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -471,11 +471,11 @@ def parse_command_line(final):
     else:
         rest=tornado.options.parse_command_line(final=final)
     if rest: errExit("Unrecognised command-line argument '%s'" % rest[0]) # maybe they missed a '--' at the start of an option: don't want result to be ignored without anyone noticing
-def parse_config_file(cfg, final):
+def parse_config_file(cfg):
     check_config_file(cfg)
     if not tornado.options.parse_config_file.func_defaults: # Tornado 2.x
         tornado.options.parse_config_file(cfg)
-    else: tornado.options.parse_config_file(cfg,final=final)
+    else: tornado.options.parse_config_file(cfg,final=False)
 def check_config_file(cfg):
     # (why doesn't Tornado do this by default?  catch
     # capitalisation and spelling errors etc)
@@ -490,19 +490,22 @@ def check_config_file(cfg):
 
 def readOptions():
     # Reads options from command line and/or config files
-    parse_command_line(False)
-    configsDone = set()
-    if not options.config: options.config=os.environ.get("ADJUSTER_CFG","") # must do HERE rather than setting default= above, or options.config=None below might not work
+    parse_command_line(final=False)
+    configsDone = [] ; cDir = []
+    if not options.config: options.config=os.environ.get("ADJUSTER_CFG","") # must do HERE rather than setting default= in the define() call, or options.config=None below might not work
     while options.config and (options.config,os.getcwd()) not in configsDone:
-        # sys.stderr.write("Reading config from "+options.config+"\n")
-        config = options.config ; options.config=None # allow it to be overridden on the next file
+        config = options.config ; options.config=None
         oldDir = os.getcwd()
         config2 = changeConfigDirectory(config)
         try: open(config2)
         except: errExit("Cannot open configuration file %s (current directory is %s)" % (config2,os.getcwd()))
-        parse_config_file(config2,False)
-        configsDone.add((config,oldDir))
-    parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files)
+        parse_config_file(config2)
+        configsDone.append((config,oldDir))
+        cDir.append(os.getcwd())
+    configsDone.reverse() # we want config= within a config file to mean the outermost config overrides anything set in the innermost config, so read them in reverse order:
+    for (config,_),cd in zip(configsDone,cDir):
+        os.chdir(cd) ; parse_config_file(config)
+    parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files) + ensure command-line options override config files
 
 class CrossProcessLogging(logging.Handler):
     def needed(self): return (options.multicore or options.ssl_fork or (options.js_interpreter and options.js_multiprocess)) and options.log_file_prefix # (not needed if stderr-only or if won't fork)
@@ -2017,10 +2020,10 @@ def get_new_HeadlessFirefox(index,renewing):
     # TODO: do any other options need to be set?  disable plugins, Firefox-update prompts, new windows/tabs with JS, etc?  or does Selenium do that?
     if options.logDebug: binary=FirefoxBinary(log_file=sys.stderr) # TODO: support logDebug to a file as well
     else: binary=FirefoxBinary()
-    binary.add_command_line_options('-headless')
-    binary.add_command_line_options('-no-remote')
-    if "x" in options.js_size: binary.add_command_line_options("-width",options.js_size.split("x")[0],"-height",options.js_size.split("x")[1])
-    elif options.js_size: binary.add_command_line_options("-width",options.js_size)
+    cmdL = ('-headless','-no-remote')
+    if "x" in options.js_size: cmdL += ("-width",options.js_size.split("x")[0],"-height",options.js_size.split("x")[1])
+    elif options.js_size: cmdL += ("-width",options.js_size)
+    binary.add_command_line_options(*cmdL) # cannot call this more than once
     if caps: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps)
     else: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary)
     try: p.set_page_load_timeout(options.js_timeout1)
