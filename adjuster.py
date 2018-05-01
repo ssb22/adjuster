@@ -1799,7 +1799,7 @@ class WebdriverRunner:
               break
           except SeriousTimeoutException: # already logged
               self.renew_controller()
-          except Exception,e: logging.error("Exception "+repr(e)+" while renewing webdriver, retrying")
+          except: logging.error("Exception "+exc_logStr()+" while renewing webdriver, retrying")
         self.usageCount = 0 ; self.maybe_stuck = False
     def renew_webdriver_newThread(self,firstTime=False):
         self.wd_threadStart = time.time() # cleared in _renew_wd after renew_webdriver_sameThread returns (it loops on exception)
@@ -2042,6 +2042,13 @@ def wd_instantiateLoop(wdClass,index,renewing,**kw):
     while True:
         try:
             p = wdClass(**kw)
+            if not p.capabilities: raise Exception("Didn't seem to get a p.capabilities")
+            elif 'browserVersion' in p.capabilities:
+                # Selenium 2.x calls it version, but Selenium
+                # 3.x calls it browserVersion.  Map this back
+                # to 'version' for our other code.
+                p.capabilities['version'] = p.capabilities['browserVersion']
+            elif not 'version' in p.capabilities: raise Exception("capabilities has no version: "+repr(p.capabilities.items()))
             p.capabilities['version'] # make sure it exists (if get TypeError here, probably p.capabilities == None (has been observed with webdriver.Chrome); if get KeyError, somehow got capabilities w/out 'version')
         except:
             if index==0 and not renewing: raise
