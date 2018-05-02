@@ -2049,7 +2049,6 @@ def wd_instantiateLoop(wdClass,index,renewing,**kw):
                 # to 'version' for our other code.
                 p.capabilities['version'] = p.capabilities['browserVersion']
             elif not 'version' in p.capabilities: raise Exception("capabilities has no version: "+repr(p.capabilities.items()))
-            p.capabilities['version'] # make sure it exists (if get TypeError here, probably p.capabilities == None (has been observed with webdriver.Chrome); if get KeyError, somehow got capabilities w/out 'version')
         except:
             if index==0 and not renewing: raise
             logging.error("Unhandled exception "+exc_logStr()+" when instantiating webdriver %d, retrying in 2sec" % index)
