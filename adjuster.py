@@ -1383,7 +1383,6 @@ def run_lsof():
                 # sys.stderr.write("stopOther: Can't make sense of lsof output %s\n" % repr(line))
                 return False # lsof not working, use something else
             break
-        pids.add(pid)
     return pids
 def run_netstat():
     if not 'linux' in sys.platform or not commands.getoutput("which netstat 2>/dev/null"): return False
