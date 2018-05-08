@@ -3647,7 +3647,8 @@ rmHjGlInkZKbj3jEsGSxU4oKRDBM5syJgm1XYi5vPRNOUu4CXUGJAXhzJtd9teqB
 8FHasZQjl5aqS0j2vPREQl6fnw4i9/sOBvgZLgw03XZXtXr6Ow==
 -----END CERTIFICATE-----
 """)
-        kept_tempfiles[the_duff_certfile] = the_duff_certfile # so can clean up on exit
+        # DON'T add the_duff_certfile to kept_tempfiles for clean up on exit.
+        # If you do, there is a race condition when adjuster is restarting.
         return the_duff_certfile
 
 def MakeRequestForwarder(useSSL,connectPort,isPJS=False,start=0,index=0):
