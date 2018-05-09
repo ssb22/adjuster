@@ -1368,6 +1368,7 @@ def tryStop(pid,alsoRemovePidfile=False):
         sys.stderr.write("Stopped %s process at PID %d\n" % (other,pid))
     except: sys.stderr.write("Failed to stop %s process at PID %d\n" % (other,pid))
 def run_lsof():
+    # TODO: check ssl-fork ports as well as main port ? (also in run_netstat)
     out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # >/dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
     if out.startswith("lsof: unsupported"):
         # lsof 4.81 has -sTCP:LISTEN but lsof 4.78 does not.  However, not including -sTCP:LISTEN can cause lsof to make unnecessary hostname queries for established connections.  So fall back only if have to.
@@ -1941,6 +1942,7 @@ def get_new_HeadlessChrome(index,renewing):
     log_complaints = (index==0 and not renewing)
     from selenium.webdriver.chrome.options import Options
     opts = Options() ; dc = None
+    # TODO: can set opts.binary_location if needed (e.g. for chromium, if distro's linking doesn't work)
     opts.add_argument("--headless")
     opts.add_argument("--disable-gpu")
     # Specify user-data-dir ourselves, further to Chromium bug 795 comment 12.  Include username and port (in case others are running or have run adjuster) as well as index.
