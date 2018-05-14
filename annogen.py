@@ -1558,7 +1558,8 @@ public byte nB() {
 }
 public boolean n(String s) {
   // for Yarowsky-like matching (use Strings rather than byte arrays or Java compiler can get overloaded)
-  byte[] bytes=s2b(s);
+  return n(s2b(s));
+public boolean n(byte[] bytes) {
   int offset=inPtr, maxPos=inPtr+nearbytes;
   if (maxPos > inBytes.length) maxPos = inBytes.length;
   maxPos -= bytes.length;
@@ -1574,7 +1575,8 @@ public boolean n(String s) {
   return false;
 }
 public void o(byte c) { outBuf.add(c); }
-public void o(String s) { byte[] b=s2b(s); for(int i=0; i<b.length; i++) outBuf.add(b[i]); } // TODO: is there a more efficient way to do it than this?
+public void o(byte[] a) { for(int i=0; i<a.length; i++) outBuf.add(a[i]); } // TODO: is there a more efficient way to do it than this?
+public void o(String s) { o(s2b(s)); }
 public void s() {
   if (needSpace) o((byte)' ');
   else needSpace=true;
