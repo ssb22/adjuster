@@ -573,6 +573,7 @@ def preprocessOptions():
     if options.render:
         try: import PIL
         except ImportError: errExit("render requires PIL")
+    global tornado
     if options.js_interpreter:
       global webdriver
       try: from selenium import webdriver
@@ -582,6 +583,7 @@ def preprocessOptions():
         try: import multiprocessing # Python 2.6
         except ImportError: # can't do it then
             options.js_multiprocess = False
+      if int(tornado.version.split('.')[0]) > 4: errExit("js_interpreter not yet working on Tornado versions above 4.\nTornado "+tornado.version+" detected.\nPlease downgrade to 4.x, e.g.: pip install tornado==4.5.3 --upgrade")
     elif options.js_upstream: errExit("js_upstream requires a js_interpreter to be set")
     if options.js_timeout2 <= options.js_timeout1: errExit("js_timeout2 must be greater than js_timeout1")
     assert not (options.js_upstream and set_window_onerror), "Must have set_window_onerror==False when using options.js_upstream"
@@ -1236,7 +1238,8 @@ def pauseOrRestartMainServer(shouldRun=1):
             if shouldRun: s.add_sockets(s._sockets.values())
             else:
                 for fd, sock in s._sockets.items():
-                    s.io_loop.remove_handler(fd)
+                    if hasattr(s,"io_loop"): s.io_loop.remove_handler(fd) # Tornado 4
+                    else: IOLoop.instance().remove_handler(fd) # Tornado 5, not tested (TODO)
     mainServerPaused = not mainServerPaused
     debuglog("Paused=%s on core %s" % (repr(mainServerPaused),repr(coreNo)))
 
@@ -1928,9 +1931,9 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         debuglog("got about:blank instead of "+url)
         return wrapResponse("webdriver failed to load") # rather than an actual redirect to about:blank, which breaks some versions of Lynx
     debuglog("Getting data from webdriver %d (current_url=%s)" % (manager.index,currentUrl))
-    if not re.sub('#.*','',currentUrl) == url and not asScreenshot: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
-        return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % manager.current_url().replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+manager.current_url()),302)
     if asScreenshot: return wrapResponse(manager.getpng(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
+    elif not re.sub('#.*','',currentUrl) == url: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
+        return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % manager.current_url().replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+manager.current_url()),302)
     else: return wrapResponse(get_and_remove_httpequiv_charset(manager.getu8())[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
 def get_new_webdriver(index,renewing=False):
     if options.js_interpreter == "HeadlessChrome":
