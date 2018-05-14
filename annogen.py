@@ -3585,7 +3585,7 @@ include $(BUILD_SHARED_LIBRARY)
     elif not java: outfile.write(c_end)
     outfile.write("\n")
     del byteSeq_to_action_dict
-    if no_summary: return
+    if no_summary or not rulesAndConds: return
     if reannotator:
         outfile.write("\n/* Tab-delimited rules summary not yet implemented with reannotator option */\n")
         return
