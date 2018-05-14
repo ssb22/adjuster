@@ -404,7 +404,7 @@ if java or javascript or python or c_sharp or golang:
         c_filename = jSrc+"/../jni/annotator.c"
         if main: os.system("mkdir -p "+shell_escape(c_filename[:c_filename.rindex('/')]))
       else: c_filename = java+os.sep+"Annotator.java"
-      if main:
+      if main and android:
         os.system("rm -rf "+shell_escape(jSrc+"/../bin")) # needed to get rid of old *.class files that might be no longer used
         for d in ["assets","bin","gen","res/layout","res/menu","res/values"]: os.system("mkdir -p "+shell_escape(jSrc+"/../"+d))
     elif c_filename.endswith(".c"):
