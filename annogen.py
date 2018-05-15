@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.634 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.635 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1559,6 +1559,7 @@ public byte nB() {
 public boolean n(String s) {
   // for Yarowsky-like matching (use Strings rather than byte arrays or Java compiler can get overloaded)
   return n(s2b(s));
+}
 public boolean n(byte[] bytes) {
   int offset=inPtr, maxPos=inPtr+nearbytes;
   if (maxPos > inBytes.length) maxPos = inBytes.length;
@@ -3762,7 +3763,7 @@ if main and not compile_only:
  outfile.close() ; sys.stderr.write("Done\n")
 if main:
  if android:
-   if all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS","KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]):
+   if all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS"]):
      os.chdir(jSrc+"/..")
      if ndk:
        if "NDK" in os.environ:
@@ -3783,10 +3784,11 @@ if main:
      if ndk: a,b = "rsync -trv ../libs/"+armabi+" lib/ && "," lib/"+armabi+"/*.so"
      else: a,b = "",""
      cmd_or_exit("cd bin && "+a+"$BUILD_TOOLS/aapt add "+dirName+".ap_ classes.dex"+b)
-     cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore ../keystore -storepass $KEYSTORE_PASS -keypass $KEYSTORE_PASS -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ $KEYSTORE_USER -tsa http://timestamp.digicert.com") # TODO: -tsa option requires an Internet connection; option to omit it if the key expiry date is far enough in the future?
-     rm_f("../"+dirName0+".apk")
-     cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
-     cmd_or_exit("rm bin/*ap_ bin/*apk")
+     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore $KEYSTORE_FILE -storepass $KEYSTORE_PASS -keypass $KEYSTORE_PASS -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ $KEYSTORE_USER -tsa http://timestamp.digicert.com") # TODO: -tsa option requires an Internet connection; option to omit it if the key expiry date is far enough in the future?
+     else: cmd_or_exit("mv bin/"+dirName+".ap_ bin/"+dirName+".apk") # just use the .ap_ if debug build
+     rm_f("../"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
+     rm_f("bin/"+dirName0+".ap_")
+     rm_f("bin/"+dirName0+".apk")
      cmd_or_exit("du -h ../"+dirName+".apk")
    else: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
 (You might need to change targetSdkVersion in AndroidManifest.xml if
@@ -3800,6 +3802,7 @@ before the Annogen run (change the examples obviously) :
    export KEYSTORE_FILE=/path/to/keystore
    export KEYSTORE_USER='your user name'
    export KEYSTORE_PASS='your password'
+   # (if the KEYSTORE variables are unset, you'll get a 'debug' build)
 
 You may also wish to create some icons in res/drawable*
    (using Android Studio or the earlier ADT tools)
