@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.635 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.64 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -165,7 +165,7 @@ cancelOpt("newlines-reset","store_true","ignoreNewlines")
 
 parser.add_option("-z","--compress",
                   action="store_true",default=False,
-                  help="Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but that might help if memory is short; see also --data-driven.")
+                  help="Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but might help if RAM is short; see also --data-driven.")
 cancelOpt("compress")
 
 parser.add_option("--ios",
@@ -177,7 +177,7 @@ parser.add_option("-D","--data-driven",
 cancelOpt("data-driven")
 parser.add_option("-F","--fast-assemble",
                   action="store_true",default=False,
-                  help="Skip opcode compaction when using data-driven (speeds up compilation at the expense of larger code size)")
+                  help="Skip opcode compaction when using data-driven (slightly speeds up compilation, at the expense of larger code size)") # TODO: consider removing this option now it's no longer very slow anyway
 cancelOpt("fast-assemble")
 
 parser.add_option("-Z","--zlib",
@@ -201,7 +201,7 @@ parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
 parser.add_option("--ndk",
                   action="store_true",default=False,
-                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is a more complex setup than a Java-based annotator, and restricts which Android versions can be compiled on newer toolsets (see --ndk-pre-* options), but it reduces storage requirements when combined with --data-driven and --zlib") # and theoretically improves speed, although I'm not sure how noticeable that'll be compared to browser rendering time on large pages. TODO: java data-driven with zlib would be nice (may need to load the data from a file and use java.util.zip.Inflater; will need to load from file anyway if still want to save space after August 2019 when Play Store makes it compulsory to compile for arm64-v8a too, unless upload multiple APKs)
+                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is a more complex setup than a Java-based annotator, and restricts which Android versions can be compiled on newer toolsets (see --ndk-pre-* options); the speed bonus is increasingly negligible.")
 cancelOpt("ndk")
 parser.add_option("--ndk-pre-2017",
                   action="store_true",default=False,
@@ -426,9 +426,11 @@ if zlib:
   if javascript: errExit("--zlib is not yet implemented in Javascript") # C or Python for now
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
-if data_driven and (c_sharp or java or golang) and not ndk: errExit("--data-driven and --zlib are not yet implemented in C#, Go, or Java (except with --ndk)")
+if data_driven:
+  if c_sharp or golang: errExit("--data-driven and --zlib are not yet implemented in C# or Go")
+  elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java?
 elif javascript or python: data_driven = True
-compact_opcodes = data_driven and not fast_assemble and not python # currently implemented only in the C and Javascript versions of the data-driven runtime
+compact_opcodes = data_driven and not fast_assemble and not python # currently implemented only in the C, Java and Javascript versions of the data-driven runtime
 if java or javascript or python or c_sharp or ios or ndk or golang:
   c_compiler = None
 try:
@@ -1253,6 +1255,7 @@ if ndk:
     static synchronized native String jniAnnotate(String in,int annotNo);"""
   else: android_src += r"""
     static synchronized native String jniAnnotate(String in);"""
+else: android_src += "%%JPACKAGE%%.Annotator annotator;"
 android_src += r"""
     @SuppressLint("SetJavaScriptEnabled")
     @android.annotation.TargetApi(19) // 19 for setWebContentsDebuggingEnabled; 7 for setAppCachePath; 3 for setBuiltInZoomControls (but only API 1 is required)
@@ -1289,10 +1292,12 @@ if sharp_multi: android_src += r"""
             @android.webkit.JavascriptInterface public void setAnnotNo(int no) { annotNo = no; }
             @android.webkit.JavascriptInterface public int getAnnotNo() { return annotNo; }"""
 android_src += r"""
-            @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) { String r="""
+            @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) """
+if data_driven: android_src += "throws java.util.zip.DataFormatException "
+android_src += "{ String r="
 if ndk and sharp_multi: android_src += 'jniAnnotate(t,annotNo)'
 elif ndk: android_src += 'jniAnnotate(t)'
-else: android_src += 'new %%JPACKAGE%%.Annotator(t).result()'
+else: android_src += 'annotator.annotate(t)'
 if sharp_multi and not ndk: android_src += r""";
                 java.util.regex.Pattern p=java.util.regex.Pattern.compile("<rt>([^#]*)#(.*?)</rt>");
                 java.util.regex.Matcher m = p.matcher(r);
@@ -1434,8 +1439,11 @@ if bookmarks: android_src += r"""
                 try { s = createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==jPackage)+r"""
                 return s+getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
             }""" # and even if not bookmarks:
+android_src += "\n}\n"
+if not ndk:
+  if data_driven: android_src += "try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { android.widget.Toast.makeText(this, \"Cannot load annotator data!\", android.widget.Toast.LENGTH_LONG).show(); }" # TODO: should we keep one of these static and synchronized, in case some version of Android gives us multiple instances and we start taking up more RAM than necessary?
+  else: android_src += "annotator=new %%JPACKAGE%%.Annotator();"
 android_src += r"""
-        }
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         browser.setWebViewClient(new WebViewClient() {
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }
@@ -1544,12 +1552,11 @@ if (newClip && newClip != curClip) {
 </body></html>"""
 java_src = r"""package %%JPACKAGE%%;
 public class Annotator {
-// use: new Annotator(txt).result()
-public Annotator(String txt) {  nearbytes=%%YBYTES%%; inBytes=s2b(txt); inPtr=0; writePtr=0; needSpace=false; outBuf=new java.util.ArrayList<Byte>(); }
+public Annotator() { %%JDATA%% }
 int nearbytes;
 byte[] inBytes;
 public int inPtr,writePtr; boolean needSpace;
-java.util.List<Byte> outBuf; // TODO improve efficiency (although hopefully this annotator is called for only small strings at a time)
+java.io.ByteArrayOutputStream outBuf;
 public void sn(int n) { nearbytes = n; }
 static final byte EOF = (byte)0; // TODO: a bit hacky
 public byte nB() {
@@ -1575,8 +1582,8 @@ public boolean n(byte[] bytes) {
   }
   return false;
 }
-public void o(byte c) { outBuf.add(c); }
-public void o(byte[] a) { for(int i=0; i<a.length; i++) outBuf.add(a[i]); } // TODO: is there a more efficient way to do it than this?
+public void o(byte c) { outBuf.write(c); }
+public void o(byte[] a) { outBuf.write(a,0,a.length); }
 public void o(String s) { o(s2b(s)); }
 public void s() {
   if (needSpace) o((byte)' ');
@@ -1606,19 +1613,115 @@ byte[] s2b(String s) {
     // should never happen for UTF-8
     return null;
   }
-}
-public String result() {
+}"""
+if data_driven: java_src += r"""
+    byte[] data; int addrLen, dPtr;
+    int readAddr() {
+        int i,addr=0;
+        for (i=addrLen; i!=0; i--) addr=(addr << 8) | (int)(data[dPtr++]&0xFF); // &0xFF converts to unsigned
+        return addr;
+    }
+    byte[] readRefStr() {
+        int a = readAddr(); int l = data[a] & 0xFF;
+        if (l != 0) return java.util.Arrays.copyOfRange(data, a+1, a+l+1);
+        else {
+            int m = a+1; while(data[m]!=0) m++;
+            return java.util.Arrays.copyOfRange(data,a+1,m);
+        }
+    }
+    int switchByte_inner(int nBytes) {
+        if (inPtr < inBytes.length) {
+            byte b=nB();
+            int dP=dPtr, end = dPtr+nBytes;
+            while(dP < end) {
+                if(b==data[dP]) return dP-dPtr;
+                dP++;
+            }
+        }
+        return nBytes;
+    }
+    void readData() throws java.util.zip.DataFormatException{
+        java.util.LinkedList<Integer> sPos=new java.util.LinkedList<Integer>();
+        int c;
+        while(true) {
+            c = data[dPtr++] & 0xFF;
+            if ((c & 0x80)!=0) dPtr += (c&0x7F);
+            else if (c < 20) {
+                int i = switchByte_inner(++c);
+                if(i!=0) dPtr += (int)(data[dPtr+c+i-1]&0xFF);
+                dPtr += c+c;
+            } else switch(c) {
+                case 50: dPtr = readAddr(); break;
+                case 51: {
+                    int f = readAddr(), dO=dPtr;
+                    dPtr = f; readData() ; dPtr = dO;
+                    break; }
+                case 52: return;
+                case 60: {
+                    int nBytes = (int)(data[dPtr++]&0xFF) + 1;
+                    int i = switchByte_inner(nBytes);
+                    dPtr += (nBytes + i * addrLen);
+                    dPtr = readAddr(); break; }
+                case 71: {
+                    int numBytes = data[dPtr++] & 0xFF;
+                    while((numBytes--)!=0) o(inBytes[writePtr++]);
+                    break; }
+            case 72: {
+                    int numBytes = data[dPtr++] & 0xFF;
+                    byte[] annot = readRefStr();
+                    s();
+                    o("<ruby><rb>");
+                    while((numBytes--)!=0) o(inBytes[writePtr++]);
+                    o("</rb><rt>"); o(annot);
+                    o("</rt></ruby>"); break; }
+                case 73: {
+                    int numBytes = data[dPtr++] & 0xFF;
+                    byte[] annot = readRefStr();
+                    byte[] title = readRefStr();
+                    s();
+                    o("<ruby title=\""); o(title);
+                    o("\"><rb>");
+                    while((numBytes--)!=0) o(inBytes[writePtr++]);
+                    o("</rb><rt>"); o(annot);
+                    o("</rt></ruby>"); break; }
+                case 80: sPos.addFirst(inPtr); break;
+                case 81: inPtr=sPos.removeFirst(); break;
+                case 90: {
+                    int tPtr = readAddr();
+                    int fPtr = readAddr();
+                    sn(data[dPtr++] & 0xFF);
+                    boolean found = false;
+                    while (dPtr < tPtr && dPtr < fPtr) if (n(readRefStr())) { found = true; break; }
+                    dPtr = found ? tPtr : fPtr; break; }
+                default: throw new java.util.zip.DataFormatException("corrupt data table");
+                }
+        }
+    }
+"""
+java_src += r"""
+public String annotate(String txt) {
+  nearbytes=%%YBYTES%%;inBytes=s2b(txt);writePtr=0;needSpace=false;outBuf=new java.io.ByteArrayOutputStream();inPtr=0;
   while(inPtr < inBytes.length) {
-    int oldPos=inPtr;
-    %%JPACKAGE%%.topLevelMatch.f(this);
+    int oldPos=inPtr; """
+if data_driven: java_src = java_src.replace("annotate(String txt)","annotate(String txt) throws java.util.zip.DataFormatException")+"dPtr=1; readData();"
+else: java_src += "%%JPACKAGE%%.topLevelMatch.f(this);"
+java_src += r"""
     if (oldPos==inPtr) { needSpace=false; o(nB()); writePtr++; }
   }
-  byte[] b=new byte[outBuf.size()];
-  for(int i=0; i<b.length; i++) b[i]=outBuf.get(i); // TODO: is this as efficient as we can get??
-  try { return new String(b, "UTF-8"); } catch(java.io.UnsupportedEncodingException e) { return null; }
+  String ret=null; try { ret=new String(outBuf.toByteArray(), "UTF-8"); } catch(java.io.UnsupportedEncodingException e) {}
+  inBytes=null; outBuf=null; return ret;
 }
 }
 """
+android_loadData = r"""data=new byte[%%DLEN%%];
+context.getAssets().open("annotate.dat").read(data);"""
+if zlib: android_loadData += r"""
+java.util.zip.Inflater i=new java.util.zip.Inflater();
+i.setInput(data);
+byte[] decompressed=new byte[%%ULEN%%];
+i.inflate(decompressed); i.end(); data = decompressed;
+"""
+android_loadData += "addrLen = data[0] & 0xFF;"
 
 if os.environ.get("ANNOGEN_CSHARP_NO_MAIN",""):
   cSharp_mainNote = ""
@@ -2027,7 +2130,7 @@ class BytecodeAssembler:
       self.l.append(-labelNo)
   def addRefToString(self,string):
     assert type(string)==str
-    if python or javascript:
+    if python or java or javascript:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
       if 1 <= len(string) < 256:
@@ -2081,13 +2184,14 @@ class BytecodeAssembler:
               # return the number of bytes between the end of the new instruction and the label.  Since bytesFromEnd includes origOperandsLen, we need to subtract that out, which would then leave bytes from end of code to end of new instruction (no matter what the length of the new instruction will be)
               if not -lRef in lDic: return -1
               return bytesFromEnd-origOperandsLen-lDic[-lRef]
+            counts_to_del = set()
             for count in xrange(len(src)-1,-1,-1):
                 i = src[count]
                 if type(i)==tuple and type(i[0])==str:
                     opcode = i[0] ; i = "-"
                     if opcode=='jump' and 0 <= LGet(src[count+1],addrSize) < 0x80: # we can use a 1-byte relative forward jump (up to 128 bytes), useful for 'break;' in a small switch
                       src[count] = i = chr(0x80 | (LGet(src[count+1],addrSize))) # new instr: 0x80|offset
-                      del src[count+1] # zap the label
+                      counts_to_del.add(count+1) # zap the label
                       compacted += addrSize # as we're having a single byte instead of byte + address
                       bytesFromEnd -= addrSize
                       compaction_types.add(opcode)
@@ -2098,7 +2202,7 @@ class BytecodeAssembler:
                        origOperandsLen = 1+numItems+numLabels*addrSize # number + N bytes + the labels
                        if LGet(src[count+3],origOperandsLen)==0 and all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF for N in xrange(4,3+numLabels)):
                         src[count] = i = src[count+1]+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset is 0 so not listed)
-                        del src[count+1:count+3+numLabels]
+                        for ctd in xrange(count+1,count+3+numLabels): counts_to_del.add(ctd)
                         newOperandsLen = numItems*2 # for each byte, the byte itself and an offset, + 1 more offset as default, - 1 because first is not given
                         compacted += origOperandsLen-newOperandsLen
                         bytesFromEnd -= origOperandsLen # will add new opCode + operands below
@@ -2112,6 +2216,7 @@ class BytecodeAssembler:
                         if bytesFromEnd >> (8*addrSize+1): raise TooNarrow() # fair assumption (but do this every label, not every instruction)
                     else: i = "-"*addrSize # a reference
                 bytesFromEnd += len(i)
+            src=[s for s,i in zip(src,xrange(len(src))) if not i in counts_to_del] # batched up because del is O(n)
           # End of compact_opcodes
           lDic = {} # label dictionary: labelNo -> address
           for P in [1,2]:
@@ -3417,7 +3522,7 @@ def matchingAction(rule,glossDic,glossMiss,whitelist):
       annotation_bytes = outLang_escape(annotation_unistr)
       if gloss: gloss_bytes = outLang_escape(gloss)
       else: gloss_bytes = None
-    if java: adot = "a."
+    if java: adot = "a." # not used if data_driven
     else: adot = ""
     bytesToCopy = c_length(text_unistr)
     if gloss:
@@ -3515,35 +3620,39 @@ def outputParser(rulesAndConds):
     longest_rule_len = max(len(b) for b in byteSeq_to_action_dict.iterkeys())
     longest_rule_len += ybytes_max # because buffer len is 2*longest_rule_len, we shift half of it when (readPtr-bufStart +ybytes >= bufLen) and we don't want this shift to happen when writePtr-bufStart = Half_Bufsize-1 and readPtr = writePtr + Half_Bufsize-1 (TODO: could we get away with max(0,ybytes_max-1) instead? but check how this interacts with the line below; things should be safe as they are now).  This line's correction was missing in Annogen v0.599 and below, which could therefore occasionally emit code that, when running from stdin, occasionally replaced one of the document's bytes with an undefined byte (usually 0) while emitting correct annotation for the original byte.  (This could result in bad UTF-8 that crashed the bookmarklet feature of Web Adjuster v0.21 and below.)
     longest_rule_len = max(ybytes_max*2, longest_rule_len) # make sure the half-bufsize is at least ybytes_max*2, so that a read-ahead when pos is ybytes_max from the end, resulting in a shift back to the 1st half of the buffer, will still leave ybytes_max from the beginning, so yar() can look ybytes_max-wide in both directions
-    if javascript:
-      outfile.write(js_start)
+    if data_driven:
       b = BytecodeAssembler()
       b.addActionDictSwitch(byteSeq_to_action_dict,False)
-      outfile.write("data: \""+js_escapeRawBytes(b.link())+"\",\n")
-      del b ; outfile.write(js_end+"\n")
-      return # skip all of below (including no_summary etc)
-    if python:
-      outfile.write(py_start+"\n")
-      b = BytecodeAssembler()
-      b.addActionDictSwitch(byteSeq_to_action_dict,False)
-      outfile.write("data="+repr(b.link())+"\n") ; del b
+      ddrivn = b.link()
+      if zlib: origLen = b.origLen
+      del b
+    else: ddrivn = None
+    if javascript: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n")
+    elif python:
+      outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
       if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
-      outfile.write(py_end+"\n")
-      return
-    if java and not ndk: start = java_src.replace("%%JPACKAGE%%",jPackage)
+      return outfile.write(py_end+"\n")
+    elif java and not ndk:
+      start = java_src.replace("%%JPACKAGE%%",jPackage)
+      if data_driven:
+        a = android_loadData.replace("%%DLEN%%",str(len(ddrivn)))
+        if zlib: a = a.replace("%%ULEN%%",str(origLen))
+        start = start.replace("() { %%JDATA%% }","(android.content.Context context) throws java.io.IOException { "+a+" }") # Annotator c'tor needs a context argument if it's data-driven, to load annotate.dat
+        if zlib: start = start.replace("context) throws java.io.IOException {","context) throws java.io.IOException,java.util.zip.DataFormatException {")
+      else: start = start.replace("%%JDATA%%","")
     elif c_sharp: start = cSharp_start
     elif golang: start = golang_start
     else: start = c_start
     outfile.write(start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max)).replace("%%PAIRS%%",pairs)+"\n")
     if data_driven:
-      b = BytecodeAssembler()
-      b.addActionDictSwitch(byteSeq_to_action_dict,False)
-      ddrivn = b.link()
-      if zlib: data = "origData"
-      else: data = "data"
-      outfile.write("static unsigned char "+data+"[]=\""+c_escapeRawBytes(ddrivn)+'\";\n')
-      if zlib: outfile.write(c_zlib.replace('%%ORIGLEN%%',str(b.origLen)).replace('%%ZLIBLEN%%',str(len(ddrivn)))+"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
-      del b,ddrivn ; outfile.write(c_datadrive+"\n")
+      if zlib: dataName = "origData"
+      else: dataName = "data"
+      if java: open(jSrc+"/../assets/annotate.dat","wb").write(ddrivn)
+      else:
+        outfile.write("static unsigned char "+dataName+"[]=\""+c_escapeRawBytes(ddrivn)+'\";\n')
+        if zlib: outfile.write(c_zlib.replace('%%ORIGLEN%%',str(origLen)).replace('%%ZLIBLEN%%',str(len(ddrivn)))+"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
+        outfile.write(c_datadrive+"\n")
+      del ddrivn
     else: # not data_driven
       subFuncL = []
       ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
@@ -3784,7 +3893,7 @@ if main:
      if ndk: a,b = "rsync -trv ../libs/"+armabi+" lib/ && "," lib/"+armabi+"/*.so"
      else: a,b = "",""
      cmd_or_exit("cd bin && "+a+"$BUILD_TOOLS/aapt add "+dirName+".ap_ classes.dex"+b)
-     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore $KEYSTORE_FILE -storepass $KEYSTORE_PASS -keypass $KEYSTORE_PASS -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ $KEYSTORE_USER -tsa http://timestamp.digicert.com") # TODO: -tsa option requires an Internet connection; option to omit it if the key expiry date is far enough in the future?
+     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore \"$KEYSTORE_FILE\" -storepass \"$KEYSTORE_PASS\" -keypass \"$KEYSTORE_PASS\" -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ \"$KEYSTORE_USER\" -tsa http://timestamp.digicert.com") # TODO: -tsa option requires an Internet connection; option to omit it if the key expiry date is far enough in the future?
      else: cmd_or_exit("mv bin/"+dirName+".ap_ bin/"+dirName+".apk") # just use the .ap_ if debug build
      rm_f("../"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
      rm_f("bin/"+dirName0+".ap_")
