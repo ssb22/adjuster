@@ -201,15 +201,15 @@ parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
 parser.add_option("--ndk",
                   action="store_true",default=False,
-                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is a more complex setup than a Java-based annotator, and restricts which Android versions can be compiled on newer toolsets (see --ndk-pre-* options); the speed bonus is increasingly negligible.")
+                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, and restricts which Android versions can be compiled on newer toolsets (see --ndk-pre-* options); the speed bonus is increasingly negligible now that --data-driven and --zlib are also available in the Java version.")
 cancelOpt("ndk")
 parser.add_option("--ndk-pre-2017",
                   action="store_true",default=False,
-                  help="Assume your NDK-building tools are older than the July 2017 release (r15c) and therefore support Android versions below 4.0") # (API 14)
+                  help="Assume your NDK-building tools are older than the July 2017 release (r15c) and therefore support Android versions below 4.0.  Since apps compiled with old SDKs won't be able to meet the new target-API requirements that \"Play Store\" introduces in late 2018, it will no longer be permitted to upload an NDK app with pre-4.0 support to the Store. Along with 2019's insistance on adding 64-bit versions, this makes backward-compatible NDK deployment a lot more trouble than it used to be, so I now recommend using --data-driven and --zlib with Java instead.") # (Android 4.0 = API 14)
 cancelOpt("ndk-pre-2017")
 parser.add_option("--ndk-pre-2016",
                   action="store_true",default=False,
-                  help="Assume your NDK-building tools are older than the June 2016 release (r12) and therefore support Android versions below 2.3") # (API 9)
+                  help="Assume your NDK-building tools are older than the June 2016 release (r12) and therefore support Android versions below 2.3. The caveats about --ndk-pre-2017 also apply to this option.") # (Android 2.3 = API 9)
 cancelOpt("ndk-pre-2016")
 
 parser.add_option("--bookmarks",
@@ -390,7 +390,9 @@ if java or javascript or python or c_sharp or golang:
     if sum(1 for x in [java,javascript,python,c_sharp,golang] if x) > 1:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
     if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript, Python, C# or Go")
-    if compress and not ndk: errExit("compress not yet implemented for the Java, Javascript, Python, C# or Go versions (except in Android with --ndk)") # (and it would probably slow down JS/Python too much if it were implemented in that)
+    if compress and not ndk:
+      if android: errExit("--compress without --ndk not yet implemented for Android, but --zlib typically gives results within 1% of --zlib --compress")
+      else: errExit("--compress not yet implemented for the Java, Javascript, Python, C# or Go versions") # (and it would probably slow down JS/Python too much if it were implemented in that)
     if sharp_multi:
       if not ndk and not javascript and not java: errExit("sharp-multi not yet implemented in C#, Python or Go")
       if ios or windows_clipboard: errExit("sharp-multi not yet implemented for ios or windows-clipboard") # would need a way to select the annotator, probably necessitating a GUI on Windows (and extra callbacks on iOS)
@@ -423,12 +425,12 @@ elif ios:
   if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
 if zlib:
   del zlib ; import zlib ; data_driven = True
-  if javascript: errExit("--zlib is not yet implemented in Javascript") # C or Python for now
+  if javascript: errExit("--zlib is not yet implemented in Javascript")
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
 if data_driven:
   if c_sharp or golang: errExit("--data-driven and --zlib are not yet implemented in C# or Go")
-  elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java?
+  elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java? (in which case also update the 'compress' errExit above so it doesn't check for android before suggesting zlib)
 elif javascript or python: data_driven = True
 compact_opcodes = data_driven and not fast_assemble and not python # currently implemented only in the C, Java and Javascript versions of the data-driven runtime
 if java or javascript or python or c_sharp or ios or ndk or golang:
