@@ -1502,6 +1502,9 @@ android_src += r"""
     boolean nextBackHides = false;
     @Override public void onPause() { super.onPause(); browser.onPause(); nextBackHides = false; }
     @Override public void onResume() { super.onResume(); browser.onResume(); }
+    // TODO: later recommendation is for videos etc not to pause in onPause, but onStop, due to split-screen devices in later Android versions.  Don't know how this ties in with Play Store conditions not to allow Youtube "background" playing, so let's not enable it just in case.
+    // @Override public void onStop() { super.onStop(); browser.onPause(); } @Override public void onPause() { super.onPause(); nextBackHides = false; }
+    // @Override public void onStart() { super.onStart(); browser.onResume(); } @Override public void onResume() { super.onResume(); }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
