@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.64 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.641 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -94,7 +94,7 @@ parser.add_option("--glossfile",
 parser.add_option("-C", "--gloss-closure",
                   action="store_true",
                   default=False,
-                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package.") # TODO: option to put variant closures into the annotator itself? but that could unnecessarily increase the annotator size considerably, and it might not be correct in all cases (using it to fill in a missing gloss is more tolerable)
+                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package.") # TODO: option to put variant closures into the annotator itself? (generate new rules if not already exist + closure the 'near' tests) but that could unnecessarily increase the annotator size (with --data-driven the increase could be significant unless we implement shared-substringVariants optimisations, and even then it's unclear how this would interact with the space-saving of common-prefix multibyte sequences), + it might not be correct in all cases, e.g. U+91CC in jianti SHOULDN'T be translated to U+88E1/U+88CF in fanti if it's part of a name, although recognising a 'messed-up' name with that substitution might be acceptable. Anyway, using these closures to fill in a missing gloss should be tolerable.
 cancelOpt("gloss-closure")
 parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
@@ -129,8 +129,12 @@ parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compi
 
 parser.add_option("--max-or-length",default=100,help="The maximum number of items allowed in an OR-expression in non table-driven code (used when ybytes is in effect). When an OR-expression becomes larger than this limit, it will be made into a function. 0 means unlimited, which works for tcc and gcc; many other compilers have limits. Default: %default")
 
+parser.add_option("--nested-if",
+                  action="store_true",default=False,
+                  help="Allow C/C#/Java/Go if() blocks (but not switch() constructs) to be nested to unlimited depth.  This probably increases the workload of the compiler's optimiser when reducing size, but may help when optimising for speed.")
+cancelOpt("nested-if")
 parser.add_option("--nested-switch",default=0,
-                  help="Allow C/C#/Java/Go switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for small savings in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.") # tcc is still fast (although that doesn't generate the smallest executables anyway)
+                  help="Allow C/C#/Java/Go switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for small savings in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.  Setting this to anything other than 0 implies --nested-if also.") # tcc is still fast (although that doesn't generate the smallest executables anyway)
 
 parser.add_option("--outcode",default="utf-8",
                   help="Character encoding to use in the generated parser and rules summary (default %default, must be ASCII-compatible i.e. not utf-16)")
@@ -358,6 +362,7 @@ ybytes_step = int(ybytes_step)
 maxrefs = int(maxrefs)
 ymax_threshold = int(ymax_threshold)
 if not golang: golang = ""
+if nested_switch: nested_if = True
 def errExit(msg):
   assert main # bad news if this happens in non-main module
   sys.stderr.write(msg+"\n") ; sys.exit(1)
@@ -585,7 +590,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         else: ret.append("case %s:" % cstr)
         subDict = dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case])
         inner = stringSwitch(subDict,subFuncL,None,subFuncs,java_localvar_counter,nestingsLeft)
-        if canNestNow or not inner[0].startswith("switch"): ret += ["  "+x for x in inner]
+        if canNestNow or not (inner[0].startswith("switch") or (inner[0].startswith("if(") and not nested_if)): ret += ["  "+x for x in inner]
         else:
           # Put the inner switch into a different function
           # which returns 1 if we should return.
@@ -2080,7 +2085,7 @@ class BytecodeAssembler:
         byteSeq_to_action_dict = dict((x,[(y[l:],z)]) for x,[(y,z)] in byteSeq_to_action_dict.iteritems())
         del self.l[savePos] ; savePos = None
         del byteSeq_to_action_dict[""]
-        self.addActionDictSwitch(byteSeq_to_action_dict) # as a subfunction (ends up adding the call to it)
+        self.addActionDictSwitch(byteSeq_to_action_dict) # as a subfunction (ends up adding the call to it, which should be replaced by a jump during compaction; TODO: auto-inline if it turns out there's only this one call to it?  other calls might happen if it's merged with an identical one)
         byteSeq_to_action_dict[""] = [("",[])] # for the end of this func
         self.addOpcode('return')
     elif allBytes:
@@ -2109,7 +2114,7 @@ class BytecodeAssembler:
                 self.addRef(falseLabel)
                 assert type(nbytes)==int
                 self.addBytes(nbytes)
-                for c in conds: self.addRefToString(c.encode(outcode))
+                for c in conds: self.addRefToString(c.encode(outcode)) # TODO: how much bytecode could we save by globally merging equivalent lists of string-list references ?  (zlib helps anyway but...)
                 if negate: trueLabel,falseLabel = falseLabel,trueLabel
                 self.addLabelHere(trueLabel)
                 self.addActions(action)
@@ -2194,6 +2199,12 @@ class BytecodeAssembler:
                 i = src[count]
                 if type(i)==tuple and type(i[0])==str:
                     opcode = i[0] ; i = "-"
+                    if opcode=='call' and src[count+2]==('return',):
+                      src[count] = ('jump',)
+                      counts_to_del.add(count+2)
+                      compacted += 1 ; bytesFromEnd -= 1
+                      compaction_types.add(opcode)
+                      # can't fall through by setting opcode='jump', as the address will be in the function namespace (integer in tuple, LGet would need adjusting) and is highly unlikely to be within range (TODO: unless we try to arrange the functions to make it so for some cross-calls)
                     if opcode=='jump' and 0 <= LGet(src[count+1],addrSize) < 0x80: # we can use a 1-byte relative forward jump (up to 128 bytes), useful for 'break;' in a small switch
                       src[count] = i = chr(0x80 | (LGet(src[count+1],addrSize))) # new instr: 0x80|offset
                       counts_to_del.add(count+1) # zap the label
@@ -2205,8 +2216,8 @@ class BytecodeAssembler:
                       if 1 <= numItems <= 20:
                        numLabels = numItems+1 # there's an extra default label at the end
                        origOperandsLen = 1+numItems+numLabels*addrSize # number + N bytes + the labels
-                       if LGet(src[count+3],origOperandsLen)==0 and all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF for N in xrange(4,3+numLabels)):
-                        src[count] = i = src[count+1]+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset is 0 so not listed)
+                       if LGet(src[count+3],origOperandsLen)==0 and all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF for N in xrange(4,3+numLabels)): # 1st label is immediately after the switchbyte, and all others are in range
+                        src[count] = i = src[count+1]+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
                         for ctd in xrange(count+1,count+3+numLabels): counts_to_del.add(ctd)
                         newOperandsLen = numItems*2 # for each byte, the byte itself and an offset, + 1 more offset as default, - 1 because first is not given
                         compacted += origOperandsLen-newOperandsLen
@@ -2262,9 +2273,9 @@ class BytecodeAssembler:
           if zlib:
             self.origLen = ll # needed for efficient malloc in the C code later
             r = zlib.compress(r,9)
-            if compact_opcodes: sys.stderr.write("%d bytes (zlib compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),ll,compacted,','.join(list(compaction_types))))
+            if compact_opcodes: sys.stderr.write("%d bytes (zlib compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),ll,compacted,','.join(sorted(list(compaction_types)))))
             else: sys.stderr.write("%d bytes (zlib compressed from %d)\n" % (len(r),ll))
-          elif compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(list(compaction_types))))
+          elif compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(sorted(list(compaction_types)))))
           else: sys.stderr.write("%d bytes\n" % ll)
           return r
         except TooNarrow: pass
@@ -3462,12 +3473,24 @@ def allVars(u):
     from cjklib.characterlookup import CharacterLookup
     cjk_cLookup = CharacterLookup("C") # param doesn't matter for getCharacterVariants, so just put "C" for now
     cjk_cLookup.varCache = {} # because getCharacterVariants can be slow if it uses SQL queries
-  done = set()
-  for t in "STCMZ":
+  def lookupVar(u,t):
     if (u,t) not in cjk_cLookup.varCache: cjk_cLookup.varCache[(u,t)] = cjk_cLookup.getCharacterVariants(u,t)
-    for var in cjk_cLookup.varCache[(u,t)]:
+    return cjk_cLookup.varCache[(u,t)]
+  done = set([u])
+  for t in "STCMZ":
+    for var in lookupVar(u,t):
       if not var in done: yield var
       done.add(var)
+      # In at least some versions of the data, U+63B3 needs to go via T (U+64C4) and M (U+865C) and S to get to U+864F (instead of having a direct M variant to 864F), so we need to take (S/T)/M/(S/T) variants also:
+      if t in "ST":
+        for var in lookupVar(var,'M'):
+          if var in done: continue
+          yield var ; done.add(var)
+          for t2 in "ST":
+            for var in lookupVar(var,t2):
+              if var in done: continue
+              yield var ; done.add(var)
+
 def allVarsW(unistr):
   vRest = []
   for i in xrange(len(unistr)):
