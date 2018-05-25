@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.641 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.642 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -205,7 +205,7 @@ parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
 parser.add_option("--ndk",
                   action="store_true",default=False,
-                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, and restricts which Android versions can be compiled on newer toolsets (see --ndk-pre-* options); the speed bonus is increasingly negligible now that --data-driven and --zlib are also available in the Java version.")
+                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, and restricts which Android versions can be compiled on newer toolsets (see --ndk-pre-* options); the speed bonus is increasingly negligible now that --data-driven and --zlib are also available in the Java version.") # 'increasingly' due to Android's own improvements to JIT etc
 cancelOpt("ndk")
 parser.add_option("--ndk-pre-2017",
                   action="store_true",default=False,
@@ -1672,19 +1672,20 @@ if data_driven: java_src += r"""
                     int i = switchByte_inner(nBytes);
                     dPtr += (nBytes + i * addrLen);
                     dPtr = readAddr(); break; }
-                case 71: {
+                case 71: case 74: {
                     int numBytes = data[dPtr++] & 0xFF;
                     while((numBytes--)!=0) o(inBytes[writePtr++]);
-                    break; }
-            case 72: {
+                    if(c==74) return; else break; }
+                case 72: case 75: {
                     int numBytes = data[dPtr++] & 0xFF;
                     byte[] annot = readRefStr();
                     s();
                     o("<ruby><rb>");
                     while((numBytes--)!=0) o(inBytes[writePtr++]);
                     o("</rb><rt>"); o(annot);
-                    o("</rt></ruby>"); break; }
-                case 73: {
+                    o("</rt></ruby>");
+                    if(c==75) return; else break; }
+                case 73: case 76: {
                     int numBytes = data[dPtr++] & 0xFF;
                     byte[] annot = readRefStr();
                     byte[] title = readRefStr();
@@ -1693,7 +1694,8 @@ if data_driven: java_src += r"""
                     o("\"><rb>");
                     while((numBytes--)!=0) o(inBytes[writePtr++]);
                     o("</rb><rt>"); o(annot);
-                    o("</rt></ruby>"); break; }
+                    o("</rt></ruby>");
+                    if(c==76) return; else break; }
                 case 80: sPos.addFirst(inPtr); break;
                 case 81: inPtr=sPos.removeFirst(); break;
                 case 90: {
@@ -2016,13 +2018,15 @@ func Annotate(src io.Reader, dest io.Writer) {
 class BytecodeAssembler:
   # Bytecode for a virtual machine run by the Javascript version etc
   opcodes = {
-    # 0-19    RESERVED for short switchbyte
+    # 0-19    RESERVED for short switchbyte (C,Java,Py)
+    # 108-127 RESERVED for short switchbyte (JS, more in the printable range to reduce escaping a bit)
     # 128-255 RESERVED for short jumps
     'jump': 50, # '2' params: address
     'call': 51, # '3' params: function address
     'return': 52, # '4' (or 'end program' if top level)
     'switchbyte': 60, # '<' switch(NEXTBYTE) (params: numBytes-1, bytes (sorted, TODO take advantage of this), addresses, default address)
     'copyBytes':71,'o':72,'o2':73, # 'G','H','I' (don't change these numbers, they're hard-coded below)
+    # 74-76 ('J','K','L') reserved for 'above + return'
     'savepos':80, # 'P', local to the function
     'restorepos':81, # 'Q'
     'neartest':90, # 'Z' params: true-label, false-label, byte nbytes, addresses of conds strings until first of the 2 labels is reached (normally true-label, unless the whole neartest is negated)
@@ -2179,6 +2183,9 @@ class BytecodeAssembler:
     # - +ve or -ve integers in tuples (labels for functions and text strings: different 'namespace')
     # strings in tuples: opcodes
     # 1st byte of o/p is num bytes needed per address
+    if 'ANNOGEN_DEBUG_BYTECODE' in os.environ:
+      for l in self.debugDisassemble():
+        sys.stderr.write(l+"\n")
     class TooNarrow(Exception): pass
     for addrSize in xrange(1,256):
         sys.stderr.write("(%d-bit) " % (8*addrSize))
@@ -2197,7 +2204,13 @@ class BytecodeAssembler:
             counts_to_del = set()
             for count in xrange(len(src)-1,-1,-1):
                 i = src[count]
-                if type(i)==tuple and type(i[0])==str:
+                if type(i)==str and len(i)==1 and 71<=ord(i)<=73 and src[count+ord(i)-70+1]==('return',):
+                  # (74 to 76 = 71 to 73 + return)
+                  src[count] = chr(ord(i)+3)
+                  counts_to_del.add(count+ord(i)-70+1)
+                  compacted += 1 ; bytesFromEnd -= 1
+                  compaction_types.add('return')
+                elif type(i)==tuple and type(i[0])==str:
                     opcode = i[0] ; i = "-"
                     if opcode=='call' and src[count+2]==('return',):
                       src[count] = ('jump',)
@@ -2206,7 +2219,13 @@ class BytecodeAssembler:
                       compaction_types.add(opcode)
                       # can't fall through by setting opcode='jump', as the address will be in the function namespace (integer in tuple, LGet would need adjusting) and is highly unlikely to be within range (TODO: unless we try to arrange the functions to make it so for some cross-calls)
                     if opcode=='jump' and 0 <= LGet(src[count+1],addrSize) < 0x80: # we can use a 1-byte relative forward jump (up to 128 bytes), useful for 'break;' in a small switch
-                      src[count] = i = chr(0x80 | (LGet(src[count+1],addrSize))) # new instr: 0x80|offset
+                      offset = LGet(src[count+1],addrSize)
+                      if offset == 0:
+                        # can remove this jump completely
+                        i = "" # for bytesFromEnd count
+                        compacted += 1
+                        counts_to_del.add(count) # zap jmp
+                      else: src[count] = i = chr(0x80 | offset) # new instr: 0x80|offset
                       counts_to_del.add(count+1) # zap the label
                       compacted += addrSize # as we're having a single byte instead of byte + address
                       bytesFromEnd -= addrSize
@@ -2217,7 +2236,9 @@ class BytecodeAssembler:
                        numLabels = numItems+1 # there's an extra default label at the end
                        origOperandsLen = 1+numItems+numLabels*addrSize # number + N bytes + the labels
                        if LGet(src[count+3],origOperandsLen)==0 and all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF for N in xrange(4,3+numLabels)): # 1st label is immediately after the switchbyte, and all others are in range
-                        src[count] = i = src[count+1]+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
+                        if javascript: i = chr(ord(src[count+1])+108) # printable range
+                        else: i = src[count+1]
+                        src[count] = i = i+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
                         for ctd in xrange(count+1,count+3+numLabels): counts_to_del.add(ctd)
                         newOperandsLen = numItems*2 # for each byte, the byte itself and an offset, + 1 more offset as default, - 1 because first is not given
                         compacted += origOperandsLen-newOperandsLen
@@ -2280,6 +2301,40 @@ class BytecodeAssembler:
           return r
         except TooNarrow: pass
     assert 0, "can't even assemble it with 255-byte addressing !?!"
+  def debugDisassemble(self):
+    i = 0
+    while i < len(self.l):
+      op = self.l[i]
+      if type(op)==str and op in 'GHI': op=(op,)
+      if op==('jump',):
+        params = (-self.l[i+1],)
+      elif op==[('call',)]:
+        params = ("Lib"+repr(-self.l[i+1][0]),)
+      elif op==('switchbyte',):
+        params = (1+ord(self.l[i+1]),)+tuple(self.l[i+2:i+5+ord(self.l[i+1])])
+      elif op in [('G',),('H',),('I',)]:
+        params = (ord(self.l[i+1]),)+tuple(self.l[i+2:i+2+ord(op[0])-ord('G')])
+        op=(['copyBytes','o','o2'][ord(op[0])-ord('G')],)
+      elif op==('neartest',): # until +ve label reached
+        j = i+3
+        while not (type(self.l[j])==int and self.l[j]>0):
+          j += 1
+        params = ('t='+repr(self.l[i+1]),'f='+repr(self.l[i+2]),'nB='+str(ord(self.l[i+3])))+tuple(self.l[i+4:j])
+      else: params = None
+      if type(op)==tuple and type(op[0])==str:
+        if params==None: yield "  "+op[0]
+        else:
+          yield "  "+op[0]+" "+" ".join(repr(x) for x in params)
+          if type(params)==tuple: i += len(params)
+          else: i += 1
+      elif type(op)==str: yield "  EQUS "+repr(op)
+      elif type(op)==int:
+        if op>0: yield "."+str(op)+":"
+        else: yield "  RefTo("+str(op)+")" # shouldn't happen outside a parameter
+      elif type(op)==tuple and type(op[0])==int:
+        if op>0: yield ".Lib"+str(op)+":"
+        else: yield "  RefTo(Lib"+str(op)+")" # shouldn't happen outside a parameter
+      i += 1
 
 js_start = '/* Javascript '+version_stamp+r"""
 
@@ -2343,8 +2398,8 @@ function readData() {
     while(1) {
         c = data.charCodeAt(dPtr++);
         if (c & 0x80) dPtr += (c&0x7F);
-        else if (c < 20) {
-            var i = ((p>=input.length)?-1:data.slice(dPtr,dPtr+(++c)).indexOf(input.charAt(p++)));
+        else if (c > 107) { c-=107;
+            var i = ((p>=input.length)?-1:data.slice(dPtr,dPtr+c).indexOf(input.charAt(p++)));
             if (i==-1) i = c;
             if(i) dPtr += data.charCodeAt(dPtr+c+i-1);
             dPtr += c+c;
@@ -2361,11 +2416,11 @@ function readData() {
               if (i==-1) i = nBytes;
               dPtr += (nBytes + i * addrLen);
               dPtr = readAddr(); break; }
-            case 71: {
+            case 71: case 74: {
               var numBytes = data.charCodeAt(dPtr++);
   output.push(input.slice(copyP,copyP+numBytes));
-  copyP += numBytes; break; }
-            case 72: {
+  copyP += numBytes; if(c==74) return; break; }
+            case 72: case 75: {
               var numBytes = data.charCodeAt(dPtr++);
               var annot = readRefStr();
   s();
@@ -2373,8 +2428,8 @@ function readData() {
   output.push(input.slice(copyP,copyP+numBytes));
   copyP += numBytes;
   output.push("</rb><rt>"); output.push(annot);
-  output.push("</rt></ruby>"); break; }
-            case 73: {
+  output.push("</rt></ruby>"); if(c==75) return; break; }
+            case 73: case 76: {
               var numBytes = data.charCodeAt(dPtr++);
               var annot = readRefStr();
               var title = readRefStr();
@@ -2384,7 +2439,7 @@ function readData() {
   output.push(input.slice(copyP,copyP+numBytes));
   copyP += numBytes;
   output.push("</rb><rt>"); output.push(annot);
-  output.push("</rt></ruby>"); break; }
+  output.push("</rt></ruby>"); if(c==76) return; break; }
             case 80: sPos.push(p); break;
             case 81: p=sPos.pop(); break;
             case 90: {
@@ -2500,11 +2555,12 @@ class Annotator:
       if i==-1: i = nBytes
       self.dPtr += (nBytes + i * self.addrLen)
       self.dPtr = self.readAddr()
-    elif d==71:
+    elif d==71 or d==74:
       numBytes = ord(data[self.dPtr]) ; self.dPtr += 1
       out.append(self.inStr[self.copyP:self.copyP+numBytes])
       self.copyP += numBytes
-    elif d==72:
+      if d==74: return
+    elif d==72 or d==75:
       numBytes = ord(data[self.dPtr]) ; self.dPtr += 1
       annot = self.readRefStr()
       self.s()
@@ -2514,7 +2570,8 @@ class Annotator:
       self.copyP += numBytes
       out.append(self.midA) ; out.append(annot)
       out.append(self.endA)
-    elif d==73:
+      if d==75: return
+    elif d==73 or d==76:
       numBytes = ord(data[self.dPtr]) ; self.dPtr += 1
       annot = self.readRefStr()
       title = self.readRefStr()
@@ -2529,6 +2586,7 @@ class Annotator:
       self.copyP += numBytes
       out.append(self.midA) ; out.append(annot)
       out.append(self.endA)
+      if d==76: return
     elif d==80: sPos.append(self.p)
     elif d==81: self.p = sPos.pop()
     elif d==90:
@@ -2603,20 +2661,21 @@ static void readData() {
       for (i=0; i<nBytes; i++) if(byte==dPtr[i]) break;
       dPtr += (nBytes + i * addrLen);
       dPtr = readAddr(); break; }
-    case 71: /* copyBytes */ {
+    case 71: case 74: /* copyBytes */ {
       int numBytes=*dPtr++;
       for(;numBytes;numBytes--)
         OutWriteByte(NEXT_COPY_BYTE);
-      break; }
-    case 72: /* o */ {
+      if(c==74) return; else break; }
+    case 72: case 75: /* o */ {
       int numBytes=*dPtr++;
       char *annot = (char*)readAddr();
-      o(numBytes,annot); break; }
-    case 73: /* o2 */ {
+      o(numBytes,annot); if(c==75) return; else break; }
+    case 73: case 76: /* o2 */ {
       int numBytes=*dPtr++;
       char *annot = (char*)readAddr();
       char *title = (char*)readAddr();
-      o2(numBytes,annot,title); break; }
+      o2(numBytes,annot,title);
+      if(c==76) return; else break; }
     case 80: /* savepos */
       savedPositions=realloc(savedPositions,++numSavedPositions*sizeof(POSTYPE)); // TODO: check non-NULL?
       savedPositions[numSavedPositions-1]=THEPOS;
