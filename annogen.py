@@ -430,7 +430,6 @@ elif ios:
   if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
 if zlib:
   del zlib ; import zlib ; data_driven = True
-  if javascript: errExit("--zlib is not yet implemented in Javascript")
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
 if data_driven:
@@ -2293,9 +2292,10 @@ class BytecodeAssembler:
           r = "".join(r)
           if zlib:
             self.origLen = ll # needed for efficient malloc in the C code later
-            r = zlib.compress(r,9)
+            oR,r = r,zlib.compress(r,9)
             if compact_opcodes: sys.stderr.write("%d bytes (zlib compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),ll,compacted,','.join(sorted(list(compaction_types)))))
             else: sys.stderr.write("%d bytes (zlib compressed from %d)\n" % (len(r),ll))
+            if javascript: sys.stderr.write("Size of JS representation: before zlib=%d, after zlib=%d\n" % (len(js_escapeRawBytes(oR)),len(js_escapeRawBytes(r))))
           elif compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(sorted(list(compaction_types)))))
           else: sys.stderr.write("%d bytes\n" % ll)
           return r
@@ -2356,7 +2356,20 @@ js_start += r""")
  - On Unix systems with Node.JS, you can run this file in
    "node" to annotate standard input as a simple test.
 
+*/"""
+if zlib:
+  js_start += r"""
+/*
+   zlib'd version: requires Pako (MIT-licensed) to deflate
+   - use: npm install -g pako
+     (you might need to set NODE_PATH on some systems)
+   Code uses Uint8Array so has minimum browser requirements
+   (Chrome 7, Ffx 4, IE10, Op11.6, Safari5.1, 4.2 on iOS)
+   - generate without zlib to support older browsers.
 */
+var pako = require('pako');""" # TODO: option to directly include it rather than using "require"? (as we can't get browserify-generated version to work)
+  ignore_ie8 = True # (might as well, since we're requiring IE10 anyway for Uint8Array)
+js_start += r"""
 
 var Annotator={
 version: '"""+version_stamp+"',\n"
@@ -2384,8 +2397,9 @@ function readAddr() {
 
 function readRefStr() {
   var a = readAddr(); var l=data.charCodeAt(a);
-  if (l != 0) return data.slice(a+1,a+l+1);
-  else return data.slice(a+1,data.indexOf('\x00',a+1));
+  if (l != 0) a = data.slice(a+1,a+l+1);
+  else a = data.slice(a+1,data.indexOf('\x00',a+1));
+  return a; // don't change: zlib replace()s here
 }
 
 function s() {
@@ -3714,7 +3728,9 @@ def outputParser(rulesAndConds):
       if zlib: origLen = b.origLen
       del b
     else: ddrivn = None
-    if javascript: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n")
+    if javascript:
+      if zlib: return outfile.write(js_start+"data: pako.inflate(\""+js_escapeRawBytes(ddrivn)+"\"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace(r"data.indexOf('\x00'",r"data.indexOf(0").replace("indexOf(input.charAt","indexOf(input.charCodeAt").replace("return a;","return String.fromCharCode.apply(null,a);")+"\n")
+      else: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n")
     elif python:
       outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
       if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
