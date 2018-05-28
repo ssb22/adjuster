@@ -239,6 +239,11 @@ parser.add_option("-j","--javascript",
                   help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
 cancelOpt("javascript")
 
+parser.add_option("--js-base64",
+                  action="store_true",default=False,
+                  help="When generating a Javascript annotator, use Base64 for the data string. This saves space at the expense of startup time; if you are using --zlib with Javascript then you might as well try this too.")
+cancelOpt("js-base64")
+
 parser.add_option("-8","--js-octal",
                   action="store_true",default=False,
                   help="When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode.")
@@ -2295,7 +2300,7 @@ class BytecodeAssembler:
             oR,r = r,zlib.compress(r,9)
             if compact_opcodes: sys.stderr.write("%d bytes (zlib compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),ll,compacted,','.join(sorted(list(compaction_types)))))
             else: sys.stderr.write("%d bytes (zlib compressed from %d)\n" % (len(r),ll))
-            if javascript: sys.stderr.write("Size of JS representation: before zlib=%d, after zlib=%d\n" % (len(js_escapeRawBytes(oR)),len(js_escapeRawBytes(r))))
+            if javascript and not js_base64: sys.stderr.write("Size of JS representation: before zlib=%d, after zlib=%d\n" % (len(js_escapeRawBytes(oR)),len(js_escapeRawBytes(r)))) # in SOME cases zlib might be counterproductive (if it's string-dominated and has a lot of ASCII-range strings), but it typically still helps.  (Won't be counterproductive if base64 is in use anyway.)
           elif compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(sorted(list(compaction_types)))))
           else: sys.stderr.write("%d bytes\n" % ll)
           return r
@@ -3729,8 +3734,12 @@ def outputParser(rulesAndConds):
       del b
     else: ddrivn = None
     if javascript:
-      if zlib: return outfile.write(js_start+"data: pako.inflate(\""+js_escapeRawBytes(ddrivn)+"\"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace(r"data.indexOf('\x00'",r"data.indexOf(0").replace("indexOf(input.charAt","indexOf(input.charCodeAt").replace("return a;","return String.fromCharCode.apply(null,a);")+"\n")
-      else: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n")
+      if js_base64:
+        import base64
+        jsd = '((typeof window!="undefined" && window.atob)?atob:(typeof Buffer!="undefined")?function(f){return new Buffer(f,"base64").toString("binary")}:function(f){/* thanks to Oliver Salzburg */ var g={},b=65,d=0,a,c=0,h,e="",k=String.fromCharCode,l=f.length;for(a="";91>b;)a+=k(b++);a+=a.toLowerCase()+"0123456789+/";for(b=0;64>b;b++)g[a.charAt(b)]=b;for(a=0;a<l;a++)for(b=g[f.charAt(a)],d=(d<<6)+b,c+=6;8<=c;)((h=d>>>(c-=8)&255)||a<l-2)&&(e+=k(h));return e})("'+base64.b64encode(ddrivn)+'")'
+      else: jsd = '"'+js_escapeRawBytes(ddrivn)+'"'
+      if zlib: return outfile.write(js_start+"data: pako.inflate("+jsd+"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace(r"data.indexOf('\x00'",r"data.indexOf(0").replace("indexOf(input.charAt","indexOf(input.charCodeAt").replace("return a;","return String.fromCharCode.apply(null,a);")+"\n")
+      else: return outfile.write(js_start+"data: "+jsd+",\n"+js_end+"\n")
     elif python:
       outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
       if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
