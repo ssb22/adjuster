@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.642 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.643 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -186,7 +186,7 @@ cancelOpt("fast-assemble")
 
 parser.add_option("-Z","--zlib",
                   action="store_true",default=False,
-                  help="Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).") # and compact_opcodes typically still helps no matter what the other options are
+                  help="Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  If generating a Javascript annotator, the decompression code is inlined into the Javascript so there's no zlib dependency but startup is a little slower (try not to reload the script too often).  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).") # and compact_opcodes typically still helps no matter what the other options are
 cancelOpt("zlib")
 
 parser.add_option("-W","--windows-clipboard",
@@ -239,19 +239,14 @@ parser.add_option("-j","--javascript",
                   help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
 cancelOpt("javascript")
 
-parser.add_option("--js-base64",
-                  action="store_true",default=False,
-                  help="When generating a Javascript annotator, use Base64 for the data string. This saves space at the expense of startup time; if you are using --zlib with Javascript then you might as well try this too.")
-cancelOpt("js-base64")
-
 parser.add_option("-8","--js-octal",
                   action="store_true",default=False,
-                  help="When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode.")
+                  help="When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode. Not relevant if using zlib.")
 cancelOpt("js-octal")
 
 parser.add_option("-9","--ignore-ie8",
                   action="store_true",default=False,
-                  help="When generating a Javascript annotator, do not make it backward-compatible with Microsoft Internet Explorer 8 and below. This may save a few bytes.")
+                  help="When generating a Javascript annotator, do not make it backward-compatible with Microsoft Internet Explorer 8 and below. This may save a few bytes. Not relevant if using zlib.")
 cancelOpt("ignore-ie8")
 
 parser.add_option("-Y","--python",
@@ -370,6 +365,10 @@ if not golang: golang = ""
 if nested_switch: nested_if = True
 def errExit(msg):
   assert main # bad news if this happens in non-main module
+  try:
+    if not outfile==sys.stdout:
+      outfile.close() ; rm_f(c_filename)
+  except: pass # works only if got past outfile opening
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
@@ -2300,7 +2299,6 @@ class BytecodeAssembler:
             oR,r = r,zlib.compress(r,9)
             if compact_opcodes: sys.stderr.write("%d bytes (zlib compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),ll,compacted,','.join(sorted(list(compaction_types)))))
             else: sys.stderr.write("%d bytes (zlib compressed from %d)\n" % (len(r),ll))
-            if javascript and not js_base64: sys.stderr.write("Size of JS representation: before zlib=%d, after zlib=%d\n" % (len(js_escapeRawBytes(oR)),len(js_escapeRawBytes(r)))) # in SOME cases zlib might be counterproductive (if it's string-dominated and has a lot of ASCII-range strings), but it typically still helps.  (Won't be counterproductive if base64 is in use anyway.)
           elif compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(sorted(list(compaction_types)))))
           else: sys.stderr.write("%d bytes\n" % ll)
           return r
@@ -2360,20 +2358,19 @@ js_start += r""")
 
  - On Unix systems with Node.JS, you can run this file in
    "node" to annotate standard input as a simple test.
-
-*/"""
+"""
 if zlib:
   js_start += r"""
-/*
-   zlib'd version: requires Pako (MIT-licensed) to deflate
-   - use: npm install -g pako
-     (you might need to set NODE_PATH on some systems)
-   Code uses Uint8Array so has minimum browser requirements
+   zlib'd version uses Uint8Array so has minimum browser requirements
    (Chrome 7, Ffx 4, IE10, Op11.6, Safari5.1, 4.2 on iOS)
-   - generate without zlib to support older browsers.
+   - generate without --zlib to support older browsers.
+
+  Inflate code taken from UZip.js (c) 2018 "Photopea" (MIT-licensed),
+  cut down with small modifications and JSCompress'd:
 */
-var pako = require('pako');""" # TODO: option to directly include it rather than using "require"? (as we can't get browserify-generated version to work)
-  ignore_ie8 = True # (might as well, since we're requiring IE10 anyway for Uint8Array)
+function inflate(r,e){var t,n=new Uint8Array(e);t="undefined"!=typeof window&&window.atob?function(r){for(var e=new Uint8Array(r.length),t=0,n=e.length;t<n;t++)e[t]=r.charCodeAt(t);return e}(atob(r)):"undefined"!=typeof Buffer?new Buffer(r,"base64"):function(r){var e,t,n={},f=65,a=0,o=0,i=new Uint8Array(r.length),d=0,l=String.fromCharCode,v=r.length;for(e="";f<91;)e+=l(f++);for(e+=e.toLowerCase()+"0123456789+/",f=0;f<64;f++)n[e.charAt(f)]=f;for(e=0;e<v;e++)for(a=(a<<6)+(f=n[r.charAt(e)]),o+=6;8<=o;)((t=a>>>(o-=8)&255)||e<v-2)&&(i[d++]=t);return i}(r);var f=new Uint8Array(t.buffer,t.byteOffset+2,t.length-6),h={_decodeTiny:function(r,e,t,n,f,a){for(var o=f,i=h._bitsE,d=h._get17,l=t<<1,v=0,s=0;v<l;){var u=r[d(n,f)&e];f+=15&u;var p=u>>>4;if(p<=15)a[v]=0,s<(a[v+1]=p)&&(s=p),v+=2;else{var w=0,y=0;16==p?(y=3+i(n,f,2)<<1,f+=2,w=a[v-1]):17==p?(y=3+i(n,f,3)<<1,f+=3):18==p&&(y=11+i(n,f,7)<<1,f+=7);for(var U=v+y;v<U;)a[v]=0,a[v+1]=w,v+=2}}for(var c=a.length;v<c;)a[v+1]=0,v+=2;return s<<24|f-o},makeCodes:function(r,e){for(var t,n,f,a,o=h.U,i=r.length,d=o.bl_count,l=0;l<=e;l++)d[l]=0;for(l=1;l<i;l+=2)d[r[l]]++;var v=o.next_code;for(d[t=0]=0,n=1;n<=e;n++)t=t+d[n-1]<<1,v[n]=t;for(f=0;f<i;f+=2)0!=(a=r[f+1])&&(r[f]=v[a],v[a]++)},codes2map:function(r,e,t){var n=r.length,f=h.U.rev15;for(C=0;C<n;C+=2)if(0!=r[C+1])for(var a=C>>1,o=r[C+1],i=a<<4|o,d=e-o,l=r[C]<<d,v=l+(1<<d);l!=v;){t[f[l]>>>15-e]=i,l++}},revCodes:function(r,e){for(var t=h.U.rev15,n=15-e,f=0;f<r.length;f+=2){var a=r[f]<<e-r[f+1];r[f]=t[a]>>>n}},_bitsE:function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8)>>>(7&e)&(1<<t)-1},_get17:function(r,e){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)}};h.U={next_code:new Uint16Array(16),bl_count:new Uint16Array(16),ordr:[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15],of0:[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258,999,999,999],exb:[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0,0,0,0],ldef:new Uint16Array(32),df0:[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,65535,65535],dxb:[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,0,0],ddef:new Uint32Array(32),flmap:new Uint16Array(512),fltree:[],fdmap:new Uint16Array(32),fdtree:[],lmap:new Uint16Array(32768),ltree:[],dmap:new Uint16Array(32768),dtree:[],imap:new Uint16Array(512),itree:[],rev15:new Uint16Array(32768),lhst:new Uint32Array(286),dhst:new Uint32Array(30),ihst:new Uint32Array(19),lits:new Uint32Array(15e3),strt:new Uint16Array(65536),prev:new Uint16Array(32768)},function(){for(var r=h.U,e=0;e<32768;e++){var t=e;t=(4278255360&(t=(4042322160&(t=(3435973836&(t=(2863311530&t)>>>1|(1431655765&t)<<1))>>>2|(858993459&t)<<2))>>>4|(252645135&t)<<4))>>>8|(16711935&t)<<8,r.rev15[e]=(t>>>16|t<<16)>>>17}for(e=0;e<32;e++)r.ldef[e]=r.of0[e]<<3|r.exb[e],r.ddef[e]=r.df0[e]<<4|r.dxb[e];for(e=0;e<=143;e++)r.fltree.push(0,8);for(;e<=255;e++)r.fltree.push(0,9);for(;e<=279;e++)r.fltree.push(0,7);for(;e<=287;e++)r.fltree.push(0,8);for(h.makeCodes(r.fltree,9),h.codes2map(r.fltree,9,r.flmap),h.revCodes(r.fltree,9),e=0;e<32;e++)r.fdtree.push(0,5);h.makeCodes(r.fdtree,5),h.codes2map(r.fdtree,5,r.fdmap),h.revCodes(r.fdtree,5);for(e=0;e<19;e++)r.itree.push(0,0);for(e=0;e<286;e++)r.ltree.push(0,0);for(e=0;e<30;e++)r.dtree.push(0,0)}();for(var a,o,i=function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)&(1<<t)-1},d=h._bitsE,l=h._decodeTiny,v=h.makeCodes,s=h.codes2map,u=h._get17,p=h.U,w=0,y=0,U=0,c=0,A=0,m=0,b=0,g=0,_=0;0==w;)if(w=i(f,_,1),y=i(f,_+1,2),_+=3,0!=y){if(1==y&&(a=p.flmap,o=p.fdmap,m=511,b=31),2==y){U=d(f,_,5)+257,c=d(f,_+5,5)+1,A=d(f,_+10,4)+4;_+=14;for(var C=0;C<38;C+=2)p.itree[C]=0,p.itree[C+1]=0;var x=1;for(C=0;C<A;C++){var k=d(f,_+3*C,3);x<(p.itree[1+(p.ordr[C]<<1)]=k)&&(x=k)}_+=3*A,v(p.itree,x),s(p.itree,x,p.imap),a=p.lmap,o=p.dmap;var E=l(p.imap,(1<<x)-1,U,f,_,p.ltree);m=(1<<(E>>>24))-1,_+=16777215&E,v(p.ltree,E>>>24),s(p.ltree,E>>>24,a);var B=l(p.imap,(1<<x)-1,c,f,_,p.dtree);b=(1<<(B>>>24))-1,_+=16777215&B,v(p.dtree,B>>>24),s(p.dtree,B>>>24,o)}for(;;){var O=a[u(f,_)&m];_+=15&O;var T=O>>>4;if(T>>>8==0)n[g++]=T;else{if(256==T)break;var L=g+T-254;if(264<T){var S=p.ldef[T-257];L=g+(S>>>3)+d(f,_,7&S),_+=7&S}var j=o[u(f,_)&b];_+=15&j;var q=j>>>4,z=p.ddef[q],D=(z>>>4)+i(f,_,15&z);for(_+=15&z;g<L;)n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D];g=L}}}else{0!=(7&_)&&(_+=8-(7&_));var F=4+(_>>>3),G=f[F-4]|f[F-3]<<8;n.set(new Uint8Array(f.buffer,f.byteOffset+F,G),g),_=F+G<<3,g+=G}return n.length==g?n:n.slice(0,g)}
+"""
+else: js_start += "*/"
 js_start += r"""
 
 var Annotator={
@@ -3734,12 +3731,10 @@ def outputParser(rulesAndConds):
       del b
     else: ddrivn = None
     if javascript:
-      if js_base64:
+      if zlib:
         import base64
-        jsd = '((typeof window!="undefined" && window.atob)?atob:(typeof Buffer!="undefined")?function(f){return new Buffer(f,"base64").toString("binary")}:function(f){/* thanks to Oliver Salzburg */ var g={},b=65,d=0,a,c=0,h,e="",k=String.fromCharCode,l=f.length;for(a="";91>b;)a+=k(b++);a+=a.toLowerCase()+"0123456789+/";for(b=0;64>b;b++)g[a.charAt(b)]=b;for(a=0;a<l;a++)for(b=g[f.charAt(a)],d=(d<<6)+b,c+=6;8<=c;)((h=d>>>(c-=8)&255)||a<l-2)&&(e+=k(h));return e})("'+base64.b64encode(ddrivn)+'")'
-      else: jsd = '"'+js_escapeRawBytes(ddrivn)+'"'
-      if zlib: return outfile.write(js_start+"data: pako.inflate("+jsd+"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace(r"data.indexOf('\x00'",r"data.indexOf(0").replace("indexOf(input.charAt","indexOf(input.charCodeAt").replace("return a;","return String.fromCharCode.apply(null,a);")+"\n")
-      else: return outfile.write(js_start+"data: "+jsd+",\n"+js_end+"\n")
+        return outfile.write(js_start+"data: inflate(\""+base64.b64encode(ddrivn)+"\","+str(origLen)+"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace(r"data.indexOf('\x00'",r"data.indexOf(0").replace("indexOf(input.charAt","indexOf(input.charCodeAt").replace("return a;","return String.fromCharCode.apply(null,a);")+"\n")
+      else: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n")
     elif python:
       outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
       if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
