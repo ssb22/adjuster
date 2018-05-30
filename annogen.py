@@ -239,6 +239,11 @@ parser.add_option("-j","--javascript",
                   help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
 cancelOpt("javascript")
 
+parser.add_option("-6","--js-6bit-addressing",
+                  action="store_true",default=False,
+                  help="When generating a Javascript annotator, use a 6-bit format for multi-byte addresses, to reduce the length of escape codes in the data string by making more of it ASCII. Not relevant if using zlib, and unlikely to be needed if the resulting Javascript is to be compressed by some other means.")
+cancelOpt("js-6bit-addressing")
+
 parser.add_option("-8","--js-octal",
                   action="store_true",default=False,
                   help="When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode. Not relevant if using zlib.")
@@ -433,6 +438,7 @@ elif ios:
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ios")
   if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
 if zlib:
+  js_6bit_addressing = False
   del zlib ; import zlib ; data_driven = True
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
@@ -2021,11 +2027,15 @@ func Annotate(src io.Reader, dest io.Writer) {
 }
 """
 
+if js_6bit_addressing: js_6bit_offset = 35 # any offset between 32 and 63 makes all printable, but 35+ avoids escaping of " at 34 (can't avoid escaping of \ though, unless have a more complex decoder)
+else: js_6bit_offset = 0
+
 class BytecodeAssembler:
   # Bytecode for a virtual machine run by the Javascript version etc
   opcodes = {
     # 0-19    RESERVED for short switchbyte (C,Java,Py)
     # 108-127 RESERVED for short switchbyte (JS, more in the printable range to reduce escaping a bit)
+    # 91-107 RESERVED for short switchbyte (JS, UTF-8 continuation bytes printability optimisation)
     # 128-255 RESERVED for short jumps
     'jump': 50, # '2' params: address
     'call': 51, # '3' params: function address
@@ -2193,8 +2203,10 @@ class BytecodeAssembler:
       for l in self.debugDisassemble():
         sys.stderr.write(l+"\n")
     class TooNarrow(Exception): pass
+    if js_6bit_addressing: aBits,aMask = 6,0x3F
+    else: aBits,aMask = 8,0xFF
     for addrSize in xrange(1,256):
-        sys.stderr.write("(%d-bit) " % (8*addrSize))
+        sys.stderr.write("(%d-bit) " % (aBits*addrSize))
         src = self.l[:] # must start with fresh copy, because compaction modifies src and we don't want a false start with wrong addrSize to affect us
         try:
           compacted = 0 ; compaction_types = set()
@@ -2237,12 +2249,19 @@ class BytecodeAssembler:
                       bytesFromEnd -= addrSize
                       compaction_types.add(opcode)
                     elif opcode=='switchbyte':
-                      numItems = len(src[count+2])
+                      numItems = len(src[count+2]) # = ord(src[count+1]) + 1
                       if 1 <= numItems <= 20:
                        numLabels = numItems+1 # there's an extra default label at the end
                        origOperandsLen = 1+numItems+numLabels*addrSize # number + N bytes + the labels
                        if LGet(src[count+3],origOperandsLen)==0 and all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF for N in xrange(4,3+numLabels)): # 1st label is immediately after the switchbyte, and all others are in range
-                        if javascript: i = chr(ord(src[count+1])+108) # printable range
+                        if javascript: # use printable range
+                          if not zlib and numItems<=17 and all(0x80<=ord(x)<=0xBF or 0xD4<=ord(x)<=0xEF for x in src[count+2]): # move UTF-8 representations of U+0500 through U+FFFF to printable range (in one test this saved 780k for the continuation bytes and another 200k for the rest)
+                            def mv(x):
+                              if x>=0xD4: x -= 20 # or, equivalently, if (x-93)>118, which is done to the input byte in JS before searching on these
+                              return chr(x-93)
+                            src[count+2]=''.join(mv(ord(x)) for x in src[count+2])
+                            i = chr(ord(src[count+1])+91) # and a printable opcode
+                          else: i = chr(ord(src[count+1])+108) # can't make the match bytes printable, but at least we can have a printable opcode
                         else: i = src[count+1]
                         src[count] = i = i+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
                         for ctd in xrange(count+1,count+3+numLabels): counts_to_del.add(ctd)
@@ -2256,7 +2275,7 @@ class BytecodeAssembler:
                     assert type(i2)==int
                     if i2 > 0:
                         lDic[i] = bytesFromEnd ; i = ""
-                        if bytesFromEnd >> (8*addrSize+1): raise TooNarrow() # fair assumption (but do this every label, not every instruction)
+                        if bytesFromEnd >> (aBits*addrSize+1): raise TooNarrow() # fair assumption (but do this every label, not every instruction)
                     else: i = "-"*addrSize # a reference
                 bytesFromEnd += len(i)
             src=[s for s,i in zip(src,xrange(len(src))) if not i in counts_to_del] # batched up because del is O(n)
@@ -2275,19 +2294,19 @@ class BytecodeAssembler:
                     assert type(i2)==int
                     # At this point, if i2<0 then iKey will be the lDic key for looking up the label.
                     if i2 > 0: # label going in here: set lDic etc (without outputting any bytes of course)
-                        if (ll >> (8*addrSize)): raise TooNarrow() # on the assumption that somebody will reference this label, figure out early that we need more bits
+                        if (ll >> (aBits*addrSize)): raise TooNarrow() # on the assumption that somebody will reference this label, figure out early that we need more bits
                         if i in lDic:
                           assert lDic[i] == ll, "%s moved %d->%d" % (repr(i),lDic[i],ll)
                         lDic[i] = ll ; i = ""
                     elif iKey in lDic: # known label
                         i = lDic[iKey] # the address to convert to MSB-LSB bytes and output:
-                        shift = 8*addrSize
+                        shift = aBits*addrSize
                         if (i >> shift): raise TooNarrow()
                         j = []
                         for b in xrange(addrSize):
                             # MSB-LSB (easier to do in JS)
-                            shift -= 8
-                            j.append(chr((i>>shift)&0xFF))
+                            shift -= aBits
+                            j.append(chr(((i>>shift)&aMask)+js_6bit_offset))
                         i = "".join(j)
                         assert len(i)==addrSize
                     else: # ref to as-yet unknown label
@@ -2396,7 +2415,11 @@ var needSpace = 0;
 
 function readAddr() {
   var i,addr=0;
-  for (i=addrLen; i; i--) addr=(addr << 8) | data.charCodeAt(dPtr++);
+  for (i=addrLen; i; i--) addr=(addr << """
+if js_6bit_addressing: js_end += "6) | (data.charCodeAt(dPtr++)-"+str(js_6bit_offset)+");"
+else: js_end += "8) | data.charCodeAt(dPtr++);"
+js_end += r"""
+  
   return addr;
 }
 
@@ -2416,7 +2439,14 @@ function readData() {
     var sPos = new Array(), c;
     while(1) {
         c = data.charCodeAt(dPtr++);
-        if (c & 0x80) dPtr += (c&0x7F);
+        if (c & 0x80) dPtr += (c&0x7F);"""
+if not zlib: js_end += r"""
+        else if (c > 90) { c-=90; 
+            var i=-1;if(p<input.length){var cc=input.charCodeAt(p++)-93; if(cc>118)cc-=20; i=data.slice(dPtr,dPtr+c).indexOf(String.fromCharCode(cc))}
+            if (i==-1) i = c;
+            if(i) dPtr += data.charCodeAt(dPtr+c+i-1);
+            dPtr += c+c }"""
+js_end += r"""
         else if (c > 107) { c-=107;
             var i = ((p>=input.length)?-1:data.slice(dPtr,dPtr+c).indexOf(input.charAt(p++)));
             if (i==-1) i = c;
