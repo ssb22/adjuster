@@ -205,15 +205,15 @@ parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
 parser.add_option("--ndk",
                   action="store_true",default=False,
-                  help="Android NDK: make a C annotator and use ndk-build to compile it into an Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, and restricts which Android versions can be compiled on newer toolsets (see --ndk-pre-* options); the speed bonus is increasingly negligible now that --data-driven and --zlib are also available in the Java version.") # 'increasingly' due to Android's own improvements to JIT etc
+                  help="Android NDK: make a C annotator and use ndk-build to compile it into a 32-bit Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, it restricts which Android versions can be supported if you are compiling on newer toolsets (see --ndk-pre-* options), and it's unsuitable for environments where dual 32-/64-bit binaries are required, such as \"Play Store\" in 2019+.  The speed bonus of NDK is increasingly negligible now that --data-driven and --zlib are also available in the Java version.") # 'increasingly' due to Android's own improvements to JIT etc.  Could add support for dual 32/64-bit, but that would double the binary size (unless shared data is passed in from the Java, but if the JIT works well anyway then what's the point)
 cancelOpt("ndk")
 parser.add_option("--ndk-pre-2017",
                   action="store_true",default=False,
-                  help="Assume your NDK-building tools are older than the July 2017 release (r15c) and therefore support Android versions below 4.0.  Since apps compiled with old SDKs won't be able to meet the new target-API requirements that \"Play Store\" introduces in late 2018, it will no longer be permitted to upload an NDK app with pre-4.0 support to the Store. Along with 2019's insistance on adding 64-bit versions, this makes backward-compatible NDK deployment a lot more trouble than it used to be, so I now recommend using --data-driven and --zlib with Java instead.") # (Android 4.0 = API 14)
+                  help="When building with ndk-build, assume it's older than the July 2017 release (r15c) and therefore supports Android versions below 4.0")
 cancelOpt("ndk-pre-2017")
 parser.add_option("--ndk-pre-2016",
                   action="store_true",default=False,
-                  help="Assume your NDK-building tools are older than the June 2016 release (r12) and therefore support Android versions below 2.3. The caveats about --ndk-pre-2017 also apply to this option.") # (Android 2.3 = API 9)
+                  help="When building with ndk-build, assume it's older than the June 2016 release (r12) and therefore supports Android versions below 2.3")
 cancelOpt("ndk-pre-2016")
 
 parser.add_option("--bookmarks",
@@ -407,7 +407,7 @@ if java or javascript or python or c_sharp or golang:
       if ios or windows_clipboard: errExit("sharp-multi not yet implemented for ios or windows-clipboard") # would need a way to select the annotator, probably necessitating a GUI on Windows (and extra callbacks on iOS)
     if java:
       if android and not "/src//" in java: errExit("When using --android, the last thing before the // in --java must be 'src' e.g. --java=/workspace/MyProject/src//org/example/package")
-      if main: # (delete previous files, only if we're not an MPI-etc subprocess)
+      if main and not compile_only: # (delete previous files, only if we're not an MPI-etc subprocess)
        os.system("mkdir -p "+shell_escape(java))
        for f in os.listdir(java):
         if f.endswith(".java") and (f.startswith("z") or f in ["topLevelMatch.java","Annotator.java"]): os.remove(java+os.sep+f) # (may want to remove topLevelMatch & Annotator if moving from non-ndk to ndk)
@@ -1229,14 +1229,14 @@ int main(int argc,char*argv[]) {
 """
 
 # ANDROID: setDefaultTextEncodingName("utf-8") is included as it might be needed if you include file:///android_asset/ URLs in your app (files put into assets/) as well as remote URLs.  (If including ONLY file URLs then you don't need to set the INTERNET permission in Manifest, but then you might as well pre-annotate the files and use a straightforward static HTML app like http://people.ds.cam.ac.uk/ssb22/gradint/html2apk.html )
-# Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list)
+# Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list) (TODO: API 1's shouldOverrideUrlLoading was deprecated in API 24; if they remove it, we may have to provide both to remain compatible?)
 if ndk_pre_2016 or not ndk: android_minSdkVersion,armabi = "1","armeabi"
 elif ndk_pre_2017: android_minSdkVersion,armabi = "9","armeabi" # Android 2.3
 else: android_minSdkVersion,armabi = "14","armeabi-v7a" # Android 4.0
 android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" >
 <uses-permission android:name="android.permission.INTERNET" />
-<uses-sdk android:minSdkVersion="""+'"'+android_minSdkVersion+r"""" android:targetSdkVersion="19" />
+<uses-sdk android:minSdkVersion="""+'"'+android_minSdkVersion+r"""" android:targetSdkVersion="26" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" >
 <service android:name=".BringToFront" android:exported="false"/>
@@ -1249,14 +1249,17 @@ android_layout = r"""<?xml version="1.0" encoding="utf-8"?>
 </LinearLayout>
 """
 android_src = r"""package %%JPACKAGE%%;
-import android.webkit.WebView;
-import android.webkit.WebChromeClient;
-import android.webkit.WebViewClient;
-import android.content.Intent;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.KeyEvent;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.annotation.TargetApi;
+import android.os.Build;
 public class MainActivity extends Activity {"""
 if ndk:
   android_src += r"""
@@ -1268,7 +1271,7 @@ if ndk:
 else: android_src += "%%JPACKAGE%%.Annotator annotator;"
 android_src += r"""
     @SuppressLint("SetJavaScriptEnabled")
-    @android.annotation.TargetApi(19) // 19 for setWebContentsDebuggingEnabled; 7 for setAppCachePath; 3 for setBuiltInZoomControls (but only API 1 is required)
+    @TargetApi(19) // 19 for setWebContentsDebuggingEnabled; 7 for setAppCachePath; 3 for setBuiltInZoomControls (but only API 1 is required)
     @SuppressWarnings("deprecation") // for conditional SDK below
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -1281,28 +1284,28 @@ android_src += r"""
         browser = (WebView)findViewById(R.id.browser);
         // ---------------------------------------------
         // Delete the following long line if you DON'T want caching on Android 2.1+ (caching is useful for persistence if app is removed from memory and then switched back to while user is offline)
-        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheMaxSize(10*1048576) /* if API==7 i.e. exactly Android 2.1 (deprecated in API 8) */ ; browser.getSettings().setAppCacheEnabled(true); if(Integer.valueOf(android.os.Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); } // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below)
+        if(Integer.valueOf(Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheMaxSize(10*1048576) /* if API==7 i.e. exactly Android 2.1 (deprecated in API 8) */ ; browser.getSettings().setAppCacheEnabled(true); if(Integer.valueOf(Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); } // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below)
         // ---------------------------------------------
         // Delete the following line if you DON'T want to be able to use chrome://inspect in desktop Chromium when connected via USB to Android 4.4+
-        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) WebView.setWebContentsDebuggingEnabled(true);
+        if(Integer.valueOf(Build.VERSION.SDK) >= 19) WebView.setWebContentsDebuggingEnabled(true);
         // ---------------------------------------------
         // Delete the following long line if you DON'T want to link pop-ups to Pleco (when installed):
         try { getApplicationContext().getPackageManager().getPackageInfo("com.pleco.chinesesystem", 0); gotPleco = true; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
         // Delete the following long line if you DON'T want to link pop-ups to Hanping (when installed) if not linking to Pleco (there's room for only one of the two in the AlertDialog)
-        if(!gotPleco && Integer.valueOf(android.os.Build.VERSION.SDK) >= 11) for(int i=0; i<3; i++) try { hanpingPackage="com.embermitre.hanping.cantodict.app.pro com.embermitre.hanping.app.pro com.embermitre.hanping.app.lite".split(" ")[i]; hanpingVersion=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage, 0).versionCode; break; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
+        if(!gotPleco && Integer.valueOf(Build.VERSION.SDK) >= 11) for(int i=0; i<3; i++) try { hanpingPackage="com.embermitre.hanping.cantodict.app.pro com.embermitre.hanping.app.pro com.embermitre.hanping.app.lite".split(" ")[i]; hanpingVersion=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage, 0).versionCode; break; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
         // ---------------------------------------------
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
-        @android.annotation.TargetApi(1)
+        @TargetApi(1)
         class A {
             public A(MainActivity act) { this.act = act; }
             MainActivity act; String copiedText="";"""
 if sharp_multi: android_src += r"""
             int annotNo = 0;
-            @android.webkit.JavascriptInterface public void setAnnotNo(int no) { annotNo = no; }
-            @android.webkit.JavascriptInterface public int getAnnotNo() { return annotNo; }"""
+            @JavascriptInterface public void setAnnotNo(int no) { annotNo = no; }
+            @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
 android_src += r"""
-            @android.webkit.JavascriptInterface public String annotate(String t,boolean inLink) """
+            @JavascriptInterface public String annotate(String t,boolean inLink) """
 if data_driven: android_src += "throws java.util.zip.DataFormatException "
 android_src += "{ String r="
 if ndk and sharp_multi: android_src += 'jniAnnotate(t,annotNo)'
@@ -1315,7 +1318,7 @@ if sharp_multi and not ndk: android_src += r""";
                 while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(annotNo+1)+"</rt>");
                 m.appendTail(sb); r=sb.toString();"""
 android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPopAll(this)\""); return r; } // now we have a Copy button, it's convenient to put this on ALL ruby elements, not just ones with title
-            @android.webkit.JavascriptInterface public void alert(String t,String a) {
+            @JavascriptInterface public void alert(String t,String a) {
                 class DialogTask implements Runnable {
                     String tt,aa;
                     DialogTask(String t,String a) { tt=t; aa=a; }
@@ -1338,7 +1341,7 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                                 startActivity(i);
                             }
                         }); else if(hanpingVersion!=0) d.setNeutralButton("Hanping", new android.content.DialogInterface.OnClickListener() {
-                            @android.annotation.TargetApi(11)
+                            @TargetApi(11)
                             public void onClick(android.content.DialogInterface dialog,int id) {
                                 Intent i = new Intent(Intent.ACTION_VIEW);
                                 i.setData(new android.net.Uri.Builder().scheme(hanpingVersion<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage.indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt.split(" ",2)[0]).build());
@@ -1353,31 +1356,31 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                 }
                 act.runOnUiThread(new DialogTask(t,a));
             }
-            @android.webkit.JavascriptInterface public String getClip() {
+            @JavascriptInterface public String getClip() {
                 String r=readClipboard(); if(r.equals(copiedText)) return ""; else return r;
             }"""
 if bookmarks_developer: android_src += r"""
             // isDevMode for --bookmarks-developer: (I shared this bit with StackOverflow by the way)
-            @android.annotation.TargetApi(17)
-            @android.webkit.JavascriptInterface public boolean isDevMode() {
-                if(Integer.valueOf(android.os.Build.VERSION.SDK) == 16) {
+            @TargetApi(17)
+            @JavascriptInterface public boolean isDevMode() {
+                if(Integer.valueOf(Build.VERSION.SDK) == 16) {
                     return android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),
                             android.provider.Settings.Secure.DEVELOPMENT_SETTINGS_ENABLED , 0) != 0;
-                } else if (Integer.valueOf(android.os.Build.VERSION.SDK) >= 17) {
+                } else if (Integer.valueOf(Build.VERSION.SDK) >= 17) {
                     return android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),
                             android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0;
                 } else return false;
             }"""
 android_src += r"""
-            @android.webkit.JavascriptInterface public void bringToFront() {
-                if(Integer.valueOf(android.os.Build.VERSION.SDK) >= android.os.Build.VERSION_CODES.CUPCAKE) {
+            @JavascriptInterface public void bringToFront() {
+                if(Integer.valueOf(Build.VERSION.SDK) >= Build.VERSION_CODES.CUPCAKE) {
                     startService(new Intent(MainActivity.this, BringToFront.class));
                     nextBackHides = true;
                 }
             }
-            @android.webkit.JavascriptInterface public String getSentText() { return sentText; }
-            @android.webkit.JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */
-            @android.webkit.JavascriptInterface public void openPlayStore() {
+            @JavascriptInterface public String getSentText() { return sentText; }
+            @JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */
+            @JavascriptInterface public void openPlayStore() {
                 /* ssb_local_annotator.openPlayStore() opens the Google "Play Store" page
                    for the app (if you've deployed it there), for use in encouraging
                    users to update to a more recent annotator etc (please don't use it
@@ -1397,16 +1400,16 @@ android_src += r"""
                 }
                 getApplicationContext().startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://play.google.com/store/apps/details?id="+id))); // fallback
             }
-            @android.webkit.JavascriptInterface @android.annotation.TargetApi(11) public void copy(String copiedText,boolean toast) {
+            @JavascriptInterface @TargetApi(11) public void copy(String copiedText,boolean toast) {
                 this.copiedText = copiedText;
-                if(Integer.valueOf(android.os.Build.VERSION.SDK) < android.os.Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
+                if(Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
                     ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
                 if(toast) android.widget.Toast.makeText(act, "Copied \""+copiedText+"\"",android.widget.Toast.LENGTH_LONG).show();
             }"""
 if bookmarks: android_src += r"""
             @SuppressLint("DefaultLocale")
-            @android.webkit.JavascriptInterface public void addBM(String p) {
+            @JavascriptInterface public void addBM(String p) {
                 android.content.SharedPreferences.Editor e;
                 do {
                    android.content.SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
@@ -1423,7 +1426,7 @@ if bookmarks: android_src += r"""
                 } while(!e.commit());
                 android.widget.Toast.makeText(act, "Added bookmark", android.widget.Toast.LENGTH_LONG).show();
             }
-            @android.webkit.JavascriptInterface public void deleteBM(String p) {
+            @JavascriptInterface public void deleteBM(String p) {
                 android.content.SharedPreferences.Editor e; boolean done=false; String s,p2;"""+"".join(r"""
                 try {
                     do {
@@ -1444,7 +1447,7 @@ if bookmarks: android_src += r"""
                 e.putString("prefs",s.substring(1));
                 } while(!e.commit());
             }
-            @android.webkit.JavascriptInterface public String getBMs() {
+            @JavascriptInterface public String getBMs() {
                 String s="";"""+"".join(r"""
                 try { s = createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==jPackage)+r"""
                 return s+getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
@@ -1458,11 +1461,11 @@ android_src += r"""
         browser.setWebViewClient(new WebViewClient() {
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }
                 public void onPageFinished(WebView view,String url) {
-                    if(Integer.valueOf(android.os.Build.VERSION.SDK) < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
+                    if(Integer.valueOf(Build.VERSION.SDK) < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
                     browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
                     else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged();var m=window.MutationObserver;if(m)new m(function(mut,obs){if(mut[0].type=='childList'){AnnotIfLenChanged()}}).observe(document.body,{childList:true,subtree:true})"); // (no point waiting the rest of the second for runTimer() to run, especially if this is the initial assets page; also Android 4.4+ has MutationObserver for even faster response to changes, so set that up as well) (and yes we do need to include js_common on this line because we don't know if runTimer has yet happened on this new page)
                 } });
-        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 3) {
+        if(Integer.valueOf(Build.VERSION.SDK) >= 3) {
             browser.getSettings().setBuiltInZoomControls(true);
         }
         int size=Math.round(16*getResources().getConfiguration().fontScale); // from device accessibility settings
@@ -1494,9 +1497,9 @@ android_src += r"""
     static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtra1="function AnnotIfLenChanged() { var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } };",xtra2="",annotScan=jsAddRubyCss+";tw0()",case3="var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
     android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
-    @android.annotation.TargetApi(19)
+    @TargetApi(19)
     void runTimerLoop() {
-        if(Integer.valueOf(android.os.Build.VERSION.SDK) >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
+        if(Integer.valueOf(Build.VERSION.SDK) >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
            theTimer = new android.os.Handler();
             theTimer.postDelayed(new Runnable() {
                 @Override
@@ -1520,9 +1523,9 @@ android_src += r"""
         } return super.onKeyDown(keyCode, event);
     }
     @SuppressWarnings("deprecation") // using getText so works on API 1 (TODO consider adding a version check and the more-modern alternative android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip(); if (c != null && c.getItemCount()>0) return c.getItemAt(0).coerceToText(this).toString(); return ""; )
-    @android.annotation.TargetApi(11)
+    @TargetApi(11)
     public String readClipboard() {
-        if(Integer.valueOf(android.os.Build.VERSION.SDK) < android.os.Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
+        if(Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
             return ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getText().toString();
         android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip();
         if (c != null && c.getItemCount()>0) {
@@ -1620,7 +1623,7 @@ public void o2(int numBytes,String annot,String title) {
   o("</rt></ruby>");
 }
 byte[] s2b(String s) {
-  // Convert string to bytes - version that works before Android API level 9 i.e. in Java 5 not 6.  (Some versions of Android Lint sometimes miss the fact that s.getBytes(UTF8) where UTF8==java.nio.charset.Charset.forName("UTF-8")) won't always work.  We could do an API9+ version and use @android.annotation.TargetApi(9) around the class (android.os.Build.VERSION.SDK_INT won't work on API less than 4 but Integer.valueOf(android.os.Build.VERSION.SDK) works), but anyway we'd rather not have to generate a special Android-specific version of Annotator as well as putting Android stuff in a separate class.)
+  // Convert string to bytes - version that works before Android API level 9 i.e. in Java 5 not 6.  (Some versions of Android Lint sometimes miss the fact that s.getBytes(UTF8) where UTF8==java.nio.charset.Charset.forName("UTF-8") won't always work.)  We could do an API9+ version and use @android.annotation.TargetApi(9) around the class (android.os.Build.VERSION.SDK_INT won't work on API less than 4 but Integer.valueOf(android.os.Build.VERSION.SDK) works), but anyway we'd rather not have to generate a special Android-specific version of Annotator as well as putting Android stuff in a separate class.)
   try { return s.getBytes("UTF-8"); }
   catch(java.io.UnsupportedEncodingException e) {
     // should never happen for UTF-8
