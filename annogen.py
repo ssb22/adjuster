@@ -186,7 +186,7 @@ cancelOpt("fast-assemble")
 
 parser.add_option("-Z","--zlib",
                   action="store_true",default=False,
-                  help="Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  If generating a Javascript annotator, the decompression code is inlined into the Javascript so there's no zlib dependency but startup is a little slower (try not to reload the script too often).  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).") # and compact_opcodes typically still helps no matter what the other options are
+                  help="Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator, the decompression code is inlined so there's no runtime zlib dependency, but startup is ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source.") # compact_opcodes typically still helps no matter what the other options are
 cancelOpt("zlib")
 
 parser.add_option("-W","--windows-clipboard",
@@ -3737,7 +3737,7 @@ def outputParser(rulesAndConds):
       if zlib:
         import base64
         return outfile.write(js_start+"data: inflate(\""+base64.b64encode(ddrivn)+"\","+str(origLen)+"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace(r"data.indexOf('\x00'",r"data.indexOf(0").replace("indexOf(input.charAt","indexOf(input.charCodeAt").replace("return a;","return String.fromCharCode.apply(null,a);")+"\n")
-      else: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n")
+      else: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n") # not Uint8Array (even if browser compatibility is known): besides taking more source space, it's typically ~25% slower to load than string, even from RAM
     elif python:
       outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
       if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
