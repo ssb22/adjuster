@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.644 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.645 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1518,11 +1518,9 @@ android_src += r"""
         }
     }
     boolean nextBackHides = false;
-    @Override public void onPause() { super.onPause(); if(Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onPause(); nextBackHides = false; }
-    @Override public void onResume() { super.onResume(); if(Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onResume(); }
-    // TODO: later recommendation is for videos etc not to pause in onPause, but onStop, due to split-screen devices in later Android versions.  Don't know how this ties in with Play Store conditions not to allow Youtube "background" playing, so let's not enable it just in case.
-    // @Override public void onStop() { super.onStop(); if(Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onPause(); } @Override public void onPause() { super.onPause(); nextBackHides = false; }
-    // @Override public void onStart() { super.onStart(); if(Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onResume(); } @Override public void onResume() { super.onResume(); }
+    @Override public void onPause() { super.onPause(); nextBackHides = false; } // but may still be visible on Android 7+, so don't pause the browser yet
+    @Override public void onStop() { super.onStop(); if(browser!=null && Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onPause(); } // NOW pause the browser (screen off or app not visible)
+    @Override public void onStart() { super.onStart(); if(browser!=null && Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onResume(); }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
@@ -4005,7 +4003,9 @@ if main and not compile_only:
 def cmd_or_exit(cmd):
   sys.stderr.write(cmd+"\n")
   r = os.system(cmd)
-  if r: sys.exit(r)
+  if not r: return
+  if r&0xFF == 0: r >>= 8 # POSIX
+  sys.exit(r)
 
 if main and not compile_only:
  if c_filename: outfile = openfile(c_filename,"w")
