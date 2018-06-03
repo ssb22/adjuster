@@ -437,7 +437,9 @@ elif ios:
   if ndk: errExit("Support for having both --ios and --ndk at the same time is not yet implemented")
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ios")
   if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
-if js_6bit and not javascript: errExit("--js-6bit requires --javascript") # or just set js_6bit=False
+if js_6bit:
+  if not javascript: errExit("--js-6bit requires --javascript") # or just set js_6bit=False in these circumstances?
+  import urllib
 if zlib:
   js_6bit = False
   del zlib ; import zlib ; data_driven = True
@@ -2026,7 +2028,7 @@ func Annotate(src io.Reader, dest io.Writer) {
 }
 """
 
-if js_6bit: js_6bit_offset = 35 # any offset between 32 and 63 makes all printable, but 35+ avoids escaping of " at 34 (can't avoid escaping of \ though, unless have a more complex decoder).  Lower offsets increase the range of compact-switchbyte addressing also.
+if js_6bit: js_6bit_offset = 35 # any offset between 32 and 63 makes all printable, but 35+ avoids escaping of " at 34 (can't avoid escaping of \ though, unless have a more complex decoder), and low offsets increase the range of compact-switchbyte addressing also.
 else: js_6bit_offset = 0
 
 class BytecodeAssembler:
@@ -2164,7 +2166,16 @@ class BytecodeAssembler:
     if python or java or javascript:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
-      if 1 <= len(string) < 256:
+      if js_6bit: string = re.sub("%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape'
+      if js_6bit:
+        if 1 <= len(string) <= 91:
+          string = chr(len(string)+31)+string # 32-122 inc
+        else:
+          for termChar in '{|}~\x00': # 123-126 + nul
+            if not termChar in string:
+              string = termChar + string + termChar
+              break
+      elif 1 <= len(string) < 256:
         string = chr(len(string))+string
       else: string = chr(0)+string+chr(0)
     else: string += chr(0) # just null-termination for C
@@ -2425,12 +2436,20 @@ js_end += r"""
 }
 
 function readRefStr() {
-  var a = readAddr(); var l=data.charCodeAt(a);
+  var a = readAddr(); var l=data.charCodeAt(a);"""
+if js_6bit: js_end += r"""
+  if(l && l<123) a = data.slice(a+1,a+l-30);
+  else a = data.slice(a+1,data.indexOf(data.charAt(a),a+1));
+  return unescape(a)"""
+elif zlib: js_end += r"""
+  if (l != 0) a = data.slice(a+1,a+l+1);
+  else a = data.slice(a+1,data.indexOf(0,a+1));
+  return String.fromCharCode.apply(null,a)"""
+else: js_end += r"""
   if (l != 0) a = data.slice(a+1,a+l+1);
   else a = data.slice(a+1,data.indexOf('\x00',a+1));
-  return a; // don't change: zlib replace()s here
-}
-
+  return a"""
+js_end += r"""}
 function s() {
   if (needSpace) output.push(" ");
   else needSpace=1; // for after the word we're about to write (if no intervening bytes cause needSpace=0)
@@ -3768,7 +3787,7 @@ def outputParser(rulesAndConds):
     if javascript:
       if zlib:
         import base64
-        return outfile.write(js_start+"data: inflate(\""+base64.b64encode(ddrivn)+"\","+str(origLen)+"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace(r"data.indexOf('\x00'",r"data.indexOf(0").replace("indexOf(input.charAt","indexOf(input.charCodeAt").replace("return a;","return String.fromCharCode.apply(null,a);")+"\n")
+        return outfile.write(js_start+"data: inflate(\""+base64.b64encode(ddrivn)+"\","+str(origLen)+"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace("indexOf(input.charAt","indexOf(input.charCodeAt")+"\n")
       else: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n") # not Uint8Array (even if browser compatibility is known): besides taking more source space, it's typically ~25% slower to load than string, even from RAM
     elif python:
       outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
