@@ -398,6 +398,9 @@ if not c_filename and isatty(sys.stdout): # assumed false when run under MPI
 def shell_escape(arg):
   if re.match("^[A-Za-z0-9_=/.%+,:@-]*$",arg): return arg
   return "'"+arg.replace("'",r"'\''")+"'"
+if sharp_multi:
+  if c_sharp or python or golang: errExit("sharp-multi not yet implemented in C#, Python or Go")
+  elif ios or windows_clipboard: errExit("sharp-multi not yet implemented for ios or windows-clipboard") # would need a way to select the annotator, probably necessitating a GUI on Windows (and extra callbacks on iOS)
 if java or javascript or python or c_sharp or golang:
     if ios: errExit("--ios not yet implemented in C#, Java, JS, Python or Go; please use C (it becomes Objective-C)")
     if windows_clipboard: errExit("--windows-clipboard not yet implemented in C#, Java, JS, Python or Go; please use C")
@@ -407,9 +410,6 @@ if java or javascript or python or c_sharp or golang:
     if compress and not ndk:
       if android: errExit("--compress without --ndk not yet implemented for Android, but --zlib typically gives results within 1% of --zlib --compress")
       else: errExit("--compress not yet implemented for the Java, Javascript, Python, C# or Go versions") # (and it would probably slow down JS/Python too much if it were implemented in that)
-    if sharp_multi:
-      if not ndk and not javascript and not java: errExit("sharp-multi not yet implemented in C#, Python or Go")
-      if ios or windows_clipboard: errExit("sharp-multi not yet implemented for ios or windows-clipboard") # would need a way to select the annotator, probably necessitating a GUI on Windows (and extra callbacks on iOS)
     if java:
       if android and not "/src//" in java: errExit("When using --android, the last thing before the // in --java must be 'src' e.g. --java=/workspace/MyProject/src//org/example/package")
       if main and not compile_only: # (delete previous files, only if we're not an MPI-etc subprocess)
