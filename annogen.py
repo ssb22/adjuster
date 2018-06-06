@@ -2187,11 +2187,13 @@ class BytecodeAssembler:
     def f(*args): raise Exception("Must call link() only once")
     self.link = f
     sys.stderr.write("Linking... ")
-    for dat,ref in self.d2l.iteritems(): # the functions and data to add to the end of self.l in no particular order
+    for dat,ref in sorted(self.d2l.iteritems()): # the functions and data to add to the end of self.l, sorted so we can optimise for overlaps
         assert type(ref)==tuple and type(ref[0])==int
         self.l.append((-ref[0],)) # the label
         if type(dat)==str:
-            self.l.append(dat) ; continue
+            if type(self.l[-2])==str and self.l[-2][-1]==dat[0]: # overlap of termination-byte indicators (TODO: look for longer overlaps? unlikely to occur)
+              self.l[-2] = self.l[-2][:-1]
+            self.l.append(dat) ; continue # TODO: many data items will end with the same byte as the next one starts with, so sort the string parts of iteritems and look for overlaps? (cut off the ending + add next label)
         # otherwise it's a function, and non-reserved labels are local, so we need to rename them
         l2l = {}
         for i in dat:
