@@ -118,9 +118,9 @@ parser.add_option("-n","--no-input",
                   help="Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.")
 cancelOpt("no-input")
 
-parser.add_option("--c-filename",default="",help="Where to write the C program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
+parser.add_option("--c-filename",default="",help="Where to write the C, C#, Python, Javascript or Go program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
 
-parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
+parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
 # If compiling an experimental annotator quickly, you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc.
 # (BUT tcc can have problems on Raspberry Pi see http://www.raspberrypi.org/phpBB3/viewtopic.php?t=30036&p=263213; can be best to cross-compile, e.g. from a Mac use https://github.com/UnhandledException/ARMx/wiki/Sourcery-G---Lite-for-ARM-GNU-Linux-(2009q3-67)-for-Mac-OS-X and arm-none-linux-gnueabi-gcc)
 # In large rulesets with --max-or-length=0 and --nested-switch, gcc takes time and gcc -Os can take a LOT longer, and CINT, Ch and picoc run out of memory.  Without these options the overhead of gcc's -Os isn't so bad (and does save some room).
@@ -241,7 +241,7 @@ cancelOpt("javascript")
 
 parser.add_option("-6","--js-6bit",
                   action="store_true",default=False,
-                  help="When generating a Javascript annotator, use a 6-bit format for many addresses to reduce escape codes in the data string by making more of it ASCII. Not relevant if using zlib, and unlikely to be needed if the resulting Javascript is to be compressed by some other means.") # May result in marginally slower JS, but it should be smaller and parse more quickly on initial load, which is normally the dominant factor if you have to reload it on every page.
+                  help="When generating a Javascript annotator, use a 6-bit format for many addresses to reduce escape codes in the data string by making more of it ASCII. Not relevant if using zlib.") # May result in marginally slower JS, but it should be smaller and parse more quickly on initial load, which is normally the dominant factor if you have to reload it on every page.
 cancelOpt("js-6bit")
 
 parser.add_option("-8","--js-octal",
@@ -253,6 +253,11 @@ parser.add_option("-9","--ignore-ie8",
                   action="store_true",default=False,
                   help="When generating a Javascript annotator, do not make it backward-compatible with Microsoft Internet Explorer 8 and below. This may save a few bytes. Not relevant if using zlib.")
 cancelOpt("ignore-ie8")
+
+parser.add_option("-u","--js-utf8",
+                  action="store_true",default=False,
+                  help="When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites.")
+cancelOpt("js-utf8")
 
 parser.add_option("-Y","--python",
                   action="store_true",default=False,
@@ -1080,7 +1085,7 @@ if ios:
   if ios.startswith('<'): c_end += '[self.myWebView loadHTMLString:@"'+ios+'" baseURL:nil];'
   # TODO: 'file from local project' option?  for now, anything that doesn't start with < is taken as URL
   else:
-    assert "://" in ios, "not an HTML fragment and doesn't look like a URL"
+    if not "://" in ios: errExit("--ios value doesn't look like an HTML fragment or a URL")
     c_end += '[self.myWebView loadRequest:[[NSURLRequest alloc] initWithURL:[[NSURL alloc] initWithString:@"'+ios+'"]]];'
   c_end += r"""
 }
@@ -2166,7 +2171,7 @@ class BytecodeAssembler:
     if python or java or javascript:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
-      if js_6bit: string = re.sub("%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape'
+      if js_6bit and not js_utf8: string = re.sub("%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape'
       if js_6bit:
         if 1 <= len(string) <= 91:
           string = chr(len(string)+31)+string # 32-122 inc
@@ -2439,10 +2444,12 @@ js_end += r"""
 
 function readRefStr() {
   var a = readAddr(); var l=data.charCodeAt(a);"""
-if js_6bit: js_end += r"""
+if js_6bit:
+  js_end += r"""
   if(l && l<123) a = data.slice(a+1,a+l-30);
-  else a = data.slice(a+1,data.indexOf(data.charAt(a),a+1));
-  return unescape(a)"""
+  else a = data.slice(a+1,data.indexOf(data.charAt(a),a+1));"""
+  if js_utf8: js_end += "return a" # no % encoding used
+  else: js_end += "return unescape(a)"
 elif zlib: js_end += r"""
   if (l != 0) a = data.slice(a+1,a+l+1);
   else a = data.slice(a+1,data.indexOf(0,a+1));
@@ -3579,7 +3586,10 @@ def js_escapeRawBytes(s):
   if ignore_ie8: s = s.replace(chr(11),r"\v")
   if js_octal: s = re.sub("[\x00-\x1f](?![0-9])",lambda m:r"\%o"%ord(m.group()),s)
   else: s = re.sub(chr(0)+r"(?![0-9])",r"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
-  return re.sub("[\x00-\x1f\x7f-\xff]",lambda m:r"\x%02x"%ord(m.group()),s)
+  if js_utf8:
+    # TODO: make s an actual Unicode string so cn repr strings as Unicode values directly
+    return unicode(re.sub("[\x00-\x1f\x7f]",lambda m:r"\x%02x"%ord(m.group()),s),'latin1').encode('utf-8')
+  else: return re.sub("[\x00-\x1f\x7f-\xff]",lambda m:r"\x%02x"%ord(m.group()),s)
 
 def c_length(unistr): return len(unistr.encode(outcode))
 
