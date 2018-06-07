@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.645 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.646 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -2172,6 +2172,7 @@ class BytecodeAssembler:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
       if js_6bit and not js_utf8: string = re.sub("%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape'
+      elif js_utf8 and not zlib: string = unicode(string,'utf-8')
       if js_6bit:
         if 1 <= len(string) <= 91:
           string = chr(len(string)+31)+string # 32-122 inc
@@ -2195,10 +2196,10 @@ class BytecodeAssembler:
     for dat,ref in sorted(self.d2l.iteritems()): # the functions and data to add to the end of self.l, sorted so we can optimise for overlaps
         assert type(ref)==tuple and type(ref[0])==int
         self.l.append((-ref[0],)) # the label
-        if type(dat)==str:
-            if type(self.l[-2])==str and self.l[-2][-1]==dat[0]: # overlap of termination-byte indicators (TODO: look for longer overlaps? unlikely to occur)
+        if type(dat) in [str,unicode]:
+            if type(self.l[-2])==type(dat) and self.l[-2][-1]==dat[0]: # overlap of termination-byte indicators (TODO: look for longer overlaps? unlikely to occur)
               self.l[-2] = self.l[-2][:-1]
-            self.l.append(dat) ; continue # TODO: many data items will end with the same byte as the next one starts with, so sort the string parts of iteritems and look for overlaps? (cut off the ending + add next label)
+            self.l.append(dat) ; continue
         # otherwise it's a function, and non-reserved labels are local, so we need to rename them
         l2l = {}
         for i in dat:
@@ -2212,7 +2213,7 @@ class BytecodeAssembler:
             else: self.l.append(i) # str or tuple just cp
     del self.d2l
     # elements of self.l are now:
-    # - byte strings (just copied in)
+    # - strings (just copied in)
     # - positive integers (labels for code)
     # - negative integers (references to labels)
     # - +ve or -ve integers in tuples (labels for functions and text strings: different 'namespace')
@@ -2241,7 +2242,7 @@ class BytecodeAssembler:
             counts_to_del = set()
             for count in xrange(len(src)-1,-1,-1):
                 i = src[count]
-                if type(i)==str and len(i)==1 and 71<=ord(i)<=73 and src[count+ord(i)-70+1]==('return',):
+                if type(i) in [str,unicode] and len(i)==1 and 71<=ord(i)<=73 and src[count+ord(i)-70+1]==('return',):
                   # (74 to 76 = 71 to 73 + return)
                   src[count] = chr(ord(i)+3)
                   counts_to_del.add(count+ord(i)-70+1)
@@ -2334,6 +2335,10 @@ class BytecodeAssembler:
                 if len(i):
                   r.append(i) ; ll += len(i)
             sys.stderr.write(".")
+          if js_utf8 and not zlib: # some "bytes" will actually be Unicode characters, so normalise all before join
+            for i in xrange(len(r)):
+              if type(r[i])==str:
+                r[i]=unicode(r[i],'latin1')
           r = "".join(r)
           if zlib:
             self.origLen = ll # needed for efficient malloc in the C code later
@@ -2349,7 +2354,7 @@ class BytecodeAssembler:
     i = 0
     while i < len(self.l):
       op = self.l[i]
-      if type(op)==str and op in 'GHI': op=(op,)
+      if type(op) in [str,unicode] and op in 'GHI': op=(op,)
       if op==('jump',):
         params = (-self.l[i+1],)
       elif op==[('call',)]:
@@ -2371,7 +2376,7 @@ class BytecodeAssembler:
           yield "  "+op[0]+" "+" ".join(repr(x) for x in params)
           if type(params)==tuple: i += len(params)
           else: i += 1
-      elif type(op)==str: yield "  EQUS "+repr(op)
+      elif type(op) in [str,unicode]: yield "  EQUS "+repr(op)
       elif type(op)==int:
         if op>0: yield "."+str(op)+":"
         else: yield "  RefTo("+str(op)+")" # shouldn't happen outside a parameter
@@ -2448,16 +2453,17 @@ if js_6bit:
   js_end += r"""
   if(l && l<123) a = data.slice(a+1,a+l-30);
   else a = data.slice(a+1,data.indexOf(data.charAt(a),a+1));"""
-  if js_utf8: js_end += "return a" # no % encoding used
-  else: js_end += "return unescape(a)"
 elif zlib: js_end += r"""
   if (l != 0) a = data.slice(a+1,a+l+1);
   else a = data.slice(a+1,data.indexOf(0,a+1));
   return String.fromCharCode.apply(null,a)"""
 else: js_end += r"""
   if (l != 0) a = data.slice(a+1,a+l+1);
-  else a = data.slice(a+1,data.indexOf('\x00',a+1));
-  return a"""
+  else a = data.slice(a+1,data.indexOf('\x00',a+1));"""
+if not zlib: # zlib version already has a return above
+  if js_utf8: js_end += "return unescape(encodeURIComponent(a))" # Unicode to UTF-8 (TODO: or keep as Unicode? but copyP things will be in UTF-8, as will the near tests)
+  elif js_6bit: js_end += "return unescape(a)" # %-encoding
+  else: js_end += "return a"
 js_end += r"""}
 function s() {
   if (needSpace) output.push(" ");
@@ -2545,7 +2551,7 @@ if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
 }
 return decodeURIComponent(escape(output.join("")))"""
 if js_6bit: js_end = js_end.replace("var numBytes = data.charCodeAt(dPtr++);","var numBytes = (data.charCodeAt(dPtr++)-"+str(js_6bit_offset-1)+")&0xFF;")
-if sharp_multi: js_end += r""".replace(new RegExp("<rt>"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</rt>","g"),"<rt>$1</rt>")"""
+if sharp_multi: js_end += r""".replace(new RegExp(">"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</r","g"),">$1</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt>
 js_end += r"""; // from UTF-8 back to Unicode
 } // end of annotate function
 };
@@ -3586,9 +3592,7 @@ def js_escapeRawBytes(s):
   if ignore_ie8: s = s.replace(chr(11),r"\v")
   if js_octal: s = re.sub("[\x00-\x1f](?![0-9])",lambda m:r"\%o"%ord(m.group()),s)
   else: s = re.sub(chr(0)+r"(?![0-9])",r"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
-  if js_utf8:
-    # TODO: make s an actual Unicode string so cn repr strings as Unicode values directly
-    return unicode(re.sub("[\x00-\x1f\x7f]",lambda m:r"\x%02x"%ord(m.group()),s),'latin1').encode('utf-8')
+  if js_utf8: return re.sub("[\x00-\x1f\x7f]",lambda m:r"\x%02x"%ord(m.group()),s.encode('utf-8'))
   else: return re.sub("[\x00-\x1f\x7f-\xff]",lambda m:r"\x%02x"%ord(m.group()),s)
 
 def c_length(unistr): return len(unistr.encode(outcode))
