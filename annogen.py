@@ -446,7 +446,7 @@ if js_6bit:
   if not javascript: errExit("--js-6bit requires --javascript") # or just set js_6bit=False in these circumstances?
   import urllib
 if zlib:
-  js_6bit = False
+  js_6bit = js_utf8 = False
   del zlib ; import zlib ; data_driven = True
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
@@ -2172,7 +2172,7 @@ class BytecodeAssembler:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
       if js_6bit and not js_utf8: string = re.sub("%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape'
-      elif js_utf8 and not zlib: string = unicode(string,'utf-8')
+      elif js_utf8: string = unicode(string,'utf-8')
       if js_6bit:
         if 1 <= len(string) <= 91:
           string = chr(len(string)+31)+string # 32-122 inc
@@ -2335,7 +2335,7 @@ class BytecodeAssembler:
                 if len(i):
                   r.append(i) ; ll += len(i)
             sys.stderr.write(".")
-          if js_utf8 and not zlib: # some "bytes" will actually be Unicode characters, so normalise all before join
+          if js_utf8: # some "bytes" will actually be Unicode characters, so normalise all before join
             for i in xrange(len(r)):
               if type(r[i])==str:
                 r[i]=unicode(r[i],'latin1')
@@ -2455,15 +2455,14 @@ if js_6bit:
   else a = data.slice(a+1,data.indexOf(data.charAt(a),a+1));"""
 elif zlib: js_end += r"""
   if (l != 0) a = data.slice(a+1,a+l+1);
-  else a = data.slice(a+1,data.indexOf(0,a+1));
-  return String.fromCharCode.apply(null,a)"""
+  else a = data.slice(a+1,data.indexOf(0,a+1));"""
 else: js_end += r"""
   if (l != 0) a = data.slice(a+1,a+l+1);
   else a = data.slice(a+1,data.indexOf('\x00',a+1));"""
-if not zlib: # zlib version already has a return above
-  if js_utf8: js_end += "return unescape(encodeURIComponent(a))" # Unicode to UTF-8 (TODO: or keep as Unicode? but copyP things will be in UTF-8, as will the near tests)
-  elif js_6bit: js_end += "return unescape(a)" # %-encoding
-  else: js_end += "return a"
+if zlib: js_end += "return String.fromCharCode.apply(null,a)"
+elif js_utf8: js_end += "return unescape(encodeURIComponent(a))" # Unicode to UTF-8 (TODO: or keep as Unicode? but copyP things will be in UTF-8, as will the near tests)
+elif js_6bit: js_end += "return unescape(a)" # %-encoding
+else: js_end += "return a"
 js_end += r"""}
 function s() {
   if (needSpace) output.push(" ");
@@ -3588,6 +3587,7 @@ def c_escapeRawBytes(s): # as it won't be valid outcode; don't want to crash any
   return re.sub(r"(?<!\\)((?:\\\\)*\\x..)([0-9a-fA-F])",r'\1""\2',zapTrigraphs(s.replace('\\','\\\\').decode('unicode_escape').encode('unicode_escape').replace('"','\\"')))
 
 def js_escapeRawBytes(s):
+  assert not zlib # js_utf8 etc not relevant if base64
   s = s.replace("\\",r"\\").replace('"',r'\"').replace(chr(8),r"\b").replace(chr(9),r"\t").replace(chr(10),r"\n").replace(chr(12),r"\f").replace(chr(13),r"\r")
   if ignore_ie8: s = s.replace(chr(11),r"\v")
   if js_octal: s = re.sub("[\x00-\x1f](?![0-9])",lambda m:r"\%o"%ord(m.group()),s)
