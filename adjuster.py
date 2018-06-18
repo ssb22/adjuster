@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2658 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2659 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -148,6 +148,7 @@ define("delete",multiple=True,help="Comma-separated list of regular expressions 
 define("delete_css",multiple=True,help="Comma-separated list of regular expressions to delete from CSS documents (but not inline CSS in HTML); can be used to remove, for example, dimension limits that conflict with annotations you add, as an alternative to inserting CSS overrides.  In rare cases you might want to replace the deleted regexp with another, in which case you can use @@ to separate the two, and a second @@ can be used to specify a string in the CSS URL that must be present for the operation to take effect (this could be combined with a codeChanges to add query parameters to the URL if you want the change to occur only when the CSS is loaded from specific HTML pages).")
 define("delete_doctype",default=False,help="Delete the DOCTYPE declarations from HTML pages. This option is needed to get some old Webkit browsers to apply multiple CSS files consistently.")
 define("deleteOmit",multiple=True,default="iPhone,iPad,Android,Macintosh",help="A list of browsers that do not need the delete and delete-doctype options to be applied. If any of these strings occur in the user-agent then these options are disabled for that request, on the assumption that these browsers are capable enough to cope with the \"problem\" code. Any delete-css option is still applied however.")
+define("cacheOmit",multiple=True,default="IEMobile",help="A list of browsers that cannot be trusted to provide correct Cache-Control headers. Use this if your browser fails to renew data when you press Reload.") # e.g. IE6 on WM6.1 sets Cache-Control to "max-age=259200" (3 days) even if you press Reload, which can result in upstream caching proxies (e.g. on AppEngine) failing to re-query the original servers on a reload (e.g. for NextBuses, frustrating if you're trying to decide whether or not you have to run!)
 define("codeChanges",help="Several lines of text specifying changes that are to be made to all HTML and Javascript code files on certain sites; use as a last resort for fixing a site's scripts. This option is best set in the configuration file and surrounded by r\"\"\"...\"\"\". The first line is a URL prefix (just \"http\" matches all); append a # to match an exact URL instead of a prefix, and #+number (e.g. #1 or #2) to match an exact URL and perform the change only that number of times in the page.  The second line is a string of code to search for, and the third is a string to replace it with. Further groups of URL/search/replace lines may follow; blank lines and lines starting with # are ignored. If the 'URL prefix' starts with a * then it is instead a string to search for within the code of the document body; any documents containing this code will match; thus it's possible to write rules of the form 'if the code contains A, then replace B with C'. This processing takes place before any 'delete' option takes effect so it's possible to pick up on things that will be deleted, and it occurs after the domain rewriting so it's possible to change rewritten domains in the search/replace strings (but the URL prefix above should use the non-adjusted version).")
 define("boxPrompt",default="Website to adjust",help="What to say before the URL box (when shown); may include HTML; for example if you've configured Web Adjuster to perform a single specialist change that can be described more precisely with some word other than 'adjust', you might want to set this.")
 define("viewsource",default=False,help="Provide a \"view source\" option. If set, you can see a page's pre-adjustment source code, plus client and server headers, by adding \".viewsource\" to the end of a URL (after any query parameters etc)")
@@ -589,6 +590,7 @@ def preprocessOptions():
     assert not (options.js_upstream and set_window_onerror), "Must have set_window_onerror==False when using options.js_upstream"
     create_inRenderRange_function(options.renderRange)
     if type(options.renderOmit)==type(""): options.renderOmit=options.renderOmit.split(',')
+    if type(options.cacheOmit)==type(""): options.cacheOmit=options.cacheOmit.split(',')
     if options.renderOmitGoAway:
         if options.renderCheck: errExit("Setting both renderOmitGoAway and renderCheck is not yet implemented (renderOmitGoAway assumes all testing is done by renderOmit only).  Please unset either renderOmitGoAway or renderCheck.")
         options.renderName = "" # so it can't be switched on/off (because there's not a lot of point in switching it off if we're renderOmitGoAway; TODO: document this behaviour?)
@@ -3131,12 +3133,12 @@ document.forms[0].i.focus()
             u=self.request.uri.split(http)
             for i in range(1,len(u)): u[i]=fixDNS(http+u[i])
             self.request.uri="".join(u)
-        self.accept_stuff = []
+        self.removed_headers = []
         for h in rmClientHeaders:
             l = self.request.headers.get_list(h)
             if l:
                 del self.request.headers[h]
-                self.accept_stuff.append((h,l[0]))
+                self.removed_headers.append((h,l[0]))
         self.request.headers["Host"]=realHost
         if options.via and not self.isSslUpstream:
             v = self.request.version
@@ -3144,9 +3146,10 @@ document.forms[0].i.focus()
             self.addToHeader("Via",v+" "+convert_to_via_host(self.request.host)+" ("+viaName+")")
             self.addToHeader("X-Forwarded-For",self.request.remote_ip)
         if options.uavia and not self.isSslUpstream: self.addToHeader("User-Agent","via "+convert_to_via_host(self.request.host)+" ("+viaName+")")
+        if self.checkBrowser(options.cacheOmit): self.request.headers["Cache-Control"] = "no-cache"
     def restore_request_headers(self): # restore the ones Tornado might use (Connection etc)
-        if not hasattr(self,"accept_stuff"): return # haven't called change_request_headers (probably means this is user input)
-        for k,v in self.accept_stuff: self.request.headers[k]=v
+        if not hasattr(self,"removed_headers"): return # haven't called change_request_headers (probably means this is user input)
+        for k,v in self.removed_headers: self.request.headers[k]=v
         if hasattr(self.request,"old_cookie"): self.request.headers["Cookie"] = self.request.old_cookie # + put this back so we can refer to our own cookies
     
     def sendRequest(self,converterFlags,viewSource,isProxyRequest,follow_redirects):
