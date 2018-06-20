@@ -637,7 +637,7 @@ def preprocessOptions():
         upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':') # TODO: IPv6 ?
         if not upstream_proxy_host:
             upstream_proxy_host = "127.0.0.1"
-            if wsgi_mode: sys.stderr.write("Can't do SSL-rewrite for upstream proxy when in WSGI mode\n")
+            if wsgi_mode: warn("Can't do SSL-rewrite for upstream proxy when in WSGI mode")
             else: upstream_rewrite_ssl = True
         upstream_proxy_port = int(upstream_proxy_port)
     elif options.usepycurl and not options.submitPath=='/': setupCurl(3*js_per_core) # and no error if not there
@@ -886,7 +886,7 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+    for opt in 'config user address background restart stop install watchdog browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt): warn("'%s' option may not work in WSGI mode" % opt)
     options.js_reproxy = False # for now (see above)
@@ -1034,7 +1034,7 @@ def start_multicore(isChild=False):
             return CrossProcessLogging.initChild()
         children.add(pid)
     if not isChild:
-        # Do the equivalent of setupRunAndBrowser() but without the IOLoop.  This can start threads, so must be afster the above fork() calls.
+        # Do the equivalent of setupRunAndBrowser() but without the IOLoop.  This can start threads, so must be after the above fork() calls.
         if options.browser: runBrowser()
         if options.run: runRun()
     # Now wait for the browser or the children to exit
