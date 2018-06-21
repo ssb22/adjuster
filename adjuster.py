@@ -584,7 +584,7 @@ def preprocessOptions():
         try: import multiprocessing # Python 2.6
         except ImportError: # can't do it then
             options.js_multiprocess = False
-      if int(tornado.version.split('.')[0]) > 4: errExit("js_interpreter not yet working on Tornado versions above 4.\nTornado "+tornado.version+" detected.\nPlease downgrade to 4.x, e.g.: pip install tornado==4.5.3 --upgrade")
+      if int(tornado.version.split('.')[0]) > 4 and options.js_429 and options.multicore: errExit("js_429 with multicore not yet working on Tornado versions above 4.\nTornado "+tornado.version+" detected.\nPlease downgrade to 4.x, e.g.: pip install tornado==4.5.3 --upgrade")
     elif options.js_upstream: errExit("js_upstream requires a js_interpreter to be set")
     if options.js_timeout2 <= options.js_timeout1: errExit("js_timeout2 must be greater than js_timeout1")
     assert not (options.js_upstream and set_window_onerror), "Must have set_window_onerror==False when using options.js_upstream"
