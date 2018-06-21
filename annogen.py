@@ -1306,7 +1306,7 @@ android_src += r"""
         if(!gotPleco && Integer.valueOf(Build.VERSION.SDK) >= 11) for(int i=0; i<3; i++) try { hanpingPackage="com.embermitre.hanping.cantodict.app.pro com.embermitre.hanping.app.pro com.embermitre.hanping.app.lite".split(" ")[i]; hanpingVersion=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage, 0).versionCode; break; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
         // ---------------------------------------------
         if(Integer.valueOf(Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheMaxSize(10*1048576) /* if API==7 i.e. exactly Android 2.1 (deprecated in API 8) */ ; browser.getSettings().setAppCacheEnabled(true); } // not to be confused with the normal browser cache
-        if(Integer.valueOf(Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. reboot)
+        if(Integer.valueOf(Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. swipe-closed in Activity Manager)
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
         @TargetApi(1)
@@ -1545,7 +1545,7 @@ android_src += r"""
         return "";
     }
     @Override protected void onSaveInstanceState(Bundle outState) { browser.saveState(outState); }
-    @Override protected void onDestroy() { if(isFinishing() && Integer.valueOf(Build.VERSION.SDK)<23 && browser!=null) browser.clearCache(true); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure)
+    @Override protected void onDestroy() { if(isFinishing() && Integer.valueOf(Build.VERSION.SDK)<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
     WebView browser;
 }
 """
