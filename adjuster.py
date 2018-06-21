@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2659 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.266 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -80,6 +80,7 @@ define("via",default=True,help="Whether or not to update the Via: and X-Forwarde
 define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP header when forwarding requests, as a courtesy to site administrators who wonder what's happening in their logs (and don't log Via: etc)")
 define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.") # TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, see comments in request_no_external_referer)
 define("just_me",default=False,help="Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.")
+define("one_request_only",default=False,help="Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy): run with --one_request_only and forward the request to its port.")
 
 define("upstream_proxy",help="address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options, own_server or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.") # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies. The ":port"-only option rewrites URLs in requests but NOT ones referred to in documents: we assume the proxy can cope with that.
 
@@ -566,6 +567,12 @@ def preprocessOptions():
         if hasattr(signal,"SIGUSR2"):
             signal.signal(signal.SIGUSR2, requestStatusDump)
     if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
+    if options.one_request_only:
+        if options.multicore or options.fasterServer or options.whois or options.own_server or options.ssh_proxy: errExit("--one-request-only is not compatible with multicore, fasterServer, whois, own_server or ssh_proxy") # (TODO: it could be MADE compatible with fasterServer, whois, etc, but that would need more work.  watchdog works in theory but is inadvisable unless you're running this in some kind of loop)
+        if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
+            warn("pdfepubkeep and waitpage won't work with --one-request-only: clearing them")
+            options.pdfepubkeep = options.waitpage = False
+        if options.js_interpreter and not options.js_instances==1: errExit("--one-request-only doesn't make sense with a js_instances value other than 1") # (well we could start N instances if you like, but what's the point? - this probably indicates 'wrong config= option' or something, so flag it)
     if options.restart and options.watchdog and options.watchdogDevice=="/dev/watchdog" and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
     if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
     if type(options.mailtoSMS)==type(""): options.mailtoSMS=options.mailtoSMS.split(',')
@@ -576,6 +583,7 @@ def preprocessOptions():
         except ImportError: errExit("render requires PIL")
     global tornado
     if options.js_interpreter:
+      if options.js_instances < 1: errExit("js_interpreter requires positive js_instances")
       global webdriver
       try: from selenium import webdriver
       except: errExit("js_interpreter requires selenium")
@@ -886,10 +894,11 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+    for opt in 'config user address background restart stop install watchdog browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me one_request_only'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt): warn("'%s' option may not work in WSGI mode" % opt)
     options.js_reproxy = False # for now (see above)
+    options.one_request_only = False
     if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
         options.pdfepubkeep=0 ; options.waitpage = False
         warn("pdfepubkeep and waitpage may not work in WSGI mode; clearing them") # both rely on one process doing all requests (not guaranteed in WSGI mode), and both rely on ioloop's add_timeout being FULLY functional
@@ -1206,9 +1215,12 @@ def static_handler():
 theServers = {}
 def listen_on_port(application,port,address,browser,core="all",**kwargs):
     if not core in theServers: theServers[core] = []
-    theServers[core].append((port,HTTPServer(application,**kwargs)))
+    global mainServer
+    h = HTTPServer(application,**kwargs)
+    theServers[core].append((port,h))
+    if port==options.port: mainServer = h
     for portTry in [5,4,3,2,1,0]:
-      try: return theServers[core][-1][1].bind(port,address)
+      try: return h.bind(port,address)
       except socket.error, e:
         if not "already in use" in e.strerror: raise
         # Maybe the previous server is taking a while to stop
@@ -2356,6 +2368,7 @@ class RequestForwarder(RequestHandler):
             try:
                 webdriver_inProgress[self.WA_PjsIndex].remove(self.request.uri)
             except: pass
+        elif options.one_request_only and not self.isSslUpstream: stopServer("Stopping after one request")
         try: reqsInFlight.remove(id(self))
         except: pass
         try: origReqInFlight.remove(id(self))
@@ -2926,10 +2939,13 @@ document.forms[0].i.focus()
         if options.just_me and not self.justMeCheck(): return
         debuglog("doReq"+self.debugExtras()) # MUST keep this here: it also sets profileIdle=False
         try: reqsInFlight.add(id(self)) # for profile
-        except: pass
+        except: pass # e.g. not options.profile
         if not self.isPjsUpstream and not self.isSslUpstream:
             try: origReqInFlight.add(id(self))
-            except: pass
+            except: pass # e.g. not options.profile
+            if options.one_request_only:
+                IOLoop.instance().handle_callback_exception = lambda *args:0 # Tornado 4 raises EBADF in accept_handler if you call server.stop() from a request handler (TODO: handle other errors using the original exception handler?)
+                mainServer.stop()
         if wsgi_mode and self.request.path==urllib.quote(os.environ.get("SCRIPT_NAME","")+os.environ.get("PATH_INFO","")) and 'SCRIPT_URL' in os.environ:
             # workaround for Tornado 2.x limitation when used with CGI and htaccess redirects
             self.request.uri = os.environ['SCRIPT_URL']
