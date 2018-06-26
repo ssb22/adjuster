@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.266 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.267 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -315,6 +315,7 @@ define("extensions",help="Name of a custom Python module to load to handle certa
 
 define("loadBalancer",default=False,help="Set this to True if you have a default_site set and you are behind any kind of \"load balancer\" that works by issuing a GET / with no browser string. This option will detect such requests and avoid passing them to the remote site.")
 define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)") # and --ssl-fork if there's not TOO many instances taking up the RAM; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server)
+define("internalPort",default=0,help="The first port number to use for internal purposes.  Internal ports needed by real_proxy (for SSL) and js_reproxy will be opened starting at this number (the default of 0 means one higher than 'port').  If your Tornado is modern enough to support reuse_port then you can have multiple Adjuster instances listening on the same port (e.g. for one_request_only) provided they have different internalPort settings.  Note however that the --stop and --restart options will NOT distinguish between different internalPort settings, only 'port'.")
 define("compress_responses",default=True,help="Use gzip to compress responses for clients that indicate they are compatible with it. You may want to turn this off if your server's CPU is more important than your network bandwidth (e.g. browser on same machine).")
 
 # THIS MUST BE THE LAST SECTION because it continues into
@@ -669,6 +670,9 @@ def preprocessOptions():
             options.open_proxy = True # bypass the check
     if not options.publicPort:
         options.publicPort = options.port
+    if not options.internalPort:
+        options.internalPort = options.port + 1
+    if options.internalPort in [options.publicPort,options.port]: errExit("--internalPort cannot match --port or --publicPort")
     if options.just_me:
         options.address = "localhost"
         try: socket.socket().connect(('localhost',113))
@@ -991,8 +995,8 @@ def terminateSslForks(*args):
 
 def open_extra_ports():
     "Returns the stop function if we're now a child process that shouldn't run anything else"
-    nextPort = options.port + 1
-    # don't add any other ports here: NormalRequestForwarder assumes the real_proxy SSL helper will be at port+1
+    nextPort = options.internalPort
+    # don't add any other ports here: NormalRequestForwarder assumes the real_proxy SSL helper will be at internalPort
     # banner() must be kept in sync with these port numbers
     # All calls to sslSetup and maybe_sslfork_monitor must be made before ANY other calls to listen_on_port (as we don't yet want there to be an IOLoop instance when maybe_sslfork_monitor is called)
     if options.real_proxy: nextPort = sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=False),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1) # gzip=False because little point if we know the final client is on localhost.  A modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port.
@@ -1128,8 +1132,8 @@ def banner(delayed=False):
         ret.append("Listening on port %d" % options.port)
         if (options.real_proxy or options.js_reproxy or upstream_rewrite_ssl): ret.append("with these helpers (don't connect to them yourself):")
         if options.real_proxy:
-            if options.ssl_fork: ret.append("--real_proxy SSL helper on localhost:%d-%d" % (options.port+1,options.port+2))
-            else: ret.append("--real_proxy SSL helper on localhost:%d" % (options.port+1))
+            if options.ssl_fork: ret.append("--real_proxy SSL helper on localhost:%d-%d" % (options.internalPort,options.internalPort+1))
+            else: ret.append("--real_proxy SSL helper on localhost:%d" % options.internalPort)
         if options.js_reproxy:
             try: ret.append("--js_reproxy helpers on localhost:%d-%d" % (js_proxy_port[0],js_proxy_port[-1]))
             except NameError: ret.append("--js_reproxy helpers (ports to be determined)") # early_fork
@@ -3684,8 +3688,8 @@ def MakeRequestForwarder(useSSL,connectPort,isPJS=False,start=0,index=0):
         WA_PjsIndex = index # (relative to start)
         isSslUpstream = False
     return MyRequestForwarder # the class, not an instance
-def NormalRequestForwarder(): return MakeRequestForwarder(False,options.port+1)
-def SSLRequestForwarder(): return MakeRequestForwarder(True,options.port+1)
+def NormalRequestForwarder(): return MakeRequestForwarder(False,options.internalPort)
+def SSLRequestForwarder(): return MakeRequestForwarder(True,options.internalPort)
 def PjsRequestForwarder(start,index): return MakeRequestForwarder(False,js_proxy_port[start+index]+1,True,start,index)
 def PjsSslRequestForwarder(start,index): return MakeRequestForwarder(True,js_proxy_port[start+index]+1,True,start,index)
 
