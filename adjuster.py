@@ -1299,7 +1299,7 @@ def workaround_timeWait_problem():
     if not 'reuse_port' in inspect.getargspec(tornado.netutil.bind_sockets).args: return # Tornado version too old
     obs = tornado.netutil.bind_sockets
     def newBind(*args,**kwargs):
-        if len(args) < 6: kwargs['reuse_port'] = True
+        if len(args) < 6 and args[0]: kwargs['reuse_port'] = True
         return obs(*args,**kwargs)
     debuglog("Adding reuse_port to tornado.netutil.bind_sockets")
     tornado.netutil.bind_sockets = newBind
