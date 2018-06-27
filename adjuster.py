@@ -1221,10 +1221,20 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
     if not core in theServers: theServers[core] = []
     global mainServer
     h = HTTPServer(application,**kwargs)
+    addedSockets = False
+    if port==0: # bind to random port and return it (TODO: not yet used)
+        s = socket.socket() ; s.bind((address,0))
+        port = s.getsockname()[1] ; h.add_sockets([s])
+        if options.port==0: options.port = port # (TODO: currently options.port=0 means don't listen, so won't get here)
+        addedSockets = True
     theServers[core].append((port,h))
     if port==options.port: mainServer = h
+    if addedSockets: return port # no need to check we could get it
     for portTry in [5,4,3,2,1,0]:
-      try: return h.bind(port,address)
+      try:
+          if port==options.port and (options.one_request_only or (options.multicore and options.js_429)): # no backlog
+              return h.bind(port,address,backlog=0) # (if options.just_me, backlog=0 could make it marginally easier for other users to perform DoS, but not by very much; TODO: how to set backlog=0 with the 'random port' option, if we print our port number?)
+          else: return h.bind(port,address)
       except socket.error, e:
         if not "already in use" in e.strerror: raise
         # Maybe the previous server is taking a while to stop
