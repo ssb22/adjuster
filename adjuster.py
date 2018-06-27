@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.267 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.268 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -66,7 +66,7 @@ define("config",help="Name of the configuration file to read, if any. The proces
 define("version",help="Just print program version and exit")
 
 heading("Network listening and security settings")
-define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix); setting it to 0 disables request-processing entirely (if you want to use only the Dynamic DNS and watchdog options). For --real_proxy and related options, additional unused ports are needed immediately above this number: they listen only on localhost and are used for SSL helpers etc.") # when not in WSGI mode ('CONNECT' is not supported in WSGI mode, neither is js_reproxy).  If running on Openshift in non-WSGI mode, you'd better not use real_proxy or js_reproxy because Openshift won't let you open ports other than OPENSHIFT_PYTHON_PORT (TODO: find some way to multiplex everything on one port? how to authenticate our JS-interpreter connections if the load-balancer makes remote connections to that port also seem to come from our IP?)
+define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix); setting it to 0 disables request-processing entirely (for if you want to use only the Dynamic DNS and watchdog options); setting it to -1 selects a local port in the ephemeral port range (for tests etc on a shared system).")
 define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.")
 define("user",help="The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.")
 define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real_proxy.")
@@ -315,7 +315,7 @@ define("extensions",help="Name of a custom Python module to load to handle certa
 
 define("loadBalancer",default=False,help="Set this to True if you have a default_site set and you are behind any kind of \"load balancer\" that works by issuing a GET / with no browser string. This option will detect such requests and avoid passing them to the remote site.")
 define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)") # and --ssl-fork if there's not TOO many instances taking up the RAM; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server)
-define("internalPort",default=0,help="The first port number to use for internal purposes.  Internal ports needed by real_proxy (for SSL) and js_reproxy will be opened starting at this number (the default of 0 means one higher than 'port').  If your Tornado is modern enough to support reuse_port then you can have multiple Adjuster instances listening on the same port (e.g. for one_request_only) provided they have different internalPort settings.  Note however that the --stop and --restart options will NOT distinguish between different internalPort settings, only 'port'.")
+define("internalPort",default=0,help="The first port number to use for internal purposes when ssl_fork is in effect.  Internal ports needed by real_proxy (for SSL) and js_reproxy are normally allocated from the ephemeral port range, but if ssl_fork delegates to independent processes then some of them need to be at known numbers. The default of 0 means one higher than 'port'; several unused ports may be needed starting at this number. If your Tornado is modern enough to support reuse_port then you can have multiple Adjuster instances listening on the same port (e.g. for one_request_only) provided they have different internalPort settings when run with ssl_fork.  Note however that the --stop and --restart options will NOT distinguish between different internalPort settings, only 'port'.") # If running on Openshift in non-WSGI mode, you'd better not use real_proxy or js_reproxy because Openshift won't let you open ports other than OPENSHIFT_PYTHON_PORT (TODO: find some way to multiplex everything on one port? how to authenticate our JS-interpreter connections if the load-balancer makes remote connections to that port also seem to come from our IP?)
 define("compress_responses",default=True,help="Use gzip to compress responses for clients that indicate they are compatible with it. You may want to turn this off if your server's CPU is more important than your network bandwidth (e.g. browser on same machine).")
 
 # THIS MUST BE THE LAST SECTION because it continues into
@@ -661,7 +661,19 @@ def preprocessOptions():
         options.open_proxy=True
         if options.browser and "lynx" in options.browser and not "I_PROMISE_NOT_TO_LYNX_DUMP_SSL" in os.environ and not "-stdin" in options.browser and ("-dump" in options.browser or "-source" in options.browser or "-mime_header" in options.browser): errExit("Don't do that.  If Lynx wants to ask you about our self-signed certificates, it'll assume the answer is No when running non-interactively, and this will cause it to fetch the page directly (not via our proxy) which could confuse you into thinking the adjuster's not working.  If you know what you're doing, put I_PROMISE_NOT_TO_LYNX_DUMP_SSL in the environment to suppress this message (but if using js_interpreter beware of redirect to SSL).  Or you can use wget --no-check-certificate -O - | lynx -dump -stdin") # TODO: could we configure Lynx to always accept when running non-interactively?
     if options.htmlFilter and '#' in options.htmlFilter and not len(options.htmlFilter.split('#'))+1 == len(options.htmlFilterName.split('#')): errExit("Wrong number of #s in htmlFilterName for this htmlFilter setting")
-    if not options.port:
+    if options.port == -1:
+        if wsgi_mode:
+            warn("port=-1 won't work in WSGI mode, assuming 80")
+            options.port = 80
+        elif options.ssl_fork and options.background: errExit("Can't run in background with ssl_fork and an ephemeral main port, as that requires fork-before-listen so won't be able to report the allocated port number")
+        else:
+            port_randomise[options.port] = True
+            if not options.internalPort:
+                # DON'T set it to -1 + 1 = 0
+                options.internalPort = 1024
+    elif options.port < 0 or options.port > 65535:
+        errExit("port out of range")
+    elif not options.port:
         if wsgi_mode:
             warn("port=0 won't work in WSGI mode, assuming 80")
             options.port = 80
@@ -914,13 +926,15 @@ def make_WSGI_application():
 
 sslforks_to_monitor = [] # list of [pid,callback1,callback2,port,last response time]
 sslfork_monitor_pid = None
-def sslSetup(HelperStarter, ping_portNo):
+def sslSetup(HelperStarter, ping_portNo, isFixed=False):
     if options.ssl_fork: # queue it to be started by monitor
         if options.multicore and sslforks_to_monitor: sslforks_to_monitor[0][1] = (lambda c1=HelperStarter,c2=sslforks_to_monitor[0][1]:(c1(),c2())) # chain it, as in multicore mode we'll have {N cores} * {single process handling all SSL ports}, rather than cores * processes (TODO: if one gets stuck but others on the port can still handle requests, do we want to somehow detect the individual stuck one and restart it to reduce wasted CPU load?)
         else: # no multicore, or this is the first SSL helper, so we need to associate it with a (non-SSL) ping responder
             sslforks_to_monitor.append([None,HelperStarter,(lambda *_:listen_on_port(Application([(r"(.*)",AliveResponder,{})],log_function=nullLog),ping_portNo,"127.0.0.1",False)),ping_portNo,None])
             return ping_portNo + 1 # where to put the next listener
-    else: HelperStarter() # just run it on current process
+    else: # just run it on the current process, and we can randomise the internal port and keep track of what it is
+        if not isFixed: port_randomise[ping_portNo-1] = True
+        HelperStarter()
     return ping_portNo # next listener can use what would have been the ping-responder port as we're not using it
 sslFork_pingInterval = 1 # TODO: configurable?  (ping every interval, restart if down for 2*interval)  (if setting this larger, might want to track the helper threads for early termination)
 def maybe_sslfork_monitor():
@@ -997,7 +1011,6 @@ def open_extra_ports():
     "Returns the stop function if we're now a child process that shouldn't run anything else"
     nextPort = options.internalPort
     # don't add any other ports here: NormalRequestForwarder assumes the real_proxy SSL helper will be at internalPort
-    # banner() must be kept in sync with these port numbers
     # All calls to sslSetup and maybe_sslfork_monitor must be made before ANY other calls to listen_on_port (as we don't yet want there to be an IOLoop instance when maybe_sslfork_monitor is called)
     if options.real_proxy: nextPort = sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=False),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1) # gzip=False because little point if we know the final client is on localhost.  A modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port.
     if options.js_reproxy:
@@ -1009,16 +1022,16 @@ def open_extra_ports():
             # PjsRequestForwarder to be done later
             js_proxy_port.append(nextPort)
             nextPort = sslSetup(lambda port=nextPort,cc=c,ii=i : listen_on_port(Application([(r"(.*)",PjsSslRequestForwarder(cc*js_per_core,ii),{})],log_function=nullLog,gzip=False),port+1,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+2)
-        js_proxy_port.append(nextPort-1) # highest port in use, for banner()
     if upstream_rewrite_ssl:
         # This one does NOT listen on SSL: it listens on unencrypted HTTP and rewrites .0 into outgoing SSL.  But we can still run it in a different process if ssl_fork is enabled, and this will save encountering the curl_max_clients issue as well as possibly offloading *client*-side SSL to a different CPU core (TODO: could also use Tornado's multiprocessing to multi-core the client-side SSL)
-        sslSetup(lambda port=upstream_proxy_port+1:listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=False),port,"127.0.0.1",False),upstream_proxy_port+2) # TODO: document upstream_proxy_port+2 needs to be reserved if options.ssl_fork and not options.upstream_proxy_host
+        sslSetup(lambda port=upstream_proxy_port+1:listen_on_port(Application([(r"(.*)",UpSslRequestForwarder,{})],log_function=nullLog,gzip=False),port,"127.0.0.1",False),upstream_proxy_port+2,True) # TODO: document upstream_proxy_port+2 needs to be reserved if options.ssl_fork and not options.upstream_proxy_host
     r = maybe_sslfork_monitor()
     if r: return r
     # NOW we can start non-sslSetup listen_on_port:
     if options.js_reproxy:
         for c in xrange(cores):
           for i in xrange(js_per_core):
+            port_randomise[js_proxy_port[c*js_per_core+i]]=True
             listen_on_port(makePjsApplication(c*js_per_core,i),js_proxy_port[c*js_per_core+i],"127.0.0.1",False,core=c)
 
 def makeMainApplication():
@@ -1129,17 +1142,9 @@ def openPortsEtc():
 def banner(delayed=False):
     ret = [twoline_program_name]
     if options.port:
-        ret.append("Listening on port %d" % options.port)
-        if (options.real_proxy or options.js_reproxy or upstream_rewrite_ssl): ret.append("with these helpers (don't connect to them yourself):")
-        if options.real_proxy:
-            if options.ssl_fork: ret.append("--real_proxy SSL helper on localhost:%d-%d" % (options.internalPort,options.internalPort+1))
-            else: ret.append("--real_proxy SSL helper on localhost:%d" % options.internalPort)
-        if options.js_reproxy:
-            try: ret.append("--js_reproxy helpers on localhost:%d-%d" % (js_proxy_port[0],js_proxy_port[-1]))
-            except NameError: ret.append("--js_reproxy helpers (ports to be determined)") # early_fork
-        if upstream_rewrite_ssl:
-            if options.ssl_fork and not (options.multicore and (options.real_proxy or options.js_reproxy)): ret.append("--upstream-proxy back-connection helper on localhost:%d-%d" % (upstream_proxy_port+1,upstream_proxy_port+2))
-            else: ret.append("--upstream-proxy back-connection helper on localhost:%d" % (upstream_proxy_port+1,))
+        if options.port==-1: ret.append("Listening on 127.0.0.1:%d" % port_randomise[-1])
+        else: ret.append("Listening on port %d" % options.port)
+        if upstream_rewrite_ssl: ret.append("--upstream-proxy back-connection helper is listening on 127.0.0.1:%d" % (upstream_proxy_port+1,))
     else: ret.append("Not listening (--port=0 set)")
     if options.watchdog:
         ret.append("Writing "+options.watchdogDevice+" every %d seconds" % options.watchdog)
@@ -1217,24 +1222,22 @@ def static_handler():
     return (url+"(.*)",OurStaticFileHandler,{"path":path,"default_filename":"index.html"})
 
 theServers = {}
+port_randomise = {} # port -> _ or port -> mappedPort
 def listen_on_port(application,port,address,browser,core="all",**kwargs):
     if not core in theServers: theServers[core] = []
     global mainServer
     h = HTTPServer(application,**kwargs)
-    addedSockets = False
-    if port==0: # bind to random port and return it (TODO: not yet used)
-        s = socket.socket() ; s.bind((address,0))
-        port = s.getsockname()[1] ; h.add_sockets([s])
-        if options.port==0: options.port = port # (TODO: currently options.port=0 means don't listen, so won't get here)
-        addedSockets = True
+    if port==options.port and (options.one_request_only or (options.multicore and options.js_429)): backlog = 0 # (if options.just_me, backlog=0 could make it marginally easier for other users to perform DoS, but not by very much)
+    else: backlog = 128 # Tornado default
+    if port in port_randomise:
+        s = tornado.netutil.bind_sockets(0,"127.0.0.1",backlog=backlog) # should get len(s)==1 if address=="127.0.0.1" (may get more than one socket, with different ports, if address maps to some mixed IPv4/IPv6 configuration)
+        port_randomise[port] = s[0].getsockname()[1]
+        h.add_sockets(s)
     theServers[core].append((port,h))
     if port==options.port: mainServer = h
-    if addedSockets: return port # no need to check we could get it
+    if port in port_randomise: return
     for portTry in [5,4,3,2,1,0]:
-      try:
-          if port==options.port and (options.one_request_only or (options.multicore and options.js_429)): # no backlog
-              return h.bind(port,address,backlog=0) # (if options.just_me, backlog=0 could make it marginally easier for other users to perform DoS, but not by very much; TODO: how to set backlog=0 with the 'random port' option, if we print our port number?)
-          else: return h.bind(port,address)
+      try: return h.bind(port,address,backlog=backlog)
       except socket.error, e:
         if not "already in use" in e.strerror: raise
         # Maybe the previous server is taking a while to stop
@@ -1995,7 +1998,7 @@ def get_new_HeadlessChrome(index,renewing):
     opts.add_argument("--user-data-dir="+path)
     opts.add_argument("--incognito") # reduce space taken up by above
     if options.js_reproxy:
-        opts.add_argument("--proxy-server=127.0.0.1:%d" % js_proxy_port[index])
+        opts.add_argument("--proxy-server=127.0.0.1:%d" % proxyPort(index))
         opts.add_argument("--ignore-certificate-errors") # ignored by Chrome 59 (which was the first version to support Headless) and possibly some earlier versions
         opts.add_argument("--allow-insecure-localhost") # Chrome 62+ can at least do *.localhost & 127.* but we'd need to domain-rewrite for this to help (proxy-host doesn't count)
         # Chrome 65 and chromedriver 2.35/2.36? can do:
@@ -2038,7 +2041,7 @@ def get_new_HeadlessFirefox(index,renewing):
     log_complaints = (index==0 and not renewing) ; op = None
     if options.js_reproxy:
         from selenium.webdriver.common.proxy import Proxy,ProxyType
-        profile.set_proxy(Proxy({'proxyType':ProxyType.MANUAL,'httpProxy':"127.0.0.1:%d" % js_proxy_port[index],'sslProxy':"127.0.0.1:%d" % js_proxy_port[index],'ftpProxy':'','noProxy':''}))
+        profile.set_proxy(Proxy({'proxyType':ProxyType.MANUAL,'httpProxy':"127.0.0.1:%d" % proxyPort(index),'sslProxy':"127.0.0.1:%d" % proxyPort(index),'ftpProxy':'','noProxy':''}))
         profile.accept_untrusted_certs = True # needed for some older versions?
         caps = wd_DesiredCapabilities(log_complaints)
         if caps:
@@ -2094,7 +2097,7 @@ def _get_new_PhantomJS(index,renewing):
     # if options.logDebug: sa.append("--debug=true") # doesn't work: we don't see the debug output on stdout or stderr
     if options.js_reproxy:
         sa.append('--ignore-ssl-errors=true')
-        sa.append('--proxy=127.0.0.1:%d' % js_proxy_port[index])
+        sa.append('--proxy=127.0.0.1:%d' % proxyPort(index))
     elif options.upstream_proxy: sa.append('--proxy='+options.upstream_proxy)
     dc = wd_DesiredCapabilities(log_complaints)
     if dc:
@@ -2125,6 +2128,7 @@ def get_new_PhantomJS(index,renewing=False):
     try: wd.set_page_load_timeout(options.js_timeout1)
     except: logging.info("Couldn't set PhantomJS page load timeout")
     return wd
+def proxyPort(index): return port_randomise.get(js_proxy_port[index],js_proxy_port[index])
 webdriver_runner = [] ; webdriver_prefetched = []
 webdriver_via = []
 webdriver_inProgress = [] ; webdriver_queue = []
@@ -3692,7 +3696,7 @@ rmHjGlInkZKbj3jEsGSxU4oKRDBM5syJgm1XYi5vPRNOUu4CXUGJAXhzJtd9teqB
 def MakeRequestForwarder(useSSL,connectPort,isPJS=False,start=0,index=0):
     class MyRequestForwarder(RequestForwarder):
         WA_UseSSL = useSSL
-        WA_connectPort = connectPort
+        WA_connectPort = port_randomise.get(connectPort,connectPort)
         isPjsUpstream = isPJS
         WA_PjsStart = start # (for multicore)
         WA_PjsIndex = index # (relative to start)
