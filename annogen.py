@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.646 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.647 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -31,7 +31,7 @@ else: exe=""
 #  =========== INPUT OPTIONS ==============
 
 parser.add_option("--infile",
-                  help="Filename of a text file (or a compressed .gz, .bz2 or .xz file) to read the input examples from. If this is not specified, standard input is used.")
+                  help="Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) to read the input examples from. If this is not specified, standard input is used.")
 
 parser.add_option("--incode",default="utf-8",
                   help="Character encoding of the input file (default %default)")
@@ -90,7 +90,7 @@ parser.add_option("--keep-whitespace",
                   help="Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the --annot-whitespace option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).")
 
 parser.add_option("--glossfile",
-                  help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
+                  help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation.  The annotation field may be left blank to indicate that the gloss will appear for any annotation of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 parser.add_option("-C", "--gloss-closure",
                   action="store_true",
                   default=False,
@@ -107,7 +107,7 @@ parser.add_option("-M","--glossmiss-omit",
 cancelOpt("glossmiss-omit")
 
 parser.add_option("--manualrules",
-                  help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
+                  help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
 
 #  =========== OUTPUT OPTIONS ==============
 
@@ -150,7 +150,7 @@ parser.add_option("-N","--no-summary",
 cancelOpt("no-summary")
 
 parser.add_option("-O", "--summary-omit",
-                  help="Filename of a text file (or a compressed .gz, .bz2 or .xz file) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary (but still included in the parser).  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.")
+                  help="Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary (but still included in the parser).  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.")
 
 parser.add_option("--maxrefs",default=3,
                   help="The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is %default.")
@@ -2791,10 +2791,10 @@ def splitWords(text,phrases=False):
     else: it=re.finditer(wordPattern,text)
     for i in it: yield i.group()
 
-markupPattern = re.compile(re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd))
+markupPattern = re.compile(re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),flags=re.DOTALL)
 wordPattern = re.escape(markupStart)+'.*?'+re.escape(markupEnd)
-phrasePattern = re.compile(wordPattern+r'(\s*'+wordPattern+r')*')
-wordPattern = re.compile(wordPattern)
+phrasePattern = re.compile(wordPattern+r'(\s*'+wordPattern+r')*',flags=re.DOTALL)
+wordPattern = re.compile(wordPattern,flags=re.DOTALL)
 wspPattern = re.compile(r"\s+")
 
 def annotationOnly(text):
@@ -2880,7 +2880,8 @@ def normalise():
     sys.stderr.write("Normalising...")
     allWords = getAllWords()
     if removeSpace:
-     corpus_unistr = re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),markupEnd+markupStart,corpus_unistr) # so getOkStarts works consistently if corpus has some space-separated and some not
+     corpus_unistr = re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),corpus_unistr) # so getOkStarts works consistently if corpus has some space-separated and some not
+     corpus_unistr = re.sub(re.escape(markupStart)+'\s+',markupStart.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupMid),markupMid.replace('\\',r'\\'),re.sub(re.escape(markupMid)+'\s+',markupMid.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupEnd),markupEnd.replace('\\',r'\\'),corpus_unistr)))) # so we're tolerant of spurious whitespace between delimeters and markup (TODO: do this even if not removeSpace?)
      if not annot_whitespace:
       # normalise trailing hyphens e.g. from OCR'd scans:
       cu0 = corpus_unistr ; ff = 0
@@ -2895,7 +2896,7 @@ def normalise():
             if mreverse: grp,mdG=r"-\1",r"\2"
             else: grp,mdG=r"-\2",r"\1"
             # TODO: batch up the following replacements by using something similar to Replacer but with a common destination regexp that takes groups from the 'w' entries as well.  (Low priority because don't typically get TOO many of these dangling hyphens in most corpuses.)
-            corpus_unistr = re.sub(re.escape(w)+r"\s*"+re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),re.escape(w).replace(re.escape('-'+aoEnd),grp+re.escape(aoEnd)).replace(re.escape(mdEnd),mdG+re.escape(mdEnd)),corpus_unistr)
+            corpus_unistr = re.sub(re.escape(w)+r"\s*"+re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),w.replace('-'+aoEnd,grp+aoEnd).replace(mdEnd,mdG+mdEnd).replace('\\',r'\\'),corpus_unistr,flags=re.DOTALL)
             ff = 1
         if ff: allWords = getAllWords() # re-generate
       del cu0
@@ -3088,7 +3089,7 @@ def getReallyBadStarts(badStarts,nonAnnot):
     # Some of the badStarts can be ignored on the grounds that they should be picked up by other rules first: any where the nonAnnot match does not start at the start of a word (the rule matching the word starting earlier should get there first), and any where it starts at the start of a word that is longer than its own first word (the longest-first ordering should take care of this).  So keep only the ones where it starts at the start of a word and that word is no longer than len(nonAnnot).
     reallyBadStarts = [] ; append=reallyBadStarts.append
     nonAnnotLen = len(mdStart+nonAnnot+mdEnd)
-    theRe = re.compile(re.escape(mdStart+nonAnnot[0])+".*?"+re.escape(mdEnd))
+    theRe = re.compile(re.escape(mdStart+nonAnnot[0])+".*?"+re.escape(mdEnd),flags=re.DOTALL)
     for b in badStarts:
       try: s = m2c_map[b]
       except KeyError: continue # it wasn't the start of a word (only start positions are in that map)
@@ -3544,7 +3545,7 @@ def read_manual_rules():
   for l in openfile(manualrules).xreadlines():
     if not l.strip(): continue
     l=l.decode(incode).strip() # TODO: manualrulescode ?
-    if removeSpace: l=re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),markupEnd+markupStart,l)
+    if removeSpace: l=re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),l)
     yield l
 
 def test_manual_rules():
@@ -3879,7 +3880,7 @@ include $(BUILD_SHARED_LIBRARY)
     if reannotator:
         outfile.write("\n/* Tab-delimited rules summary not yet implemented with reannotator option */\n")
         return
-    outfile.write("\n/* Tab-delimited summary of the rules:\n")
+    outfile.write("\n/* Tab-delimited summary of the rules: (total %d)\n" % len(rulesAndConds))
     outputRulesSummary(rulesAndConds)
     outfile.write("*/\n")
 
@@ -3906,7 +3907,7 @@ else:
     global refMap
     try: refMap
     except:
-      refMap = [(m.end(),m.group(1)) for m in re.finditer(re.escape(reference_sep)+"(.*?)"+re.escape(ref_name_end), corpus_unistr)]
+      refMap = [(m.end(),m.group(1)) for m in re.finditer(re.escape(reference_sep)+"(.*?)"+re.escape(ref_name_end), corpus_unistr, flags=re.DOTALL)]
       i = 0
       while True:
         if i+1 >= len(refMap): break
@@ -3955,7 +3956,7 @@ def outputRulesSummary(rulesAndConds):
         count += 1
         def code(x):
           if not x.strip(): return repr(x)
-          else: return x.encode(outcode)
+          else: return x.encode(outcode).replace('\n',r'\n').replace('\t',r'\t')
         toPrn = code(orig)+"\t"+code(annot)
         if ybytes:
             toPrn += "\t"
@@ -3979,14 +3980,30 @@ if isatty(sys.stdout):
     elif not java and main: sys.stderr.write("Writing to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
 def openfile(fname,mode='r'):
-    if fname.endswith(".gz"):
-        import gzip ; return gzip.open(fname,mode)
+    lzma = bz2 = None
+    if fname.endswith(".xz"): import lzma # 'pip install lzma' or 'apt-get install python2.7-lzma' may be required for .xz files
+    elif fname.endswith(".bz2"): import bz2
+    if re.match("https?://",fname):
+        assert mode=='r', "cannot write to "+fname
+        import urllib2
+        sys.stderr.write("Fetching "+fname+"\n")
+        fileobj = urllib2.urlopen(fname)
+        # If it's bz2 or xz, we'd better decompress in one operation.  (gz library can stream)
+        if fname.endswith(".bz2"):
+            from cStringIO import StringIO
+            return StringIO(bz2.decompress(fileobj.read()))
+        elif fname.endswith(".xz"):
+            from cStringIO import StringIO
+            return StringIO(lzma.decompress(fileobj.read()))
     elif fname.endswith(".bz2"):
-        import bz2 ; return bz2.BZ2File(fname,mode)
+        return bz2.BZ2File(fname,mode)
     elif fname.endswith(".xz"):
-        import lzma # 'pip install lzma' may be required for .xz files
         return lzma.LZMAFile(fname,mode)
-    else: return open(fname,mode)
+    else: fileobj = open(fname,mode)
+    # if get this far, we can use fileobj
+    if fname.endswith(".gz"):
+        import gzip ; return gzip.GzipFile(fileobj=fileobj,mode=mode)
+    else: return fileobj
 def open_try_bz2(fname,mode='r'): # use .bz2 iff available (for checkpoints)
   try: return openfile(fname+".bz2",mode)
   except: return openfile(fname,mode)
