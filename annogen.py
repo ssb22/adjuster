@@ -20,6 +20,8 @@ program_name = "Annotator Generator v0.647 (c) 2012-18 Silas S. Brown"
 # versions are being kept in the E-GuideDog SVN repository on
 # http://svn.code.sf.net/p/e-guidedog/code/ssb22/adjuster
 # and on GitHub at https://github.com/ssb22/adjuster
+# and on GitLab at https://gitlab.com/ssb22/adjuster
+# and on BitBucket https://bitbucket.org/ssb22/adjuster
 # although some early ones are missing.
 
 from optparse import OptionParser
