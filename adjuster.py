@@ -3799,6 +3799,7 @@ rubyScript = '<style>'+rubyCss1+'</style>'
 rubyScript = "<!-- { } @media(none) { -->" + rubyScript
 # By the way, also try to specify some nice fonts (but IE doesn't like this) :
 rubyScript_fonts = '<!--[if !IE]>--><style>rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style><!--<![endif]-->'
+rubyScript_fonts = '<!--[if IE 6]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->' + rubyScript_fonts # IE6/WM6 workaround
 rubyScript += rubyScript_fonts
 # and this goes at the END of the body:
 rubyEndScript = """
