@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.647 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.648 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -468,6 +468,7 @@ if android_urls:
   if not android: errExit("--android-urls requires --android (you need to set a default URL for direct launch)")
   try: import urlparse
   except: errExit("--android-urls requires urlparse module") # unless we re-implement
+  if "?" in android_urls: errExit("You cannot include a ? in any of your --android-urls (Android does not count query-string as part of the path)")
 else: android_urls = "" # so it can still be .split()
 if keep_whitespace: keep_whitespace = set(keep_whitespace.decode(terminal_charset).split(','))
 if glossmiss_hide: glossmiss_hide = set(glossmiss_hide.decode(terminal_charset).split(','))
@@ -2553,7 +2554,7 @@ if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
 }
 return decodeURIComponent(escape(output.join("")))"""
 if js_6bit: js_end = js_end.replace("var numBytes = data.charCodeAt(dPtr++);","var numBytes = (data.charCodeAt(dPtr++)-"+str(js_6bit_offset-1)+")&0xFF;")
-if sharp_multi: js_end += r""".replace(new RegExp(">"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</r","g"),">$1</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt>
+if sharp_multi: js_end += r""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
 js_end += r"""; // from UTF-8 back to Unicode
 } // end of annotate function
 };
@@ -3096,6 +3097,7 @@ def getReallyBadStarts(badStarts,nonAnnot):
       try: s = m2c_map[b]
       except KeyError: continue # it wasn't the start of a word (only start positions are in that map)
       m=theRe.search(corpus_unistr, s) # will either start at s, or after it if mreverse
+      assert m, "m2c_map error? "+repr(nonAnnot[0])+" "+repr(b)+"->"+repr(s)+" not found ( "+repr(corpus_markedDown[b:b+25])+"... -> "+repr(corpus_unistr[s:s+50])+"...)"
       s,e = m.start(),m.end()
       if e-s > nonAnnotLen: continue # this word is too long, should be matched by a longer rule 1st
       append(b) # to reallyBadStarts
@@ -3414,7 +3416,9 @@ def generate_map():
     muStart = downLenSoFar = 0
     for s in re.finditer(re.escape(markupStart), corpus_unistr):
       s=s.start()
-      downLenSoFar += len(markDown(corpus_unistr[muStart:s]))
+      md = markDown(corpus_unistr[muStart:s])
+      if markupStart in md: errExit("examples have nested markup! "+repr(md))
+      downLenSoFar += len(md)
       muStart = s
       m2c_map[downLenSoFar] = s
       # Added optimisation: do precalc_sets as well
