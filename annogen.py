@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.648 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.649 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1036,7 +1036,7 @@ c_end += r"""  while(!FINISHED) {
 }"""
 
 # jsAddRubyCss will be in a quoted string in ObjC / Java source, so all " and \ must be escaped:
-jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"</style>'"
+jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"</style>'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
 if bookmarks:
  def bookmarkJS():
   assert not '"' in android
@@ -1366,7 +1366,28 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                                 i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
                                 startActivity(i);
                             }
-                        });
+                        });"""
+if glossfile: android_src += r"""
+                        if (tt.length()>0) {
+                        // TODO: 3-line persist to pop-ups (scan)?
+                        // TODO: 3-line persist to other pages?
+                        // TODO: if already pressed, call it 2-line and reverse the substitution?
+                        d.setPositiveButton("3 line", new android.content.DialogInterface.OnClickListener() {
+                                public void onClick(android.content.DialogInterface dialog,int id) {
+class InjectorTask implements Runnable { InjectorTask() {} public void run() { browser.loadUrl(
+"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++)ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"/(;]*)([^\"]*)\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby onclick=\"annotPopAll(this)\" title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>'); ad0=document.body.innerHTML;ssb_local_annotator.alert('','3-line definitions tend to be incomplete!')"
+/* Above rp elements are to make firstChild etc work in
+   dialogue.  Don't do whole document.body.innerHTML, or
+   scripts like document.write may execute a second time,
+   but DO read innerHTML afterwards to work around bug in
+   Chrome 33, otherwise whole document replaced by last
+   ad0 found.  Also need the alert box, or document.write
+   scripts in the page run twice.  (This 'tend to be
+   incomplete' message seems as good as any.  NB the
+   glosses are being trimmed.)  */
+); } } act.runOnUiThread(new InjectorTask()); }});
+                        } else """
+android_src += r"""
                         d.setPositiveButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
                         d.create().show();
                     }
