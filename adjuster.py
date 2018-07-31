@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.268 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.269 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -719,6 +719,7 @@ def preprocessOptions():
     submitPathForTest = options.submitPath
     if submitPathForTest and submitPathForTest[-1]=="?": submitPathForTest = submitPathForTest[:-1] # for CGI mode: putting the ? in tells adjuster to ADD a ? before any parameters, but does not require it to be there for the base submit URL (but don't do this if not submitPathForTest because it might not be a string)
     if options.submitPath and not options.htmlText: errExit("submitPath only really makes sense if htmlText is set (or do you want users to submit actual HTML?)") # TODO: allow this? also with submitBookmarklet ??
+    if options.separator and '\xe2\x80\x8b' in options.separator: errExit("U+200B in separator not supported (see code)")
     if options.prominentNotice=="htmlFilter":
         if not options.htmlFilter: errExit("prominentNotice=\"htmlFilter\" requires htmlFilter to be set")
         if options.htmlJson or options.htmlText: errExit("prominentNotice=\"htmlFilter\" does not work with the htmlJson or htmlText options")
@@ -3903,7 +3904,7 @@ function walk(n,document) {
     case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!="_adjust0") walk(c,document); %sbreak;
     case 3:
       if (%s) {
-          var cnv = c.nodeValue.replace(/\u200b/g,''); // for some sites that use zero-width spaces between words that can upset some annotators (TODO: document, and add to Python version also)
+          var cnv = c.nodeValue.replace(/\u200b/g,''); // for some sites that use zero-width spaces between words that can upset some annotators (TODO: document)
           var i=otPtr;
           while (i<oldTexts.length && oldTexts[i]!=cnv) i++;
           if(i<replacements.length) {
@@ -4063,7 +4064,7 @@ def runFilterOnText(cmd,codeTextList,callback,escape=False,separator=None,prefix
         return r
     def countItems(l): return len(separator.join(getText(l)).split(separator))
     text = getText(codeTextList)
-    toSend = separator.join(text)
+    toSend = separator.join(text).replace('\xe2\x80\x8b','') # the .replace is for U+200B, for some sites that use zero-width spaces between words that can upset some annotators (TODO: document)
     if separator == options.separator:
         toSend=separator+toSend+separator
         sortout = lambda out:out.split(separator)[1:-1]

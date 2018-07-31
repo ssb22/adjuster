@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6491 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.6492 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -784,7 +784,7 @@ static int near(char* string) {
     return strnstr(startFrom,string,n) != NULL;
 }
 """ # (strnstr is BSD-specific, but that's OK on iOS.  TODO: might be nice if all loops over outWriteByte could be reduced to direct calls of appendBytes with appropriate lengths, but it wouldn't be a major speedup)
-  c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the iOS code
+  have_annotModes = False # only ruby is needed by the iOS code
 elif ndk or library:
   if library:
     c_preamble = r"""
@@ -795,30 +795,54 @@ elif ndk or library:
     
      To wrap this library in Python 2, you can do:
 
-from ctypes import CDLL,c_char_p"""
-    if sharp_multi: c_preamble += ",c_int"
-    c_preamble += r"""
+from ctypes import CDLL,c_char_p,c_int
 alib = CDLL("./libannotator.so.1")
 _annotate,_afree = alib.annotate,alib.afree
 _annotate.restype = c_char_p
 _annotate.argtypes = [c_char_p"""
     if sharp_multi: c_preamble += ",c_int"
-    c_preamble += r"""]
-def annotate(txt"""
-    if sharp_multi: c_preamble += ",style"
-    c_preamble += r"""):
+    c_preamble += r",c_int]"
+    if outcode=="utf-8":
+      c_preamble += r"""
+_annotateRL = alib.annotateRawLatinize
+_annotateRL.restype = c_char_p
+_annotateRL.argtypes = [c_char_p"""
+      if sharp_multi: c_preamble += ",c_int"
+      c_preamble += "]\ndef annotR(txt"
+      if sharp_multi: c_preamble += ",aType=0"
+      c_preamble += r"""):
+    if type(txt)==unicode: txt = txt.encode('utf-8')
+    r = _annotateRL(txt"""
+      if sharp_multi: c_preamble += ",aType"
+      c_preamble += r""")
+    _afree() ; return r"""
+    c_preamble += "\ndef annotate(txt"
+    if sharp_multi: c_preamble += ",aType=0"
+    c_preamble += r""",aMode=1):
+    "aMode: 0 = raw, 1 = ruby (default), 2 = braces"
     if type(txt)==unicode: txt = txt.encode('"""+outcode+r"""')
     r = _annotate(txt"""
-    if sharp_multi: c_preamble += ",style"
-    c_preamble += r""")
+    if sharp_multi: c_preamble += ",aType"
+    c_preamble += r""",aMode)
     _afree() ; return r
 # then for Web Adjuster you can do, for example,
-# adjuster.annotFunc1 = """
-    if sharp_multi: c_preamble += "lambda t:annotate(t,1)"
-    else: c_preamble += "annotate"
+# adjuster.annotFunc1 = lambda t:annotate(t"""
+    if sharp_multi: c_preamble += ",1"
+    c_preamble += ",1)\n"
+    if outcode=="utf-8":
+      if sharp_multi: c_preamble += "# adjuster.annotFunc1R = lambda t:annotR(t,1)"
+      else: c_preamble += "# adjuster.annotFunc1R = annotR"
+      c_preamble += r"""
+# adjuster.options.htmlFilter = "*annotFunc1#*annotFunc1R"
+# adjuster.options.htmlFilterName = "ruby#annot-only"
+"""
+    else: c_preamble += r"""
+# adjuster.options.htmlFilter = "*annotFunc1"
+"""
+    if not outcode=="utf-8": c_preamble += r"""
+# but BEWARE Web Adjuster assumes UTF-8; you'd better write a wrapper to re-code it
+""" # (TODO: automate this?)
     c_preamble += r"""
-# adjuster.htmlFilter = "*annotFunc1"
-
     Compile with:
     gcc -shared -fPIC -Wl,-soname,annotator.so.1 -o libannotator.so.1 annotator.c -lc
 
@@ -831,14 +855,14 @@ def annotate(txt"""
 #include <string.h>
 """
   if ndk: c_preamble += "#include <jni.h>\n"
-  c_defs = r"""static const char *readPtr, *writePtr, *startPtr;
+  c_defs = r"""static const unsigned char *readPtr, *writePtr, *startPtr;
 static char *outBytes;
 static size_t outWriteLen,outWritePtr;
 #define NEXTBYTE (*readPtr++)
 #define NEXT_COPY_BYTE (*writePtr++)
 #define COPY_BYTE_SKIP writePtr++
 #define COPY_BYTE_SKIPN(n) writePtr += (n)
-#define POSTYPE const char*
+#define POSTYPE const unsigned char*
 #define THEPOS readPtr
 #define SETPOS(p) (readPtr=(p))
 #define PREVBYTE readPtr--
@@ -868,7 +892,7 @@ static void OutWriteByte(char c) {
   outBytes[outWritePtr++] = c;
 }
 int near(char* string) {
-    const char *startFrom = readPtr-nearbytes,
+    const unsigned char *startFrom = readPtr-nearbytes,
                      *end = readPtr+nearbytes;
     if (startFrom < startPtr) startFrom = startPtr;
     size_t l=strlen(string); end -= l;
@@ -903,18 +927,176 @@ JNIEXPORT jstring JNICALL Java_"""+jPackage.replace('.','_')+r"""_MainActivity_j
 void afree() { if(outBytes) free(outBytes); outBytes=NULL; }
 char *annotate(const char *input"""
     if sharp_multi: c_defs += ", int annotNo"
-    c_defs += r""") {
+    c_defs += r""",int aMode) {
   readPtr=writePtr=startPtr=(char*)input;
   outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
   afree(); outBytes = malloc(outWriteLen);"""
     if sharp_multi: c_defs += " numSharps=annotNo;"
-    c_defs += r"""
+    c_defs += r""" annotation_mode = aMode;
   if(outBytes) { outWritePtr = 0; matchAll(); }
   if(outBytes) OutWriteByte(0);
   return outBytes;
 }
 """
-  c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the Android code
+    if outcode=="utf-8": # (TODO: document this feature?  non-utf8 versions ??)
+      c_defs += r"""
+static void latinizeMatch(); static int latCap,latSpace;
+char *annotateRawLatinize(const char *input"""
+      if sharp_multi: c_defs += ", int annotNo"
+      c_defs += r""") {
+    // "Bonus" library function, works only if annotation is Latin-like,
+    // tries to improve the capitalisation when in 'raw' mode
+    // (TODO: make this available in other annogen output formats?  work into ruby mode??)
+    char *tmp=annotate(input"""
+      if sharp_multi: c_defs += ",annotNo"
+      c_defs += r""",annotations_only);
+    if(tmp) { tmp=strdup(tmp); if(tmp) {
+      readPtr=writePtr=startPtr=tmp;
+      afree(); outBytes=malloc(outWriteLen);
+      if(outBytes) {
+        outWritePtr = 0; latCap=1; latSpace=0;
+        while(!FINISHED) {
+          POSTYPE oldPos=THEPOS;
+          latinizeMatch();
+          if (oldPos==THEPOS) { OutWriteByte(NEXTBYTE); COPY_BYTE_SKIP; }
+        }
+      }
+      if(outBytes) OutWriteByte(0);
+      free(tmp);
+    } } return(outBytes);
+}
+static inline void doLatSpace() {
+  if(latSpace) {
+    OutWriteByte(' ');
+    latSpace = 0;
+  }
+}
+static void latinizeMatch() {
+  POSTYPE oldPos=THEPOS;
+  int nb = NEXTBYTE;
+  if (latCap || latSpace) {
+    if (nb >= '0' && nb <= '9') latSpace = 0; /* 1:1 */
+    else if(nb >= 'A' && nb <= 'Z') {
+      latCap = 0; doLatSpace();
+    } else if(nb >= 'a' && nb <= 'z') {
+      doLatSpace();
+      if(latCap) {
+        latCap = 0;
+        OutWriteByte(nb-('a'-'A')); return;
+      }
+    } else switch(nb) {
+      case 0xC3:
+        { int nb2 = NEXTBYTE;
+          switch(nb2) {
+          case 0x80: case 0x81: case 0x88: case 0x89:
+          case 0x8c: case 0x8d: case 0x92: case 0x93:
+          case 0x99: case 0x9a:
+            doLatSpace();
+            latCap=0; break;
+          case 0xa0: case 0xa1: case 0xa8: case 0xa9:
+          case 0xac: case 0xad: case 0xb2: case 0xb3:
+          case 0xb9: case 0xba:
+            doLatSpace();
+            if (latCap) {
+              OutWriteByte(0xC3);
+              OutWriteByte(nb2-0x20); latCap=0; return;
+            }
+          } break; }
+      case 0xC4:
+        { int nb2 = NEXTBYTE;
+          switch(nb2) {
+          case 0x80: case 0x92: case 0x9a: case 0xaa:
+            doLatSpace();
+            latCap=0; break;
+          case 0x81: case 0x93: case 0x9b: case 0xab:
+            doLatSpace();
+            if (latCap) {
+              OutWriteByte(0xC4);
+              OutWriteByte(nb2-1); latCap=0; return;
+            }
+          } break; }
+      case 0xC5:
+        { int nb2 = NEXTBYTE;
+          switch(nb2) {
+          case 0x8c: case 0xaa:
+            doLatSpace();
+            latCap=0; break;
+          case 0x8d: case 0xab:
+            doLatSpace();
+            if (latCap) {
+              OutWriteByte(0xC5);
+              OutWriteByte(nb2-1); latCap=0; return;
+            }
+          } break; }
+      case 0xC7:
+        { int nb2 = NEXTBYTE;
+          switch(nb2) {
+          case 0x8d: case 0x8f: case 0x91: case 0x93:
+          case 0x95: case 0x97: case 0x99: case 0x9b:
+            doLatSpace();
+            latCap=0; break;
+          case 0x8e: case 0x90: case 0x92: case 0x94:
+          case 0x96: case 0x98: case 0x9a: case 0x9c:
+            doLatSpace();
+            if (latCap) {
+              OutWriteByte(0xC7);
+              OutWriteByte(nb2-1); latCap=0; return;
+            }
+          } break; }
+      }
+  }
+  switch(nb) {
+  case 0xE2: /* could be opening quote */
+    if(NEXTBYTE==0x80) switch(NEXTBYTE) {
+      case 0x98: case 0x9c:
+        OutWriteByte(' '); latSpace = 0;
+      }
+    break;
+  case 0xE3: /* could be Chinese stop or list-comma */
+    if(NEXTBYTE==0x80) switch(NEXTBYTE) {
+      case 0x81:
+      OutWriteByte(','); latSpace = 1; return;
+      case 0x82:
+      OutWriteByte('.'); latSpace = 1;
+      latCap=1; return;
+    } break;
+  case 0xEF: /* could be full-width ascii */
+    switch(NEXTBYTE) {
+    case 0xBC:
+      {
+        int b=NEXTBYTE;
+        if (b >= 0x81 && b <= 0xbf) {
+          int punc = b-(0x81-'!');
+          switch(punc) {
+          case '(': OutWriteByte(' '); latSpace = 0;
+          }
+          OutWriteByte(punc);
+          if (punc >= 0x90 && punc <= 0x99) latSpace = 0;
+          else switch(punc) {
+            case '!': case '.': case '?':
+              latCap = 1; /* fall through */
+            case ')': case ',':
+            case ':': case ';':
+              latSpace = 1;
+            }
+          return;
+        }
+        break;
+      }
+    case 0xBD:
+      {
+        int b=NEXTBYTE;
+        if (b >= 0x80 && b <= 0x9d) {
+          /* TODO: capitalise if it's a letter (but probably not needed in most annotations) */
+          OutWriteByte(b-(0x80-'`')); return;
+        }
+      } break;
+    } break;
+  }
+  SETPOS(oldPos);
+}
+"""
+  have_annotModes = library # only ruby is needed by the Android code
 elif windows_clipboard:
   c_preamble = r"""/*
 
@@ -975,7 +1157,7 @@ unsigned char *p, *copyP, *pOrig;
   return 0;
 }
 """
-  c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the windows_clipboard code
+  have_annotModes = False # only ruby is needed by the windows_clipboard code
 else:
   c_preamble = r"""
 #include <stdio.h>
@@ -1030,7 +1212,10 @@ static int near(char* string) {
 #define OutWriteStrN(s,n) fwrite((s),(n),1,stdout)
 #define OutWriteByte(c) putchar(c)
 #endif
-
+"""
+  have_annotModes = True
+if have_annotModes:
+  c_defs = r"""
 #ifndef Default_Annotation_Mode
 #define Default_Annotation_Mode ruby_markup
 #endif
@@ -1039,7 +1224,7 @@ enum {
   annotations_only,
   ruby_markup,
   brace_notation} annotation_mode = Default_Annotation_Mode;
-"""
+""" + c_defs
   c_switch1=r"""switch (annotation_mode) {
   case annotations_only: OutWriteDecompressP(annot); COPY_BYTE_SKIPN(numBytes); break;
   case ruby_markup:"""
