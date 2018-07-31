@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.649 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.6491 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -190,6 +190,11 @@ parser.add_option("-Z","--zlib",
                   action="store_true",default=False,
                   help="Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator, the decompression code is inlined so there's no runtime zlib dependency, but startup is ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source.") # compact_opcodes typically still helps no matter what the other options are
 cancelOpt("zlib")
+
+parser.add_option("-l","--library",
+                  action="store_true",default=False,
+                  help="Instead of generating C code that reads and writes standard input/output, generate a C library suitable for loading into Python via ctypes.  This can be used for example to preload a filter into Web Adjuster to cut process-startup delays.")
+cancelOpt("library")
 
 parser.add_option("-W","--windows-clipboard",
                   action="store_true",default=False,
@@ -437,9 +442,14 @@ if java or javascript or python or c_sharp or golang:
       else: c_filename = c_filename[:-2]+".py"
 elif windows_clipboard:
   if ios: errExit("Support for having both --ios and --windows-clipboard at the same time is not yet implemented") # (I suppose you could make a single output file that will compile as either C+MS-stuff or Objective-C depending on preprocessor tests)
+  if library: errExit("Support for having both --windows-clipboard and --library at the same time is not yet implemented") # ditto
   if ndk: errExit("Support for having both --ndk and --windows-clipboard at the same time is not yet implemented")
   if c_compiler=="cc -o annotator": c_compiler="i386-mingw32-gcc -o annoclip.exe"
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --windows-clipboard")
+elif library:
+  if ios: errExit("Support for having both --ios and --library at the same time is not yet implemented") # (I suppose you could make a single output file that will compile as either C+MS-stuff or Objective-C depending on preprocessor tests)
+  if ndk: errExit("Support for having both --ndk and --library at the same time is not yet implemented")
+  if c_compiler=="cc -o annotator": c_compiler="gcc -shared -fPIC -Wl,-soname,annotator.so.1 -o libannotator.so.1 -lc"
 elif ios:
   if ndk: errExit("Support for having both --ios and --ndk at the same time is not yet implemented")
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ios")
@@ -730,6 +740,8 @@ static void OutWriteStrP(const char *annot) {
 """
 else: decompress_func = ""
 
+if c_filename and os.sep in c_filename: cfn = c_filename[c_filename.rindex(os.sep)+1:]
+else: cfn = c_filename
 if ios:
   c_preamble = r"""/*
 
@@ -773,12 +785,52 @@ static int near(char* string) {
 }
 """ # (strnstr is BSD-specific, but that's OK on iOS.  TODO: might be nice if all loops over outWriteByte could be reduced to direct calls of appendBytes with appropriate lengths, but it wouldn't be a major speedup)
   c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the iOS code
-elif ndk:
-  c_preamble = r"""
+elif ndk or library:
+  if library:
+    c_preamble = r"""
+  /*
+     This library is NOT thread safe.  But you can use it
+     with single-threaded or multiprocess code like Web Adjuster
+     (not in WSGI mode).
+    
+     To wrap this library in Python 2, you can do:
+
+from ctypes import CDLL,c_char_p"""
+    if sharp_multi: c_preamble += ",c_int"
+    c_preamble += r"""
+alib = CDLL("./libannotator.so.1")
+_annotate,_afree = alib.annotate,alib.afree
+_annotate.restype = c_char_p
+_annotate.argtypes = [c_char_p"""
+    if sharp_multi: c_preamble += ",c_int"
+    c_preamble += r"""]
+def annotate(txt"""
+    if sharp_multi: c_preamble += ",style"
+    c_preamble += r"""):
+    if type(txt)==unicode: txt = txt.encode('"""+outcode+r"""')
+    r = _annotate(txt"""
+    if sharp_multi: c_preamble += ",style"
+    c_preamble += r""")
+    _afree() ; return r
+# then for Web Adjuster you can do, for example,
+# adjuster.annotFunc1 = """
+    if sharp_multi: c_preamble += "lambda t:annotate(t,1)"
+    else: c_preamble += "annotate"
+    c_preamble += r"""
+# adjuster.htmlFilter = "*annotFunc1"
+
+    Compile with:
+    gcc -shared -fPIC -Wl,-soname,annotator.so.1 -o libannotator.so.1 annotator.c -lc
+
+  */
+  """
+    if cfn: c_preamble=c_preamble.replace("annotator.c",cfn)
+  else: c_preamble = ""
+  c_preamble += r"""
 #include <stdlib.h>
 #include <string.h>
-#include <jni.h>
 """
+  if ndk: c_preamble += "#include <jni.h>\n"
   c_defs = r"""static const char *readPtr, *writePtr, *startPtr;
 static char *outBytes;
 static size_t outWriteLen,outWritePtr;
@@ -826,22 +878,40 @@ int near(char* string) {
     }
     return 0;
 }
-void matchAll();
+void matchAll();"""
+  if ndk:
+    c_defs += r"""
 JNIEXPORT jstring JNICALL Java_"""+jPackage.replace('.','_')+r"""_MainActivity_jniAnnotate(JNIEnv *env, jclass theClass, jstring jIn"""
-  if sharp_multi: c_defs += ", jint jAnnotNo"
-  c_defs += r""") {
+    if sharp_multi: c_defs += ", jint jAnnotNo"
+    c_defs += r""") {
   startPtr=(char*)(*env)->GetStringUTFChars(env,jIn,NULL);
   readPtr = startPtr; writePtr = startPtr;
   outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
   outBytes = malloc(outWriteLen);"""
-  if sharp_multi: c_defs += " numSharps=jAnnotNo;"
-  c_defs += r"""
+    if sharp_multi: c_defs += " numSharps=jAnnotNo;"
+    c_defs += r"""
   if(outBytes) { outWritePtr = 0; matchAll(); }
   (*env)->ReleaseStringUTFChars(env,jIn,startPtr);
   if(outBytes) OutWriteByte(0);
   else return (*env)->NewStringUTF(env,"out of memory"); /* which it might or might not be able to do.  This check is meaningless if the kernel overcommits, but I don't know if that's true on (all versions of) Android. */
   jstring ret=(*env)->NewStringUTF(env,outBytes);
   free(outBytes); return ret;
+}
+"""
+  else:
+    c_defs += r"""
+void afree() { if(outBytes) free(outBytes); outBytes=NULL; }
+char *annotate(const char *input"""
+    if sharp_multi: c_defs += ", int annotNo"
+    c_defs += r""") {
+  readPtr=writePtr=startPtr=(char*)input;
+  outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
+  afree(); outBytes = malloc(outWriteLen);"""
+    if sharp_multi: c_defs += " numSharps=annotNo;"
+    c_defs += r"""
+  if(outBytes) { outWritePtr = 0; matchAll(); }
+  if(outBytes) OutWriteByte(0);
+  return outBytes;
 }
 """
   c_switch1=c_switch2=c_switch3=c_switch4="" # only ruby is needed by the Android code
@@ -893,8 +963,6 @@ unsigned char *p, *copyP, *pOrig;
 #define PREVBYTE p--
 #define FINISHED (!*p && !p[1])
 """
-  if c_filename and os.sep in c_filename: cfn = c_filename[c_filename.rindex(os.sep)+1:]
-  else: cfn = c_filename
   if cfn: c_preamble=c_preamble.replace("annoclip.c",cfn)
   c_defs = r"""static int near(char* string) {
   POSTYPE o=p; if(p>pOrig+nearbytes) o-=nearbytes; else o=pOrig;
@@ -1214,7 +1282,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
   DestroyWindow(win); // TODO: needed?
 }
 """
-elif not ndk:
+elif not ndk and not library:
   c_end += r"""
 #ifndef Omit_main
 int main(int argc,char*argv[]) {
