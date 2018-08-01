@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6492 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.6493 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1238,6 +1238,7 @@ enum {
   }"""
   c_switch3 = "if (annotation_mode == ruby_markup) {"
   c_switch4 = "} else o(numBytes,annot);"
+else: c_switch1=c_switch2=c_switch3=c_switch4=""
 
 if (data_driven or sharp_multi) and not ndk: c_preamble += '#include <stdlib.h>\n' # for malloc or atoi (ndk includes it anyway, above)
 if sharp_multi: c_preamble += '#include <ctype.h>\n'
