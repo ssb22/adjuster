@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.269 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2691 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -68,7 +68,13 @@ define("config",help="Name of the configuration file to read, if any. The proces
 define("version",help="Just print program version and exit")
 
 heading("Network listening and security settings")
-define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix); setting it to 0 disables request-processing entirely (for if you want to use only the Dynamic DNS and watchdog options); setting it to -1 selects a local port in the ephemeral port range (for tests etc on a shared system).")
+define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix); setting it to 0 disables request-processing entirely (for if you want to use only the Dynamic DNS and watchdog options); setting it to -1 selects a local port in the ephemeral port range, in which case address and port will be written in plain form to standard output if it's not a terminal and --background is set (see also --just-me).")
+# e.g. to run over an SSH tunnel, where you can't reserve a port number on the remote machine but can use a known port on the local machine:
+# ssh -N -L 28080:$(ssh MachineName python adjuster.py --background --port=-1 --publicPort=28080 --just-me --restart --pidfile=adjuster.pid) MachineName
+# This can be combined with --one-request-only (inefficient!) if you don't want the process to hang around afterwards, e.g. from an inetd script on your local port 28080:
+# ssh MachineName 'nc -q-1 $(python adjuster.py --background --port=-1 --publicPort=28080 --just-me --one-request-only --seconds=60|tr : " ")' 2>/dev/null
+# You probably want to set up a ControlPath if repeatedly SSH'ing.
+# 
 define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.")
 define("user",help="The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.")
 define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real_proxy.")
@@ -82,7 +88,8 @@ define("via",default=True,help="Whether or not to update the Via: and X-Forwarde
 define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP header when forwarding requests, as a courtesy to site administrators who wonder what's happening in their logs (and don't log Via: etc)")
 define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.") # TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, see comments in request_no_external_referer)
 define("just_me",default=False,help="Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.")
-define("one_request_only",default=False,help="Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy): run with --one_request_only and forward the request to its port.")
+define("one_request_only",default=False,help="Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy): run with --one_request_only and forward the request to its port.  You may also wish to set --seconds if using this.")
+define("seconds",default=0,help="The maximum number of seconds for which to run the server (0 for unlimited).  If a time limit is set, the server will shut itself down after the specified length of time.")
 
 define("upstream_proxy",help="address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options, own_server or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.") # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies. The ":port"-only option rewrites URLs in requests but NOT ones referred to in documents: we assume the proxy can cope with that.
 
@@ -913,7 +920,7 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me one_request_only'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+    for opt in 'config user address background restart stop install watchdog browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me one_request_only seconds'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt): warn("'%s' option may not work in WSGI mode" % opt)
     options.js_reproxy = False # for now (see above)
@@ -1131,6 +1138,7 @@ def openPortsEtc():
         if not coreNo: Dynamic_DNS_updater()
         if options.multicore: stopFunc = lambda *_:stopServer("SIG*")
         else: stopFunc = lambda *_:stopServer("SIGTERM received")
+        if options.seconds: IOLoop.instance().add_timeout(time.time()+options.seconds,lambda *args:stopServer("Uptime limit reached"))
       except SystemExit: raise # from the unixfork, OK
       except: # oops, error during startup, stop forks if any
         if not sslfork_monitor_pid == None:
@@ -1145,7 +1153,9 @@ def openPortsEtc():
 def banner(delayed=False):
     ret = [twoline_program_name]
     if options.port:
-        if options.port==-1: ret.append("Listening on 127.0.0.1:%d" % port_randomise[-1])
+        if options.port==-1:
+            ret.append("Listening on 127.0.0.1:%d" % port_randomise[-1])
+            if not istty(sys.stdout) and options.background: sys.stdout.write("127.0.0.1:%d" % port_randomise[-1]),sys.stdout.flush()
         else: ret.append("Listening on port %d" % options.port)
         if upstream_rewrite_ssl: ret.append("--upstream-proxy back-connection helper is listening on 127.0.0.1:%d" % (upstream_proxy_port+1,))
     else: ret.append("Not listening (--port=0 set)")
@@ -1329,7 +1339,7 @@ def workaround_tornado_fd_issue():
         except: pass
     IOLoop.instance().handle_callback_exception = newCx
 
-def istty(): return hasattr(sys.stderr,"isatty") and sys.stderr.isatty()
+def istty(f=sys.stderr): return hasattr(f,"isatty") and f.isatty()
 def set_title(t):
   if not istty(): return
   term = os.environ.get("TERM","")
@@ -2945,15 +2955,18 @@ document.forms[0].i.focus()
         # Ideally we should do this asynchronously, but as
         # it's only for the --just-me option and we assume a
         # local ident server, we can probably get away with:
+        usr = None
         try:
             s = socket.socket()
             s.connect(('localhost',113))
-            s.send("%d, %d\r\n" % (self.request.connection.stream.socket.getpeername()[1], options.publicPort))
-            if s.recv(1024).split(':')[-1].strip()==myUsername: return True
+            s.send("%d, %d\r\n" % (self.request.connection.stream.socket.getpeername()[1], port_randomise.get(options.port,options.port)))
+            usr = s.recv(1024).strip()
+            if usr.split(':')[-1]==myUsername: return True
             else: logging.error("ident server didn't confirm username: rejecting this connection")
         except Exception,e: logging.error("Trouble connecting to ident server (%s): rejecting this connection" % repr(e))
         self.set_status(401)
-        self.write("Connection from wrong account (ident check failed)")
+        if usr: self.write(usr+": ")
+        self.write("Connection from wrong account (ident check failed)\n")
         self.myfinish()
 
     def doReq(self):
