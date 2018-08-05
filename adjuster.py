@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2691 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2692 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ define("port",default=28080,help="The port to listen on. Setting this to 80 will
 # e.g. to run over an SSH tunnel, where you can't reserve a port number on the remote machine but can use a known port on the local machine:
 # ssh -N -L 28080:$(ssh MachineName python adjuster.py --background --port=-1 --publicPort=28080 --just-me --restart --pidfile=adjuster.pid) MachineName
 # This can be combined with --one-request-only (inefficient!) if you don't want the process to hang around afterwards, e.g. from an inetd script on your local port 28080:
-# ssh MachineName 'nc -q-1 $(python adjuster.py --background --port=-1 --publicPort=28080 --just-me --one-request-only --seconds=60|tr : " ")' 2>/dev/null
+# ssh MachineName 'python adjuster.py --background --port=-1 --publicPort=28080 --just-me --one-request-only --seconds=60 --stdio 2>/dev/null'
 # You probably want to set up a ControlPath if repeatedly SSH'ing.
 # 
 define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.")
@@ -90,6 +90,7 @@ define("robots",default=False,help="Whether or not to pass on requests for /robo
 define("just_me",default=False,help="Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.")
 define("one_request_only",default=False,help="Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy): run with --one_request_only and forward the request to its port.  You may also wish to set --seconds if using this.")
 define("seconds",default=0,help="The maximum number of seconds for which to run the server (0 for unlimited).  If a time limit is set, the server will shut itself down after the specified length of time.")
+define("stdio",default=False,help="Forward standard input and output to our open port, in addition to being open to normal TCP connections.  This might be useful in conjuction with --one-request-only and --port=-1.")
 
 define("upstream_proxy",help="address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options, own_server or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.") # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies. The ":port"-only option rewrites URLs in requests but NOT ones referred to in documents: we assume the proxy can cope with that.
 
@@ -591,6 +592,9 @@ def preprocessOptions():
     if options.render:
         try: import PIL
         except ImportError: errExit("render requires PIL")
+    if options.stdio:
+        if options.background: errExit("stdio is not compatible with background")
+        if not options.port: errExit("stdio requires a port to be listening (haven't yet implemented processing a request on stdio without a port to forward it to; you could try --just-me etc in the meantime)")
     global tornado
     if options.js_interpreter:
       if options.js_instances < 1: errExit("js_interpreter requires positive js_instances")
@@ -920,7 +924,7 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me one_request_only seconds'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+    for opt in 'config user address background restart stop install watchdog browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me one_request_only seconds stdio'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt): warn("'%s' option may not work in WSGI mode" % opt)
     options.js_reproxy = False # for now (see above)
@@ -1117,7 +1121,7 @@ def openPortsEtc():
         # can't double-fork (our PID is known), hence early_fork above
         start_multicore(True)
         if profile_forks_too: open_profile()
-    else: # we're not a child process
+    else: # we're not a child process of --ssl-fork
       try:
         if options.port: listen_on_port(makeMainApplication(),options.port,options.address,options.browser)
         openWatchdog() ; dropPrivileges()
@@ -1139,6 +1143,7 @@ def openPortsEtc():
         if options.multicore: stopFunc = lambda *_:stopServer("SIG*")
         else: stopFunc = lambda *_:stopServer("SIGTERM received")
         if options.seconds: IOLoop.instance().add_timeout(time.time()+options.seconds,lambda *args:stopServer("Uptime limit reached"))
+        if options.stdio and not coreNo: setup_stdio()
       except SystemExit: raise # from the unixfork, OK
       except: # oops, error during startup, stop forks if any
         if not sslfork_monitor_pid == None:
@@ -1150,6 +1155,25 @@ def openPortsEtc():
     try: os.setpgrp() # for stop_threads0 later
     except: pass
 
+def setup_stdio():
+    global StdinPass,StdinPending
+    StdinPass,StdinPending = None,[]
+    def doStdin(fd,events):
+        l=os.read(fd,1024) # 1 line or 1024 bytes (TODO: double-check this can never block)
+        if not l: # EOF (but don't close stdout yet)
+            IOLoop.instance().remove_handler(sys.stdin.fileno())
+            return
+        global StdinPass
+        if StdinPending: StdinPending.append(l) # connection is still being established
+        elif StdinPass: StdinPass.write(l) # open
+        else: # not yet established
+            StdinPending.append(l)
+            def ClearPending():
+                global StdinPending ; StdinPending = []
+            StdinPass = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
+            StdinPass.connect((options.address, port_randomise.get(options.port,options.port)), lambda *args:(StdinPass.write(''.join(StdinPending)),ClearPending(),StdinPass.read_until_close(lambda last:(sys.stdout.write(last),sys.stdout.close()),lambda chunk:sys.stdout.write(chunk))))
+    IOLoop.instance().add_handler(sys.stdin.fileno(), doStdin, IOLoop.READ)
+
 def banner(delayed=False):
     ret = [twoline_program_name]
     if options.port:
@@ -1158,6 +1182,7 @@ def banner(delayed=False):
             if not istty(sys.stdout) and options.background: sys.stdout.write("127.0.0.1:%d" % port_randomise[-1]),sys.stdout.flush()
         else: ret.append("Listening on port %d" % options.port)
         if upstream_rewrite_ssl: ret.append("--upstream-proxy back-connection helper is listening on 127.0.0.1:%d" % (upstream_proxy_port+1,))
+        if options.stdio: ret.append("Listening on standard input")
     else: ret.append("Not listening (--port=0 set)")
     if options.watchdog:
         ret.append("Writing "+options.watchdogDevice+" every %d seconds" % options.watchdog)
@@ -4208,13 +4233,18 @@ class StripJSEtc:
     def handle_data(self,data):
         if self.suppressing: return ""
 
-class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will probably break the site's scripts in non-htmlOnly): make external links go back to URL box and act as though the link had been typed in.  TODO: rewrite ALL links so history works (and don't need a whole domain, like the old Web Access Gateway)? but if doing that, wld hv to deal w.relative links (whether or not starting with a / ) & base href.
-    def __init__(self, rqPrefix): self.rqPrefix = rqPrefix
+class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will probably break the site's scripts in non-htmlOnly): make external links go back to URL box and act as though the link had been typed in.  TODO: rewrite ALL links so history works (and don't need a whole domain, like the old Web Access Gateway)? set baseHref
+    def __init__(self, rqPrefix, baseHref=None):
+        self.rqPrefix = rqPrefix
+        self.baseHref = baseHref
     def init(self,parser): self.parser = parser
     def handle_starttag(self, tag, attrs):
         if tag=="a":
             attrsD = dict(attrs)
             hr = attrsD.get("href","")
+            if not hr: return
+            if self.baseHref:
+                hr=urlparse.urljoin(baseHref,hr)
             if (hr.startswith("http://") and not url_is_ours(hr)) or hr.startswith("https://"):
               attrsD["href"]=self.rqPrefix + urllib.quote(hr)
               return tag,attrsD
