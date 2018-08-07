@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2692 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2693 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -135,6 +135,7 @@ define("ownServer_regexp",help="If own_server is set, you can set ownServer_rege
 define("ownServer_if_not_root",default=True,help="When trying to access an empty default_site, if the path requested is not / then redirect to own_server (if set) instead of providing a URL box. If this is False then the URL box will be provided no matter what path was requested.") # TODO: "ownServer even if root" option, i.e. option to make host_suffix by itself go to own_server?  Or make ownServer_if_not_root permanent?  The logic that deals with off-site Location: redirects assumes the URL box will normally be at / (TODO document this?)
 define('search_sites',multiple=True,help="Comma-separated list of search sites to be made available when the URL box is displayed (if default_site is empty). Each item in the list should be a URL (which will be prepended to the search query), then a space, then a short description of the site. The first item on the list is used by default; the user can specify other items by making the first word of their query equal to the first word of the short description. Additionally, if some of the letters of that first word are in parentheses, the user may specify just those letters. So for example if you have an entry http://search.example.com/?q= (e)xample, and the user types 'example test' or 'e test', it will use http://search.example.com/?q=test")
 define("urlbox_extra_html",help="Any extra HTML you want to place after the URL box (when shown), such as a paragraph explaining what your filters do etc.")
+define("urlboxPath",default="/",help="The path of the URL box for use in links to it. This might be useful for wrapper configurations, but a URL box can be served from any path on the default domain. If however urlboxPath is set to something other than / then efforts are made to rewrite links to use it more often when in HTML-only mode with cookie domain, which might be useful for limited-server situations.")
 define("wildcard_dns",default=True,help="Set this to False if you do NOT have a wildcard domain and want to process only default_site. Setting this to False does not actually prevent other sites from being processed (for example, a user could override their local DNS resolver to make up for your lack of wildcard domain); if you want to really prevent other sites from being processed then you could also set own_server to deal with unrecognised domains. Setting wildcard_dns to False does stop the automatic re-writing of links to sites other than default_site. Leave it set to True to have ALL sites' links rewritten on the assumption that you have a wildcard domain.") # will then say "(default True)"
 
 heading("General adjustment options")
@@ -592,6 +593,7 @@ def preprocessOptions():
     if options.render:
         try: import PIL
         except ImportError: errExit("render requires PIL")
+    if not options.urlboxPath.startswith("/"): options.urlboxPath = "/" + options.urlboxPath
     if options.stdio:
         if options.background: errExit("stdio is not compatible with background")
         if not options.port: errExit("stdio requires a port to be listening (haven't yet implemented processing a request on stdio without a port to forward it to; you could try --just-me etc in the meantime)")
@@ -2607,7 +2609,14 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 # (TODO: if convert_to_requested_host somehow returns a *different* non-default_site domain, that cookie will be lost.  Might need to enforce max 1 non-default_site domain.)
             else: wanted_host = ch
         else: wanted_host=None # not needed if wildcard_dns
-        self.redirect(domain_process(v,wanted_host,True))
+        redirTo = domain_process(v,wanted_host,True)
+        if not options.wildcard_dns and not options.urlboxPath=="/" and "pr" in self.request.arguments:
+            # Try to serve without redirect, as all links can be rewritten in this mode, and urlboxPath might matter.  For now, just fetch from ourselves, and follow any further redirects.  This works only if enable_adjustDomainCookieName_URL_override (because the URL contains the new cookie host) and pycurl (for proxy_host) (TODO: check options.usepycurl (and pycurl present) if urlboxPath-etc)
+            body = self.request.body
+            if not body: body = None
+            httpfetch(redirTo,proxy_host=options.address,proxy_port=str(port_randomise.get(options.port,options.port)),headers=self.request.headers,body=body,follow_redirects=True,callback=lambda r:self.doResponse3(repr(r))) # TODO: error-handle ?
+            # TODO: NotImplementedError proxy_host not supported ?? (means somehow using simplehttpclient instead of curlhttpclient, probably c-ares missing etc)
+        else: self.redirect(redirTo)
 
     def forwardToOtherPid(self):
         if not (options.ssl_fork and self.WA_UseSSL): return
@@ -3398,13 +3407,13 @@ document.forms[0].i.focus()
                 # (DON'T just do this for just ANY offsite url when in cookie_host mode (except when also in htmlOnlyMode, see below) - it could mess up images and things.  (Could still mess up images etc if they're served from / with query parameters; for now we're assuming path=/ is a good condition to do this.  The whole cookie_host thing is a compromise anyway; wildcard_dns is better.)  Can however do it if adjust_domain_cookieName is in the arguments, since this should mean a URL has just been typed in.)
                 if offsite:
                     # as cookie_host has been set, we know we CAN do this request if it were typed in directly....
-                    value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
+                    value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + options.urlboxPath + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
                     if self.htmlOnlyMode(): value += "&pr=on"
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html lang=\"en\"><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
             elif cookie_host and offsite and self.htmlOnlyMode() and not options.htmlonly_css: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally
-                value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
+                value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + options.urlboxPath + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
           elif "set-cookie" in name.lower():
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host) # (never doing this if isProxyRequest, therefore don't have to worry about the upstream_rewrite_ssl exception that applies to normal domain_process isProxyRequest)
             for ckName in upstreamGuard: value=value.replace(ckName,ckName+"1")
@@ -3528,11 +3537,11 @@ document.forms[0].i.focus()
         adjustList = []
         if do_html_process:
           if self.htmlOnlyMode(isProxyRequest):
+              if isProxyRequest: url = self.urlToFetch
+              else: url = domain_process(self.urlToFetch,cookie_host,True,self.urlToFetch.startswith("https"))
               if cookie_host:
-                  adjustList.append(RewriteExternalLinks("http://" + convert_to_requested_host(cookie_host,cookie_host) + "/?"+adjust_domain_cookieName+"=0&pr=on&q="))
+                  adjustList.append(RewriteExternalLinks("http://" + convert_to_requested_host(cookie_host,cookie_host) + options.urlboxPath + "?" + adjust_domain_cookieName+"=0&pr=on&q=",url,cookie_host))
               if options.js_links:
-                  if isProxyRequest: url = self.urlToFetch
-                  else: url = domain_process(self.urlToFetch,cookie_host,True,self.urlToFetch.startswith("https"))
                   adjustList.append(AddClickCodes(url))
               adjustList.append(StripJSEtc(self.urlToFetch,transparent=self.auto_htmlOnlyMode(isProxyRequest)))
               if not options.htmlonly_css: adjustList.append(transform_in_selected_tag("style",lambda s:"",True)) # strips JS events also (TODO: support this in htmlonly_css ? although htmlonly_css is mostly a 'developer' option)
@@ -3809,7 +3818,7 @@ def searchHelp():
     else: return " or enter search terms, first word can be "+", ".join([x.split(None,1)[1] for x in options.search_sites])
 def htmlhead(title="Web Adjuster"): return '<html><head><title>%s</title><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head><body>' % title
 def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
-    r = htmlhead('Web Adjuster start page')+'<form action="/"><label for="q">'+options.boxPrompt+'</label>: <input type="text" id="q" name="q"'
+    r = htmlhead('Web Adjuster start page')+'<form action="'+options.urlboxPath+'"><label for="q">'+options.boxPrompt+'</label>: <input type="text" id="q" name="q"'
     if default_url: r += ' value="'+default_url+'"'
     else: r += ' placeholder="http://"' # HTML5 (Firefox 4, Opera 11, MSIE 10, etc)
     r += '><input type="submit" value="Go">'+searchHelp()+cssOpts_html # 'go' button MUST be first, before cssOpts_html, because it's the button that's hit when Enter is pressed.  (So might as well make the below focus() script unconditional even if there's cssOpts_html.  Minor problem is searchHelp() might get in the way.)
@@ -4233,19 +4242,31 @@ class StripJSEtc:
     def handle_data(self,data):
         if self.suppressing: return ""
 
-class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will probably break the site's scripts in non-htmlOnly): make external links go back to URL box and act as though the link had been typed in.  TODO: rewrite ALL links so history works (and don't need a whole domain, like the old Web Access Gateway)? set baseHref
-    def __init__(self, rqPrefix, baseHref=None):
+class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will probably break the site's scripts in non-htmlOnly): make external links go back to URL box and act as though the link had been typed in.  TODO: rewrite ALL links so history works (and don't need a whole domain, like the old Web Access Gateway)? (de-process if url_is_ours)
+    def __init__(self, rqPrefix, baseHref, cookie_host):
         self.rqPrefix = rqPrefix
         self.baseHref = baseHref
+        self.cookie_host = cookie_host
     def init(self,parser): self.parser = parser
     def handle_starttag(self, tag, attrs):
-        if tag=="a":
+        if tag=="base":
             attrsD = dict(attrs)
             hr = attrsD.get("href","")
-            if not hr: return
+            if hr.startswith("http"): self.baseHref = hr
+        elif tag=="a":
+            attrsD = dict(attrs)
+            hr = attrsD.get("href","")
+            if not hr: return # no href
+            if hr.startswith('#'): return # in-page anchor
+            if not hr.startswith('http') and ':' in hr.split('/',1)[0]: return # non-HTTP(s) protocol?
             if self.baseHref:
-                hr=urlparse.urljoin(baseHref,hr)
-            if (hr.startswith("http://") and not url_is_ours(hr)) or hr.startswith("https://"):
+                try: hr=urlparse.urljoin(self.baseHref,hr)
+                except: pass # can't do it
+            if not (hr.startswith("http://") or hr.startswith("https://")): return # still a relative link etc after all that
+            realUrl = url_is_ours(hr,self.cookie_host)
+            if not options.urlboxPath=="/" and realUrl:
+                hr,realUrl = realUrl,None
+            if not realUrl: # off-site
               attrsD["href"]=self.rqPrefix + urllib.quote(hr)
               return tag,attrsD
     def handle_endtag(self, tag): pass
@@ -4689,14 +4710,20 @@ def cookie_domain_process(text,cookieHost=None):
         start = j
     return text
 
-def url_is_ours(url):
+def url_is_ours(url,cookieHost="cookie-host\n"):
     # check if url has been through domain_process
     if not url.startswith("http://"): return False
     url=url[len("http://"):]
-    if '/' in url: url=url[:url.index('/')]
-    rh = convert_to_real_host(url,"cookie-host\n")
-    return rh and type(rh)==type("") and not rh==url # TODO: is the last part really necessary?
-
+    if '/' in url:
+        url,rest=url.split('/',1)
+        rest = '/'+rest
+    else: rest = ""
+    rh = convert_to_real_host(url,cookieHost)
+    if rh and type(rh)==type("") and not rh==url:
+        # (exact value is used by RewriteExternalLinks)
+        if rh.endswith(".0"): r="https://"+rh[:-2]
+        else: r="http://"+rh
+        return r + rest
 def js_process(body,url):
     for prefix, srch, rplac in codeChanges:
         times = None
@@ -4865,8 +4892,8 @@ if(!%s && %s) { document.cookie='adjustNoRender=1;domain=%s;expires=%s;path=/';d
             bodyAppend += reloadSwitchJS("adjustNoRender",jsCookieString,True,options.renderName,cookieHostToSet,cookieExpires,extraCondition)
     if cookie_host:
         if enable_adjustDomainCookieName_URL_override: bodyAppend += r"""<script><!--
-if(!%s&&document.readyState!='complete')document.write('<a href="http://%s/?%s=%s">Back to URL box<\/a>')
-//--></script><noscript><a href="http://%s/?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr(),adjust_domain_cookieName,adjust_domain_none,cookieHostToSet+publicPortStr(),adjust_domain_cookieName,adjust_domain_none)
+if(!%s&&document.readyState!='complete')document.write('<a href="http://%s%s?%s=%s">Back to URL box<\/a>')
+//--></script><noscript><a href="http://%s%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr(),options.urlboxPath,adjust_domain_cookieName,adjust_domain_none,cookieHostToSet+publicPortStr(),options.urlboxPath,adjust_domain_cookieName,adjust_domain_none)
         else: bodyAppend += r"""<script><!--
 if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';if(location.href==\'http://%s/\')location.reload(true);else location.href=\'http://%s/?nocache=\'+Math.random()">Back to URL box<\/a>')
 //--></script>""" % (detect_iframe,adjust_domain_cookieName,adjust_domain_none,cookieExpires,cookieHostToSet+publicPortStr(),cookieHostToSet+publicPortStr()) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
