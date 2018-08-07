@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2693 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.2694 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -135,7 +135,7 @@ define("ownServer_regexp",help="If own_server is set, you can set ownServer_rege
 define("ownServer_if_not_root",default=True,help="When trying to access an empty default_site, if the path requested is not / then redirect to own_server (if set) instead of providing a URL box. If this is False then the URL box will be provided no matter what path was requested.") # TODO: "ownServer even if root" option, i.e. option to make host_suffix by itself go to own_server?  Or make ownServer_if_not_root permanent?  The logic that deals with off-site Location: redirects assumes the URL box will normally be at / (TODO document this?)
 define('search_sites',multiple=True,help="Comma-separated list of search sites to be made available when the URL box is displayed (if default_site is empty). Each item in the list should be a URL (which will be prepended to the search query), then a space, then a short description of the site. The first item on the list is used by default; the user can specify other items by making the first word of their query equal to the first word of the short description. Additionally, if some of the letters of that first word are in parentheses, the user may specify just those letters. So for example if you have an entry http://search.example.com/?q= (e)xample, and the user types 'example test' or 'e test', it will use http://search.example.com/?q=test")
 define("urlbox_extra_html",help="Any extra HTML you want to place after the URL box (when shown), such as a paragraph explaining what your filters do etc.")
-define("urlboxPath",default="/",help="The path of the URL box for use in links to it. This might be useful for wrapper configurations, but a URL box can be served from any path on the default domain. If however urlboxPath is set to something other than / then efforts are made to rewrite links to use it more often when in HTML-only mode with cookie domain, which might be useful for limited-server situations.")
+define("urlboxPath",default="/",help="The path of the URL box for use in links to it. This might be useful for wrapper configurations, but a URL box can be served from any path on the default domain. If however urlboxPath is set to something other than / then efforts are made to rewrite links to use it more often when in HTML-only mode with cookie domain, which might be useful for limited-server situations. You can force HTML-only mode to always be on by prefixing urlboxPath with *")
 define("wildcard_dns",default=True,help="Set this to False if you do NOT have a wildcard domain and want to process only default_site. Setting this to False does not actually prevent other sites from being processed (for example, a user could override their local DNS resolver to make up for your lack of wildcard domain); if you want to really prevent other sites from being processed then you could also set own_server to deal with unrecognised domains. Setting wildcard_dns to False does stop the automatic re-writing of links to sites other than default_site. Leave it set to True to have ALL sites' links rewritten on the assumption that you have a wildcard domain.") # will then say "(default True)"
 
 heading("General adjustment options")
@@ -593,6 +593,11 @@ def preprocessOptions():
     if options.render:
         try: import PIL
         except ImportError: errExit("render requires PIL")
+    global force_htmlonly_mode
+    if options.urlboxPath.startswith("*"):
+        options.urlboxPath = options.urlboxPath[1:]
+        force_htmlonly_mode = True
+    else: force_htmlonly_mode = False
     if not options.urlboxPath.startswith("/"): options.urlboxPath = "/" + options.urlboxPath
     if options.stdio:
         if options.background: errExit("stdio is not compatible with background")
@@ -1910,7 +1915,7 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     need_restart = False
     def errHandle(error,extraMsg,prefetched):
         if not options.js_fallback: prefetched=None
-        if prefetched: toRet = "non-webdriver page"
+        if prefetched: toRet = "non-webdriver page (js_fallback set)"
         else:
             toRet = "error"
             prefetched = wrapResponse("webdriver "+error)
@@ -1923,7 +1928,7 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
         try: r.headers.add(options.js_fallback,"OK")
         except: pass
     except TimeoutException:
-        r = errHandle("timeout","webdriver "+str(manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched)
+        r = errHandle("timeout","webdriver "+str(manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched) # "webdriver timeout" sent to browser (can't include url here: domain gets rewritten)
     except SeriousTimeoutException:
         r = errHandle("serious timeout","lost communication with webdriver "+str(manager.index)+" when fetching "+url+"; no partial result, so",prefetched)
         need_restart = "serious"
@@ -2398,7 +2403,7 @@ class RequestForwarder(RequestHandler):
             # and adjust the SSL site (assuming this CONNECT
             # is for an SSL site)
             # This should result in a huge "no cert" warning
-            host,port = "127.0.0.1",self.WA_connectPort
+            host,port = "127.0.0.1",port_randomise.get(self.WA_connectPort,self.WA_connectPort)
             debuglog("Rerouting CONNECT to "+host+":"+str(port))
         def callback(*args):
           wrapped_readUntilClose(client,lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,"upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
@@ -2433,6 +2438,8 @@ class RequestForwarder(RequestHandler):
         except: pass
 
     def redirect(self,redir,status=301):
+        if self.can_serve_without_redirect(redir):
+            return self.doReq0()
         debuglog("Serving redirect ("+repr(status)+" to "+repr(redir)+")"+self.debugExtras())
         try: self.set_status(status)
         except ValueError: self.set_status(status, "Redirect") # e.g. 308 (not all Tornado versions handle it)
@@ -2441,6 +2448,27 @@ class RequestForwarder(RequestHandler):
         self.add_header("Content-Type","text/html")
         if self.canWriteBody(): self.write('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % redir.replace('&','&amp;').replace('"','&quot;'))
         self.myfinish()
+
+    def can_serve_without_redirect(self,redir):
+        # Try to serve without redirect if all links can be rewritten and urlboxPath might matter
+        if self.isSslUpstream or self.isPjsUpstream or options.wildcard_dns or options.urlboxPath=="/" or not self.htmlOnlyMode(): return
+        if not hasattr(self.request,"redirCount"):
+            self.request.redirCount = 0
+        if self.request.redirCount >= 10: return # loop?
+        self.request.redirCount += 1
+        self.cookieViaURL = None # recalculate:
+        oldArgs = self.request.arguments
+        (scheme, netloc, path, query, fragment) = urlparse.urlsplit(redir)
+        self.request.arguments = urlparse.parse_qs(query)
+        if not url_is_ours(redir,self.cookie_host()):
+            # raise Exception(repr((redir,self.cookie_host()))) # for testing
+            self.request.arguments = oldArgs
+            return
+        if not path.startswith("/"): path="/"+path
+        if query: query = "?"+query
+        self.request.uri = scheme+"://"+netloc+path+query
+        self.request.path = path
+        return True
 
     def request_no_external_referer(self):
         # Not all browsers implement this, but we can ask.
@@ -2576,14 +2604,16 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         # Set the cookie according to the value of "pr" entered from the URL box.
         # TODO: option to combine this and other cookie-based settings with enable_adjustDomainCookieName_URL_override so the setting can be bookmarked ?  (some users might want that off however, as an address is different from a setting; in the case of htmlOnly the q= URL can already be bookmarked if can stop it before the redirect)
         if options.htmlonly_mode:
-            htmlonly_mode = "pr" in self.request.arguments
+            htmlonly_mode = (force_htmlonly_mode or "pr" in self.request.arguments)
             current_setting = htmlmode_cookie_name+"=1" in ';'.join(self.request.headers.get_list("Cookie"))
             if not htmlonly_mode == current_setting:
                 if htmlonly_mode: val="1"
                 else: val="0"
                 self.setCookie_with_dots(htmlmode_cookie_name+"="+val)
+                self.request.headers.add("Cookie",htmlmode_cookie_name+"="+val) # for htmlOnlyMode below in same request (TODO: delete old setting? but usually used only by redir)
     def htmlOnlyMode(self,isProxyRequest=False):
         if not options.htmlonly_mode: return False
+        if force_htmlonly_mode: return True
         if hasattr(self.request,"old_cookie"): ck = self.request.old_cookie # so this can be called between change_request_headers and restore_request_headers, e.g. at the start of send_request for js_interpreter mode
         else: ck = ';'.join(self.request.headers.get_list("Cookie"))
         return htmlmode_cookie_name+"=1" in ck or self.auto_htmlOnlyMode(isProxyRequest)
@@ -2609,14 +2639,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 # (TODO: if convert_to_requested_host somehow returns a *different* non-default_site domain, that cookie will be lost.  Might need to enforce max 1 non-default_site domain.)
             else: wanted_host = ch
         else: wanted_host=None # not needed if wildcard_dns
-        redirTo = domain_process(v,wanted_host,True)
-        if not options.wildcard_dns and not options.urlboxPath=="/" and "pr" in self.request.arguments:
-            # Try to serve without redirect, as all links can be rewritten in this mode, and urlboxPath might matter.  For now, just fetch from ourselves, and follow any further redirects.  This works only if enable_adjustDomainCookieName_URL_override (because the URL contains the new cookie host) and pycurl (for proxy_host) (TODO: check options.usepycurl (and pycurl present) if urlboxPath-etc)
-            body = self.request.body
-            if not body: body = None
-            httpfetch(redirTo,proxy_host=options.address,proxy_port=str(port_randomise.get(options.port,options.port)),headers=self.request.headers,body=body,follow_redirects=True,callback=lambda r:self.doResponse3(repr(r))) # TODO: error-handle ?
-            # TODO: NotImplementedError proxy_host not supported ?? (means somehow using simplehttpclient instead of curlhttpclient, probably c-ares missing etc)
-        else: self.redirect(redirTo)
+        self.redirect(domain_process(v,wanted_host,True))
 
     def forwardToOtherPid(self):
         if not (options.ssl_fork and self.WA_UseSSL): return
@@ -2624,7 +2647,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         # forward the request back to the original PID in
         # case it needs to do things with webdrivers etc.
         self.request.headers["X-WA-FromSSLHelper"] = "1"
-        self.forwardFor("127.0.0.1:%d" % (self.WA_connectPort-1),"SSL helper:"+str(self.WA_connectPort))
+        self.forwardFor("127.0.0.1:%d" % (port_randomise.get(self.WA_port,self.WA_port)),"SSL helper:"+str(port_randomise.get(self.WA_connectPort,self.WA_connectPort)))
         return True
     def handleFullLocation(self):
         # HTTP 1.1 spec says ANY request can be of form http://...., not just a proxy request.  The differentiation of proxy/not-proxy depends on what host is requested.  So rewrite all http://... requests to HTTP1.0-style host+uri requests.
@@ -2884,7 +2907,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             if options.submitBookmarkletDomain: submit_url = "//"+options.submitBookmarkletDomain+options.submitPath
             else: submit_url = local_submit_url
             if (options.password and submitPathIgnorePassword) or options.submitPath=='/' or defaultSite(): urlbox_footer = "" # not much point linking them back to the URL box under the first circumstance, and there isn't one for the other two
-            else: urlbox_footer = '<p><a href="http://'+hostSuffix()+publicPortStr()+'">Process a website</a></p>'
+            else: urlbox_footer = '<p><a href="http://'+hostSuffix()+publicPortStr()+options.urlboxPath+'">Process a website</a></p>'
             # TODO: what if their browser doesn't submit in the correct charset?  for example some versions of Lynx need -display_charset=UTF-8 otherwise they might double-encode pasted-in UTF-8 and remove A0 bytes even though it appears to display correctly (and no, adding accept-charset won't help: that's for if the one to be accepted differs from the document's)
             return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3>Upload Text</h3>%s:<p><span style="float:right"><input type="submit"><script><!--
 document.write(' (Ctrl-Enter) | <a href="javascript:history.go(-1)">Back</a>')
@@ -2993,7 +3016,7 @@ document.forms[0].i.focus()
         try:
             s = socket.socket()
             s.connect(('localhost',113))
-            s.send("%d, %d\r\n" % (self.request.connection.stream.socket.getpeername()[1], port_randomise.get(options.port,options.port)))
+            s.send("%d, %d\r\n" % (self.request.connection.stream.socket.getpeername()[1], port_randomise.get(self.WA_port,self.WA_port)))
             usr = s.recv(1024).strip()
             if usr.split(':')[-1]==myUsername: return True
             else: logging.error("ident server didn't confirm username: rejecting this connection")
@@ -3005,6 +3028,8 @@ document.forms[0].i.focus()
 
     def doReq(self):
         if options.just_me and not self.justMeCheck(): return
+        self.doReq0()
+    def doReq0(self):
         debuglog("doReq"+self.debugExtras()) # MUST keep this here: it also sets profileIdle=False
         try: reqsInFlight.add(id(self)) # for profile
         except: pass # e.g. not options.profile
@@ -3126,7 +3151,7 @@ document.forms[0].i.focus()
         if maybeRobots: return self.serveRobots()
         if not self.isPjsUpstream and not self.isSslUpstream and self.needCssCookies():
             self.add_nocache_headers() # please don't cache this redirect!  otherwise user might not be able to leave the URL box after:
-            return self.redirect("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
+            return self.redirect("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
         if not self.isPjsUpstream and not self.isSslUpstream: self.addCookieFromURL() # for cookie_host
         converterFlags = []
         for opt,suffix,ext,fmt in [
@@ -3743,19 +3768,20 @@ rmHjGlInkZKbj3jEsGSxU4oKRDBM5syJgm1XYi5vPRNOUu4CXUGJAXhzJtd9teqB
         # If you do, there is a race condition when adjuster is restarting.
         return the_duff_certfile
 
-def MakeRequestForwarder(useSSL,connectPort,isPJS=False,start=0,index=0):
+def MakeRequestForwarder(useSSL,port,connectPort,isPJS=False,start=0,index=0):
     class MyRequestForwarder(RequestForwarder):
         WA_UseSSL = useSSL
-        WA_connectPort = port_randomise.get(connectPort,connectPort)
+        WA_port = port
+        WA_connectPort = connectPort
         isPjsUpstream = isPJS
         WA_PjsStart = start # (for multicore)
         WA_PjsIndex = index # (relative to start)
         isSslUpstream = False
     return MyRequestForwarder # the class, not an instance
-def NormalRequestForwarder(): return MakeRequestForwarder(False,options.internalPort)
-def SSLRequestForwarder(): return MakeRequestForwarder(True,options.internalPort)
-def PjsRequestForwarder(start,index): return MakeRequestForwarder(False,js_proxy_port[start+index]+1,True,start,index)
-def PjsSslRequestForwarder(start,index): return MakeRequestForwarder(True,js_proxy_port[start+index]+1,True,start,index)
+def NormalRequestForwarder(): return MakeRequestForwarder(False,options.port,options.internalPort)
+def SSLRequestForwarder(): return MakeRequestForwarder(True,options.internalPort,options.internalPort)
+def PjsRequestForwarder(start,index): return MakeRequestForwarder(False,js_proxy_port[start+index],js_proxy_port[start+index]+1,True,start,index)
+def PjsSslRequestForwarder(start,index): return MakeRequestForwarder(True,js_proxy_port[start+index]+1,js_proxy_port[start+index]+1,True,start,index)
 
 class UpSslRequestForwarder(RequestForwarder):
     "A RequestForwarder for running upstream of upstream_proxy, rewriting its .0 requests back into SSL requests"
@@ -3827,7 +3853,8 @@ def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
     else: htmlonly_checked = ""
     if options.htmlonly_mode:
         if not r.endswith("</p>"): r += "<br>"
-        r += '<input type="checkbox" id="pr" name="pr"'+htmlonly_checked+'> <label for="pr">HTML-only mode</label>'
+        if force_htmlonly_mode: r += '<input type="checkbox" id="pr" disabled="disabled" checked="checked"> <label for="pr">HTML-only mode</label>'
+        else: r += '<input type="checkbox" id="pr" name="pr"'+htmlonly_checked+'> <label for="pr">HTML-only mode</label>'
     if options.submitPath: r += '<p><input type="submit" name="sPath" value="Upload your own text"></p>'
     r += '</form><script><!--\ndocument.forms[0].q.focus();\n//--></script>'
     if options.urlbox_extra_html: r += options.urlbox_extra_html
@@ -4223,7 +4250,9 @@ class StripJSEtc:
             self.suppressing = True ; return True
         elif tag=="body":
             if not self.transparent:
-                self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a rel="noreferrer" href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+"/?d="+urllib.quote(self.url),self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
+                if enable_adjustDomainCookieName_URL_override: xtra = "&"+adjust_domain_cookieName+"="+adjust_domain_none
+                else: xtra = ""
+                self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a rel="noreferrer" href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+urllib.quote(self.url)+xtra,self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
                 # TODO: call request_no_external_referer() on the RequestForwarder as well? (may need a parameter for it)
             return
         elif tag=="a" and not self.suppressing:
@@ -4718,6 +4747,9 @@ def url_is_ours(url,cookieHost="cookie-host\n"):
         url,rest=url.split('/',1)
         rest = '/'+rest
     else: rest = ""
+    if '?' in url:
+        url,r2=url.split('?',1)
+        rest = '?'+r2+rest
     rh = convert_to_real_host(url,cookieHost)
     if rh and type(rh)==type("") and not rh==url:
         # (exact value is used by RewriteExternalLinks)
@@ -4892,11 +4924,11 @@ if(!%s && %s) { document.cookie='adjustNoRender=1;domain=%s;expires=%s;path=/';d
             bodyAppend += reloadSwitchJS("adjustNoRender",jsCookieString,True,options.renderName,cookieHostToSet,cookieExpires,extraCondition)
     if cookie_host:
         if enable_adjustDomainCookieName_URL_override: bodyAppend += r"""<script><!--
-if(!%s&&document.readyState!='complete')document.write('<a href="http://%s%s?%s=%s">Back to URL box<\/a>')
-//--></script><noscript><a href="http://%s%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr(),options.urlboxPath,adjust_domain_cookieName,adjust_domain_none,cookieHostToSet+publicPortStr(),options.urlboxPath,adjust_domain_cookieName,adjust_domain_none)
+if(!%s&&document.readyState!='complete')document.write('<a href="http://%s?%s=%s">Back to URL box<\/a>')
+//--></script><noscript><a href="http://%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,adjust_domain_none,cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,adjust_domain_none)
         else: bodyAppend += r"""<script><!--
-if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';if(location.href==\'http://%s/\')location.reload(true);else location.href=\'http://%s/?nocache=\'+Math.random()">Back to URL box<\/a>')
-//--></script>""" % (detect_iframe,adjust_domain_cookieName,adjust_domain_none,cookieExpires,cookieHostToSet+publicPortStr(),cookieHostToSet+publicPortStr()) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
+if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';if(location.href==\'http://%s\')location.reload(true);else location.href=\'http://%s?nocache=\'+Math.random()">Back to URL box<\/a>')
+//--></script>""" % (detect_iframe,adjust_domain_cookieName,adjust_domain_none,cookieExpires,cookieHostToSet+publicPortStr()+options.urlboxPath,cookieHostToSet+publicPortStr()+options.urlboxPath) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
     if options.headAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): headAppend += options.headAppend
     if options.headAppendRuby and not is_password_domain=="PjsUpstream": bodyPrepend += rubyScript
     if is_password_domain=="PjsUpstream": pn = None
