@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.2694 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.27 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1536,7 +1536,7 @@ class BrowserLogger:
     elif host: host=protocolWithHost(host)
     # elif host==0: host="http://"+ch # e.g. adjusting one of the ownServer_if_not_root pages (TODO: uncomment this?)
     else: host=""
-    browser = req.headers.get('User-Agent',None)
+    browser = req.headers.get("User-Agent",None)
     if browser:
         browser='"'+browser+'"'
         if options.squashLogs and browser==self.lastBrowser: browser = ""
@@ -1693,8 +1693,12 @@ class HTTPClient_Fixed(HTTPClient):
 wsgi_mode = False
 def httpfetch(url,**kwargs):
     url = re.sub("[^ -~]+",lambda m:urllib.quote(m.group()),url) # sometimes needed to get out of redirect loops
+    debuglog("httpfetch "+url+" "+repr(kwargs)+repr([(n,v) for n,v in kwargs['headers'].get_all()]))
     if not wsgi_mode:
         return MyAsyncHTTPClient().fetch(url,**kwargs)
+    # ---------------------------------
+    # -------- wsgi_mode only: --------
+    # ---------------------------------
     callback = kwargs['callback']
     del kwargs['callback']
     try: r = HTTPClient_Fixed().fetch(url,**kwargs)
@@ -2175,7 +2179,7 @@ def get_new_PhantomJS(index,renewing=False):
     return wd
 def proxyPort(index): return port_randomise.get(js_proxy_port[index],js_proxy_port[index])
 webdriver_runner = [] ; webdriver_prefetched = []
-webdriver_via = []
+webdriver_via = [] ; webdriver_UA = []
 webdriver_inProgress = [] ; webdriver_queue = []
 webdriver_lambda = webdriver_mu = 0
 def test_init_webdriver():
@@ -2191,7 +2195,7 @@ def init_webdrivers(start,N):
         webdriver_runner.append(WebdriverRunner(start,len(webdriver_runner)))
         webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
-        webdriver_via.append(None)
+        webdriver_via.append(None) ; webdriver_UA.append("")
     def quit_wd_atexit(*args):
       if informing: sys.stderr.write("Quitting %d webdriver%s... " % (options.js_instances,plural(options.js_instances)))
       try:
@@ -2217,10 +2221,10 @@ def webdriver_checkServe(*args):
         if not webdriver_queue: break # just to save a little
         if not webdriver_runner[i].wd_threadStart:
             while webdriver_queue:
-                url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate = webdriver_queue.pop(0)
+                url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate = webdriver_queue.pop(0)
                 if tooLate(): continue
                 debuglog("Starting fetch of "+url+" on webdriver instance "+str(i+webdriver_runner[i].start))
-                webdriver_via[i]=via
+                webdriver_via[i],webdriver_UA[i] = via,ua
                 webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,tooLate)
                 global webdriver_mu ; webdriver_mu += 1
                 break
@@ -2230,11 +2234,11 @@ def webdriver_checkRenew(*args):
     for i in webdriver_runner:
         if not i.wd_threadStart and i.usageCount and i.finishTime + options.js_restartMins < time.time(): i.renew_webdriver_newThread() # safe because we're running in the IOLoop thread, which therefore can't start wd_thread between our test of wd_threadStart and renew_webdriver_newThread
     IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
-def webdriver_fetch(url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
+def webdriver_fetch(url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
     if tooLate(): return # probably webdriver_queue overload (which will also be logged)
     elif prefetched and prefetched.code >= 500: return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something
-    elif wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do js_interpreter anyway; where else might we have threaded wsgi?  js_interpreter really is better run in non-wsgi mode anyway, so can js_reproxy)
-    webdriver_queue.append((url,prefetched,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate))
+    elif wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # (can't reproxy in wsgi_mode, so can't use via and ua) TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do js_interpreter anyway; where else might we have threaded wsgi?  js_interpreter really is better run in non-wsgi mode anyway, so can js_reproxy)
+    webdriver_queue.append((url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate))
     global webdriver_lambda ; webdriver_lambda += 1
     debuglog("webdriver_queue len=%d after adding %s" % (len(webdriver_queue),url))
     webdriver_checkServe() # safe as we're IOLoop thread
@@ -3064,7 +3068,9 @@ document.forms[0].i.focus()
         if self.forwardToOtherPid(): return
         if self.handleFullLocation(): return # if returns here, URL is invalid; if not, handleFullLocation has 'normalised' self.request.host and self.request.uri
         if self.isPjsUpstream:
-            if options.js_UA and options.js_UA.startswith("*"): self.request.headers["User-Agent"] = options.js_UA[1:]
+            if options.js_UA:
+                if options.js_UA.startswith("*"): self.request.headers["User-Agent"] = options.js_UA[1:]
+            else: self.request.headers["User-Agent"] = webdriver_UA[self.WA_PjsIndex]
             webdriver_inProgress[self.WA_PjsIndex].add(self.request.uri)
         elif not self.isSslUpstream:
             if self.handleSSHTunnel(): return
@@ -3233,6 +3239,7 @@ document.forms[0].i.focus()
             if v:
                 self.original_referer = v
                 v = fixDNS(v)
+                if enable_adjustDomainCookieName_URL_override: v = re.sub("[?&]"+re.escape(adjust_domain_cookieName)+"=[^&]*$","",v)
                 if v in ["","http://","http:///"]:
                     # it must have come from the URL box
                     del self.request.headers["Referer"]
@@ -3262,7 +3269,9 @@ document.forms[0].i.focus()
         if hasattr(self.request,"old_cookie"): self.request.headers["Cookie"] = self.request.old_cookie # + put this back so we can refer to our own cookies
     
     def sendRequest(self,converterFlags,viewSource,isProxyRequest,follow_redirects):
+        debuglog("sendRequest"+self.debugExtras())
         if self.isPjsUpstream and webdriver_prefetched[self.WA_PjsIndex]:
+            debuglog("sendRequest returning webdriver_prefetched["+str(self.WA_PjsIndex)+"]"+self.debugExtras())
             r = webdriver_prefetched[self.WA_PjsIndex]
             webdriver_prefetched[self.WA_PjsIndex] = None
             return self.doResponse(r,converterFlags,viewSource,isProxyRequest)
@@ -3274,6 +3283,7 @@ document.forms[0].i.focus()
         if options.js_interpreter and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and self.canWriteBody():
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
+            ua = self.request.headers.get("User-Agent","")
             if body or self.request.method.lower()=="post":
                 body = self.request.method, body
             clickElementID = clickLinkText = None
@@ -3304,6 +3314,7 @@ document.forms[0].i.focus()
               def prefetch():
                 # prefetch the page, don't tie up a PJS until
                 # we have the page in hand
+                debuglog("prefetch "+self.urlToFetch)
                 httpfetch(self.urlToFetch,
                   connect_timeout=60,request_timeout=120,
                   proxy_host=ph, proxy_port=pp,
@@ -3314,7 +3325,7 @@ document.forms[0].i.focus()
                   validate_cert=False,
                   callback=lambda prefetched_response:
                     webdriver_fetch(self.urlToFetch,
-                                    prefetched_response,
+                                    prefetched_response,ua,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
                         lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,js=True),tooLate),
@@ -3334,7 +3345,7 @@ document.forms[0].i.focus()
                 if not tooLate(): IOLoop.instance().add_timeout(again,lambda *args:prefetch_when_ready(t0))
               prefetch_when_ready(time.time())
             else: # no reproxy: can't prefetch
-                webdriver_fetch(self.urlToFetch,None,
+                webdriver_fetch(self.urlToFetch,None,ua,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
                         lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,js=True),tooLate)
@@ -3641,6 +3652,8 @@ document.forms[0].i.focus()
     def sendHead(self,forPjs=False):
         # forPjs is for options.js_reproxy: we've identified the request as coming from js_interpreter and being its main document (not images etc).  Just check it's not a download link.
         # else for options.redirectFiles: it looks like we have a "no processing necessary" request that we can tell the browser to get from the real site.  But just confirm it's not a mis-named HTML document.
+        if forPjs and webdriver_prefetched[self.WA_PjsIndex]: return self.headResponse(webdriver_prefetched[self.WA_PjsIndex],True) # no need to send a separate HEAD request if we've already done a prefetch
+        debuglog("sendHead"+self.debugExtras())
         body = self.request.body
         if not body: body = None
         if hasattr(self,"original_referer"): self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers.get("Referer","") # we'll send the request with the user's original Referer, to check it still works
@@ -3650,7 +3663,7 @@ document.forms[0].i.focus()
                   connect_timeout=60,request_timeout=120, # same TODO as above
                   proxy_host=ph, proxy_port=pp,
                   method="HEAD", headers=self.request.headers, body=body,
-                  callback=lambda r:self.headResponse(r,forPjs),follow_redirects=True)
+                  callback=lambda r:self.headResponse(r,forPjs),follow_redirects=not forPjs)
     def headResponse(self,response,forPjs):
         debuglog("headResponse "+repr(response.code)+self.debugExtras())
         if response.code == 503: # might be a cache error (check for things like X-Squid-Error ERR_DNS_FAIL 0 that can be due to a missing newline before the "never_direct allow all" after the "cache_peer" setting in Squid)
@@ -4243,7 +4256,7 @@ class StripJSEtc:
         self.parser = parser
         self.suppressing = False
     def handle_starttag(self, tag, attrs):
-        if tag=="img" and not options.htmlonly_css:
+        if tag in ["img","svg"] and not options.htmlonly_css:
             self.parser.addDataFromTagHandler(dict(attrs).get("alt",""),1)
             return True
         elif tag=='script' or (tag=="noscript" and options.js_interpreter) or (tag=='style' and not options.htmlonly_css): # (in js_interpreter mode we want to suppress 'noscript' alternatives to document.write()s or we'll get both; anyway some versions of PhantomJS will ampersand-encode anything inside 'noscript' when we call find_element_by_xpath)
