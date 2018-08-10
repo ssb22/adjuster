@@ -3262,7 +3262,9 @@ document.forms[0].i.focus()
             self.addToHeader("Via",v+" "+convert_to_via_host(self.request.host)+" ("+viaName+")")
             self.addToHeader("X-Forwarded-For",self.request.remote_ip)
         if options.uavia and not self.isSslUpstream: self.addToHeader("User-Agent","via "+convert_to_via_host(self.request.host)+" ("+viaName+")")
-        if self.checkBrowser(options.cacheOmit): self.request.headers["Cache-Control"] = "no-cache"
+        if self.checkBrowser(options.cacheOmit):
+            self.request.headers["Cache-Control"] = "max-age=0, must-revalidate"
+            self.request.headers["Pragma"] = "no-cache"
     def restore_request_headers(self): # restore the ones Tornado might use (Connection etc)
         if not hasattr(self,"removed_headers"): return # haven't called change_request_headers (probably means this is user input)
         for k,v in self.removed_headers: self.request.headers[k]=v
