@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.27 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.271 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -685,7 +685,7 @@ def preprocessOptions():
         if wsgi_mode:
             warn("port=-1 won't work in WSGI mode, assuming 80")
             options.port = 80
-        elif options.ssl_fork and options.background: errExit("Can't run in background with ssl_fork and an ephemeral main port, as that requires fork-before-listen so won't be able to report the allocated port number")
+        elif options.ssl_fork or options.background: errExit("Can't run in background or ssl-fork with an ephemeral main port, as that requires fork-before-listen so won't be able to report the allocated port number")
         else:
             port_randomise[options.port] = True
             if not options.internalPort:
@@ -945,19 +945,19 @@ def make_WSGI_application():
     if options.staticDocs: handlers.insert(0,static_handler()) # (the staticDocs option is probably not really needed in a WSGI environment if we're behind a wrapper that can also list static URIs, but keeping it anyway might be a convenience for configuration-porting; TODO: warn that this won't work with htaccess redirect and SCRIPT_URL thing)
     return tornado.wsgi.WSGIApplication(handlers)
 
-sslforks_to_monitor = [] # list of [pid,callback1,callback2,port,last response time]
+sslforks_to_monitor = [] # list of [pid,callback1,callback2,port]
 sslfork_monitor_pid = None
 def sslSetup(HelperStarter, ping_portNo, isFixed=False):
     if options.ssl_fork: # queue it to be started by monitor
         if options.multicore and sslforks_to_monitor: sslforks_to_monitor[0][1] = (lambda c1=HelperStarter,c2=sslforks_to_monitor[0][1]:(c1(),c2())) # chain it, as in multicore mode we'll have {N cores} * {single process handling all SSL ports}, rather than cores * processes (TODO: if one gets stuck but others on the port can still handle requests, do we want to somehow detect the individual stuck one and restart it to reduce wasted CPU load?)
         else: # no multicore, or this is the first SSL helper, so we need to associate it with a (non-SSL) ping responder
-            sslforks_to_monitor.append([None,HelperStarter,(lambda *_:listen_on_port(Application([(r"(.*)",AliveResponder,{})],log_function=nullLog),ping_portNo,"127.0.0.1",False)),ping_portNo,None])
+            sslforks_to_monitor.append([None,HelperStarter,(lambda *_:listen_on_port(Application([(r"(.*)",AliveResponder,{})],log_function=nullLog),ping_portNo,"127.0.0.1",False)),ping_portNo])
             return ping_portNo + 1 # where to put the next listener
     else: # just run it on the current process, and we can randomise the internal port and keep track of what it is
         if not isFixed: port_randomise[ping_portNo-1] = True
         HelperStarter()
     return ping_portNo # next listener can use what would have been the ping-responder port as we're not using it
-sslFork_pingInterval = 1 # TODO: configurable?  (ping every interval, restart if down for 2*interval)  (if setting this larger, might want to track the helper threads for early termination)
+sslFork_pingInterval = 10 # TODO: configurable?  (if setting this larger, might want to track the helper threads for early termination)
 def maybe_sslfork_monitor():
     "Returns SIGTERM callback if we're now a child process"
     global sslforks_to_monitor
@@ -975,6 +975,7 @@ def maybe_sslfork_monitor():
     signal.signal(signal.SIGINT, terminateSslForks)
     setProcName("adjusterSSLmon") # 15 chars is max for some "top" implementations
     CrossProcessLogging.initChild("SSL") # not SSLmon because helper IDs will be appended to it also
+    global is_sslHelp ; is_sslHelp = True
     for i in xrange(len(sslforks_to_monitor)):
       if i==len(sslforks_to_monitor)-1: pid = 0 # don't bother to fork for the last one
       else: pid = os.fork()
@@ -987,29 +988,22 @@ def maybe_sslfork_monitor():
         try: urlopen = urllib2.build_opener(urllib2.ProxyHandler({})).open # don't use the system proxy if set
         except: urlopen = urllib2.urlopen # wrong version?
         while True:
-            t = time.time()
-            try:
-                urlopen("http://localhost:%d/" % sslforks_to_monitor[i][3],timeout=sslFork_pingInterval)
-                sslforks_to_monitor[i][4]=time.time()
+            try: urlopen("http://localhost:%d/" % sslforks_to_monitor[i][3],timeout=sslFork_pingInterval)
             except: # URLError etc
-              last_response_time = sslforks_to_monitor[i][4]
-              if sslforks_to_monitor[i][0]==None or last_response_time + 2*sslFork_pingInterval < time.time():
-                if restart_sslfork(i,oldI): # child
-                    return lambda *args:stopServer("SIG*")
-                else: sslforks_to_monitor[i][4] = time.time() # (give it at least 2*sslfork_pingInterval from NOW, not from time t above, to open its ports and start processing before we check)
-            time.sleep(max(0,t+sslFork_pingInterval-time.time()))
+              if restart_sslfork(i,oldI): # child
+                  return lambda *args:stopServer("SIG*")
+              else: time.sleep(sslFork_pingInterval) # double it after a restart
+            time.sleep(sslFork_pingInterval)
 def restart_sslfork(n,oldN):
     global sslforks_to_monitor
     if not sslforks_to_monitor[n][0]==None: # not first time
         if options.multicore: oldN = "s"
         else: oldN = " "+str(oldN)
-        logging.error("Restarting SSL helper%s via pid %d as not heard from port %d for %d seconds" % (oldN,sslforks_to_monitor[n][0],sslforks_to_monitor[n][3],time.time()-sslforks_to_monitor[n][4]))
+        logging.error("Restarting SSL helper%s via pid %d as not heard from port %d" % (oldN,sslforks_to_monitor[n][0],sslforks_to_monitor[n][3]))
         emergency_zap_pid_and_children(sslforks_to_monitor[n][0]) # (may have children if multicore)
     # TODO: if profile_forks_too, do things with profile?
     pid = os.fork()
-    if pid:
-        sslforks_to_monitor[n][0] = pid
-        sslforks_to_monitor[n][4] = None
+    if pid: sslforks_to_monitor[n][0] = pid
     else: # child
         setProcName("adjusterSSLhelp")
         CrossProcessLogging.initChild(str(n)) # TODO: or port number?
@@ -1052,7 +1046,8 @@ def open_extra_ports():
     if options.js_reproxy:
         for c in xrange(cores):
           for i in xrange(js_per_core):
-            port_randomise[js_proxy_port[c*js_per_core+i]]=True
+            if options.ssl_fork: pass # do NOT port_randomise, because maybe_sslfork_monitor is called ABOVE and the fork will NOT have a copy of our updated port_randomise map for its forwardToOtherPid call
+            else: port_randomise[js_proxy_port[c*js_per_core+i]]=True
             listen_on_port(makePjsApplication(c*js_per_core,i),js_proxy_port[c*js_per_core+i],"127.0.0.1",False,core=c)
 
 def makeMainApplication():
@@ -1126,7 +1121,7 @@ def openPortsEtc():
         assert not options.background or early_fork
         dropPrivileges()
         # can't double-fork (our PID is known), hence early_fork above
-        start_multicore(True)
+        start_multicore(True) ; schedule_retries()
         if profile_forks_too: open_profile()
     else: # we're not a child process of --ssl-fork
       try:
@@ -1284,6 +1279,17 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
     for portTry in [5,4,3,2,1,0]:
       try: return h.bind(port,address,backlog=backlog)
       except socket.error, e:
+        if is_sslHelp:
+            # We had better not time.sleep() here trying
+            # to open, especially not if multicore: don't
+            # want to hold up the OTHER ports being opened
+            # and get into an infinite-restart loop when
+            # MOST services are already running:
+            f = lambda *_:IOLoop.instance().add_timeout(time.time()+1,lambda *args:listen_on_port(application,port,address,browser,core,schedRetry,**kwargs))
+            if is_sslHelp=="started": f()
+            else: sslRetries.append(f)
+            logging.info("Can't open port "+repr(port)+", retry scheduled")
+            return
         if not "already in use" in e.strerror: raise
         # Maybe the previous server is taking a while to stop
         if portTry:
@@ -1294,6 +1300,12 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
             dropPrivileges()
             runBrowser()
         raise Exception("Can't open port "+repr(port)+" (tried for 3 seconds, "+e.strerror+")")
+is_sslHelp = False ; sslRetries = []
+def schedule_retries():
+    global is_sslHelp,sslRetries
+    is_sslHelp = "started"
+    for s in sslRetries: s()
+    sslRetries = []
 
 def startServers():
     for core,sList in theServers.items():
@@ -2621,7 +2633,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         if hasattr(self.request,"old_cookie"): ck = self.request.old_cookie # so this can be called between change_request_headers and restore_request_headers, e.g. at the start of send_request for js_interpreter mode
         else: ck = ';'.join(self.request.headers.get_list("Cookie"))
         return htmlmode_cookie_name+"=1" in ck or self.auto_htmlOnlyMode(isProxyRequest)
-    def auto_htmlOnlyMode(self,isProxyRequest): return options.js_interpreter and (isProxyRequest or (not options.wildcard_dns and not "" in options.default_site.split("/")))
+    def auto_htmlOnlyMode(self,isProxyRequest): return options.js_interpreter and (isProxyRequest or (not options.wildcard_dns and not can_do_cookie_host()))
     
     def handle_URLbox_query(self,v):
         self.set_htmlonly_cookie()
@@ -3439,8 +3451,7 @@ document.forms[0].i.focus()
                 # redirecting to somewhere we can't domain-proxy for, but we could follow the redirects ourselves to do the conversion (TODO: check options.prohibit against the redirects?) :
                 return self.sendRequest(converterFlags,viewSource,isProxyRequest,follow_redirects=True)
                 # TODO: if that sendRequest results in HTML, overriding the do_... options, the browser will end up with an incorrect idea of the current address; might want to detect this and give the user the unchanged Location: header
-            else: doRedirect = value
-            if cookie_host and (self.request.path=="/" or self.request.arguments.get(adjust_domain_cookieName,None)) and old_value_1.startswith("http") and not (old_value_1.startswith("http://"+cookie_host+"/") or (cookie_host.endswith(".0") and old_value_1.startswith("https://"+cookie_host[:-2]+"/"))):
+            if cookie_host and (self.request.path=="/" or self.request.arguments.get(adjust_domain_cookieName,None)) and old_value_1.startswith("http") and not (old_value_1.startswith("http://"+cookie_host+"/") or (cookie_host.endswith(".0") and old_value_1.startswith("https://"+cookie_host[:-2]+"/"))) and options.urlboxPath=="/":
                 # This'll be a problem.  If the user is requesting / and the site's trying to redirect off-site, how do we know that the user isn't trying to get back to the URL box (having forgotten to clear the cookie) and now can't possibly do so because '/' always results in an off-site Location redirect ?
                 # (DON'T just do this for just ANY offsite url when in cookie_host mode (except when also in htmlOnlyMode, see below) - it could mess up images and things.  (Could still mess up images etc if they're served from / with query parameters; for now we're assuming path=/ is a good condition to do this.  The whole cookie_host thing is a compromise anyway; wildcard_dns is better.)  Can however do it if adjust_domain_cookieName is in the arguments, since this should mean a URL has just been typed in.)
                 if offsite:
@@ -3450,8 +3461,9 @@ document.forms[0].i.focus()
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html lang=\"en\"><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
-            elif cookie_host and offsite and self.htmlOnlyMode() and not options.htmlonly_css: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally
+            elif can_do_cookie_host() and offsite and self.htmlOnlyMode() and not options.htmlonly_css and enable_adjustDomainCookieName_URL_override: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally (TODO: can do this even if not enable_adjustDomainCookieName_URL_override, by issuing a Set-Cookie along with THIS response)
                 value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + options.urlboxPath + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
+            doRedirect = value
           elif "set-cookie" in name.lower():
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host) # (never doing this if isProxyRequest, therefore don't have to worry about the upstream_rewrite_ssl exception that applies to normal domain_process isProxyRequest)
             for ckName in upstreamGuard: value=value.replace(ckName,ckName+"1")
@@ -3727,56 +3739,60 @@ def duff_certfile():
     global the_duff_certfile
     try: return the_duff_certfile # (we shouldn't need to worry about it having been deleted by /tmp reaping, because we're called only twice at start)
     except:
-        # Here's one I made earlier, unsigned localhost:
+        # Here's one I made earlier with 'openssl req',
+        # TODO: it will expire in 2038 (S2G problem) - might or might not be relevant when asking browsers to ignore self-signed anyway
         the_duff_certfile = writable_tmpdir()+"dummy.pem"
         open(the_duff_certfile,'w').write("""-----BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCrpSY8Ei98Vx3o
-mdksXcaPdstvlL2xhRpRO6RNyL7rMc/bJWIscOVdm8OlxTlnQghJ/TW4X5InE6+X
-dVbxGaEC3DYRcIJHvz7oD7myRD/xXbpWjPPkol4eVe2afyKeh7qJ8JQ9ayJCfFL2
-Bj/yvqjls+eBYeJ7o0txw19r8T3zuplGhTPzz0sdV66i+9vzBWT80xqgZQm0Dtrw
-09gpO3ya56JRwBIRSio6K17t4u8AFYIS+jcqApGNMeapnnopHB5ZQlopF/LApTsp
-7MYSYaUxahLhYnqZ5Y3P32rES3DLlB9y94FT6wJi80H/tLzyS647NHlQ8ZQR+vKm
-UjE//vzDAgMBAAECggEBAIeKmm7FTYo6oPuUwdIvGyUfAfbS1hjgqq+LEWv7IghI
-BYNgOe4uGHGbFxxIadQIaNNEiK9XiOoiuX44wrcRLfw8ONX8qmRNuTc3c8Q58OSA
-xyyhkdbyALCj2kUuMABP3hYfTHBTsXIfCsQMm2Ls/CKntiCNU3Oet2zWgvuSPQHB
-BBqFRCf793GcTcmifhnj4xSCNa7tBUQgaz1ZDZMP0av5u6L4jfrxKy9fb8doLYx/
-c7CwhRdhbIat51VBSMXHtl3fEQGfQnhiRLqHhzpo46kzdR0Y+sIh58aYIb3nkAa3
-Z0fkq1hPubdBejKOZquJsXHDGfqOr/0hpKZlmILdUEECgYEA5BBeXgBGZu8tVHqE
-yxO8YFGwbFqwHFSyIfegt8sYWTeh9wmBDHhqYRY5v/6iIUzLI44qjUjDXLZ1Ncyo
-4P6EPlumCy6PDW4V5/vlOScB1YSKtk6Z7H5PpsWbBvb5dUjDhV4BHlkFscGMYAZf
-8Ykd8lqHd/VYPL7JwSzreqXp920CgYEAwKuZP7R0RsUAIWFo5mNpKrJPyJU8Xbcv
-2XllaOKkSEBaAv45KQmfct4pvXOMDCnd+hS3+Fq0cWKyLJfmnBl0oljrQ00VXGaF
-XeFk+XWkmWjt7tVvMv6YRHhmdfnVdJMK8WJZL25Q56W9OX2A1WnPXctxJuKKcu2j
-jSpctOXgNu8CgYA2EU9d97C5HIDhoz4yKtag+xzZQ1K3FLk6Zkt65zI5jH/gYidu
-/mkx5SQByWtEe8E5B6482oA+TZ9SBtgOpyhQ5EdkJUCSzYNyAPzh5MaBiS+dctr4
-/yUBA53yM8EGNh7sUlHvkOlRr/IIndpHF9u6pg2xub+WfyCzpGObKxRhrQKBgGGC
-dzzWh0KJ0VcThZOUHFWPiPFrFfIYFA9scPZ0PdCTQPrizusGA7yO03EeWXKOfdlj
-Qvheb5Qy7xnChuPZvj2r4uVczcLF4BlzSTc3YuaBRGnreyvDzixZAwISPwWQpakk
-rR5kJm4WY34FFn7r3hcKL2oOnSMtQejf16t169PhAoGBAIBR/FskuCDgrS8tcSLd
-ONeipyvxLONi3eKGWeWOPiMf97szZRCgQ9cX1sQ2c3SRFASdFXV5ujij2m9MepV5
-EmpHS+6okHNIrxE01mMNV+/Y6KfZiqu9zKU5Qc2tEVaY+jE/wqMLIJsDE1pzu75t
-JHCPQWkiQD78FvYsV/d6Qa9Q
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC1XEMV7CQYkJcu
++x7TkOL5EOeIajC3Fs2PepT6X45UkEC3Z63Gx+cXIPKWENPO6ePIMXIRCodVkKid
+K2bTdlAzZvJCiml1mYUqkAEg75JjZwCiIeV7Sym2++/3WVaXynnFYyLILIKawMyq
+NnjkdifiJ8HbRrPDw9vBCIWtBMv2WKft5YrYYJXztI9/xVDFz/Oq2wCIwKTxx2KP
+zQMBfOPLkKfsk3Qc86e/5L32cToi/YxtgSbs2W7gWXN2GUDFGHnZtNZQsr1PXI2c
+TG49pUQOr4kEDbaENWkbJgBaxLyJQyDHy+X0b8+58jNPSizeFcvgwaDALIZZvr49
+1EyceV+XAgMBAAECggEAQIIrvo17HV242NYr1dcQVMVFhck3wLgUr/dLLG92we95
+hYMUVcNfGGP4xZYAsPWStu+XgiY7kxzcTONWNNs9lbsFatOuxUyxCD2mmR9982t8
+1y61YJCQquycI2Aco+s6OxKTGZ5zajYv1k9/2suITjIUCznv0S9GaDfuzGcLYXj4
+F/Ht+OL8W3vHUK5+zY4s4iOKbXSqh5nr+mQNXbvRX6p017xmx8hGY5XLHlcfy9yX
+qCrsJkXEvC0HOmn1/A256JuvFLBri4HqWc8GR8aIgwSWNpqy51qYWyj0/gxtWwoC
+NGj5l72BFADYoX6RGZit9xKWVpExn5vGTv7onTABSQKBgQDcNxeZkbF3nGFKx5D2
+8pURqPzuwESgc6pbYLpj6m5SX1SM4/tmyAmvYPXIZb7IljWMIOropcGKbqVdh7mu
+3s/8BEtd77524gVMj/u5VizaR2/SbMiwT6J9tGoHu44tUs4EQSGxA8FwDV3U5B0N
+ypxZhInk1bo6GZ4EuiGl/olOwwKBgQDS1NFeqIL6u4Xi65ogTRjKQsm8VSxMwDg+
+9Sz1dFMSfPvuuvW+i5TY6LuZlwq8ojPnbX5PZXszs5CTnVXj9Nkwo05N6E/lFYCR
+2GN2fCr59ENE066naJ9xL5zKsgVEnkbXgswY1ytF+IgP5OA9xNAtCLGpebYFeVyA
+EghK1C6GnQKBgEkS0vb3nI8XSkWZMWZwmrywebX0ARHJL+eAknkjSpZ04caaxEqX
+6HbU0to7wPIovf4Q0kJ+9lksXB1MM3Zuo096UVQLgQVL/Pwp7xrSGLIZ8GZACNxQ
+oJfb7S9Bsm0hxBEvV7G4kFDRbqh9RZLU/8rIq0VPEqvC4mepKA9ABmonAoGATPkE
+A7I0N8R1CjcIS1i6f0XJD2htRww6vMmYg3jXx304IZ3CkLG3Q0YdD+M0OVBi8NBp
++CTNyT96vloH/LTtArPsp8b0PGgQS68cCSsmKaHDWYKLVnV9GL7QWLSL9dRvesk3
+KK6ODvrA+kSOlh6f/oEZFA3qpa78VYm/20oCPoUCgYBLogwyMK6S7PBnOL/xNOM8
+8ZnOusqp6OE7s+p0c9KqrqK1jwM+iDFzrfMopuMBx0trymp2aTWNF8KEujwAknZz
+41dwnEjmq9+5DTLMxbT2lwV+4l/j+029zCFOD7NvgIMG13+pgwz7ajRUuaAPG6Mn
+kCTaS9Upzs5peDlxywceuw==
 -----END PRIVATE KEY-----
 -----BEGIN CERTIFICATE-----
-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
+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
 -----END CERTIFICATE-----
 """)
         # DON'T add the_duff_certfile to kept_tempfiles for clean up on exit.
@@ -4286,7 +4302,7 @@ class StripJSEtc:
     def handle_data(self,data):
         if self.suppressing: return ""
 
-class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will probably break the site's scripts in non-htmlOnly): make external links go back to URL box and act as though the link had been typed in.  TODO: rewrite ALL links so history works (and don't need a whole domain, like the old Web Access Gateway)? (de-process if url_is_ours)
+class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will probably break the site's scripts in non-htmlOnly): make external links go back to URL box and act as though the link had been typed in
     def __init__(self, rqPrefix, baseHref, cookie_host):
         self.rqPrefix = rqPrefix
         self.baseHref = baseHref
@@ -4297,9 +4313,10 @@ class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will pro
             attrsD = dict(attrs)
             hr = attrsD.get("href","")
             if hr.startswith("http"): self.baseHref = hr
-        elif tag=="a":
+        elif tag=="a" or (tag=="iframe" and not options.urlboxPath=="/"):
+            att = {"a":"href","iframe":"src"}[tag]
             attrsD = dict(attrs)
-            hr = attrsD.get("href","")
+            hr = attrsD.get(att,"")
             if not hr: return # no href
             if hr.startswith('#'): return # in-page anchor
             if not hr.startswith('http') and ':' in hr.split('/',1)[0]: return # non-HTTP(s) protocol?
@@ -4311,7 +4328,7 @@ class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will pro
             if not options.urlboxPath=="/" and realUrl:
                 hr,realUrl = realUrl,None
             if not realUrl: # off-site
-              attrsD["href"]=self.rqPrefix + urllib.quote(hr)
+              attrsD[att]=self.rqPrefix + urllib.quote(hr)
               return tag,attrsD
     def handle_endtag(self, tag): pass
     def handle_data(self,data): pass
@@ -4753,6 +4770,9 @@ def cookie_domain_process(text,cookieHost=None):
         j=i+len(newhost)
         start = j
     return text
+
+def can_do_cookie_host():
+    return "" in options.default_site.split("/")
 
 def url_is_ours(url,cookieHost="cookie-host\n"):
     # check if url has been through domain_process
