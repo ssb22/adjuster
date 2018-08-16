@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.271 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.272 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1014,7 +1014,7 @@ def restart_sslfork(n,oldN):
 def terminateSslForks(*args):
     "sslfork_monitor's SIGTERM handler"
     global sslforks_to_monitor
-    for p,_,_,_,_ in sslforks_to_monitor:
+    for p,_,_,_ in sslforks_to_monitor:
         if p==None: continue
         try: os.kill(p,signal.SIGTERM)
         except OSError: pass # somebody might have 'killall'd them
@@ -1936,12 +1936,15 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
             toRet = "error"
             prefetched = wrapResponse("webdriver "+error)
         logging.error(extraMsg+" returning "+toRet)
-        try: prefetched.headers.add(options.js_fallback,error)
-        except: logging.error("Could not add "+repr(options.js_fallback)+" to error response")
+        if options.js_fallback:
+            try:
+                prefetched.headers.add(options.js_fallback,error)
+            except: logging.error("Could not add "+repr(options.js_fallback)+" to error response")
         return prefetched
     try:
         r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
-        try: r.headers.add(options.js_fallback,"OK")
+        try:
+            if options.js_fallback: r.headers.add(options.js_fallback,"OK")
         except: pass
     except TimeoutException:
         r = errHandle("timeout","webdriver "+str(manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched) # "webdriver timeout" sent to browser (can't include url here: domain gets rewritten)
@@ -1954,7 +1957,11 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
             manager.renew_webdriver_sameThread()
             if tooLate(): r = errHandle("err","too late")
             else:
-              try: r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
+              try:
+                  r = _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot)
+                  try:
+                      if options.js_fallback: r.headers.add(options.js_fallback,"OK")
+                  except: pass
               except SeriousTimeoutException:
                 r = errHandle("serious timeout","webdriver serious timeout on "+url+" after restart, so re-restarting and",prefetched)
                 need_restart = "serious"
@@ -2532,7 +2539,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         self.request.headers[header] = val+toAdd
 
     def forwardFor(self,server,serverType="ownServer"):
-        debuglog("forwardFor "+server)
+        debuglog("forwardFor "+server+self.debugExtras())
         if wsgi_mode: raise Exception("Not yet implemented for WSGI mode") # no .connection; we'd probably have to repeat the request with HTTPClient
         if server==options.own_server and options.ownServer_useragent_ip:
             r = self.request.headers.get("User-Agent","")
@@ -2663,7 +2670,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         # forward the request back to the original PID in
         # case it needs to do things with webdrivers etc.
         self.request.headers["X-WA-FromSSLHelper"] = "1"
-        self.forwardFor("127.0.0.1:%d" % (port_randomise.get(self.WA_port,self.WA_port)),"SSL helper:"+str(port_randomise.get(self.WA_connectPort,self.WA_connectPort)))
+        self.forwardFor("127.0.0.1:%d" % (port_randomise.get(self.WA_origPort,self.WA_origPort)),"SSL helper:"+str(port_randomise.get(self.WA_connectPort,self.WA_connectPort)))
         return True
     def handleFullLocation(self):
         # HTTP 1.1 spec says ANY request can be of form http://...., not just a proxy request.  The differentiation of proxy/not-proxy depends on what host is requested.  So rewrite all http://... requests to HTTP1.0-style host+uri requests.
@@ -3799,25 +3806,26 @@ RguOSJvGtfKm3KZzFATfea0ej/0hgXCUvOYvIQcxMEB61+WAKhE=
         # If you do, there is a race condition when adjuster is restarting.
         return the_duff_certfile
 
-def MakeRequestForwarder(useSSL,port,connectPort,isPJS=False,start=0,index=0):
+def MakeRequestForwarder(useSSL,port,connectPort,origPort,isPJS=False,start=0,index=0):
     class MyRequestForwarder(RequestForwarder):
         WA_UseSSL = useSSL
-        WA_port = port
-        WA_connectPort = connectPort
+        WA_port = port # the port we are listening on
+        WA_connectPort = connectPort # the port to forward CONNECT requests to (if we're not useSSL and not isSslUpstream)
+        WA_origPort = origPort # the port for forwardToOtherPid (if we are useSSL)
         isPjsUpstream = isPJS
         WA_PjsStart = start # (for multicore)
         WA_PjsIndex = index # (relative to start)
         isSslUpstream = False
     return MyRequestForwarder # the class, not an instance
-def NormalRequestForwarder(): return MakeRequestForwarder(False,options.port,options.internalPort)
-def SSLRequestForwarder(): return MakeRequestForwarder(True,options.internalPort,options.internalPort)
-def PjsRequestForwarder(start,index): return MakeRequestForwarder(False,js_proxy_port[start+index],js_proxy_port[start+index]+1,True,start,index)
-def PjsSslRequestForwarder(start,index): return MakeRequestForwarder(True,js_proxy_port[start+index]+1,js_proxy_port[start+index]+1,True,start,index)
+def NormalRequestForwarder(): return MakeRequestForwarder(False,options.port,options.internalPort,options.port)
+def SSLRequestForwarder(): return MakeRequestForwarder(True,options.internalPort,options.internalPort,options.port)
+def PjsRequestForwarder(start,index): return MakeRequestForwarder(False,js_proxy_port[start+index],js_proxy_port[start+index]+1,js_proxy_port[start+index],True,start,index)
+def PjsSslRequestForwarder(start,index): return MakeRequestForwarder(True,js_proxy_port[start+index]+1,js_proxy_port[start+index]+1,js_proxy_port[start+index],True,start,index)
 
 class UpSslRequestForwarder(RequestForwarder):
     "A RequestForwarder for running upstream of upstream_proxy, rewriting its .0 requests back into SSL requests"
     WA_UseSSL = isPjsUpstream = False
-    isSslUpstream = True
+    isSslUpstream = True # connectPort etc not needed
 
 class SynchronousRequestForwarder(RequestForwarder):
    "A RequestForwarder for use in WSGI mode"
@@ -3829,7 +3837,7 @@ class SynchronousRequestForwarder(RequestForwarder):
    def delete(self, *args, **kwargs):  return self.doReq()
    def patch(self, *args, **kwargs):   return self.doReq()
    def options(self, *args, **kwargs): return self.doReq()
-   def connect(self, *args, **kwargs): raise Exception("CONNECT is not implemented in WSGI mode")
+   def connect(self, *args, **kwargs): raise Exception("CONNECT is not implemented in WSGI mode") # so connectPort etc not needed
    def myfinish(self): pass
 
 class AliveResponder(RequestHandler):
