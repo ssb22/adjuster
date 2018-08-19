@@ -1267,6 +1267,7 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
     if not core in theServers: theServers[core] = []
     global mainServer
     h = HTTPServer(application,**kwargs)
+    # TODO: backlog is advisory only and is often rounded up to 8; need multicore js_429 responder instead
     if port==options.port and (options.one_request_only or (options.multicore and options.js_429)): backlog = 0 # (if options.just_me, backlog=0 could make it marginally easier for other users to perform DoS, but not by very much)
     else: backlog = 128 # Tornado default
     if port in port_randomise:
