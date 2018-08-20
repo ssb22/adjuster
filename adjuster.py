@@ -1267,18 +1267,16 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
     if not core in theServers: theServers[core] = []
     global mainServer
     h = HTTPServer(application,**kwargs)
-    # TODO: backlog is advisory only and is often rounded up to 8; need multicore js_429 responder instead
-    if port==options.port and (options.one_request_only or (options.multicore and options.js_429)): backlog = 0 # (if options.just_me, backlog=0 could make it marginally easier for other users to perform DoS, but not by very much)
-    else: backlog = 128 # Tornado default
+    # Don't set backlog=0: it's advisory only and is often rounded up to 8; TODO: need multicore js_429 responder instead
     if port in port_randomise:
-        s = tornado.netutil.bind_sockets(0,"127.0.0.1",backlog=backlog) # should get len(s)==1 if address=="127.0.0.1" (may get more than one socket, with different ports, if address maps to some mixed IPv4/IPv6 configuration)
+        s = tornado.netutil.bind_sockets(0,"127.0.0.1") # should get len(s)==1 if address=="127.0.0.1" (may get more than one socket, with different ports, if address maps to some mixed IPv4/IPv6 configuration)
         port_randomise[port] = s[0].getsockname()[1]
         h.add_sockets(s)
     theServers[core].append((port,h))
     if port==options.port: mainServer = h
     if port in port_randomise: return
     for portTry in [5,4,3,2,1,0]:
-      try: return h.bind(port,address,backlog=backlog)
+      try: return h.bind(port,address)
       except socket.error, e:
         if is_sslHelp:
             # We had better not time.sleep() here trying
