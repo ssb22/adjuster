@@ -1265,7 +1265,6 @@ theServers = {}
 port_randomise = {} # port -> _ or port -> mappedPort
 def listen_on_port(application,port,address,browser,core="all",**kwargs):
     if not core in theServers: theServers[core] = []
-    global mainServer
     h = HTTPServer(application,**kwargs)
     # Don't set backlog=0: it's advisory only and is often rounded up to 8; TODO: need multicore js_429 responder instead
     if port in port_randomise:
@@ -1273,6 +1272,7 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
         port_randomise[port] = s[0].getsockname()[1]
         h.add_sockets(s)
     theServers[core].append((port,h))
+    global mainServer
     if port==options.port: mainServer = h
     if port in port_randomise: return
     for portTry in [5,4,3,2,1,0]:
