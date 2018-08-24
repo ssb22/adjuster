@@ -28,15 +28,14 @@ twoline_program_name = program_name+"\nLicensed under the Apache License, Versio
 if '--version' in sys.argv:
     print twoline_program_name ; raise SystemExit # no imports needed
 elif '--html-options' in sys.argv: # for updating the website (this option is not included in the help text)
-    tornado=False
-    inDL = 0
+    tornado=inDL=False
     print "<h3>Options for "+program_name[:program_name.index("(c)")].strip()+"</h3>"
     def heading(h):
         global inDL
         if inDL: print "</dl>"
         print "<h4>"+h+"</h4>"
         print "<dl>"
-        inDL = 1
+        inDL = True
     def define(name,default=None,help="",multiple=False):
         if default or default==False:
             if type(default)==type(""): default=default.replace(",",", ").replace("  "," ")
