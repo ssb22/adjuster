@@ -488,6 +488,7 @@ def parse_command_line(final):
   except tornado.options.Error,e:
       if "PhantomJS" in e.message: e.message += " (try --js_interpreter=PhantomJS instead?)" # old option was --PhantomJS
       errExit(e.message)
+def optErr(m): pass
 def parse_config_file(cfg):
   try:
     check_config_file(cfg)
