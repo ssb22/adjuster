@@ -479,16 +479,22 @@ def warn(msg):
     sys.stderr.write(msg+"\n\n")
 
 def parse_command_line(final):
+  try:
     if len(tornado.options.parse_command_line.func_defaults)==1: # Tornado 2.x
         rest = tornado.options.parse_command_line()
     else:
         rest=tornado.options.parse_command_line(final=final)
     if rest: errExit("Unrecognised command-line argument '%s'" % rest[0]) # maybe they missed a '--' at the start of an option: don't want result to be ignored without anyone noticing
+  except tornado.options.Error,e:
+      if "PhantomJS" in e.message: e.message += " (try --js_interpreter=PhantomJS instead?)" # old option was --PhantomJS
+      errExit(e.message)
 def parse_config_file(cfg):
+  try:
     check_config_file(cfg)
     if not tornado.options.parse_config_file.func_defaults: # Tornado 2.x
         tornado.options.parse_config_file(cfg)
     else: tornado.options.parse_config_file(cfg,final=False)
+  except tornado.options.Error,e: errExit(e.message)
 def check_config_file(cfg):
     # (why doesn't Tornado do this by default?  catch
     # capitalisation and spelling errors etc)
