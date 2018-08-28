@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.6493 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.6494 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1752,6 +1752,14 @@ android_src += r"""
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         browser.setWebViewClient(new WebViewClient() {
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }
+                float scale = 0; boolean scaling = false;
+                public void onScaleChanged(final WebView view,float from,final float to) {
+                    if (Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.KITKAT || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
+                    scaling=view.postDelayed(new Runnable() { public void run() {
+                        view.evaluateJavascript("javascript:document.body.style.width=(window.innerWidth*.96)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null);
+                        scale=to; scaling=false;
+                    } }, 100);
+                }
                 public void onPageFinished(WebView view,String url) {
                     if(Integer.valueOf(Build.VERSION.SDK) < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
                     browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
@@ -4360,7 +4368,7 @@ if main:
        os.system("mv -f libs/"+armabi+"/Annotator.so libs/"+armabi+"/libAnnotator.so >/dev/null 2>/dev/null")
      cmd_or_exit("$BUILD_TOOLS/aapt package -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_")
      if ndk: cmd_or_exit("javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin src/"+jRest+"/*.java gen/"+jRest+"/R.java")
-     else: cmd_or_exit("find src/"+jRest+" -name '*.java' > argfile && javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long
+     else: cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      if "min-sdk-version" in commands.getoutput("$BUILD_TOOLS/dx --help"): a=" --min-sdk-version=1"
      else: a = "" # older versions of dx don't have that flag
      if not ndk: a = " -JXmx4g --force-jumbo" + a # -J option must go first
