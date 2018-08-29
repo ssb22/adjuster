@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.272 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.273 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -530,14 +530,11 @@ def readOptions():
 class CrossProcessLogging(logging.Handler):
     def needed(self): return (options.multicore or options.ssl_fork or (options.js_interpreter and options.js_multiprocess)) and options.log_file_prefix # (not needed if stderr-only or if won't fork)
     def init(self):
-        self.multiprocessing = False
+        "Called by initLogging before forks.  Starts the separate logListener process."
         if not self.needed(): return
         try: logging.getLogger().handlers
         except: errExit("The logging module on this system is not suitable for --log-file-prefix with --ssl-fork or --js-multiprocess") # because we won't know how to clear its handlers and start again in the child processes
-        try: import multiprocessing
-        except ImportError: multiprocessing = None
-        self.multiprocessing = multiprocessing
-        if not self.multiprocessing: return # we'll have to open multiple files in initChild instead
+        if not multiprocessing: return # we'll have to open multiple files in initChild instead
         self.loggingQ=multiprocessing.Queue()
         def logListener():
           try:
@@ -547,9 +544,10 @@ class CrossProcessLogging(logging.Handler):
         logging.getLogger().handlers = [] # clear what Tornado has already put in place when it read the configuration
         logging.getLogger().addHandler(self)
     def initChild(self,toAppend=""):
+        "Called after a fork.  toAppend helps to describe the child for logfile naming when multiprocessing is not available."
         if not options.log_file_prefix: return # stderr is OK
-        if self.multiprocessing:
-            try: self.multiprocessing.process.current_process()._children.clear() # so it doesn't try to join() to children it doesn't have (multiprocessing wasn't really designed for the parent to fork() outside of multiprocessing later on)
+        if multiprocessing:
+            try: multiprocessing.process.current_process()._children.clear() # so it doesn't try to join() to children it doesn't have (multiprocessing wasn't really designed for the parent to fork() outside of multiprocessing later on)
             except: pass # probably wrong version
             return # should be OK now
         logging.getLogger().handlers = [] # clear Tornado's
@@ -574,10 +572,33 @@ class CrossProcessLogging(logging.Handler):
         except (KeyboardInterrupt, SystemExit): raise
         except: self.handleError(record)
 
+class CrossProcess429:
+    def needed(self): return options.multicore and options.js_429
+    def init(self): self.q = multiprocessing.Queue()
+    def startThread(self):
+        if not self.needed(): return
+        self.b = [False]*cores
+        def listener():
+            allServersBusy = False
+            while True:
+                coreToSet, busyStatus = self.q.get()
+                self.b[coreToSet] = busyStatus
+                newASB = all(self.b)
+                if not newASB == allServersBusy:
+                    allServersBusy = newASB
+                    if allServersBusy: IOLoop.instance().add_callback(lambda *args:reallyPauseOrRestartMainServer(True)) # run it just to serve the 429s, but don't set mainServerPaused=False or add an event to the queue
+                    else: IOLoop.instance().add_callback(lambda *args:reallyPauseOrRestartMainServer("IfNotPaused")) # stop it if and only if it hasn't been restarted by the main thread before this callback
+        threading.Thread(target=listener,args=()).start()
+
 def initLogging(): # MUST be after unixfork() if background
     global CrossProcessLogging
     CrossProcessLogging = CrossProcessLogging()
     CrossProcessLogging.init()
+
+def init429():
+    global CrossProcess429
+    CrossProcess429 = CrossProcess429()
+    if CrossProcess429.needed(): CrossProcess429.init()
 
 def preprocessOptions():
     if hasattr(signal,"SIGUSR1") and not wsgi_mode:
@@ -615,11 +636,10 @@ def preprocessOptions():
       try: from selenium import webdriver
       except: errExit("js_interpreter requires selenium")
       if not options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox"]: errExit("js_interpreter (if set) must be PhantomJS, HeadlessChrome or HeadlessFirefox")
-      if options.js_multiprocess:
-        try: import multiprocessing # Python 2.6
-        except ImportError: # can't do it then
-            options.js_multiprocess = False
-      if int(tornado.version.split('.')[0]) > 4 and options.js_429 and options.multicore: errExit("js_429 with multicore not yet working on Tornado versions above 4.\nTornado "+tornado.version+" detected.\nPlease downgrade to 4.x, e.g.: pip install tornado==4.5.3 --upgrade")
+      if not multiprocessing: options.js_multiprocess = False
+      if options.js_429 and options.multicore:
+        if int(tornado.version.split('.')[0]) > 4: errExit("js_429 with multicore not yet working on Tornado versions above 4.\nTornado "+tornado.version+" detected.\nPlease downgrade to 4.x, e.g.: pip install tornado==4.5.3 --upgrade")
+        elif not multiprocessing: errExit("js_429 with multicore requires the multiprocessing module to be available (Python 2.6+)")
     elif options.js_upstream: errExit("js_upstream requires a js_interpreter to be set")
     if options.js_timeout2 <= options.js_timeout1: errExit("js_timeout2 must be greater than js_timeout1")
     assert not (options.js_upstream and set_window_onerror), "Must have set_window_onerror==False when using options.js_upstream"
@@ -1139,6 +1159,7 @@ def openPortsEtc():
             if options.js_interpreter: test_init_webdriver()
             unixfork() # MUST be before init_webdrivers (js_interpreter does NOT work if you start them before forking)
         if not options.ssl_fork: initLogging() # as we hadn't done it before (must be after unixfork)
+        init429()
         if not options.background: notifyReady()
         start_multicore()
         if not options.multicore or profile_forks_too: open_profile()
@@ -1147,7 +1168,9 @@ def openPortsEtc():
         if not options.multicore: setupRunAndBrowser()
         watchdog.start() # ALL cores if multicore (since only one needs to be up for us to be still working) although TODO: do we want this only if not coreNo so as to ensure Dynamic_DNS_updater is still up?
         checkServer.setup() # (TODO: if we're multicore, can we propagate to other processes ourselves instead of having each core check the fasterServer?  Low priority because how often will a multicore box need a fasterServer)
-        if not coreNo: Dynamic_DNS_updater()
+        if not coreNo:
+            CrossProcess429.startThread()
+            Dynamic_DNS_updater()
         if options.multicore: stopFunc = lambda *_:stopServer("SIG*")
         else: stopFunc = lambda *_:stopServer("SIGTERM received")
         if options.seconds: IOLoop.instance().add_timeout(time.time()+options.seconds,lambda *args:stopServer("Uptime limit reached"))
@@ -1272,7 +1295,7 @@ port_randomise = {} # port -> _ or port -> mappedPort
 def listen_on_port(application,port,address,browser,core="all",**kwargs):
     if not core in theServers: theServers[core] = []
     h = HTTPServer(application,**kwargs)
-    # Don't set backlog=0: it's advisory only and is often rounded up to 8; TODO: need multicore js_429 responder instead
+    # Don't set backlog=0: it's advisory only and is often rounded up to 8; we use CrossProcess429 instead
     if port in port_randomise:
         s = tornado.netutil.bind_sockets(0,"127.0.0.1") # should get len(s)==1 if address=="127.0.0.1" (may get more than one socket, with different ports, if address maps to some mixed IPv4/IPv6 configuration)
         port_randomise[port] = s[0].getsockname()[1]
@@ -1316,13 +1339,21 @@ def startServers():
     for core,sList in theServers.items():
         if core == "all" or core == coreNo:
             for port,s in sList: s.start()
-def pauseOrRestartMainServer(shouldRun=1):
+mainServerPaused = mainServerReallyPaused = False
+def pauseOrRestartMainServer(shouldRun=True):
     if not (options.multicore and options.js_429): return
     global mainServerPaused
-    try: mainServerPaused
-    except: mainServerPaused = False
     if (not shouldRun) == mainServerPaused: return
     # if shouldRun: return # uncomment this 'once closed, stay closed' line to demonstrate the OS forwards to open cores only
+    reallyPauseOrRestartMainServer(shouldRun)
+    mainServerPaused = not mainServerPaused
+    debuglog("Paused=%s on core %s" % (repr(mainServerPaused),repr(coreNo)))
+    CrossProcess429.q.put((coreNo,mainServerPaused))
+def reallyPauseOrRestartMainServer(shouldRun):
+    global mainServerReallyPaused
+    if shouldRun == "IfNotPaused": # called by CrossProcess429 to re-pause if and only if hasn't been reopened by the outer level in the meantime
+        shouldRun = mainServerPaused
+    if (not shouldRun) == mainServerReallyPaused: return
     for core,sList in theServers.items():
         if not (core == "all" or core == coreNo): continue
         for port,s in sList:
@@ -1333,8 +1364,8 @@ def pauseOrRestartMainServer(shouldRun=1):
                 for fd, sock in s._sockets.items():
                     if hasattr(s,"io_loop"): s.io_loop.remove_handler(fd) # Tornado 4
                     else: IOLoop.instance().remove_handler(fd) # Tornado 5, not tested (TODO)
-    mainServerPaused = not mainServerPaused
-    debuglog("Paused=%s on core %s" % (repr(mainServerPaused),repr(coreNo)))
+    mainServerReallyPaused = not mainServerReallyPaused
+    debuglog("reallyPaused=%s on core %s" % (repr(mainServerReallyPaused),repr(coreNo)))
 
 def workaround_raspbian7_IPv6_bug():
     """Old Debian 7 based versions of Raspbian can boot with IPv6 enabled but later fail to configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However, if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
@@ -2975,6 +3006,17 @@ document.forms[0].i.focus()
         logging.error("Bookmarklet error: "+err) # +' '+repr(self.request.body)
         if self.canWriteBody(): self.write(err)
         self.myfinish()
+    def serve429(self,retrySecs=0):
+        try: self.set_status(429,"Too many requests")
+        except: self.set_status(429)
+        if retrySecs: self.add_header("Retry-After",str(retrySecs))
+        if self.canWriteBody(): self.write("Too many requests (HTTP 429)")
+        if not self.request.remote_ip in options.ipNoLog:
+            try: f = " for "+self.urlToFetch
+            except: f = ""
+            logging.error("Returning HTTP 429 (too many requests)"+f+" to "+self.request.remote_ip)
+        self.request.suppress_logging = True
+        self.myfinish()
     def serve_bookmarklet_json(self,filterNo):
         self.add_header("Access-Control-Allow-Origin","*")
         self.add_header("Access-Control-Allow-Headers","Content-Type")
@@ -3056,6 +3098,7 @@ document.forms[0].i.focus()
 
     def doReq(self):
         if options.just_me and not self.justMeCheck(): return
+        if mainServerPaused and not self.isPjsUpstream and not self.isSslUpstream: return self.serve429()
         self.doReq0()
     def doReq0(self):
         debuglog("doReq"+self.debugExtras()) # MUST keep this here: it also sets profileIdle=False
@@ -3329,13 +3372,7 @@ document.forms[0].i.focus()
                   except: pass
               return r
             if options.js_429 and len(webdriver_queue) >= 2*options.js_instances: # TODO: do we want to allow for 'number of requests currently in prefetch stage' as well?  (but what if we're about to get a large number of prefetch-failures anyway?)  + update comment by define("js_429") above
-                try: self.set_status(429,"Too many requests")
-                except: self.set_status(429)
-                self.add_header("Retry-After",str(10*len(webdriver_queue)/options.js_instances)) # TODO: increase this if multiple clients?
-                self.write("Too many requests (HTTP 429)") # canWriteBody already confirmed
-                if not self.request.remote_ip in options.ipNoLog: logging.error("Returning HTTP 429 (too many requests) for "+self.urlToFetch+" to "+self.request.remote_ip)
-                self.request.suppress_logging = True
-                self.myfinish() ; return
+                return self.serve429(retrySecs=10*len(webdriver_queue)/options.js_instances) # TODO: increase this if multiple clients?
             if options.js_reproxy:
               def prefetch():
                 # prefetch the page, don't tie up a PJS until
