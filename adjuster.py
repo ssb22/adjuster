@@ -3486,7 +3486,8 @@ document.forms[0].i.focus()
           elif name.lower()=="location": # TODO: do we need to delete this header if response.code not in [301,302,303,307] ?
             old_value_1 = value # before domain_process
             value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"),isProxyRequest=isProxyRequest,isSslUpstream=self.isSslUpstream)
-            offsite = (not isProxyRequest and value==old_value_1 and (value.startswith("http://") or value.startswith("https://"))) # i.e. domain_process didn't change it, and it's not relative
+            absolute = value.startswith("http://") or value.startswith("https://")
+            offsite = (not isProxyRequest and value==old_value_1 and absolute) # i.e. domain_process didn't change it, and it's not relative
             old_value_2 = value # after domain_process but before PDF/EPUB-etc rewrites
             if do_pdftotext: # is it still going to be pdf after the redirect?
               if value.lower().endswith(".pdf") or guessCMS(value,"pdf"): value += pdftotext_suffix
@@ -3510,7 +3511,7 @@ document.forms[0].i.focus()
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html lang=\"en\"><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
-            elif can_do_cookie_host() and offsite and self.htmlOnlyMode() and not options.htmlonly_css and enable_adjustDomainCookieName_URL_override: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally (TODO: can do this even if not enable_adjustDomainCookieName_URL_override, by issuing a Set-Cookie along with THIS response)
+            elif can_do_cookie_host() and (offsite or (absolute and not options.urlboxPath=="/")) and self.htmlOnlyMode() and not options.htmlonly_css and enable_adjustDomainCookieName_URL_override: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally (TODO: can do this even if not enable_adjustDomainCookieName_URL_override, by issuing a Set-Cookie along with THIS response)
                 value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + options.urlboxPath + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
             doRedirect = value
           elif "set-cookie" in name.lower():
