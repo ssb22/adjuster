@@ -141,7 +141,7 @@ heading("General adjustment options")
 define("default_cookies",help="Semicolon-separated list of name=value cookies to send to all remote sites, for example to set preferences. Any cookies that the browser itself sends will take priority over cookies in this list. Note that these cookies are sent to ALL sites. You can set a cookie only on a specific browser by putting (browser-string) before the cookie name, e.g. (iPad)x=y will set x=y only if 'iPad' occurs in the browser string (to match more than one browser-string keyword, you have to specify the cookie multiple times).") # TODO: site-specific option
 # TODO: sets of adjustments can be switched on and off at a /__settings URL ?  or leave it to the injected JS
 define("headAppend",help="Code to append to the HEAD section of every HTML document that has a BODY. Use for example to add your own stylesheet links and scripts. Not added to documents that lack a BODY such as framesets.")
-define("headAppendCSS",help="URL of a stylesheet for headAppend.  This option automatically generates the LINK REL=... markup for it, and also tries to delete the string '!important' from other stylesheets, to emulate setting this stylesheet as a user CSS.  You can also include one or more 'fields' in the URL, by marking them with %s and following the URL with options e.g. http://example.org/style%s-%s.css;1,2,3;A,B will allow combinations like style1-A.css or style3-B.css; in this case appropriate selectors are provided with the URL box (values may optionally be followed by = and a description), and any visitors who have not set their options will be redirected to the URL box to do so.")
+define("headAppendCSS",help="URL of a stylesheet to add to the HEAD section of every HTML document that has a BODY.  This option automatically generates the LINK REL=... markup for it, and also tries to delete the string '!important' from other stylesheets, to emulate setting this stylesheet as a user CSS.  Additionally, it is not affected by --js-upstream as headAppend is.  You can also include one or more 'fields' in the URL, by marking them with %s and following the URL with options e.g. http://example.org/style%s-%s.css;1,2,3;A,B will allow combinations like style1-A.css or style3-B.css; in this case appropriate selectors are provided with the URL box (values may optionally be followed by = and a description), and any visitors who have not set their options will be redirected to the URL box to do so.")
 define("protectedCSS",help="A regular expression matching URLs of stylesheets with are \"protected\" from having their '!important' strings deleted by headAppendCSS's logic. This can be used for example if you are adding scripts to allow the user to choose alternate CSS files in place of headAppendCSS, and you wish the alternate CSS files to have the same status as the one supplied in headAppendCSS.")
 define("cssName",help="A name for the stylesheet specified in headAppendCSS, such as \"High Contrast\".  If cssName is set, then the headAppendCSS stylesheet will be marked as \"alternate\", with Javascript links at the bottom of the page for browsers that lack their own CSS switching options.  If cssName begins with a * then the stylesheet is switched on by default; if cssName is not set then the stylesheet (if any) is always on.")
 define("cssNameReload",multiple=True,default="IEMobile 6,IEMobile 7,IEMobile 8,Opera Mini,Opera Mobi,rekonq",help="List of (old) browsers that require alternate code for the cssName option, which is slower as it involves reloading the page on CSS switches.  Use this if the CSS switcher provided by cssName does nothing on your browser.") # Opera Mini sometimes worked and sometimes didn't; maybe there were regressions at their proxy; JS switcher needs network traffic anyway on Opera Mini so we almost might as well use the reloading version (but in Spring 2014 they started having trouble with reload() AS WELL, see cssReload_cookieSuffix below)
@@ -2397,7 +2397,7 @@ class RequestForwarder(RequestHandler):
             ret = True
         elif options.js_interpreter and self.request.uri.endswith(".screenshot"):
             if toRemove: ret2 = ret2[:-len(".screenshot")]
-            else: toRemove = ".screenshot",
+            else: toRemove = ".screenshot"
             ret = "screenshot"
         elif not toRemove: return False
         if ret2: ret = (ret2,ret)
@@ -3154,7 +3154,6 @@ document.forms[0].i.focus()
                 self.setCookie_with_dots(rest)
                 return self.redirect(ruri) # so can set another
             if (self.request.host=="localhost" or self.request.host.startswith("localhost:")) and not "localhost" in options.host_suffix: return self.redirect("http://"+hostSuffix(0)+publicPortStr()+self.request.uri) # save confusion later (e.g. set 'HTML-only mode' cookie on 'localhost' but then redirect to host_suffix and cookie is lost)
-        viewSource = (not self.isPjsUpstream and not self.isSslUpstream) and self.checkViewsource()
         self.cookieViaURL = None
         if self.isPjsUpstream or self.isSslUpstream: realHost = self.request.host
         else: realHost = convert_to_real_host(self.request.host,self.cookie_host(checkReal=False)) # don't need checkReal if return value will be passed to convert_to_real_host anyway
@@ -3222,6 +3221,7 @@ document.forms[0].i.focus()
             if v: return self.handle_URLbox_query(v)
             else: return self.serve_URLbox()
         if maybeRobots: return self.serveRobots()
+        viewSource = (not self.isPjsUpstream and not self.isSslUpstream) and self.checkViewsource()
         if not self.isPjsUpstream and not self.isSslUpstream and self.needCssCookies():
             self.add_nocache_headers() # please don't cache this redirect!  otherwise user might not be able to leave the URL box after:
             return self.redirect("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
