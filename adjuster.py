@@ -189,6 +189,7 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 heading("Javascript execution options")
 define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with an appropriate version of Selenium (and ChromeDriver if you're using HeadlessChrome).  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
 define("js_upstream",default=False,help="Handle --headAppend, --bodyPrepend, --bodyAppend and --codeChanges upstream of our Javascript interpreter instead of making these changes as code is sent to the client, and make --staticDocs available to our interpreter as well as to the client.  This is for running experimental 'bookmarklets' etc with browsers like Lynx.") # TODO: what of delay? (or wait for XHRs to finish, call executeJavascript instead?)
+define("js_frames",default=False,help="When using js_interpreter, append the content of all frames and iframes to the main document. This might help with bandwidth reduction and with sites that have complex cross-frame dependencies that can be broken by sending separate requests through the adjuster.")
 define("js_instances",default=1,help="The number of virtual browsers to load when js_interpreter is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
 define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances.") # Even if some of those new requests won't immediately require js_interpreter work.  But it's better than having an excessively uneven distribution under load.  HTTP 429 is from RFC 6585, April 2012.  Without multicore, 'too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely. TODO: close even *before* reached full share of js_instances? as there may be other pages in prefetch, which will then have to wait for instances on this core even though there might already be spare instances on other cores.
 define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive PhantomJS processes. If you have Headless Chrome you can probably set this to 0.") # (js-restartAfter=1 precludes a faster response when a js_interpreter instance is already loaded with the page requested, although faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load, and is in any event unlikely to work if running multicore with many cores); TODO: check if PhantomJS 2.1.1 RAM usage is a regression from 2.0.1 ? but it's getting less relevant now there's Headless Chrome
@@ -810,7 +811,8 @@ def preprocessOptions():
         else: allowConnectHost,allowConnectPort = sp,"22"
     if not options.default_site: options.default_site = ""
     # (so we can .split it even if it's None or something)
-    if not options.js_interpreter: options.js_reproxy=False
+    if not options.js_interpreter:
+        options.js_reproxy=options.js_frames=False
     elif not options.htmlonly_mode: errExit("js_interpreter requires htmlonly_mode")
 def open_upnp():
     if options.ip_query_url2=="upnp":
@@ -1825,7 +1827,18 @@ class WebdriverWrapper:
     def click_id(self,clickElementID): self.theWebDriver.find_element_by_id(clickElementID).click()
     def click_xpath(self,xpath): self.theWebDriver.find_element_by_xpath(xpath).click()
     def click_linkText(self,clickLinkText): self.theWebDriver.find_element_by_link_text(clickLinkText).click()
-    def getu8(self): return self.theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML").encode('utf-8')
+    def getu8(self):
+        def f(switchBack):
+            src = self.theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML")
+            if options.js_frames:
+                for el in ['frame','iframe']:
+                    for frame in self.theWebDriver.find_elements_by_tag_name(el):
+                        self.theWebDriver.switch_to.frame(frame)
+                        src += f(switchBack+[frame])
+                        self.theWebDriver.switch_to.default_content()
+                        for fr in switchBack: self.theWebDriver.switch_to.frame(fr)
+            return src
+        return f([]).encode('utf-8')
     def getpng(self): return self.theWebDriver.get_screenshot_as_png()
 def emergency_zap_pid_and_children(pid):
     if not pid: return
@@ -3460,7 +3473,11 @@ document.forms[0].i.focus()
             r = "<html><head><title>Source of "+ampEncode(self.urlToFetch)+" - Web Adjuster</title></head><body>"
             if not js: r += "<a href=\"#1\">Headers sent</a> | <a href=\"#2\">Headers received</a> | <a href=\"#3\">Page source</a> | <a href=\"#4\">Bottom</a>"
             r += "<br>Fetched "+ampEncode(self.urlToFetch)
-            if js: r += " <ul><li>using js_interpreter (see <a href=\"%s.screenshot\">screenshot</a>)</ul>" % self.urlToFetch
+            if js:
+                screenshot_url = self.urlToFetch + ".screenshot"
+                if not options.urlboxPath=="/": screenshot_url = "http://" + convert_to_requested_host(self.cookie_host(),self.cookie_host()) + options.urlboxPath + "?q=" + urllib.quote(screenshot_url) + "&" + adjust_domain_cookieName + "=0&pr=on"
+                elif not isProxyRequest: screenshot_url = domain_process(screenshot_url,self.cookie_host(),https=self.urlToFetch.startswith("https"))
+                r += " <ul><li>using %s (see <a href=\"%s\">screenshot</a>)</ul>" % (options.js_interpreter,screenshot_url)
             else: r += "<h2><a name=\"1\"></a>Headers sent</h2>"+h2html(self.request.headers)+"<a name=\"2\"></a><h2>Headers received</h2>"+h2html(response.headers)+"<a name=\"3\"></a>"
             return self.doResponse2(r+"<h2>Page source</h2>"+txt2html(response.body)+"<hr><a name=\"4\"></a>This is "+serverName_html,True,False)
         headers_to_add = []
@@ -4328,6 +4345,7 @@ class StripJSEtc:
         if tag in ["img","svg"] and not options.htmlonly_css:
             self.parser.addDataFromTagHandler(dict(attrs).get("alt",""),1)
             return True
+        elif options.js_frames and tag in ["frameset","frame","iframe"]: return True
         elif tag=='script' or (tag=="noscript" and options.js_interpreter) or (tag=='style' and not options.htmlonly_css): # (in js_interpreter mode we want to suppress 'noscript' alternatives to document.write()s or we'll get both; anyway some versions of PhantomJS will ampersand-encode anything inside 'noscript' when we call find_element_by_xpath)
             self.suppressing = True ; return True
         elif tag=="body":
