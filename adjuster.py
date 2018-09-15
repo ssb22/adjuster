@@ -1839,7 +1839,15 @@ class WebdriverWrapper:
                         for fr in switchBack: self.theWebDriver.switch_to.frame(fr)
             return src
         return f([]).encode('utf-8')
-    def getpng(self): return self.theWebDriver.get_screenshot_as_png()
+    def getpng(self):
+        png = self.theWebDriver.get_screenshot_as_png()
+        try: # can we optimise the screenshot image size?
+            from PIL import Image
+            from cStringIO import StringIO
+            s = StringIO.StringIO() ; Image.open(StringIO.StringIO(png)).save(s,'png',optimize=True)
+            png = s.getvalue()
+        except: pass # just return non-optimized
+        return png
 def emergency_zap_pid_and_children(pid):
     if not pid: return
     try:
