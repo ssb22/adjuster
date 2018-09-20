@@ -1804,8 +1804,13 @@ android_src += r"""
             theTimer.postDelayed(new Runnable() {
                 @Override
                 public void run() {
-                    browser.evaluateJavascript(js_common+"AnnotIfLenChanged()",null);
-                    theTimer.postDelayed(this,1000);
+                    final Runnable r = this;
+                    browser.evaluateJavascript(js_common+"AnnotIfLenChanged()",new android.webkit.ValueCallback<String>() {
+                        @Override
+                        public void onReceiveValue(String s) {
+                            theTimer.postDelayed(r,1000);
+                        }
+                    });
                 }
             },0);
         }
