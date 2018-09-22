@@ -4037,7 +4037,7 @@ function HTMLSizeChanged(callback) {
   var curLen=getLen(window),
     stFunc=function(){window.setTimeout(tFunc,1000)},
     tFunc=function(){if(window.sizeChangedLoop==me){if(getLen(window)==curLen) stFunc(); else callback()}};
-  stFunc(); var m=window.MutationObserver||window.WebKitMutationObserver; if(m) new m(function(mut,obs){if(mut[0].type=="childList"){obs.disconnect();if(window.sizeChangedLoop==me)callback()}}).observe(document.body,{childList:true,subtree:true})
+  stFunc(); var m=window.MutationObserver||window.WebKitMutationObserver; if(m) new m(function(mut,obs){obs.disconnect();if(window.sizeChangedLoop==me)callback()}).observe(document.body,{childList:true,subtree:true})
 }
 var texts,tLen,oldTexts,otPtr,replacements;
 function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }
