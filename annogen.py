@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.65 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.651 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -231,7 +231,7 @@ parser.add_option("--bookmarks-developer",
 cancelOpt("bookmarks-developer")
 parser.add_option("--epub",
                   action="store_true",default=False,
-                  help="When generating an Android browser, make it also respond to requests to open EPUB files")
+                  help="When generating an Android browser, make it also respond to requests to open EPUB files. This results in an app that requests the 'read external storage' permission on Android versions below 6.") # see comments around READ_EXTERNAL_STORAGE below
 cancelOpt("epub")
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application")
@@ -1304,8 +1304,13 @@ if bookmarks:
   are_there_bookmarks = "ssb_local_annotator.getBMs().replace(/,/g,'')"
   show_bookmarks_string = r"""'<div style=\"border: red solid; background: black; color: white;\">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style=\"color:#ff0000;text-decoration:none\" href=\"javascript:if(confirm(\\'Delete '+title.replace(/\\'/g,\"&apos;\").replace(/\"/g,\"&quot;\")+\"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')[\"+i+']);location.reload()}\">Delete</a>] <a style=\"color:#00ff00;text-decoration:none\" href=\"'+url+'\">'+title+'</a>'}return c+'</ul>'})()+'</div>'""" # TODO: use of confirm() will include the line "the page at file:// says", could do without that (but reimplementing will need complex callbacks rather than a simple 'if')
   show_bookmarks_string = are_there_bookmarks+"?("+show_bookmarks_string+"):''"
-  if epub: should_suppress_toolset = "(location.href.slice(0,7)=='file://'||location.href.slice(0,12)=='http://epub/'||document.noBookmarks)"
-  else: should_suppress_toolset = "(location.href.slice(0,7)=='file://'||document.noBookmarks)"
+  should_suppress_toolset=[
+    "location.href.slice(0,7)=='file://'", # e.g. assets URLs
+    "document.noBookmarks",
+    # "location.href=='about:blank'", # for the 'loading, please wait' on at least some Android versions (-> we set noBookmarks=1 in handleIntent instead)
+  ]
+  if epub: should_suppress_toolset.append("location.href.slice(0,12)=='http://epub/'")
+  should_suppress_toolset = "("+"||".join(should_suppress_toolset)+")"
   toolset_openTag = r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 40%; bottom: 0px; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important; overflow: auto !important;\">'"""
   toolset_closeTag = "'</span>'"
   emoji_supported = "function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
@@ -1516,7 +1521,17 @@ else: android_minSdkVersion,armabi = "14","armeabi-v7a" # Android 4.0
 android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" >
 <uses-permission android:name="android.permission.INTERNET" />"""
-# if epub: android_manifest += r"""<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />""" # doesn't seem to be needed when file manager functions properly? (which is just as well, because API 23+ Android 6+ needs extra code to activate this permission)
+if epub: android_manifest += r"""<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />"""
+# On API 19 (Android 4.4), the external storage permission is:
+# (1) needed for opening epubs from a file manager,
+# (2) automatically propagated throughout sharedUserId (if one of your apps has it then they will all get it),
+# (3) persists until the next reboot if you reinstall your apps without it.
+# Points 2 and 3 can make developers think it's not really needed :-(
+# API 23+ Android 6+ needs extra code to activate this permission, but I don't
+# yet know if it's still needed for opening epub from a file manager on 6+.
+# On an API 27 (Android 8) emulator, a content:// URI was sent instead of file://
+# so I would imagine the permission doesn't need activating on Android 8, but
+# for completeness we need to test Android 6 and Android 7 somehow (TODO)
 android_manifest += r"""
 <uses-sdk android:minSdkVersion="""+'"'+android_minSdkVersion+r"""" android:targetSdkVersion="26" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
@@ -1542,7 +1557,12 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.webkit.JavascriptInterface;
-import android.webkit.WebChromeClient;
+import android.webkit.WebChromeClient;"""
+if epub: android_src += r"""
+import android.webkit.WebResourceResponse;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;"""
+android_src += r"""
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import java.io.FileNotFoundException;
@@ -1770,17 +1790,12 @@ android_src += r"""
         browser.setWebViewClient(new WebViewClient() {
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }"""
 if epub: android_src += r"""
-                @TargetApi(11) public android.webkit.WebResourceResponse shouldInterceptRequest (WebView view, String url) {
-                    String epubPrefix = "http://epub/"; // also in annogen.py should_suppress_toolset
-                    if ((url.startsWith("file:") || url.startsWith("content:")) && url.endsWith(".epub")) {
-                        android.content.SharedPreferences sp=getPreferences(0);
-                        android.content.SharedPreferences.Editor e; do { e=sp.edit(); e.putString("epub",url); } while(!e.commit());
-                        url = epubPrefix; // links will be absolute; browser doesn't have to change
-                    }
+                @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
+                    String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
                     if (url.startsWith(epubPrefix)) {
                         android.content.SharedPreferences sp=getPreferences(0);
                         String epubUrl=sp.getString("epub","");
-                        if(epubUrl.length()==0) return new android.webkit.WebResourceResponse("text/html","utf-8",new java.io.ByteArrayInputStream(("epubUrl setting not found").getBytes()));
+                        if(epubUrl.length()==0) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("epubUrl setting not found").getBytes()));
                         Uri epubUri=Uri.parse(epubUrl);
                         String part=null; // for directory listing
                         if(url.contains("#")) url=url.substring(0,url.indexOf("#"));
@@ -1789,13 +1804,13 @@ if epub: android_src += r"""
                         try {
                             zin = new ZipInputStream(getContentResolver().openInputStream(epubUri));
                         } catch (FileNotFoundException e) {
-                            return new android.webkit.WebResourceResponse("text/html","utf-8",new java.io.ByteArrayInputStream(("Unable to open "+epubUrl+"<p>"+e.toString()+"<p>Could this be a permissions problem?").getBytes()));
+                            return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Unable to open "+epubUrl+"<p>"+e.toString()+"<p>Could this be a permissions problem?").getBytes()));
                         }
                         java.util.zip.ZipEntry ze;
                         try {
-                            java.io.ByteArrayOutputStream f=null;
+                            ByteArrayOutputStream f=null;
                             if(part==null) {
-                                f=new java.io.ByteArrayOutputStream();
+                                f=new ByteArrayOutputStream();
                                 String fName=epubUrl;
                                 int slash=fName.lastIndexOf("/");
                                 if(slash>-1) fName=fName.substring(slash+1);
@@ -1804,27 +1819,27 @@ if epub: android_src += r"""
                             boolean foundHTML = false;
                             while ((ze = zin.getNextEntry()) != null) {
                                 if (part==null) {
-                                    if(ze.getName().contains("toc.xhtml")) return new android.webkit.WebResourceResponse("text/html","utf-8",new java.io.ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes())); // TODO: we should really be getting this via content.opf which is ref'd in META-INF/container.xml <rootfile full-path= (but most epub files call it toc.xhtml and we do have a 'list all' fallback)
+                                    if(ze.getName().contains("toc.xhtml")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes())); // TODO: we should really be getting this via content.opf which is ref'd in META-INF/container.xml <rootfile full-path= (but most epub files call it toc.xhtml and we do have a 'list all' fallback)
                                     if(ze.getName().contains("htm")) { foundHTML = true; f.write(("<p><a href=\""+epubPrefix+ze.getName()+"\">"+ze.getName()+"</a>").getBytes()); }
                                 } else if (ze.getName().equalsIgnoreCase(part)) {
                                     int bufSize=2048;
                                     if(ze.getSize()==-1) {
-                                        f=new java.io.ByteArrayOutputStream();
+                                        f=new ByteArrayOutputStream();
                                         bufSize=(int)ze.getSize();
                                     }
-                                    else f=new java.io.ByteArrayOutputStream((int)ze.getSize());
+                                    else f=new ByteArrayOutputStream((int)ze.getSize());
                                     byte[] buf=new byte[bufSize];
                                     int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
                                     String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(epubUrl));
                                     if(mimeType==null || mimeType=="application/xhtml+xml") mimeType="text/html"; // needed for annogen style modifications
-                                    //return new android.webkit.WebResourceResponse("text/plain","utf-8",new java.io.ByteArrayInputStream(mimeType.getBytes()));
-                                    return new android.webkit.WebResourceResponse(mimeType,"utf-8",new java.io.ByteArrayInputStream(f.toByteArray()));
+                                    //return new WebResourceResponse("text/plain","utf-8",new ByteArrayInputStream(mimeType.getBytes()));
+                                    return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             }
-                            if(part==null) { if(!foundHTML) f.write(("<p>Error: No HTML files were found in this EPUB").getBytes()); return new android.webkit.WebResourceResponse("text/html","utf-8",new java.io.ByteArrayInputStream(f.toByteArray())); }
-                            else return new android.webkit.WebResourceResponse("text/html","utf-8",new java.io.ByteArrayInputStream(("No zip entry for "+part).getBytes()));
+                            if(part==null) { if(!foundHTML) f.write(("<p>Error: No HTML files were found in this EPUB").getBytes()); return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(f.toByteArray())); }
+                            else return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("No zip entry for "+part).getBytes()));
                         } catch (IOException e) {
-                            return new android.webkit.WebResourceResponse("text/html","utf-8",new java.io.ByteArrayInputStream("IOException".getBytes()));
+                            return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
                         } finally { try { zin.close(); } catch(IOException e) {} }
                     }
                     return null;
@@ -1864,12 +1879,19 @@ android_src += r"""
             if (sentText == null) return false;
             browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>'+ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace('\\n','<br>')+'</body>')");
         }
-        else if (Intent.ACTION_VIEW.equals(intent.getAction())) {"""
+        else if (Intent.ACTION_VIEW.equals(intent.getAction())) {
+            String url=intent.getData().toString();"""
 if epub: android_src += r"""
-            if(Integer.valueOf(Build.VERSION.SDK)<11 && intent.getData().toString().endsWith(".epub")) { browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>This app'+\"'s EPUB handling requires Android 3 or above :-(</body>\")"); return true; } // (Support for Android 2 would require using data URIs for images etc, and using shouldOverrideUrlLoading on all links)"""
+            if(Integer.valueOf(Build.VERSION.SDK)<11 && url.endsWith(".epub")) { browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>This app'+\"'s EPUB handling requires Android 3 or above :-(</body>\")"); return true; } // (Support for Android 2 would require using data URIs for images etc, and using shouldOverrideUrlLoading on all links)
+            if ((url.startsWith("file:") && url.endsWith(".epub")) || "application/epub+zip".equals(intent.getType())) {
+                // Android 8, and probably 6+, will send a content:// URI (not ending with .epub) and shouldInterceptRequest does NOT get content:// URIs, so do the URL substitution *here* (which is better anyway because we can check the type).  Android 4 will just send a file:// URL and is OK either way.
+                android.content.SharedPreferences sp=getPreferences(0);
+                android.content.SharedPreferences.Editor e; do { e=sp.edit(); e.putString("epub",url); } while(!e.commit());
+                url = "http://epub/"; // links will be absolute; browser doesn't have to change
+            }"""
 android_src += r"""
-            browser.loadUrl("javascript:document.close();document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>Loading, please wait...</body>')");
-            browser.loadUrl(intent.getData().toString());
+            browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>Loading, please wait...</body>')");
+            browser.loadUrl(url);
         }
         else return false; return true;
     }
