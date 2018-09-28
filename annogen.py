@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-program_name = "Annotator Generator v0.651 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.652 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1624,7 +1624,7 @@ if sharp_multi and not ndk: android_src += r""";
                 StringBuffer sb=new StringBuffer();
                 while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(annotNo+1)+"</rt>");
                 m.appendTail(sb); r=sb.toString()"""
-if epub: android_src += """; if(r.length()>0) r="&lrm;"+r""" # needed due to &rlm; in the back-navigation links of some footnotes etc (TODO: is this more or less overhead than checking for browser.getUrl().startsWith("http://epub/") every time this method is called?)
+if epub: android_src += """; if(r.trim().length()>0) r="&lrm;"+r""" # needed due to &rlm; in the back-navigation links of some footnotes etc (TODO: is this more or less overhead than checking for browser.getUrl().startsWith("http://epub/") every time this method is called?)
 android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPopAll(this)\""); return r; } // now we have a Copy button, it's convenient to put this on ALL ruby elements, not just ones with title
             @JavascriptInterface public void alert(String t,String a) {
                 class DialogTask implements Runnable {
@@ -1792,36 +1792,46 @@ android_src += r"""
 if epub: android_src += r"""
                 @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
                     String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
-                    if (url.startsWith(epubPrefix)) {
-                        android.content.SharedPreferences sp=getPreferences(0);
-                        String epubUrl=sp.getString("epub","");
-                        if(epubUrl.length()==0) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("epubUrl setting not found").getBytes()));
-                        Uri epubUri=Uri.parse(epubUrl);
-                        String part=null; // for directory listing
-                        if(url.contains("#")) url=url.substring(0,url.indexOf("#"));
-                        if(url.length() > epubPrefix.length()) part=url.substring(epubPrefix.length());
-                        ZipInputStream zin = null;
-                        try {
-                            zin = new ZipInputStream(getContentResolver().openInputStream(epubUri));
-                        } catch (FileNotFoundException e) {
-                            return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Unable to open "+epubUrl+"<p>"+e.toString()+"<p>Could this be a permissions problem?").getBytes()));
+                    if (!url.startsWith(epubPrefix)) return null;
+                    android.content.SharedPreferences sp=getPreferences(0);
+                    String epubUrl=sp.getString("epub","");
+                    if(epubUrl.length()==0) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("epubUrl setting not found").getBytes()));
+                    Uri epubUri=Uri.parse(epubUrl);
+                    String part=null; // for directory listing
+                    boolean getNextPage = false;
+                    if(url.contains("#")) url=url.substring(0,url.indexOf("#"));
+                    if(url.length() > epubPrefix.length()) {
+                        part=url.substring(epubPrefix.length());
+                        if(part.startsWith("N=")) {
+                            part=part.substring(2);
+                            getNextPage = true;
                         }
-                        java.util.zip.ZipEntry ze;
-                        try {
-                            ByteArrayOutputStream f=null;
-                            if(part==null) {
-                                f=new ByteArrayOutputStream();
-                                String fName=epubUrl;
-                                int slash=fName.lastIndexOf("/");
-                                if(slash>-1) fName=fName.substring(slash+1);
-                                f.write(("<h2>"+fName+"</h2>Until I write a <em>real</em> table-of-contents handler, you have to make do with <em>this</em>:").getBytes());
-                            }
-                            boolean foundHTML = false;
-                            while ((ze = zin.getNextEntry()) != null) {
-                                if (part==null) {
-                                    if(ze.getName().contains("toc.xhtml")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes())); // TODO: we should really be getting this via content.opf which is ref'd in META-INF/container.xml <rootfile full-path= (but most epub files call it toc.xhtml and we do have a 'list all' fallback)
-                                    if(ze.getName().contains("htm")) { foundHTML = true; f.write(("<p><a href=\""+epubPrefix+ze.getName()+"\">"+ze.getName()+"</a>").getBytes()); }
-                                } else if (ze.getName().equalsIgnoreCase(part)) {
+                    }
+                    ZipInputStream zin = null;
+                    try {
+                        zin = new ZipInputStream(getContentResolver().openInputStream(epubUri));
+                    } catch (FileNotFoundException e) {
+                        return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Unable to open "+epubUrl+"<p>"+e.toString()+"<p>Could this be a permissions problem?").getBytes()));
+                    }
+                    java.util.zip.ZipEntry ze;
+                    try {
+                        ByteArrayOutputStream f=null;
+                        if(part==null) {
+                            f=new ByteArrayOutputStream();
+                            String fName=epubUrl;
+                            int slash=fName.lastIndexOf("/");
+                            if(slash>-1) fName=fName.substring(slash+1);
+                            f.write(("<h2>"+fName+"</h2>Until I write a <em>real</em> table-of-contents handler, you have to make do with <em>this</em>:").getBytes());
+                        }
+                        boolean foundHTML = false; // doubles as 'foundPart' if getNextPage
+                        while ((ze = zin.getNextEntry()) != null) {
+                            if (part==null) {
+                                if(ze.getName().contains("toc.xhtml")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes())); // TODO: we should really be getting this via content.opf which is ref'd in META-INF/container.xml <rootfile full-path= (but most epub files call it toc.xhtml and we do have a 'list all' fallback)
+                                if(ze.getName().contains("htm")) { foundHTML = true; f.write(("<p><a href=\""+epubPrefix+ze.getName()+"\">"+ze.getName()+"</a>").getBytes()); }
+                            } else if (ze.getName().equalsIgnoreCase(part)) {
+                                if(getNextPage) {
+                                    foundHTML = true;
+                                } else {
                                     int bufSize=2048;
                                     if(ze.getSize()==-1) {
                                         f=new ByteArrayOutputStream();
@@ -1830,19 +1840,19 @@ if epub: android_src += r"""
                                     else f=new ByteArrayOutputStream((int)ze.getSize());
                                     byte[] buf=new byte[bufSize];
                                     int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
-                                    String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(epubUrl));
+                                    String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
                                     if(mimeType==null || mimeType=="application/xhtml+xml") mimeType="text/html"; // needed for annogen style modifications
-                                    //return new WebResourceResponse("text/plain","utf-8",new ByteArrayInputStream(mimeType.getBytes()));
-                                    return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
+                                    if(mimeType=="text/html") return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><a style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important;\" href=\""+epubPrefix+"N="+part+"\">Next page</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                    else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
-                            }
-                            if(part==null) { if(!foundHTML) f.write(("<p>Error: No HTML files were found in this EPUB").getBytes()); return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(f.toByteArray())); }
-                            else return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("No zip entry for "+part).getBytes()));
-                        } catch (IOException e) {
-                            return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
-                        } finally { try { zin.close(); } catch(IOException e) {} }
-                    }
-                    return null;
+                            } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
+                        }
+                        if(part==null) { if(!foundHTML) f.write(("<p>Error: No HTML files were found in this EPUB").getBytes()); return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(f.toByteArray())); }
+                        else if(foundHTML) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("No more pages").getBytes()));
+                        else return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("No zip entry for "+part+" in "+epubUrl).getBytes()));
+                    } catch (IOException e) {
+                        return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
+                    } finally { try { zin.close(); } catch(IOException e) {} }
                 }"""
 android_src += r"""
                 float scale = 0; boolean scaling = false;
