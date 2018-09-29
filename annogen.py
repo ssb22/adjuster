@@ -1624,7 +1624,7 @@ if sharp_multi and not ndk: android_src += r""";
                 StringBuffer sb=new StringBuffer();
                 while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(annotNo+1)+"</rt>");
                 m.appendTail(sb); r=sb.toString()"""
-if epub: android_src += """; if(r.trim().length()>0) r="&lrm;"+r""" # needed due to &rlm; in the back-navigation links of some footnotes etc (TODO: is this more or less overhead than checking for browser.getUrl().startsWith("http://epub/") every time this method is called?)
+if epub: android_src += """; if(r.contains("<ruby")) r="&lrm;"+r""" # needed due to &rlm; in the back-navigation links of some footnotes etc (TODO: is adding all these potentially-unnecessary &lrm; marks more or less overhead than checking for browser.getUrl().startsWith("http://epub/") every time this method is called?)
 android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPopAll(this)\""); return r; } // now we have a Copy button, it's convenient to put this on ALL ruby elements, not just ones with title
             @JavascriptInterface public void alert(String t,String a) {
                 class DialogTask implements Runnable {
