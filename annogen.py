@@ -1519,7 +1519,7 @@ if ndk_pre_2016 or not ndk: android_minSdkVersion,armabi = "1","armeabi"
 elif ndk_pre_2017: android_minSdkVersion,armabi = "9","armeabi" # Android 2.3
 else: android_minSdkVersion,armabi = "14","armeabi-v7a" # Android 4.0
 android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" >
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:installLocation="preferExternal" >
 <uses-permission android:name="android.permission.INTERNET" />"""
 if epub: android_manifest += r"""<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />"""
 # On API 19 (Android 4.4), the external storage permission is:
