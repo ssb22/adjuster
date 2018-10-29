@@ -1376,7 +1376,7 @@ if ios:
         [[[UIAlertView alloc] initWithTitle:[self.myWebView stringByEvaluatingJavaScriptFromString:@"window.alertTitle"] message:[self.myWebView stringByEvaluatingJavaScriptFromString:@"window.alertMessage"] delegate: self cancelButtonTitle: nil otherButtonTitles: @"OK",nil, nil] show];
         return NO;
     } else if ([[URL scheme] isEqualToString:@"clip"]) {
-        [self.myWebView loadHTMLString:[@"<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>" stringByAppendingString:[UIPasteboard generalPasteboard].string] baseURL:nil]; // TODO: make the string HTML-safe and refresh it if clipboard changes, like the Android version does via JS
+        [self.myWebView loadHTMLString:[@"<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>" stringByAppendingString:[UIPasteboard generalPasteboard].string] baseURL:nil]; // TODO: make the string HTML-safe (and URL-clickable) and refresh it if clipboard changes, like the Android version does via JS
     } else if ([[URL scheme] isEqualToString:@"scan"]) {
         NSString *texts=[self.myWebView stringByEvaluatingJavaScriptFromString:@"texts.join('/@@---------@@/')"];
         startPtr = [texts UTF8String]; readPtr = startPtr; writePtr = startPtr;
@@ -1887,7 +1887,7 @@ android_src += r"""
         if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
             sentText = intent.getStringExtra(Intent.EXTRA_TEXT);
             if (sentText == null) return false;
-            browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>'+ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace('\\n','<br>')+'</body>')");
+            browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>'+ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\\u200b/g,'').replace(/(https?:\\/\\/[-!#%&+,.0-9:;=?@A-Z\\/_|~]+)/gi,function r(m,p1) { return '<a href=\"'+p1.replace('&amp;','&')+'\">'+p1+'</a>'}).replace('\\n','<br>')+'</body>')");
         }
         else if (Intent.ACTION_VIEW.equals(intent.getAction())) {
             String url=intent.getData().toString();"""
@@ -1979,7 +1979,7 @@ var curClip="";
 function update() {
 var newClip = ssb_local_annotator.getClip();
 if (newClip && newClip != curClip) {
-  document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\u200b/g,'');
+  document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\u200b/g,'').replace(/(https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+)/gi,function r(m,p1) { return '<a href="'+p1.replace('&amp;','&')+'">'+p1+'</a>' });
   curClip = newClip; if(ssb_local_annotator.annotate(newClip,false)!=newClip) ssb_local_annotator.bringToFront();
 } window.setTimeout(update,1000) } update(); </script>
 </body></html>"""
