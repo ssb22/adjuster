@@ -623,10 +623,7 @@ def readOptions():
     parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files) + ensure command-line options override config files
 
 def preprocessOptions():
-    if hasattr(signal,"SIGUSR1") and not wsgi_mode:
-        signal.signal(signal.SIGUSR1, toggleLogDebug)
-        if hasattr(signal,"SIGUSR2"):
-            signal.signal(signal.SIGUSR2, requestStatusDump)
+    initLogDebug() ; initLogging_preListen()
     if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
     if options.one_request_only:
         if options.multicore or options.fasterServer or options.whois or options.own_server or options.ssh_proxy: errExit("--one-request-only is not compatible with multicore, fasterServer, whois, own_server or ssh_proxy") # (TODO: it could be MADE compatible with fasterServer, whois, etc, but that would need more work.  watchdog works in theory but is inadvisable unless you're running this in some kind of loop)
@@ -925,6 +922,102 @@ def init429():
     global CrossProcess429
     CrossProcess429 = CrossProcess429()
     if CrossProcess429.needed(): CrossProcess429.init()
+
+# --------------------------------------------------
+# WHOIS logging and browser logging
+# --------------------------------------------------
+
+class WhoisLogger:
+    def __init__(self):
+        # Do NOT read options here - haven't been read yet
+        # (can be constructed even if not options.whois)
+        self.recent_whois = []
+        self.thread_running = False
+    def __call__(self,ip):
+        if ip in self.recent_whois: return
+        if len(self.recent_whois) > 20: # TODO: configure?
+            self.recent_whois.pop(0)
+        self.recent_whois.append(ip)
+        self.reCheck(ip)
+    def reCheck(self,ip):
+        if self.thread_running: # allow only one at once
+            IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.reCheck(ip))
+            return
+        self.thread_running = True
+        threading.Thread(target=whois_thread,args=(ip,self)).start()
+def getWhois(ip):
+    lines = commands.getoutput("whois '"+ip.replace("'",'')+"'").split('\n')
+    if any(l and l.lower().split()[0]=="descr:" for l in lines): checkList = ["descr:"] # ,"netname:","address:"
+    else: checkList = ["orgname:"]
+    ret = []
+    for l in lines:
+        if len(l.split())<2: continue
+        field,value = l.split(None,1) ; field=field.lower()
+        if field in checkList or (field=="country:" and ret) and not value in ret: ret.append(value) # omit 1st country: from RIPE/APNIC/&c, and de-dup
+    return ", ".join(ret)
+def whois_thread(ip,logger):
+    global helper_thread_count
+    helper_thread_count += 1
+    address = getWhois(ip)
+    logger.thread_running = False
+    if address: logging.info("whois "+ip+": "+address)
+    helper_thread_count -= 1
+
+helper_thread_count = 0
+
+class NullLogger:
+  def __call__(self,req): pass
+class BrowserLogger:
+  def __init__(self):
+    # Do NOT read options here - they haven't been read yet
+    self.lastBrowser = None
+    self.lastIp = self.lastMethodStuff = None
+    self.whoisLogger = WhoisLogger()
+  def __call__(self,req):
+    if req.request.remote_ip in options.ipNoLog: return
+    try: ch = req.cookie_host()
+    except: ch = None # shouldn't happen
+    req=req.request
+    if hasattr(req,"suppress_logging"): return
+    if req.method not in the_supported_methods and not options.logUnsupported: return
+    if req.method=="CONNECT" or req.uri.startswith("http://") or req.uri.startswith("https://"): host="" # URI will have everything
+    elif hasattr(req,"suppress_logger_host_convert"): host = req.host
+    else: host=convert_to_real_host(req.host,ch)
+    if host in [-1,"error"]: host=req.host # -1 for own_server (but this shouldn't happen as it was turned into a CONNECT; we don't mind not logging own_server because it should do so itself)
+    elif host: host=protocolWithHost(host)
+    # elif host==0: host="http://"+ch # e.g. adjusting one of the ownServer_if_not_root pages (TODO: uncomment this?)
+    else: host=""
+    browser = req.headers.get("User-Agent",None)
+    if browser:
+        browser='"'+browser+'"'
+        if options.squashLogs and browser==self.lastBrowser: browser = ""
+        else:
+            self.lastBrowser = browser
+            browser=" "+browser
+    else: self.lastBrowser,browser = None," -"
+    if options.squashLogs:
+        # Date (as YYMMDD) and time are already be included in Tornado logging format, a format we don't want to override, especially as it has 'start of log string syntax highlighting' on some platforms
+        if req.remote_ip == self.lastIp:
+            ip=""
+        else:
+            self.lastIp = req.remote_ip
+            ip=req.remote_ip+" "
+            self.lastMethodStuff = None # always log method/version anew when IP is different
+        methodStuff = (req.method, req.version)
+        if methodStuff == self.lastMethodStuff:
+            r=host+req.uri
+        else:
+            r='"%s %s%s %s"' % (req.method, host, req.uri, req.version)
+            self.lastMethodStuff = methodStuff
+        msg = ip+r+browser
+    else: msg = '%s "%s %s%s %s" %s' % (req.remote_ip, req.method, host, req.uri, req.version, browser) # could add "- - [%s]" with time.strftime("%d/%b/%Y:%X") if don't like Tornado-logs date-time format (and - - - before the browser %s)
+    logging.info(msg.replace('\x1b','[ESC]')) # terminal safe (in case of malformed URLs)
+    if options.whois and hasattr(req,"valid_for_whois"): self.whoisLogger(req.remote_ip)
+
+def initLogging_preListen():
+    global nullLog, accessLog
+    nullLog = NullLogger()
+    accessLog = BrowserLogger()
 
 # --------------------------------------------------
 # Profiling and process naming
@@ -1665,104 +1758,6 @@ def notifyReady():
 # TODO: also send "WATCHDOG=1" so can use WatchdogSec ? (but multicore / js_interpreter could be a problem)
 
 # --------------------------------------------------
-# WHOIS logging, browser logging etc
-# --------------------------------------------------
-
-the_supported_methods = ("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "CONNECT")
-# Don't support PROPFIND (from WebDAV) unless be careful about how to handle image requests with it
-# TODO: image requests with OPTIONS ?
-
-class WhoisLogger:
-    def __init__(self):
-        # Do NOT read options here - haven't been read yet
-        # (can be constructed even if not options.whois)
-        self.recent_whois = []
-        self.thread_running = False
-    def __call__(self,ip):
-        if ip in self.recent_whois: return
-        if len(self.recent_whois) > 20: # TODO: configure?
-            self.recent_whois.pop(0)
-        self.recent_whois.append(ip)
-        self.reCheck(ip)
-    def reCheck(self,ip):
-        if self.thread_running: # allow only one at once
-            IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.reCheck(ip))
-            return
-        self.thread_running = True
-        threading.Thread(target=whois_thread,args=(ip,self)).start()
-def getWhois(ip):
-    lines = commands.getoutput("whois '"+ip.replace("'",'')+"'").split('\n')
-    if any(l and l.lower().split()[0]=="descr:" for l in lines): checkList = ["descr:"] # ,"netname:","address:"
-    else: checkList = ["orgname:"]
-    ret = []
-    for l in lines:
-        if len(l.split())<2: continue
-        field,value = l.split(None,1) ; field=field.lower()
-        if field in checkList or (field=="country:" and ret) and not value in ret: ret.append(value) # omit 1st country: from RIPE/APNIC/&c, and de-dup
-    return ", ".join(ret)
-def whois_thread(ip,logger):
-    global helper_thread_count
-    helper_thread_count += 1
-    address = getWhois(ip)
-    logger.thread_running = False
-    if address: logging.info("whois "+ip+": "+address)
-    helper_thread_count -= 1
-
-class NullLogger:
-  def __call__(self,req): pass
-class BrowserLogger:
-  def __init__(self):
-    # Do NOT read options here - they haven't been read yet
-    self.lastBrowser = None
-    self.lastIp = self.lastMethodStuff = None
-    self.whoisLogger = WhoisLogger()
-  def __call__(self,req):
-    if req.request.remote_ip in options.ipNoLog: return
-    try: ch = req.cookie_host()
-    except: ch = None # shouldn't happen
-    req=req.request
-    if hasattr(req,"suppress_logging"): return
-    if req.method not in the_supported_methods and not options.logUnsupported: return
-    if req.method=="CONNECT" or req.uri.startswith("http://") or req.uri.startswith("https://"): host="" # URI will have everything
-    elif hasattr(req,"suppress_logger_host_convert"): host = req.host
-    else: host=convert_to_real_host(req.host,ch)
-    if host in [-1,"error"]: host=req.host # -1 for own_server (but this shouldn't happen as it was turned into a CONNECT; we don't mind not logging own_server because it should do so itself)
-    elif host: host=protocolWithHost(host)
-    # elif host==0: host="http://"+ch # e.g. adjusting one of the ownServer_if_not_root pages (TODO: uncomment this?)
-    else: host=""
-    browser = req.headers.get("User-Agent",None)
-    if browser:
-        browser='"'+browser+'"'
-        if options.squashLogs and browser==self.lastBrowser: browser = ""
-        else:
-            self.lastBrowser = browser
-            browser=" "+browser
-    else: self.lastBrowser,browser = None," -"
-    if options.squashLogs:
-        # Date (as YYMMDD) and time are already be included in Tornado logging format, a format we don't want to override, especially as it has 'start of log string syntax highlighting' on some platforms
-        if req.remote_ip == self.lastIp:
-            ip=""
-        else:
-            self.lastIp = req.remote_ip
-            ip=req.remote_ip+" "
-            self.lastMethodStuff = None # always log method/version anew when IP is different
-        methodStuff = (req.method, req.version)
-        if methodStuff == self.lastMethodStuff:
-            r=host+req.uri
-        else:
-            r='"%s %s%s %s"' % (req.method, host, req.uri, req.version)
-            self.lastMethodStuff = methodStuff
-        msg = ip+r+browser
-    else: msg = '%s "%s %s%s %s" %s' % (req.remote_ip, req.method, host, req.uri, req.version, browser) # could add "- - [%s]" with time.strftime("%d/%b/%Y:%X") if don't like Tornado-logs date-time format (and - - - before the browser %s)
-    logging.info(msg.replace('\x1b','[ESC]')) # terminal safe (in case of malformed URLs)
-    if options.whois and hasattr(req,"valid_for_whois"): self.whoisLogger(req.remote_ip)
-
-helper_thread_count = 0
-
-nullLog = NullLogger()
-accessLog = BrowserLogger()
-
-# --------------------------------------------------
 # cURL client setup
 # --------------------------------------------------
 
@@ -2477,7 +2472,9 @@ rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Enco
 # and handles responses.  Sorry it's got a bit big :-(
 # --------------------------------------------------
 
-dryrun_upstream_rewrite_ssl = False # for debugging
+the_supported_methods = ("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "CONNECT")
+# Don't support PROPFIND (from WebDAV) unless be careful about how to handle image requests with it
+# TODO: image requests with OPTIONS ?
 
 class RequestForwarder(RequestHandler):
     
@@ -3507,7 +3504,6 @@ document.forms[0].i.focus()
         if not body: body = None # required by some Tornado versions
         if self.isSslUpstream: ph,pp = None,None
         else: ph,pp = upstream_proxy_host,upstream_proxy_port
-        if dryrun_upstream_rewrite_ssl and pp and upstream_rewrite_ssl: pp += 1
         if options.js_interpreter and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and self.canWriteBody():
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
@@ -3885,7 +3881,6 @@ document.forms[0].i.focus()
         if not body: body = None
         if hasattr(self,"original_referer"): self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers.get("Referer","") # we'll send the request with the user's original Referer, to check it still works
         ph,pp = upstream_proxy_host, upstream_proxy_port
-        if dryrun_upstream_rewrite_ssl and pp and upstream_rewrite_ssl: pp += 1
         httpfetch(self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # same TODO as above
                   proxy_host=ph, proxy_port=pp,
@@ -5662,6 +5657,11 @@ def debuglog(msg,logRepeats=True,stillIdle=False):
     if status_dump_requested:
         status_dump_requested = False
         showProfile(pjsOnly=True) # TODO: document that SIGUSR1 also does this? (but doesn't count reqsInFlight if profile wasn't turned on, + it happens on next debuglog call (and shown whether toggled on OR off, to allow rapid toggle just to show this))
+def initLogDebug():
+    if hasattr(signal,"SIGUSR1") and not wsgi_mode:
+        signal.signal(signal.SIGUSR1, toggleLogDebug)
+        if hasattr(signal,"SIGUSR2"):
+            signal.signal(signal.SIGUSR2, requestStatusDump)
 status_dump_requested = False
 def toggleLogDebug(*args):
     "SIGUSR1 handler (see logDebug option help)"
