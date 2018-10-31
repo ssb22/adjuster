@@ -754,12 +754,19 @@ and under iOS / Application choose Single View Application.
 Fill in the dialogue box as you like, then use this file
 to replace the generated ViewController.m file.  You should
 then be able to press the Run button on the toolbar.
-Tested on an iOS 6.1 simulator in Xcode 4.6 on Mac OS 10.7
-(hopefully compatible with later versions too)
+
+Tested on an iOS 6.1 simulator in Xcode 4.6 on Mac OS 10.7.
+Tested on Xcode 10 in Mac OS 10.14 and hardware iOS 10 and 12.
+
+On iOS 9+, normal http:// (not https) URLs will fail
+due to a new "ATS policy", unless you edit Info.plist
+and add the following line to it:
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 
 Swipe left to go back (as in Safari).
 If your pages refer to clip://anything then that
 link will show and annotate the local clipboard.
+
 */
 
 #import <UIKit/UIKit.h>
