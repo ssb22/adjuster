@@ -761,7 +761,13 @@ Tested on Xcode 10 in Mac OS 10.14 and hardware iOS 10 and 12.
 On iOS 9+, normal http:// (not https) URLs will fail
 due to a new "ATS policy", unless you edit Info.plist
 and add the following line to it:
+
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+
+Otherwise, all links must be https (and we'd better let
+iOS itself take care of WiFi sign-in redirects)
+
+Browser usage:
 
 Swipe left to go back (as in Safari).
 If your pages refer to clip://anything then that
