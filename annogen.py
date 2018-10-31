@@ -765,7 +765,9 @@ and add the following line to it:
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 
 Otherwise, all links must be https (and we'd better let
-iOS itself take care of WiFi sign-in redirects)
+iOS itself take care of WiFi sign-in redirects).
+
+iOS 12 UIWebView deprecation: yes, I know (see TODO).
 
 Browser usage:
 
@@ -1348,6 +1350,11 @@ def jsAnnot(alertStr,xtra1,xtra2,annotScan,case3):
 
 if ios:
   c_end += r"""
+/* TODO: iOS 12 deprecated UIWebView (although still supported),
+   suggests moving to WKWebView (requires iOS 8+) but delegate
+   needs potentially-major rewrite (recent macOS+Xcode would be
+   needed for iterative testing)
+  */
 @interface ViewController : UIViewController <UIWebViewDelegate>
 @property (nonatomic,retain) UIWebView *myWebView;
 @end
