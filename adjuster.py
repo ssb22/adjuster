@@ -25,6 +25,10 @@ program_name = "Web Adjuster v0.273 (c) 2012-18 Silas S. Brown"
 import sys,os
 twoline_program_name = program_name+"\nLicensed under the Apache License, Version 2.0"
 
+# --------------------------------------------------
+# Basic Tornado import (or not if generating my website)
+# --------------------------------------------------
+
 if '--version' in sys.argv:
     print twoline_program_name ; raise SystemExit # no imports needed
 elif '--html-options' in sys.argv: # for updating the website (this option is not included in the help text)
@@ -46,7 +50,7 @@ elif '--html-options' in sys.argv: # for updating the website (this option is no
         help = amp(help)
         for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]: help=help.replace(ttify,"<nobr><kbd>"+ttify+"</kbd></nobr>")
         print "<dt><kbd>--"+name+"</kbd>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>"
-else:
+else: # normal run: go ahead with the import
     import tornado
     from tornado.httpclient import AsyncHTTPClient,HTTPClient,HTTPError
     try: from tornado.httpserver import HTTPServer
@@ -61,6 +65,10 @@ else:
         # Some Tornado versions don't compile if 'define' is run twice
         def define(*args,**kwargs): pass
 getfqdn_default = "is the machine's domain name" # default is ... (avoid calling getfqdn unnecessarily, as the server might be offline/experimental and we don't want to block on an nslookup with every adjuster start)
+
+# --------------------------------------------------
+# Options and help text
+# --------------------------------------------------
 
 heading("General options")
 define("config",help="Name of the configuration file to read, if any. The process's working directory will be set to that of the configuration file so that relative pathnames can be used inside it. Any option that would otherwise have to be set on the command line may be placed in this file as an option=\"value\" or option='value' line (without any double-hyphen prefix). Multi-line values are possible if you quote them in \"\"\"...\"\"\", and you can use standard \\ escapes. You can also set config= in the configuration file itself to import another configuration file (for example if you have per-machine settings and global settings). If you want there to be a default configuration file without having to set it on the command line every time, an alternative option is to set the ADJUSTER_CFG environment variable.")
@@ -351,6 +359,10 @@ if not tornado:
     print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <kbd>python adjuster.py --help</kbd> to see a full list of the ones available on your setup. They typically include <kbd>log_file_max_size</kbd>, <kbd>log_file_num_backups</kbd>, <kbd>log_file_prefix</kbd> and <kbd>log_to_stderr</kbd>." # and --logging=debug but that may generate a lot of entries from curl_httpclient
     raise SystemExit
 
+# --------------------------------------------------
+# Further imports
+# --------------------------------------------------
+
 import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,base64,htmlentitydefs,signal,traceback
 try: import simplejson as json # Python 2.5, and faster?
 except: import json # Python 2.6
@@ -369,6 +381,10 @@ try: # can we page the help text?
     tornado.options.options.__dict__['old_top'] = tornado.options.options.print_help
     tornado.options.options.__dict__['print_help'] = new_top
 except: raise
+
+# --------------------------------------------------
+# Domain-rewriting service routines
+# --------------------------------------------------
 
 def hostSuffix(n=0):
     if options.host_suffix:
@@ -447,6 +463,83 @@ def protocolAndHost(realHost):
 def protocolWithHost(realHost):
     x,y = protocolAndHost(realHost) ; return x+y
 
+def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyRequest=False,isSslUpstream=False):
+    if isProxyRequest: # called for Location: headers etc (not for document bodies)
+        if upstream_rewrite_ssl and not isSslUpstream:
+            # Although we don't need a full domain_process when the client is sending us a proxy request, we still have to beware of our UPstream proxy saying .0 in a Location: URL due to upstream_rewrite_ssl: take it out
+            m = re.match(r"http(://[A-Za-z0-9.-]*)\.0(?![A-Za-z0-9.-])",text)
+            if m: return "https"+m.group(1)
+        return text
+    # Change the domains on appropriate http:// and https:// URLs.
+    # Also on // URLs using 'https' as default (if it's not None).
+    # Hope that there aren't any JS-computed links where
+    # the domain is part of the computation.
+    # TODO: what of links to alternate ports or user:password links, currently we leave them unchanged (could use .<portNo> as an extension of the 'HTTPS hack' of .0, but allowing the public to request connects to any port could be a problem, and IP addresses would have to be handled carefully: can no longer rely on ".0 used to mean the network" sort-of saving us)
+    # TODO: leave alone URLs in HTML text/comments and JS comments? but script overload can make it hard to judge what is and isn't text. (NB this function is also called for Location headers)
+    if "<!DOCTYPE" in text:
+        # don't touch URLs inside the doctype!
+        dtStart = text.index("<!DOCTYPE")
+        dtEnd = text.find(">",dtStart)
+    else: dtStart = dtEnd = -1
+    def mFunc(m):
+        if dtStart<m.start()<dtEnd: return m.group() # avoid doctype
+        i = m.start()
+        if i and text[i-1].split() and text[:i].rsplit(None,1)[-1].startswith("xmlns"): return m.group() # avoid xmlns="... xmlns:elementname='... etc
+        protocol,oldhost = m.groups()
+        if oldhost[-1] in ".-": return m.group() # omit links ending with . or - because they're likely to be part of a domain computation; such things are tricky but might be more likely to work if we DON'T touch them if it has e.g. "'test.'+domain" where "domain" is a variable that we've previously intercepted
+        if protocol=="//":
+            if https: protocol = "https://"
+            else: protocol = "http://"
+        if protocol=="https://": oldhost += ".0" # HTTPS hack (see protocolAndHost)
+        newHP = "http://" + convert_to_requested_host(oldhost,cookieHost) # TODO: unless using https to communicate with the adjuster itself, in which case would either have to run a server with certificates set up or make it a WSGI-etc script running on one, and if that's the case then might wish to check through the rest of the code (search http://) to ensure this would always work well
+        if newHP.endswith(".0"): return m.group() # undo HTTPS hack if we have no wildcard_dns and convert_to_requested_host sent that URL off-site
+        return newHP
+    if stopAtOne: count=1
+    else: count=0
+    return re.sub(r"((?:https?://)|(?:(?<=['"+'"'+r"])//))([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)",mFunc,text,count) # http:// https:// or "// in scripts (but TODO: it won't pick up things like host="www.example.com"; return "https://"+host, also what about embedded IPv6 addresses i.e. \[[0-9a-fA-F:]*\] in place of hostnames (and what should we rewrite them to?)  Hopefully IPv6-embedding is rare as such sites wouldn't be usable by IPv4-only users (although somebody might have IPv6-specific versions of their pages/servers); if making Web Adjuster IPv6 ready, also need to check all instances of using ':' to split host from port as this won't be the case if host is '[' + IPv6 + ']'.  Splitting off hostname from protocol is more common though, e.g. used in Google advertising iframes 2017-06)
+
+def cookie_domain_process(text,cookieHost=None):
+    start=0
+    while True:
+        i = text.lower().find("; domain=",start)
+        if i==-1: break
+        i += len("; domain=")
+        if text[i]=='.': i += 1 # leading . on the cookie (TODO: what if we're not wildcard_dns?)
+        j = i
+        while j<len(text) and not text[j]==';': j += 1
+        newhost = convert_to_requested_host(text[i:j],cookieHost)
+        if ':' in newhost: newhost=newhost[:newhost.index(':')] # apparently you don't put the port number, see comment in authenticates_ok
+        if newhost==text[i:j] and cookieHost and cookieHost.endswith(text[i:j]): newhost = convert_to_requested_host(cookieHost,cookieHost) # cookie set server.example.org instead of www.server.example.org; we can deal with that
+        text = text[:i] + newhost + text[j:]
+        j=i+len(newhost)
+        start = j
+    return text
+
+def can_do_cookie_host():
+    return "" in options.default_site.split("/")
+
+def url_is_ours(url,cookieHost="cookie-host\n"):
+    # check if url has been through domain_process
+    if not url.startswith("http://"): return False
+    url=url[len("http://"):]
+    if '/' in url:
+        url,rest=url.split('/',1)
+        rest = '/'+rest
+    else: rest = ""
+    if '?' in url:
+        url,r2=url.split('?',1)
+        rest = '?'+r2+rest
+    rh = convert_to_real_host(url,cookieHost)
+    if rh and type(rh)==type("") and not rh==url:
+        # (exact value is used by RewriteExternalLinks)
+        if rh.endswith(".0"): r="https://"+rh[:-2]
+        else: r="http://"+rh
+        return r + rest
+
+# --------------------------------------------------
+# Reading configuration files etc
+# --------------------------------------------------
+
 def changeConfigDirectory(fname):
     fdir,ffile = os.path.split(fname)
     def tryDir(d):
@@ -464,6 +557,7 @@ def changeConfigDirectory(fname):
 
 def errExit(msg):
     # Exit with an error message BEFORE server start
+    # usually due to a configuration problem
     try:
         if not istty(): logging.error(msg)
         # in case run from crontab w/out output (and e.g. PATH not set properly)
@@ -527,79 +621,6 @@ def readOptions():
     for (config,_),cd in zip(configsDone,cDir):
         os.chdir(cd) ; parse_config_file(config)
     parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files) + ensure command-line options override config files
-
-class CrossProcessLogging(logging.Handler):
-    def needed(self): return (options.multicore or options.ssl_fork or (options.js_interpreter and options.js_multiprocess)) and options.log_file_prefix # (not needed if stderr-only or if won't fork)
-    def init(self):
-        "Called by initLogging before forks.  Starts the separate logListener process."
-        if not self.needed(): return
-        try: logging.getLogger().handlers
-        except: errExit("The logging module on this system is not suitable for --log-file-prefix with --ssl-fork or --js-multiprocess") # because we won't know how to clear its handlers and start again in the child processes
-        if not multiprocessing: return # we'll have to open multiple files in initChild instead
-        self.loggingQ=multiprocessing.Queue()
-        def logListener():
-          try:
-            while True: logging.getLogger().handle(logging.makeLogRecord(self.loggingQ.get()))
-          except KeyboardInterrupt: pass
-        self.p = multiprocessing.Process(target=logListener) ; self.p.start()
-        logging.getLogger().handlers = [] # clear what Tornado has already put in place when it read the configuration
-        logging.getLogger().addHandler(self)
-    def initChild(self,toAppend=""):
-        "Called after a fork.  toAppend helps to describe the child for logfile naming when multiprocessing is not available."
-        if not options.log_file_prefix: return # stderr is OK
-        if multiprocessing:
-            try: multiprocessing.process.current_process()._children.clear() # so it doesn't try to join() to children it doesn't have (multiprocessing wasn't really designed for the parent to fork() outside of multiprocessing later on)
-            except: pass # probably wrong version
-            return # should be OK now
-        logging.getLogger().handlers = [] # clear Tornado's
-        if toAppend: options.log_file_prefix += "-"+toAppend
-        else: options.log_file_prefix += "-"+str(os.getpid())
-        # and get Tornado to (re-)initialise logging with these parameters:
-        if hasattr(tornado.options,"enable_pretty_logging"): tornado.options.enable_pretty_logging() # Tornado 2
-        else: # Tornado 4
-            import tornado.log
-            tornado.log.enable_pretty_logging()
-    def shutdown(self):
-        try: self.p.terminate() # in case KeyboardInterrupt hasn't already stopped it
-        except: pass
-    def emit(self, record): # simplified from Python 3.2 (but put just the dictionary, not the record obj itself, to make pickling errors less likely)
-        try:
-            if record.exc_info:
-                dummy = self.format(record) # record.exc_text
-                record.exc_info = None
-            d = record.__dict__
-            d['msg'],d['args'] = record.getMessage(),None
-            self.loggingQ.put(d)
-        except (KeyboardInterrupt, SystemExit): raise
-        except: self.handleError(record)
-
-class CrossProcess429:
-    def needed(self): return options.multicore and options.js_429
-    def init(self): self.q = multiprocessing.Queue()
-    def startThread(self):
-        if not self.needed(): return
-        self.b = [False]*cores
-        def listener():
-            allServersBusy = False
-            while True:
-                coreToSet, busyStatus = self.q.get()
-                self.b[coreToSet] = busyStatus
-                newASB = all(self.b)
-                if not newASB == allServersBusy:
-                    allServersBusy = newASB
-                    if allServersBusy: IOLoop.instance().add_callback(lambda *args:reallyPauseOrRestartMainServer(True)) # run it just to serve the 429s, but don't set mainServerPaused=False or add an event to the queue
-                    else: IOLoop.instance().add_callback(lambda *args:reallyPauseOrRestartMainServer("IfNotPaused")) # stop it if and only if it hasn't been restarted by the main thread before this callback
-        threading.Thread(target=listener,args=()).start()
-
-def initLogging(): # MUST be after unixfork() if background
-    global CrossProcessLogging
-    CrossProcessLogging = CrossProcessLogging()
-    CrossProcessLogging.init()
-
-def init429():
-    global CrossProcess429
-    CrossProcess429 = CrossProcess429()
-    if CrossProcess429.needed(): CrossProcess429.init()
 
 def preprocessOptions():
     if hasattr(signal,"SIGUSR1") and not wsgi_mode:
@@ -814,11 +835,100 @@ def preprocessOptions():
     if not options.js_interpreter:
         options.js_reproxy=options.js_frames=False
     elif not options.htmlonly_mode: errExit("js_interpreter requires htmlonly_mode")
-def open_upnp():
-    if options.ip_query_url2=="upnp":
-        global miniupnpc ; import miniupnpc # sudo pip install miniupnpc or apt-get install python-miniupnpc
-        miniupnpc = miniupnpc.UPnP()
-        miniupnpc.discoverdelay=200
+
+def check_injected_globals():
+    # for making sure we're used correctly when imported
+    # as a module by a wrapper script
+    try: defined_globals
+    except: return
+    for s in set(globals().keys()).difference(defined_globals):
+        if s in options: errExit("Error: adjuster.%s should be adjuster.options.%s" % (s,s)) # (tell them off, don't try to patch up: this could go more subtly wrong if they do it again with something we happened to have defined in our module before)
+        elif type(eval(s)) in [str,bool,int]: errExit("Don't understand injected %s %s (misspelled option?)" % (repr(type(eval(s))),s))
+def setup_defined_globals(): # see above
+    global defined_globals
+    defined_globals = True # so included in itself
+    defined_globals = set(globals().keys())
+
+# --------------------------------------------------
+# Logging and busy-signalling (especially multicore)
+# --------------------------------------------------
+
+class CrossProcessLogging(logging.Handler):
+    def needed(self): return (options.multicore or options.ssl_fork or (options.js_interpreter and options.js_multiprocess)) and options.log_file_prefix # (not needed if stderr-only or if won't fork)
+    def init(self):
+        "Called by initLogging before forks.  Starts the separate logListener process."
+        if not self.needed(): return
+        try: logging.getLogger().handlers
+        except: errExit("The logging module on this system is not suitable for --log-file-prefix with --ssl-fork or --js-multiprocess") # because we won't know how to clear its handlers and start again in the child processes
+        if not multiprocessing: return # we'll have to open multiple files in initChild instead
+        self.loggingQ=multiprocessing.Queue()
+        def logListener():
+          try:
+            while True: logging.getLogger().handle(logging.makeLogRecord(self.loggingQ.get()))
+          except KeyboardInterrupt: pass
+        self.p = multiprocessing.Process(target=logListener) ; self.p.start()
+        logging.getLogger().handlers = [] # clear what Tornado has already put in place when it read the configuration
+        logging.getLogger().addHandler(self)
+    def initChild(self,toAppend=""):
+        "Called after a fork.  toAppend helps to describe the child for logfile naming when multiprocessing is not available."
+        if not options.log_file_prefix: return # stderr is OK
+        if multiprocessing:
+            try: multiprocessing.process.current_process()._children.clear() # so it doesn't try to join() to children it doesn't have (multiprocessing wasn't really designed for the parent to fork() outside of multiprocessing later on)
+            except: pass # probably wrong version
+            return # should be OK now
+        logging.getLogger().handlers = [] # clear Tornado's
+        if toAppend: options.log_file_prefix += "-"+toAppend
+        else: options.log_file_prefix += "-"+str(os.getpid())
+        # and get Tornado to (re-)initialise logging with these parameters:
+        if hasattr(tornado.options,"enable_pretty_logging"): tornado.options.enable_pretty_logging() # Tornado 2
+        else: # Tornado 4
+            import tornado.log
+            tornado.log.enable_pretty_logging()
+    def shutdown(self):
+        try: self.p.terminate() # in case KeyboardInterrupt hasn't already stopped it
+        except: pass
+    def emit(self, record): # simplified from Python 3.2 (but put just the dictionary, not the record obj itself, to make pickling errors less likely)
+        try:
+            if record.exc_info:
+                dummy = self.format(record) # record.exc_text
+                record.exc_info = None
+            d = record.__dict__
+            d['msg'],d['args'] = record.getMessage(),None
+            self.loggingQ.put(d)
+        except (KeyboardInterrupt, SystemExit): raise
+        except: self.handleError(record)
+
+class CrossProcess429:
+    def needed(self): return options.multicore and options.js_429
+    def init(self): self.q = multiprocessing.Queue()
+    def startThread(self):
+        if not self.needed(): return
+        self.b = [False]*cores
+        def listener():
+            allServersBusy = False
+            while True:
+                coreToSet, busyStatus = self.q.get()
+                self.b[coreToSet] = busyStatus
+                newASB = all(self.b)
+                if not newASB == allServersBusy:
+                    allServersBusy = newASB
+                    if allServersBusy: IOLoop.instance().add_callback(lambda *args:reallyPauseOrRestartMainServer(True)) # run it just to serve the 429s, but don't set mainServerPaused=False or add an event to the queue
+                    else: IOLoop.instance().add_callback(lambda *args:reallyPauseOrRestartMainServer("IfNotPaused")) # stop it if and only if it hasn't been restarted by the main thread before this callback
+        threading.Thread(target=listener,args=()).start()
+
+def initLogging(): # MUST be after unixfork() if background
+    global CrossProcessLogging
+    CrossProcessLogging = CrossProcessLogging()
+    CrossProcessLogging.init()
+
+def init429():
+    global CrossProcess429
+    CrossProcess429 = CrossProcess429()
+    if CrossProcess429.needed(): CrossProcess429.init()
+
+# --------------------------------------------------
+# Profiling and process naming
+# --------------------------------------------------
 
 profile_forks_too = False # TODO: configurable
 def open_profile():
@@ -932,6 +1042,10 @@ def setProcName(name="adjuster"):
         ctypes.cdll.LoadLibrary('libc.so.6').prctl(15,ctypes.byref(b),0,0,0)
     except: pass # oh well
 
+# --------------------------------------------------
+# Start / stop / install
+# --------------------------------------------------
+
 def serverControl():
     if options.install:
         current_crontab = commands.getoutput("crontab -l 2>/dev/null")
@@ -952,26 +1066,70 @@ def serverControl():
             except: pass
             sys.exit(0)
 
-def make_WSGI_application():
-    global errExit, wsgi_mode, runFilter
-    wsgi_mode = True ; runFilter = sync_runFilter
-    def errExit(m): raise Exception(m)
-    global main
-    def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
-    preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me one_request_only seconds stdio'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
-        # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
-        if eval('options.'+opt): warn("'%s' option may not work in WSGI mode" % opt)
-    options.js_reproxy = False # for now (see above)
-    options.one_request_only = False
-    if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
-        options.pdfepubkeep=0 ; options.waitpage = False
-        warn("pdfepubkeep and waitpage may not work in WSGI mode; clearing them") # both rely on one process doing all requests (not guaranteed in WSGI mode), and both rely on ioloop's add_timeout being FULLY functional
-    options.own_server = "" # for now, until we get forwardFor to work (TODO, and update the above list of ignored options accordingly)
-    import tornado.wsgi
-    handlers = [("(.*)",SynchronousRequestForwarder)]
-    if options.staticDocs: handlers.insert(0,static_handler()) # (the staticDocs option is probably not really needed in a WSGI environment if we're behind a wrapper that can also list static URIs, but keeping it anyway might be a convenience for configuration-porting; TODO: warn that this won't work with htaccess redirect and SCRIPT_URL thing)
-    return tornado.wsgi.WSGIApplication(handlers)
+def stopOther():
+    pid = triedStop = None
+    if options.pidfile:
+        try: pid = int(open(options.pidfile).read().strip())
+        except: pass
+        if not pid==None:
+            if not psutil or psutil.pid_exists(pid):
+                tryStop(pid,True) # will rm pidfile if had permission to send the stop signal
+                triedStop = pid
+            else: unlink(options.pidfile) # stale
+        if not options.port: return
+    elif not options.port: errExit("Cannot use --restart or --stop with --port=0 and no --pidfile") # because the listening port is used to identify the other process
+    pids = run_lsof()
+    if pids==False: # no lsof, or couldn't make sense of it
+        # Could try "fuser -n tcp "+str(options.port), but it can be slow on a busy system.  Try netstat instead.
+        pids = run_netstat()
+        if pids==False:
+            if not options.pidfile: sys.stderr.write("stopOther: can't find understandable 'lsof' or 'netstat' commands on this system\n")
+            return False
+    try: pids.remove(os.getpid())
+    except: pass
+    for pid in pids:
+        if not pid==triedStop:
+            tryStop(pid)
+    return triedStop or pids
+def tryStop(pid,alsoRemovePidfile=False):
+    if options.stop: other="the"
+    else: other="other"
+    try:
+        os.kill(pid,signal.SIGTERM)
+        if alsoRemovePidfile: unlink(options.pidfile)
+        sys.stderr.write("Stopped %s process at PID %d\n" % (other,pid))
+    except: sys.stderr.write("Failed to stop %s process at PID %d\n" % (other,pid))
+def run_lsof():
+    # TODO: check ssl-fork ports as well as main port ? (also in run_netstat)
+    out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # >/dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
+    if out.startswith("lsof: unsupported"):
+        # lsof 4.81 has -sTCP:LISTEN but lsof 4.78 does not.  However, not including -sTCP:LISTEN can cause lsof to make unnecessary hostname queries for established connections.  So fall back only if have to.
+        out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # -Ts ensures will say LISTEN on the pid that's listening
+        lines = filter(lambda x:"LISTEN" in x,out.split("\n")[1:])
+    elif not out.strip() and not commands.getoutput("which lsof 2>/dev/null"): return False
+    else: lines = out.split("\n")[1:]
+    pids = set()
+    for line in lines:
+        try: pids.add(int(line.split()[1]))
+        except:
+            if not pids:
+                # sys.stderr.write("stopOther: Can't make sense of lsof output %s\n" % repr(line))
+                return False # lsof not working, use something else
+            break
+    return pids
+def run_netstat():
+    if not 'linux' in sys.platform or not commands.getoutput("which netstat 2>/dev/null"): return False
+    pids = set()
+    for l in commands.getoutput("netstat -tnlp").split("\n"):
+        if ':'+str(options.port)+' ' in l:
+            ps = l.split()[-1]
+            if '/' in ps:
+                pids.add(int(ps[:ps.index('/')]))
+    return pids
+
+# --------------------------------------------------
+# Support for SSL termination in separate processes
+# --------------------------------------------------
 
 sslforks_to_monitor = [] # list of [pid,callback1,callback2,port]
 sslfork_monitor_pid = None
@@ -1049,6 +1207,14 @@ def terminateSslForks(*args):
         try: os.waitpid(p, os.WNOHANG)
         except OSError: pass
     stop_threads0()
+
+class AliveResponder(RequestHandler):
+    SUPPORTED_METHODS = ("GET",)
+    def get(self, *args, **kwargs): self.write("1")
+
+# --------------------------------------------------
+# Port listening - main, SSL-termination and JS-upstream
+# --------------------------------------------------
 
 def open_extra_ports():
     "Returns the stop function if we're now a child process that shouldn't run anything else"
@@ -1189,6 +1355,8 @@ def openPortsEtc():
     except: pass
 
 def setup_stdio():
+    # Handle option for request on standard input
+    # (when used in one-off mode)
     global StdinPass,StdinPending
     StdinPass,StdinPending = None,[]
     def doStdin(fd,events):
@@ -1206,6 +1374,10 @@ def setup_stdio():
             StdinPass = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
             StdinPass.connect((options.address, port_randomise.get(options.port,options.port)), lambda *args:(StdinPass.write(''.join(StdinPending)),ClearPending(),StdinPass.read_until_close(lambda last:(sys.stdout.write(last),sys.stdout.close()),lambda chunk:sys.stdout.write(chunk))))
     IOLoop.instance().add_handler(sys.stdin.fileno(), doStdin, IOLoop.READ)
+
+# --------------------------------------------------
+# General startup and shutdown tasks
+# --------------------------------------------------
 
 def banner(delayed=False):
     ret = [twoline_program_name]
@@ -1229,6 +1401,24 @@ def banner(delayed=False):
         t = "adjuster"
         if "SSH_CONNECTION" in os.environ: t += "@"+hostSuffix() # TODO: might want to use socket.getfqdn() to save confusion if several servers are configured with the same host_suffix and/or host_suffix specifies multiple hosts?
         set_title(t)
+
+def istty(f=sys.stderr): return hasattr(f,"isatty") and f.isatty()
+def set_title(t):
+  if not istty(): return
+  term = os.environ.get("TERM","")
+  is_xterm = "xterm" in term
+  is_screen = (term=="screen" and os.environ.get("STY",""))
+  is_tmux = (term=="screen" and os.environ.get("TMUX",""))
+  if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
+  elif is_screen: os.system("screen -X title \"%s\"" % (t,))
+  else: return
+  if not t: return
+  import atexit
+  atexit.register(set_title,"")
+  global can_do_ansi_colour
+  can_do_ansi_colour = is_xterm or (is_screen and "VT 100/ANSI" in os.environ.get("TERMCAP","")) # used by showProfile (TODO: if profile_forks_too, we'd need to set this earlier than the call to banner / set_title in order to make it available to SSL forks etc, otherwise only the main one has purple profile output. Multicore is already OK (but does only counts per core).)
+can_do_ansi_colour=False
+
 coreNo = "unknown" # want it to be non-False to begin with
 def announceInterrupt():
     if coreNo or options.multicore: return # silent helper process (coreNo=="unknown"), or we announce interrupts differently in multicore (see start_multicore)
@@ -1283,6 +1473,10 @@ def stop_threads0():
         except OSError: pass # already exitted
     os.killpg(os.getpgrp(),signal.SIGTERM)
     os.abort() # if the above didn't work, this should
+
+# --------------------------------------------------
+# Basic Tornado-server setup
+# --------------------------------------------------
 
 def static_handler():
     url,path = options.staticDocs.split('#')
@@ -1341,6 +1535,11 @@ def startServers():
     for core,sList in theServers.items():
         if core == "all" or core == coreNo:
             for port,s in sList: s.start()
+
+# --------------------------------------------------
+# Multicore: pause/restart when a core is overloaded
+# --------------------------------------------------
+
 mainServerPaused = mainServerReallyPaused = False
 def pauseOrRestartMainServer(shouldRun=True):
     if not (options.multicore and options.js_429): return
@@ -1368,6 +1567,10 @@ def reallyPauseOrRestartMainServer(shouldRun):
                     else: IOLoop.instance().remove_handler(fd) # Tornado 5, not tested (TODO)
     mainServerReallyPaused = not mainServerReallyPaused
     debuglog("reallyPaused=%s on core %s" % (repr(mainServerReallyPaused),repr(coreNo)))
+
+# --------------------------------------------------
+# Miscellaneous bug workarounds
+# --------------------------------------------------
 
 def workaround_raspbian7_IPv6_bug():
     """Old Debian 7 based versions of Raspbian can boot with IPv6 enabled but later fail to configure it, hence tornado/netutil.py's AI_ADDRCONFIG flag is ineffective and socket.socket raises "Address family not supported by protocol" when it tries to listen on IPv6.  If that happens, we'll need to set address="0.0.0.0" for IPv4 only.  However, if we tried IPv6 and got the error, then at that point Tornado's bind_sockets will likely have ALREADY bound an IPv4 socket but not returned it; the socket does NOT get closed on dealloc, so a retry would get "Address already in use" unless we quit and re-run the application (or somehow try to figure out the socket number so it can be closed).  Instead of that, let's try to detect the situation in advance so we can set options.address to IPv4-only the first time."""
@@ -1421,22 +1624,20 @@ def workaround_tornado_fd_issue():
         except: pass
     IOLoop.instance().handle_callback_exception = newCx
 
-def istty(f=sys.stderr): return hasattr(f,"isatty") and f.isatty()
-def set_title(t):
-  if not istty(): return
-  term = os.environ.get("TERM","")
-  is_xterm = "xterm" in term
-  is_screen = (term=="screen" and os.environ.get("STY",""))
-  is_tmux = (term=="screen" and os.environ.get("TMUX",""))
-  if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
-  elif is_screen: os.system("screen -X title \"%s\"" % (t,))
-  else: return
-  if not t: return
-  import atexit
-  atexit.register(set_title,"")
-  global can_do_ansi_colour
-  can_do_ansi_colour = is_xterm or (is_screen and "VT 100/ANSI" in os.environ.get("TERMCAP","")) # used by showProfile (TODO: if profile_forks_too, we'd need to set this earlier than the call to banner / set_title in order to make it available to SSL forks etc, otherwise only the main one has purple profile output. Multicore is already OK (but does only counts per core).)
-can_do_ansi_colour=False
+def check_LXML():
+    # Might not find ALL problems with lxml installations, but at least we can check some basics
+    global etree, StringIO
+    try:
+        from lxml import etree
+        from StringIO import StringIO # not cStringIO, need Unicode
+        return etree.HTMLParser(target=None) # works on lxml 2.3.2
+    except ImportError: sys.stderr.write("LXML library not found - ignoring useLXML option\n")
+    except TypeError: sys.stderr.write("LXML library too old - ignoring useLXML option\n") # no target= option in 1.x
+    options.useLXML = False
+
+# --------------------------------------------------
+# More setup: Unix forking, privileges etc
+# --------------------------------------------------
 
 def dropPrivileges():
     if options.user and not os.getuid():
@@ -1463,66 +1664,9 @@ def notifyReady():
     sdnotify.SystemdNotifier().notify("READY=1") # so you can do an adjuster.service (w/out --background) with Type=notify and ExecStart=/usr/bin/python /path/to/adjuster.py --config=...
 # TODO: also send "WATCHDOG=1" so can use WatchdogSec ? (but multicore / js_interpreter could be a problem)
 
-def stopOther():
-    pid = triedStop = None
-    if options.pidfile:
-        try: pid = int(open(options.pidfile).read().strip())
-        except: pass
-        if not pid==None:
-            if not psutil or psutil.pid_exists(pid):
-                tryStop(pid,True) # will rm pidfile if had permission to send the stop signal
-                triedStop = pid
-            else: unlink(options.pidfile) # stale
-        if not options.port: return
-    elif not options.port: errExit("Cannot use --restart or --stop with --port=0 and no --pidfile") # because the listening port is used to identify the other process
-    pids = run_lsof()
-    if pids==False: # no lsof, or couldn't make sense of it
-        # Could try "fuser -n tcp "+str(options.port), but it can be slow on a busy system.  Try netstat instead.
-        pids = run_netstat()
-        if pids==False:
-            if not options.pidfile: sys.stderr.write("stopOther: can't find understandable 'lsof' or 'netstat' commands on this system\n")
-            return False
-    try: pids.remove(os.getpid())
-    except: pass
-    for pid in pids:
-        if not pid==triedStop:
-            tryStop(pid)
-    return triedStop or pids
-def tryStop(pid,alsoRemovePidfile=False):
-    if options.stop: other="the"
-    else: other="other"
-    try:
-        os.kill(pid,signal.SIGTERM)
-        if alsoRemovePidfile: unlink(options.pidfile)
-        sys.stderr.write("Stopped %s process at PID %d\n" % (other,pid))
-    except: sys.stderr.write("Failed to stop %s process at PID %d\n" % (other,pid))
-def run_lsof():
-    # TODO: check ssl-fork ports as well as main port ? (also in run_netstat)
-    out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # >/dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
-    if out.startswith("lsof: unsupported"):
-        # lsof 4.81 has -sTCP:LISTEN but lsof 4.78 does not.  However, not including -sTCP:LISTEN can cause lsof to make unnecessary hostname queries for established connections.  So fall back only if have to.
-        out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # -Ts ensures will say LISTEN on the pid that's listening
-        lines = filter(lambda x:"LISTEN" in x,out.split("\n")[1:])
-    elif not out.strip() and not commands.getoutput("which lsof 2>/dev/null"): return False
-    else: lines = out.split("\n")[1:]
-    pids = set()
-    for line in lines:
-        try: pids.add(int(line.split()[1]))
-        except:
-            if not pids:
-                # sys.stderr.write("stopOther: Can't make sense of lsof output %s\n" % repr(line))
-                return False # lsof not working, use something else
-            break
-    return pids
-def run_netstat():
-    if not 'linux' in sys.platform or not commands.getoutput("which netstat 2>/dev/null"): return False
-    pids = set()
-    for l in commands.getoutput("netstat -tnlp").split("\n"):
-        if ':'+str(options.port)+' ' in l:
-            ps = l.split()[-1]
-            if '/' in ps:
-                pids.add(int(ps[:ps.index('/')]))
-    return pids
+# --------------------------------------------------
+# WHOIS logging, browser logging etc
+# --------------------------------------------------
 
 the_supported_methods = ("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "CONNECT")
 # Don't support PROPFIND (from WebDAV) unless be careful about how to handle image requests with it
@@ -1618,6 +1762,10 @@ helper_thread_count = 0
 nullLog = NullLogger()
 accessLog = BrowserLogger()
 
+# --------------------------------------------------
+# cURL client setup
+# --------------------------------------------------
+
 def MyAsyncHTTPClient(): return AsyncHTTPClient()
 def curlFinished(): pass
 def setupCurl(maxCurls,error=None):
@@ -1681,6 +1829,10 @@ except: # Windows?
             return o()
     zlib = zlib()
 
+# --------------------------------------------------
+# Support for showing messages to specific IP addresses
+# --------------------------------------------------
+
 try:
     import hashlib # Python 2.5+, platforms?
     hashlib.md5
@@ -1688,9 +1840,33 @@ except: hashlib = None # (TODO: does this ever happen on a platform that support
 if hashlib: cookieHash = lambda msg: base64.b64encode(hashlib.md5(msg).digest())[:10]
 else: cookieHash = lambda msg: hex(hash(msg))[2:] # this fallback is not portable across different Python versions etc, so no good if you're running a fasterServer
 
-cookieExpires = "Tue Jan 19 03:14:07 2038" # TODO: S2G
+ipv4_regexp = re.compile(r'^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$')
+def ipv4_to_int(ip):
+    m = re.match(ipv4_regexp,ip)
+    if m: return (int(m.group(1))<<24) | (int(m.group(2))<<16) | (int(m.group(3))<<8) | int(m.group(4)) # else None
+def ipv4range_to_ints(ip):
+    if '-' in ip: return tuple(ipv4_to_int(i) for i in ip.split('-'))
+    elif '/' in ip:
+        start,bits = ip.split('/')
+        start = ipv4_to_int(start)
+        return start, start | ~(-1 << (32-int(bits)))
+    else: return ipv4_to_int(ip),ipv4_to_int(ip)
+def ipv4ranges_func(ipRanges_and_results):
+    isIP = True ; rangeList=None ; fList = []
+    for field in ipRanges_and_results.split('|'):
+        if isIP: rangeList = [ipv4range_to_ints(i) for i in field.split(',')]
+        else: fList.append((rangeList,field))
+        isIP = not isIP
+    def f(ip):
+        ipInt = ipv4_to_int(ip)
+        for rl,result in fList:
+            if any((l<=ipInt<=h) for l,h in rl):
+                return result # else None
+    return f
 
-set_window_onerror = False # for debugging Javascript on some mobile browsers (TODO make this a config option? but will have to check which browsers do and don't support window.onerror)
+# --------------------------------------------------
+# Service routines for CONNECT passing to SSL terminator
+# --------------------------------------------------
 
 debug_connections = False
 def myRepr(d):
@@ -1723,6 +1899,14 @@ def writeOrError(opposite,name,stream,data):
         try: opposite.close() # (try to close the server stream we're reading if the client has gone away, and vice versa)
         except: pass
 
+# --------------------------------------------------
+# Miscellaneous variables
+# --------------------------------------------------
+
+cookieExpires = "Tue Jan 19 03:14:07 2038" # TODO: S2G
+
+set_window_onerror = False # for debugging Javascript on some mobile browsers (TODO make this a config option? but will have to check which browsers do and don't support window.onerror)
+
 # Domain-setting cookie for when we have no wildcard_dns and no default_site:
 adjust_domain_cookieName = "_adjusterDN_"
 adjust_domain_none = "0" # not a valid top-level domain (TODO hopefully no user wants this as a local domain...)
@@ -1736,65 +1920,9 @@ webdriver_click_code = "._adjustPJSC_"
 
 redirectFiles_Extensions=set("pdf epub mp3 aac zip gif png jpeg jpg exe tar tgz tbz ttf woff swf txt doc rtf midi mid wav ly c h py".split()) # TODO: make this list configurable + maybe add a "minimum content length before it's worth re-directing" option
 
-class HTTPClient_Fixed(HTTPClient):
-    def __init__(self,*args):
-        self._closed = True # so don't get error in 'del' if have to catch an exception in the constructor
-        HTTPClient.__init__(self,*args)
-wsgi_mode = False
-def httpfetch(url,**kwargs):
-    url = re.sub("[^ -~]+",lambda m:urllib.quote(m.group()),url) # sometimes needed to get out of redirect loops
-    debuglog("httpfetch "+url+" "+repr(kwargs)+repr([(n,v) for n,v in kwargs['headers'].get_all()]))
-    if not wsgi_mode:
-        return MyAsyncHTTPClient().fetch(url,**kwargs)
-    # ---------------------------------
-    # -------- wsgi_mode only: --------
-    # ---------------------------------
-    callback = kwargs['callback']
-    del kwargs['callback']
-    try: r = HTTPClient_Fixed().fetch(url,**kwargs)
-    except HTTPError, e: r = e.response
-    except:
-        # Ouch.  In many Tornado versions, HTTPClient
-        # is no more than a wrapper around
-        # AsyncHTTPClient with an IOLoop call.  That
-        # may work on some WSGI servers but not on
-        # others; in particular it might include
-        # system calls that are too low-level for the
-        # liking of platforms like AppEngine.  Maybe
-        # we have to fall back to urllib2.
-        import urllib2
-        data = kwargs.get('body',None)
-        if not data: data = None
-        headers = dict(kwargs.get('headers',{}))
-        req = urllib2.Request(url, data, headers)
-        if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
-        r = None
-        try: resp = urllib2.urlopen(req,timeout=60)
-        except urllib2.HTTPError, e: resp = e
-        except Exception, e: resp = r = wrapResponse(str(e)) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
-        if r==None: r = wrapResponse(resp.read(),resp.info(),resp.getcode())
-    callback(r)
-def wrapResponse(body,info={},code=500):
-    "Makes a urllib2 response or an error message look like an HTTPClient response.  info can be a headers dict or a resp.info() object."
-    class Empty: pass
-    r = Empty()
-    r.code = code
-    class H:
-        def __init__(self,info): self.info = info
-        def get(self,h,d): return self.info.get(h,d)
-        def add(self,h,v): # for js_fallback header
-            if type(self.info)==dict:
-                self.info[h] = v
-            elif hasattr(self.info,"headers"):
-                self.info.headers.add(h,v)
-            else: self.info.add(h,v)
-        def get_all(self):
-            if type(self.info)==dict:
-                return self.info.items()
-            if hasattr(self.info,"headers"):
-                return [h.replace('\n','').split(': ',1) for h in self.info.headers]
-            else: return self.info.get_all()
-    r.headers = H(info) ; r.body = body ; return r
+# --------------------------------------------------
+# Server-side Javascript execution support
+# --------------------------------------------------
 
 class WebdriverWrapper:
     "Wrapper for webdriver that might or might not be in a separate process without shared memory"
@@ -2319,6 +2447,10 @@ def webdriver_fetch(url,prefetched,ua,clickElementID,clickLinkText,via,asScreens
     debuglog("webdriver_queue len=%d after adding %s" % (len(webdriver_queue),url))
     webdriver_checkServe() # safe as we're IOLoop thread
 
+# --------------------------------------------------
+# Service routines for basic HTTP header rewriting
+# --------------------------------------------------
+
 def fixServerHeader(i):
     i.set_header("Server",serverName) # TODO: in "real" proxy mode, "Server" might not be the most appropriate header to set for this
     try: i.clear_header("Date") # Date is added by Tornado 3; HTTP 1.1 says it's mandatory but then says don't put it if you're a clockless server (which we might be I suppose) so it seems leaving it out is OK especially if not specifying Age etc, and leaving it out saves bytes.  But if the REMOTE server specifies a Date then we should probably pass it on (see comments in doResponse below)
@@ -2338,6 +2470,12 @@ rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Enco
                    'Upgrade-Insecure-Requests', # we'd better remove this from the client headers if we're removing Content-Security-Policy etc from the server's
                    'Range', # TODO: we can pass Range to remote server if and only if we guarantee not to need to change anything  (could also add If-Range and If-None-Match to the list, but these should be harmless to pass to the remote server and If-None-Match might actually help a bit in the case where the document doesn't change)
 ]
+
+# --------------------------------------------------
+# Our main RequestForwarder class.  Handles incoming
+# HTTP requests, generates requests to upstream servers
+# and handles responses.  Sorry it's got a bit big :-(
+# --------------------------------------------------
 
 dryrun_upstream_rewrite_ssl = False # for debugging
 
@@ -3798,6 +3936,10 @@ document.forms[0].i.focus()
             if b in ua: return warn.replace("{B}",b)
         return ""
 
+# --------------------------------------------------
+# Self-signed SSL certificates for SSL interception
+# --------------------------------------------------
+
 def writable_tmpdir():
     "Returns a writeable temporary directory for small files. Prefers /dev/shm on systems that have it."
     global the_writable_tmpdir
@@ -3874,6 +4016,17 @@ RguOSJvGtfKm3KZzFATfea0ej/0hgXCUvOYvIQcxMEB61+WAKhE=
         # If you do, there is a race condition when adjuster is restarting.
         return the_duff_certfile
 
+kept_tempfiles = {}
+
+def unlink(fn):
+    try: os.unlink(fn)
+    except: pass
+
+# --------------------------------------------------
+# Configurations of RequestForwarder for basic use,
+# CONNECT termination, and Javascript upstream handling
+# --------------------------------------------------
+
 def MakeRequestForwarder(useSSL,port,connectPort,origPort,isPJS=False,start=0,index=0):
     class MyRequestForwarder(RequestForwarder):
         WA_UseSSL = useSSL
@@ -3895,6 +4048,92 @@ class UpSslRequestForwarder(RequestForwarder):
     WA_UseSSL = isPjsUpstream = False
     isSslUpstream = True # connectPort etc not needed
 
+# --------------------------------------------------
+# WSGI support for when we can't run as a server process
+# --------------------------------------------------
+
+def make_WSGI_application():
+    global errExit, wsgi_mode, runFilter
+    wsgi_mode = True ; runFilter = sync_runFilter
+    def errExit(m): raise Exception(m)
+    global main
+    def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
+    preprocessOptions()
+    for opt in 'config user address background restart stop install watchdog browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me one_request_only seconds stdio'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+        # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
+        if eval('options.'+opt): warn("'%s' option may not work in WSGI mode" % opt)
+    options.js_reproxy = False # for now (see above)
+    options.one_request_only = False
+    if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
+        options.pdfepubkeep=0 ; options.waitpage = False
+        warn("pdfepubkeep and waitpage may not work in WSGI mode; clearing them") # both rely on one process doing all requests (not guaranteed in WSGI mode), and both rely on ioloop's add_timeout being FULLY functional
+    options.own_server = "" # for now, until we get forwardFor to work (TODO, and update the above list of ignored options accordingly)
+    import tornado.wsgi
+    handlers = [("(.*)",SynchronousRequestForwarder)]
+    if options.staticDocs: handlers.insert(0,static_handler()) # (the staticDocs option is probably not really needed in a WSGI environment if we're behind a wrapper that can also list static URIs, but keeping it anyway might be a convenience for configuration-porting; TODO: warn that this won't work with htaccess redirect and SCRIPT_URL thing)
+    return tornado.wsgi.WSGIApplication(handlers)
+
+class HTTPClient_Fixed(HTTPClient):
+    def __init__(self,*args):
+        self._closed = True # so don't get error in 'del' if have to catch an exception in the constructor
+        HTTPClient.__init__(self,*args)
+
+wsgi_mode = False
+def httpfetch(url,**kwargs):
+    url = re.sub("[^ -~]+",lambda m:urllib.quote(m.group()),url) # sometimes needed to get out of redirect loops
+    debuglog("httpfetch "+url+" "+repr(kwargs)+repr([(n,v) for n,v in kwargs['headers'].get_all()]))
+    if not wsgi_mode:
+        return MyAsyncHTTPClient().fetch(url,**kwargs)
+    # ---------------------------------
+    # -------- wsgi_mode only: --------
+    # ---------------------------------
+    callback = kwargs['callback']
+    del kwargs['callback']
+    try: r = HTTPClient_Fixed().fetch(url,**kwargs)
+    except HTTPError, e: r = e.response
+    except:
+        # Ouch.  In many Tornado versions, HTTPClient
+        # is no more than a wrapper around
+        # AsyncHTTPClient with an IOLoop call.  That
+        # may work on some WSGI servers but not on
+        # others; in particular it might include
+        # system calls that are too low-level for the
+        # liking of platforms like AppEngine.  Maybe
+        # we have to fall back to urllib2.
+        import urllib2
+        data = kwargs.get('body',None)
+        if not data: data = None
+        headers = dict(kwargs.get('headers',{}))
+        req = urllib2.Request(url, data, headers)
+        if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
+        r = None
+        try: resp = urllib2.urlopen(req,timeout=60)
+        except urllib2.HTTPError, e: resp = e
+        except Exception, e: resp = r = wrapResponse(str(e)) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
+        if r==None: r = wrapResponse(resp.read(),resp.info(),resp.getcode())
+    callback(r)
+def wrapResponse(body,info={},code=500):
+    "Makes a urllib2 response or an error message look like an HTTPClient response.  info can be a headers dict or a resp.info() object."
+    class Empty: pass
+    r = Empty()
+    r.code = code
+    class H:
+        def __init__(self,info): self.info = info
+        def get(self,h,d): return self.info.get(h,d)
+        def add(self,h,v): # for js_fallback header
+            if type(self.info)==dict:
+                self.info[h] = v
+            elif hasattr(self.info,"headers"):
+                self.info.headers.add(h,v)
+            else: self.info.add(h,v)
+        def get_all(self):
+            if type(self.info)==dict:
+                return self.info.items()
+            if hasattr(self.info,"headers"):
+                return [h.replace('\n','').split(': ',1) for h in self.info.headers]
+            else: return self.info.get_all()
+    r.headers = H(info) ; r.body = body ; return r
+
 class SynchronousRequestForwarder(RequestForwarder):
    "A RequestForwarder for use in WSGI mode"
    WA_UseSSL = isPjsUpstream = isSslUpstream = False
@@ -3908,11 +4147,9 @@ class SynchronousRequestForwarder(RequestForwarder):
    def connect(self, *args, **kwargs): raise Exception("CONNECT is not implemented in WSGI mode") # so connectPort etc not needed
    def myfinish(self): pass
 
-class AliveResponder(RequestHandler):
-    SUPPORTED_METHODS = ("GET",)
-    def get(self, *args, **kwargs): self.write("1")
-
-kept_tempfiles = {}
+# --------------------------------------------------
+# URL/search box & general "end-user interface" support
+# --------------------------------------------------
 
 def addArgument(url,extraArg):
     if '#' in url: url,hashTag = url.split('#',1)
@@ -3975,6 +4212,10 @@ document.write('<a href="javascript:history.go(-1)">Back to previous page</a>')
 //--></script>"""
 # (HTML5 defaults type to text/javascript, as do all pre-HTML5 browsers including NN2's 'script language="javascript"' thing, so we might as well save a few bytes)
 
+# --------------------------------------------------
+# Ruby CSS support for Chinese/Japanese annotators etc
+# --------------------------------------------------
+
 rubyCss1 = "ruby{display:inline-table;vertical-align:bottom;-webkit-border-vertical-spacing:1px;padding-top:0.5ex;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}"
 rubyScript = '<style>'+rubyCss1+'</style>'
 # And the following hack is to stop the styles in the 'noscript' and the variable (and any others) from being interpreted if an HTML document with this processing is accidentally referenced as a CSS source (which can mess up ruby):
@@ -3988,6 +4229,10 @@ rubyEndScript = """
 <script><!--
 function treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!="SCRIPT" && c.nodeName!="TEXTAREA" && !(c.nodeName=="A" && c.href)) { treewalk(c); if(c.nodeName=="RUBY" && c.title && !c.onclick) c.onclick=Function("alert(this.title)") } c=c.nextSibling; } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);
 //--></script>"""
+
+# --------------------------------------------------
+# Support accessing our text processing via bookmarklet
+# --------------------------------------------------
 
 def bookmarklet(submit_url,local_submit_url):
     # Returns JS code to write out the bookmarklet.
@@ -4109,9 +4354,9 @@ def addRubyScript():
     return r"""all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML="%s"; d.body.insertBefore(e,d.body.firstChild);
     e=d.createElement('span'); e.innerHTML="%s"; d.body.appendChild(e); d.rubyScriptAdded=1 });""" % (quote_for_JS_doublequotes(rScript),quote_for_JS_doublequotes(rubyEndScript))
 
-def unlink(fn):
-    try: os.unlink(fn)
-    except: pass
+# --------------------------------------------------
+# Text processing etc: handle running arbitrary filters
+# --------------------------------------------------
 
 def runFilter(cmd,text,callback,textmode=True):
 
@@ -4161,6 +4406,236 @@ def sync_runFilter(cmd,text,callback,textmode=True):
         if not out: out=""
         if not err: err="" # TODO: else logging.debug ? (some stderr might be harmless; don't want to fill normal logs)
     callback(out,err)
+
+def json_reEscape(u8str): return json.dumps(u8str.decode('utf-8','replace'))[1:-1] # omit ""s (necessary as we might not have the whole string here)
+
+def runFilterOnText(cmd,codeTextList,callback,escape=False,separator=None,prefix=""):
+    # codeTextList is a list of alternate [code, text, code, text, code]. Any 'text' element can itself be a list of [code, text, code] etc.
+    # Pick out all the 'text' elements, separate them, send to the filter, and re-integrate assuming separators preserved
+    # If escape is True, on re-integration escape anything that comes under a top-level 'text' element so they can go into JSON strings (see find_HTML_in_JSON)
+    if not separator: separator = options.separator
+    if not separator: separator="\n"
+    def getText(l,replacements=None,codeAlso=False,alwaysEscape=False):
+        isTxt = False ; r = [] ; rLine = 0
+        def maybeEsc(x):
+            if escape and replacements and (isTxt or alwaysEscape): return json_reEscape(x)
+            else: return x
+        for i in l:
+            if isTxt:
+                if type(i)==type([]):
+                  if i: # (skip empty lists)
+                    if replacements==None: repl=None
+                    else:
+                        cl = countItems(i) # >= 1 (site might already use separator)
+                        repl=replacements[rLine:rLine+cl]
+                        rLine += cl
+                    r += getText(i,repl,codeAlso,True)
+                elif replacements==None: r.append(maybeEsc(i))
+                else:
+                    cl = countItems(["",i]) # >= 1 (site might already use separator)
+                    r.append(maybeEsc(separator.join(rpl.replace(chr(0),"&lt;NUL&gt;") for rpl in replacements[rLine:rLine+cl]))) # there shouldn't be any chr(0)s in the o/p, but if there are, don't let them confuse things
+                    rLine += cl
+            elif codeAlso: r.append(maybeEsc(i))
+            isTxt = not isTxt
+        return r
+    def countItems(l): return len(separator.join(getText(l)).split(separator))
+    text = getText(codeTextList)
+    toSend = separator.join(text).replace('\xe2\x80\x8b','') # the .replace is for U+200B, for some sites that use zero-width spaces between words that can upset some annotators (TODO: document)
+    if separator == options.separator:
+        toSend=separator+toSend+separator
+        sortout = lambda out:out.split(separator)[1:-1]
+    else: sortout = lambda out:out.split(separator)
+    runFilter(cmd,prefix+toSend,lambda out,err:callback("".join(getText(codeTextList,sortout(out),True)),err))
+
+def latin1decode(htmlStr):
+    # back to bytes (hopefully UTF-8)
+    if type(htmlStr)==type(u""):
+        return htmlStr.encode('latin1')
+    else: return htmlStr
+
+def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in utf-8
+    if options.useLXML:
+        return LXML_find_text_in_HTML(htmlStr)
+    class Parser(HTMLParser):
+        def shouldStripTag(self,tag):
+            self.ignoredLastTag = (tag.lower() in options.stripTags and (self.ignoredLastTag or self.getBytePos()==self.lastCodeStart))
+            return self.ignoredLastTag
+        def handle_starttag(self, tag, attrs):
+            if self.shouldStripTag(tag): return
+            if tag in options.leaveTags:
+                self.ignoreData=True
+        def handle_endtag(self, tag):
+            if self.shouldStripTag(tag): return
+            if tag in options.leaveTags:
+                self.ignoreData=False
+            # doesn't check for nesting or balancing
+            # (documented limitation)
+        def getBytePos(self): # TODO: duplicate code
+            line,offset = self.getpos()
+            while line>self.knownLine:
+                self.knownLine += 1
+                self.knownLinePos=htmlStr.find('\n',self.knownLinePos)+1
+            return self.knownLinePos + offset
+        def handle_data(self,data,datalen=None):
+            if self.ignoreData or not data.strip():
+                return # keep treating it as code
+            if datalen==None: data = latin1decode(data)
+            dataStart = self.getBytePos()
+            if self.codeTextList and (self.ignoredLastTag or dataStart == self.lastCodeStart): # no intervening code, merge (TODO reduce string concatenation?)
+                self.codeTextList[-1] += data
+            else:
+                self.codeTextList.append(latin1decode(htmlStr[self.lastCodeStart:dataStart]))
+                self.codeTextList.append(data)
+            if datalen==None: datalen = len(data) # otherwise we're overriding it for entity refs etc
+            self.lastCodeStart = dataStart+datalen
+        def handle_entityref(self,name):
+            if name in htmlentitydefs.name2codepoint and not name in ['lt','gt','amp']: self.handle_data(unichr(htmlentitydefs.name2codepoint[name]).encode('utf-8'),len(name)+2)
+        def handle_charref(self,name):
+            if name.startswith('x'): d=unichr(int(name[1:],16))
+            else: d=unichr(int(name))
+            if d in u'<>&': pass # leave entity ref as-is
+            else: self.handle_data(d.encode('utf-8'),len(name)+3)
+    parser = Parser()
+    parser.codeTextList = [] ; parser.lastCodeStart = 0
+    parser.knownLine = 1 ; parser.knownLinePos = 0
+    parser.ignoreData = parser.ignoredLastTag = False
+    htmlStr = fixHTML(htmlStr)
+    err=""
+    try:
+        parser.feed(htmlStr) ; parser.close()
+    except UnicodeDecodeError, e:
+        # sometimes happens in parsing the start of a tag in duff HTML (possibly emitted by a duff htmlFilter if we're currently picking out text for the renderer)
+        try: err="UnicodeDecodeError at bytes %d-%d: %s" % (e.start,e.end,e.reason)
+        except: err = "UnicodeDecodeError"
+    except HTMLParseError, e: # rare?
+        try: err="HTMLParseError: "+e.msg+" at "+str(e.lineno)+":"+str(e.offset) # + ' after '+repr(htmlStr[parser.lastCodeStart:])
+        except: err = "HTMLParseError"
+        logging.info("WARNING: find_text_in_HTML finishing early due to "+err)
+    # If either of the above errors occur, we leave the rest of the HTML as "code" i.e. unchanged
+    if len(parser.codeTextList)%2: parser.codeTextList.append("") # ensure len is even before appending the remaining code (adjustment is required only if there was an error)
+    if not options.renderDebug: err=""
+    elif err: err="<!-- "+err+" -->"
+    parser.codeTextList.append(err+latin1decode(htmlStr[parser.lastCodeStart:]))
+    return parser.codeTextList
+
+def LXML_find_text_in_HTML(htmlStr):
+    class Parser:
+        def shouldStripTag(self,tag):
+            self.ignoredLastTag = (tag.lower() in options.stripTags and (self.ignoredLastTag or not self.out))
+            return self.ignoredLastTag
+        def start(self, tag, attrs):
+            sst = self.shouldStripTag(tag)
+            self.out.append(encodeTag(tag,dict((k,v.encode('utf-8')) for k,v in dict(attrs).items())))
+            if (not sst) and tag in options.leaveTags:
+                self.ignoreData=True
+                if tag in ['script','style']: self.ignoreData = 2 # TODO: document this hack (see below).  It relies on 'script' and 'style' being in leaveTags (as it is by default).  Needed for at least some versions of LXML.
+        def end(self, tag):
+            sst = self.shouldStripTag(tag)
+            if tag not in html_tags_not_needing_ends:
+                self.out.append("</"+tag+">")
+            if (not sst) and tag in options.leaveTags:
+                self.ignoreData=False
+        def data(self,unidata):
+            data = unidata.encode('utf-8')
+            if not self.ignoreData==2: data = ampEncode(data) # we want entity refs (which we assume to have been decoded by LXML) to be left as-is.  But DON'T do this in 'script' or 'style' - it could mess everything up (at least some versions of lxml already treat these as cdata)
+            if self.ignoreData or not data.strip():
+                self.out.append(data) ; return
+            if self.ignoredLastTag: self.out = []
+            out = "".join(self.out)
+            if self.codeTextList and not out:
+                # merge (TODO reduce string concatenation?)
+                self.codeTextList[-1] += data
+            else:
+                self.codeTextList.append(out)
+                self.codeTextList.append(data)
+            self.out = []
+        def comment(self,text): # TODO: same as above's def comment
+            self.out.append("<!--"+text.encode('utf-8')+"-->")
+        def close(self): pass
+    parser = Parser() ; parser.out = []
+    parser.codeTextList = []
+    parser.ignoreData = parser.ignoredLastTag = False
+    lparser = etree.HTMLParser(target=parser)
+    etree.parse(StringIO(htmlStr.decode('utf-8','replace')), lparser)
+    if len(parser.codeTextList)%2: parser.codeTextList.append("")
+    parser.codeTextList.append("".join(parser.out))
+    return parser.codeTextList
+
+def find_HTML_in_JSON(jsonStr,htmlListFunc=None):
+    # makes a codeTextList from JSON, optionally calling
+    # htmlListFunc to make codeTextLists from any HTML
+    # parts it finds.  Unescapes the HTML parts.
+    def afterQuoteEnd(i):
+        while i<len(jsonStr):
+            i += 1
+            if jsonStr[i]=='\\': i += 2
+            if jsonStr[i]=='"': return i+1
+        return -1
+    def looks_like_HTML(s): return "<div " in s.lower() or "<span " in s.lower() # TODO: more?
+    codeTextList = [] ; i=j=0
+    while True:
+        j=jsonStr.find('"',j)
+        if j==-1: break
+        k = afterQuoteEnd(j)
+        if k==-1: break
+        assert type(jsonStr)==type("")
+        try: html = json.loads(jsonStr[j:k]).encode('utf-8')
+        except: html = None
+        if html and looks_like_HTML(html):
+            codeTextList.append(jsonStr[i:j+1]) # code (include opening quote, necessary as see the dumps comment)
+            if htmlListFunc: html = htmlListFunc(html)
+            codeTextList.append(html) # text
+            i = k-1 # on the closing quote
+        j = k
+    codeTextList.append(jsonStr[i:])
+    return codeTextList
+
+# --------------------------------------------------
+# HTML character-set rewriting
+# --------------------------------------------------
+
+def extractCharsetEquals(value):
+    charset=value[value.index("charset=")+len("charset="):]
+    if ';' in charset: charset=charset[:charset.index(';')]
+    return charset
+
+def get_httpequiv_charset(htmlStr):
+    class Finished:
+        def __init__(self,charset=None,tagStart=None,tagEnd=None):
+            self.charset,self.tagStart,self.tagEnd = charset,tagStart,tagEnd
+    class Parser(HTMLParser): # better not use LXML yet...
+        def handle_starttag(self, tag, attrs):
+            if tag=="body": raise Finished() # only interested in head
+            attrs = dict(attrs)
+            if tag=="meta" and attrs.get("http-equiv",attrs.get("http_equiv","")).lower()=="content-type" and "charset=" in attrs.get("content","").lower():
+                charset = extractCharsetEquals(attrs['content'].lower())
+                line,offset = self.getpos() ; knownLine = 1 ; knownLinePos = 0
+                while line>knownLine:
+                    knownLine += 1
+                    knownLinePos=htmlStr.find('\n',knownLinePos)+1
+                tagStart = knownLinePos + offset
+                tagEnd = htmlStr.index(">",tagStart)+1
+                raise Finished(charset,tagStart,tagEnd)
+        def handle_endtag(self, tag):
+            if tag=="head": raise Finished() # as above
+    parser = Parser()
+    htmlStr = fixHTML(htmlStr)
+    try:
+        parser.feed(htmlStr) ; parser.close()
+    except UnicodeDecodeError: pass
+    except HTMLParseError: pass
+    except Finished,e: return e.charset,e.tagStart,e.tagEnd
+    return None,None,None
+
+def get_and_remove_httpequiv_charset(body):
+    charset,tagStart,tagEnd = get_httpequiv_charset(body)
+    if charset: body = body[:tagStart]+body[tagEnd:]
+    if body.startswith('<?xml version="1.0" encoding'): body = '<?xml version="1.0"'+body[body.find("?>"):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
+    return charset, body
+
+# --------------------------------------------------
+# Options for running a foreground browser & stopping
+# --------------------------------------------------
 
 def runBrowser(*args):
     mainPid = os.getpid()
@@ -4212,84 +4687,9 @@ def stopServer(reason=None):
     if reason.startswith("SIG") and hasattr(IOLoop.instance(),"add_callback_from_signal"): IOLoop.instance().add_callback_from_signal(stop)
     else: IOLoop.instance().add_callback(stop)
 
-def json_reEscape(u8str): return json.dumps(u8str.decode('utf-8','replace'))[1:-1] # omit ""s (necessary as we might not have the whole string here)
-
-def runFilterOnText(cmd,codeTextList,callback,escape=False,separator=None,prefix=""):
-    # codeTextList is a list of alternate [code, text, code, text, code]. Any 'text' element can itself be a list of [code, text, code] etc.
-    # Pick out all the 'text' elements, separate them, send to the filter, and re-integrate assuming separators preserved
-    # If escape is True, on re-integration escape anything that comes under a top-level 'text' element so they can go into JSON strings (see find_HTML_in_JSON)
-    if not separator: separator = options.separator
-    if not separator: separator="\n"
-    def getText(l,replacements=None,codeAlso=False,alwaysEscape=False):
-        isTxt = False ; r = [] ; rLine = 0
-        def maybeEsc(x):
-            if escape and replacements and (isTxt or alwaysEscape): return json_reEscape(x)
-            else: return x
-        for i in l:
-            if isTxt:
-                if type(i)==type([]):
-                  if i: # (skip empty lists)
-                    if replacements==None: repl=None
-                    else:
-                        cl = countItems(i) # >= 1 (site might already use separator)
-                        repl=replacements[rLine:rLine+cl]
-                        rLine += cl
-                    r += getText(i,repl,codeAlso,True)
-                elif replacements==None: r.append(maybeEsc(i))
-                else:
-                    cl = countItems(["",i]) # >= 1 (site might already use separator)
-                    r.append(maybeEsc(separator.join(rpl.replace(chr(0),"&lt;NUL&gt;") for rpl in replacements[rLine:rLine+cl]))) # there shouldn't be any chr(0)s in the o/p, but if there are, don't let them confuse things
-                    rLine += cl
-            elif codeAlso: r.append(maybeEsc(i))
-            isTxt = not isTxt
-        return r
-    def countItems(l): return len(separator.join(getText(l)).split(separator))
-    text = getText(codeTextList)
-    toSend = separator.join(text).replace('\xe2\x80\x8b','') # the .replace is for U+200B, for some sites that use zero-width spaces between words that can upset some annotators (TODO: document)
-    if separator == options.separator:
-        toSend=separator+toSend+separator
-        sortout = lambda out:out.split(separator)[1:-1]
-    else: sortout = lambda out:out.split(separator)
-    runFilter(cmd,prefix+toSend,lambda out,err:callback("".join(getText(codeTextList,sortout(out),True)),err))
-
-def extractCharsetEquals(value):
-    charset=value[value.index("charset=")+len("charset="):]
-    if ';' in charset: charset=charset[:charset.index(';')]
-    return charset
-
-def get_httpequiv_charset(htmlStr):
-    class Finished:
-        def __init__(self,charset=None,tagStart=None,tagEnd=None):
-            self.charset,self.tagStart,self.tagEnd = charset,tagStart,tagEnd
-    class Parser(HTMLParser): # better not use LXML yet...
-        def handle_starttag(self, tag, attrs):
-            if tag=="body": raise Finished() # only interested in head
-            attrs = dict(attrs)
-            if tag=="meta" and attrs.get("http-equiv",attrs.get("http_equiv","")).lower()=="content-type" and "charset=" in attrs.get("content","").lower():
-                charset = extractCharsetEquals(attrs['content'].lower())
-                line,offset = self.getpos() ; knownLine = 1 ; knownLinePos = 0
-                while line>knownLine:
-                    knownLine += 1
-                    knownLinePos=htmlStr.find('\n',knownLinePos)+1
-                tagStart = knownLinePos + offset
-                tagEnd = htmlStr.index(">",tagStart)+1
-                raise Finished(charset,tagStart,tagEnd)
-        def handle_endtag(self, tag):
-            if tag=="head": raise Finished() # as above
-    parser = Parser()
-    htmlStr = fixHTML(htmlStr)
-    try:
-        parser.feed(htmlStr) ; parser.close()
-    except UnicodeDecodeError: pass
-    except HTMLParseError: pass
-    except Finished,e: return e.charset,e.tagStart,e.tagEnd
-    return None,None,None
-
-def get_and_remove_httpequiv_charset(body):
-    charset,tagStart,tagEnd = get_httpequiv_charset(body)
-    if charset: body = body[:tagStart]+body[tagEnd:]
-    if body.startswith('<?xml version="1.0" encoding'): body = '<?xml version="1.0"'+body[body.find("?>"):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
-    return charset, body
+# --------------------------------------------------
+# File conversion options (PDF, MP3 etc)
+# --------------------------------------------------
 
 pdftotext_suffix = epubtotext_suffix = ".TxT" # TODO: what if a server uses .pdf.TxT or .epub.TxT ?
 mp3lofi_suffix = "-lOfI.mP3"
@@ -4340,6 +4740,14 @@ class AddConversionLinks:
 def add_conversion_links(h,offsite_ok,isKindle):
     # (wrapper for when we can't avoid doing a special-case HTMLParser for it)
     return HTML_adjust_svc(h,[AddConversionLinks(offsite_ok,isKindle)],can_use_LXML=False) # False because we're likely dealing with a fragment inside JSON, not a complete HTML document
+
+def guessCMS(url,fmt):
+    # (TODO: more possibilities for this?  Option to HEAD all urls and return what they resolve to? but fetch-ahead might not be a good idea on all sites)
+    return fmt and options.guessCMS and "?" in url and "format="+fmt in url.lower() and not ((not fmt=="pdf") and "pdf" in url.lower())
+
+# --------------------------------------------------
+# Various HTML adjustment options
+# --------------------------------------------------
 
 class StripJSEtc:
     # Doesn't have to strip style= and on...= attributes (we'll do that separately) but DOES have to strip javascript: links when AddClickCodes isn't doing it (when AddClickCodes is doing it, we'll just see the PLACEHOLDER which hasn't yet been patched up, so let AddClickCodes do it itself in that case)
@@ -4409,21 +4817,6 @@ class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will pro
               return tag,attrsD
     def handle_endtag(self, tag): pass
     def handle_data(self,data): pass
-
-def guessCMS(url,fmt):
-    # (TODO: more possibilities for this?  Option to HEAD all urls and return what they resolve to? but fetch-ahead might not be a good idea on all sites)
-    return fmt and options.guessCMS and "?" in url and "format="+fmt in url.lower() and not ((not fmt=="pdf") and "pdf" in url.lower())
-
-def check_LXML():
-    # Might not find ALL problems with lxml installations, but at least we can check some basics
-    global etree, StringIO
-    try:
-        from lxml import etree
-        from StringIO import StringIO # not cStringIO, need Unicode
-        return etree.HTMLParser(target=None) # works on lxml 2.3.2
-    except ImportError: sys.stderr.write("LXML library not found - ignoring useLXML option\n")
-    except TypeError: sys.stderr.write("LXML library too old - ignoring useLXML option\n") # no target= option in 1.x
-    options.useLXML = False
 
 def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
     # Runs an HTMLParser on htmlStr, calling multiple adjusters on adjustList.
@@ -4592,49 +4985,6 @@ def transform_in_selected_tag(intag,transformFunc,events=False):
                 return transformFunc(data)
     return Adjustment()
 
-class AddClickCodes:
-    # add webdriver_click_code + clickID before any #
-    # don't put & or = in it due to checkViewsource's arglist processing, try ;id or -txt
-    def __init__(self,url): self.url = url
-    def init(self,parser):
-        self.parser = parser
-        self.linkStart = self.href = None
-        self.linkTexts = set() ; self.inA = 0
-    def handle_starttag(self, tag, attrs):
-        if not tag=="a": return
-        if self.inA==0: self.currentLinkText = ""
-        self.inA += 1
-        attrsD = dict(attrs)
-        if not ("onclick" in attrsD or attrsD.get("href","").startswith("javascript:")): return # not a js link
-        href = attrsD.get("href","")
-        if '#' in href: href = href[href.index('#'):]
-        else: href = ""
-        if "id" in attrsD: # we can rewrite it straight away
-            attrsD["href"] = self.url + webdriver_click_code + ';' + attrsD["id"] + href
-        else: # we have to wait to see the text inside it
-            self.linkStart = len(self.parser.out) # assumes further processing hasn't already appended anything
-            self.href = href
-            self.original_href = attrsD.get("href","#")
-            if self.original_href.startswith("javascript:"): self.original_href = "#" # take it out
-            attrsD["href"] = '"PLACEHOLDER"' + webdriver_click_code # make sure there's quotes in the placeholder so we always get quoted by encAtt (simplifies the back-off replace below)
-        return tag, attrsD
-    def handle_endtag(self, tag):
-        if not tag=="a": return
-        self.inA = max(self.inA-1,0)
-        if not self.linkStart: return
-        # DON'T try to write 'shortest unique text', because
-        # that can change if another link is clicked (e.g. if
-        # clicking the other link makes it disappear) and we
-        # don't know what state the page will be in + could
-        # end up with duplicate URLs.  Write full link text.
-        if self.currentLinkText in self.linkTexts: replaceWith = self.original_href.replace('&','&amp;').replace('"','&quot;') # oops, not unique, back off
-        else: replaceWith = self.url + webdriver_click_code + '-' + self.currentLinkText + self.href
-        self.linkTexts.add(self.currentLinkText)
-        self.parser.out[self.linkStart] = self.parser.out[self.linkStart].replace('&quot;PLACEHOLDER&quot;' + webdriver_click_code,replaceWith)
-        self.linkStart = None ; self.currentLinkText = ""
-    def handle_data(self,data):
-        if self.inA==1: self.currentLinkText += data
-
 def fixHTML(htmlStr):
     # some versions of Python's HTMLParser can't cope with missing spaces between attributes:
     if re.search(r'<[^>]*?= *"[^"]*"[A-Za-z]',htmlStr):
@@ -4653,222 +5003,9 @@ def fixHTML(htmlStr):
         htmlStr = htmlStr.decode('latin1')
     
     return htmlStr
-def latin1decode(htmlStr):
-    # back to bytes (hopefully UTF-8)
-    if type(htmlStr)==type(u""):
-        return htmlStr.encode('latin1')
-    else: return htmlStr
 
-def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in utf-8
-    if options.useLXML:
-        return LXML_find_text_in_HTML(htmlStr)
-    class Parser(HTMLParser):
-        def shouldStripTag(self,tag):
-            self.ignoredLastTag = (tag.lower() in options.stripTags and (self.ignoredLastTag or self.getBytePos()==self.lastCodeStart))
-            return self.ignoredLastTag
-        def handle_starttag(self, tag, attrs):
-            if self.shouldStripTag(tag): return
-            if tag in options.leaveTags:
-                self.ignoreData=True
-        def handle_endtag(self, tag):
-            if self.shouldStripTag(tag): return
-            if tag in options.leaveTags:
-                self.ignoreData=False
-            # doesn't check for nesting or balancing
-            # (documented limitation)
-        def getBytePos(self): # TODO: duplicate code
-            line,offset = self.getpos()
-            while line>self.knownLine:
-                self.knownLine += 1
-                self.knownLinePos=htmlStr.find('\n',self.knownLinePos)+1
-            return self.knownLinePos + offset
-        def handle_data(self,data,datalen=None):
-            if self.ignoreData or not data.strip():
-                return # keep treating it as code
-            if datalen==None: data = latin1decode(data)
-            dataStart = self.getBytePos()
-            if self.codeTextList and (self.ignoredLastTag or dataStart == self.lastCodeStart): # no intervening code, merge (TODO reduce string concatenation?)
-                self.codeTextList[-1] += data
-            else:
-                self.codeTextList.append(latin1decode(htmlStr[self.lastCodeStart:dataStart]))
-                self.codeTextList.append(data)
-            if datalen==None: datalen = len(data) # otherwise we're overriding it for entity refs etc
-            self.lastCodeStart = dataStart+datalen
-        def handle_entityref(self,name):
-            if name in htmlentitydefs.name2codepoint and not name in ['lt','gt','amp']: self.handle_data(unichr(htmlentitydefs.name2codepoint[name]).encode('utf-8'),len(name)+2)
-        def handle_charref(self,name):
-            if name.startswith('x'): d=unichr(int(name[1:],16))
-            else: d=unichr(int(name))
-            if d in u'<>&': pass # leave entity ref as-is
-            else: self.handle_data(d.encode('utf-8'),len(name)+3)
-    parser = Parser()
-    parser.codeTextList = [] ; parser.lastCodeStart = 0
-    parser.knownLine = 1 ; parser.knownLinePos = 0
-    parser.ignoreData = parser.ignoredLastTag = False
-    htmlStr = fixHTML(htmlStr)
-    err=""
-    try:
-        parser.feed(htmlStr) ; parser.close()
-    except UnicodeDecodeError, e:
-        # sometimes happens in parsing the start of a tag in duff HTML (possibly emitted by a duff htmlFilter if we're currently picking out text for the renderer)
-        try: err="UnicodeDecodeError at bytes %d-%d: %s" % (e.start,e.end,e.reason)
-        except: err = "UnicodeDecodeError"
-    except HTMLParseError, e: # rare?
-        try: err="HTMLParseError: "+e.msg+" at "+str(e.lineno)+":"+str(e.offset) # + ' after '+repr(htmlStr[parser.lastCodeStart:])
-        except: err = "HTMLParseError"
-        logging.info("WARNING: find_text_in_HTML finishing early due to "+err)
-    # If either of the above errors occur, we leave the rest of the HTML as "code" i.e. unchanged
-    if len(parser.codeTextList)%2: parser.codeTextList.append("") # ensure len is even before appending the remaining code (adjustment is required only if there was an error)
-    if not options.renderDebug: err=""
-    elif err: err="<!-- "+err+" -->"
-    parser.codeTextList.append(err+latin1decode(htmlStr[parser.lastCodeStart:]))
-    return parser.codeTextList
-
-def LXML_find_text_in_HTML(htmlStr):
-    class Parser:
-        def shouldStripTag(self,tag):
-            self.ignoredLastTag = (tag.lower() in options.stripTags and (self.ignoredLastTag or not self.out))
-            return self.ignoredLastTag
-        def start(self, tag, attrs):
-            sst = self.shouldStripTag(tag)
-            self.out.append(encodeTag(tag,dict((k,v.encode('utf-8')) for k,v in dict(attrs).items())))
-            if (not sst) and tag in options.leaveTags:
-                self.ignoreData=True
-                if tag in ['script','style']: self.ignoreData = 2 # TODO: document this hack (see below).  It relies on 'script' and 'style' being in leaveTags (as it is by default).  Needed for at least some versions of LXML.
-        def end(self, tag):
-            sst = self.shouldStripTag(tag)
-            if tag not in html_tags_not_needing_ends:
-                self.out.append("</"+tag+">")
-            if (not sst) and tag in options.leaveTags:
-                self.ignoreData=False
-        def data(self,unidata):
-            data = unidata.encode('utf-8')
-            if not self.ignoreData==2: data = ampEncode(data) # we want entity refs (which we assume to have been decoded by LXML) to be left as-is.  But DON'T do this in 'script' or 'style' - it could mess everything up (at least some versions of lxml already treat these as cdata)
-            if self.ignoreData or not data.strip():
-                self.out.append(data) ; return
-            if self.ignoredLastTag: self.out = []
-            out = "".join(self.out)
-            if self.codeTextList and not out:
-                # merge (TODO reduce string concatenation?)
-                self.codeTextList[-1] += data
-            else:
-                self.codeTextList.append(out)
-                self.codeTextList.append(data)
-            self.out = []
-        def comment(self,text): # TODO: same as above's def comment
-            self.out.append("<!--"+text.encode('utf-8')+"-->")
-        def close(self): pass
-    parser = Parser() ; parser.out = []
-    parser.codeTextList = []
-    parser.ignoreData = parser.ignoredLastTag = False
-    lparser = etree.HTMLParser(target=parser)
-    etree.parse(StringIO(htmlStr.decode('utf-8','replace')), lparser)
-    if len(parser.codeTextList)%2: parser.codeTextList.append("")
-    parser.codeTextList.append("".join(parser.out))
-    return parser.codeTextList
-
-def find_HTML_in_JSON(jsonStr,htmlListFunc=None):
-    # makes a codeTextList from JSON, optionally calling
-    # htmlListFunc to make codeTextLists from any HTML
-    # parts it finds.  Unescapes the HTML parts.
-    def afterQuoteEnd(i):
-        while i<len(jsonStr):
-            i += 1
-            if jsonStr[i]=='\\': i += 2
-            if jsonStr[i]=='"': return i+1
-        return -1
-    def looks_like_HTML(s): return "<div " in s.lower() or "<span " in s.lower() # TODO: more?
-    codeTextList = [] ; i=j=0
-    while True:
-        j=jsonStr.find('"',j)
-        if j==-1: break
-        k = afterQuoteEnd(j)
-        if k==-1: break
-        assert type(jsonStr)==type("")
-        try: html = json.loads(jsonStr[j:k]).encode('utf-8')
-        except: html = None
-        if html and looks_like_HTML(html):
-            codeTextList.append(jsonStr[i:j+1]) # code (include opening quote, necessary as see the dumps comment)
-            if htmlListFunc: html = htmlListFunc(html)
-            codeTextList.append(html) # text
-            i = k-1 # on the closing quote
-        j = k
-    codeTextList.append(jsonStr[i:])
-    return codeTextList
-
-def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyRequest=False,isSslUpstream=False):
-    if isProxyRequest: # called for Location: headers etc (not for document bodies)
-        if upstream_rewrite_ssl and not isSslUpstream:
-            # Although we don't need a full domain_process when the client is sending us a proxy request, we still have to beware of our UPstream proxy saying .0 in a Location: URL due to upstream_rewrite_ssl: take it out
-            m = re.match(r"http(://[A-Za-z0-9.-]*)\.0(?![A-Za-z0-9.-])",text)
-            if m: return "https"+m.group(1)
-        return text
-    # Change the domains on appropriate http:// and https:// URLs.
-    # Also on // URLs using 'https' as default (if it's not None).
-    # Hope that there aren't any JS-computed links where
-    # the domain is part of the computation.
-    # TODO: what of links to alternate ports or user:password links, currently we leave them unchanged (could use .<portNo> as an extension of the 'HTTPS hack' of .0, but allowing the public to request connects to any port could be a problem, and IP addresses would have to be handled carefully: can no longer rely on ".0 used to mean the network" sort-of saving us)
-    # TODO: leave alone URLs in HTML text/comments and JS comments? but script overload can make it hard to judge what is and isn't text. (NB this function is also called for Location headers)
-    if "<!DOCTYPE" in text:
-        # don't touch URLs inside the doctype!
-        dtStart = text.index("<!DOCTYPE")
-        dtEnd = text.find(">",dtStart)
-    else: dtStart = dtEnd = -1
-    def mFunc(m):
-        if dtStart<m.start()<dtEnd: return m.group() # avoid doctype
-        i = m.start()
-        if i and text[i-1].split() and text[:i].rsplit(None,1)[-1].startswith("xmlns"): return m.group() # avoid xmlns="... xmlns:elementname='... etc
-        protocol,oldhost = m.groups()
-        if oldhost[-1] in ".-": return m.group() # omit links ending with . or - because they're likely to be part of a domain computation; such things are tricky but might be more likely to work if we DON'T touch them if it has e.g. "'test.'+domain" where "domain" is a variable that we've previously intercepted
-        if protocol=="//":
-            if https: protocol = "https://"
-            else: protocol = "http://"
-        if protocol=="https://": oldhost += ".0" # HTTPS hack (see protocolAndHost)
-        newHP = "http://" + convert_to_requested_host(oldhost,cookieHost) # TODO: unless using https to communicate with the adjuster itself, in which case would either have to run a server with certificates set up or make it a WSGI-etc script running on one, and if that's the case then might wish to check through the rest of the code (search http://) to ensure this would always work well
-        if newHP.endswith(".0"): return m.group() # undo HTTPS hack if we have no wildcard_dns and convert_to_requested_host sent that URL off-site
-        return newHP
-    if stopAtOne: count=1
-    else: count=0
-    return re.sub(r"((?:https?://)|(?:(?<=['"+'"'+r"])//))([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)",mFunc,text,count) # http:// https:// or "// in scripts (but TODO: it won't pick up things like host="www.example.com"; return "https://"+host, also what about embedded IPv6 addresses i.e. \[[0-9a-fA-F:]*\] in place of hostnames (and what should we rewrite them to?)  Hopefully IPv6-embedding is rare as such sites wouldn't be usable by IPv4-only users (although somebody might have IPv6-specific versions of their pages/servers); if making Web Adjuster IPv6 ready, also need to check all instances of using ':' to split host from port as this won't be the case if host is '[' + IPv6 + ']'.  Splitting off hostname from protocol is more common though, e.g. used in Google advertising iframes 2017-06)
-
-def cookie_domain_process(text,cookieHost=None):
-    start=0
-    while True:
-        i = text.lower().find("; domain=",start)
-        if i==-1: break
-        i += len("; domain=")
-        if text[i]=='.': i += 1 # leading . on the cookie (TODO: what if we're not wildcard_dns?)
-        j = i
-        while j<len(text) and not text[j]==';': j += 1
-        newhost = convert_to_requested_host(text[i:j],cookieHost)
-        if ':' in newhost: newhost=newhost[:newhost.index(':')] # apparently you don't put the port number, see comment in authenticates_ok
-        if newhost==text[i:j] and cookieHost and cookieHost.endswith(text[i:j]): newhost = convert_to_requested_host(cookieHost,cookieHost) # cookie set server.example.org instead of www.server.example.org; we can deal with that
-        text = text[:i] + newhost + text[j:]
-        j=i+len(newhost)
-        start = j
-    return text
-
-def can_do_cookie_host():
-    return "" in options.default_site.split("/")
-
-def url_is_ours(url,cookieHost="cookie-host\n"):
-    # check if url has been through domain_process
-    if not url.startswith("http://"): return False
-    url=url[len("http://"):]
-    if '/' in url:
-        url,rest=url.split('/',1)
-        rest = '/'+rest
-    else: rest = ""
-    if '?' in url:
-        url,r2=url.split('?',1)
-        rest = '?'+r2+rest
-    rh = convert_to_real_host(url,cookieHost)
-    if rh and type(rh)==type("") and not rh==url:
-        # (exact value is used by RewriteExternalLinks)
-        if rh.endswith(".0"): r="https://"+rh[:-2]
-        else: r="http://"+rh
-        return r + rest
 def js_process(body,url):
+    # Change Javascript code on its way to the end-user
     for prefix, srch, rplac in codeChanges:
         times = None
         if prefix.startswith('*'): cond = (prefix[1:] in body)
@@ -4901,71 +5038,6 @@ def process_delete_css(body,url):
             body = re.sub(s,r,body)
         else: body=re.sub(d,"",body)
     return body
-
-detect_iframe = """(window.frameElement && window.frameElement.nodeName.toLowerCase()=="iframe" && function(){var i=window.location.href.indexOf("/",7); return (i>-1 && window.top.location.href.slice(0,i)==window.location.href.slice(0,i))}())""" # expression that's true if we're in an iframe that belongs to the same site, so can omit reminders etc
-def reloadSwitchJS(cookieName,jsCookieString,flipLogic,readableName,cookieHostToSet,cookieExpires,extraCondition=None):
-    # writes a complete <script> to switch something on/off by cookie and reload (TODO: non-JS version would be nice, but would mean intercepting more URLs)
-    # if flipLogic, "cookie=1" means OFF, default ON
-    # document.write includes a trailing space so another one can be added after
-    isOn,setOn,setOff = (cookieName+"=1" in jsCookieString),"1","0"
-    if flipLogic: isOn,setOn,setOff = (not isOn),setOff,setOn
-    if extraCondition: extraCondition = "&&"+extraCondition
-    else: extraCondition = ""
-    if cssReload_cookieSuffix and isOn: return r"""<script><!--
-if(!%s%s&&document.readyState!='complete')document.write("%s: On | "+'<a href="'+location.href.replace(location.hash,"")+'%s%s=%s">Off<\/a> ')
-//--></script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOff) # TODO: create a unique id for the link and # it ? (a test of this didn't always work on Opera Mini though)
-    elif cssReload_cookieSuffix: return r"""<script><!--
-if(!%s%s&&document.readyState!='complete')document.write("%s: "+'<a href="'+location.href.replace(location.hash,"")+'%s%s=%s">On<\/a> | Off ')
-//--></script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOn)
-    elif isOn: return r"""<script><!--
-if(!%s%s&&document.readyState!='complete')document.write("%s: On | "+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">Off<\/a> ')
-//--></script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOff,cookieHostToSet,cookieExpires,cookieName,setOff,cookieHostToSet,cookieExpires)
-    else: return r"""<script><!--
-if(!%s%s&&document.readyState!='complete')document.write("%s: "+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">On<\/a> | Off ')
-//--></script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOn,cookieHostToSet,cookieExpires,cookieName,setOn,cookieHostToSet,cookieExpires)
-
-def reloadSwitchJSMultiple(cookieName,jsCookieString,flipInitialItems,readableNames,cookieHostToSet,cookieExpires):
-    # flipInitialItems: for adjustNoFilter compatibility between one and multiple items, 1 means off, 0 (default) means 1st item, 2 means 2nd etc.  (Currently, this function is only ever called with flipInitialItems==True)
-    r = [r"""<script><!--
-if(!%s&&document.readyState!='complete'){document.write("%s: """ % (detect_iframe,readableNames[0])]
-    spanStart = 0
-    for i in range(len(readableNames)):
-        if i: r.append(" | ")
-        if i==len(readableNames)-1:
-            rN = "Off"
-            if flipInitialItems: chk = "1"
-            else: chk = "0"
-        else:
-            if i==2:
-                spanStart = len(r)
-                r.append('<span id=adjustNoFilter>')
-                # (gets here if len(readableNames)>3; use this as ID because we already have transform_in_selected_tag on it) (NB if quoting the id, use r'\"' because we're in a document.write)
-            rN = readableNames[i+1]
-            if flipInitialItems:
-                if i: chk=str(i+1)
-                else: chk="0"
-            else: chk = str(i+1)
-        if i >= 9: chk="x"+str(len(chk))+"-"+chk # so we can continue to use the 'x in string' code without worrying about common prefixes 1, 10, 100 ...
-        isOn = (cookieName+"="+chk) in jsCookieString
-        if chk=="0" and not isOn and not cookieName+"=" in jsCookieString: isOn = 1 # default
-        if isOn:
-            r.append(rN)
-            if 2 <= i < len(readableNames)-1:
-                # want to keep it unhidden if an option is selected that's not in the first 2 and isn't the "Off"
-                del r[spanStart]
-                spanStart = 0
-        else: r.append(r""""+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">'+"%s<"+"\/a>""" % (cookieName,chk,cookieHostToSet,cookieExpires,cookieName,chk,cookieHostToSet,cookieExpires,rN))
-    if spanStart: r.append('<"+"/span>')
-    r.append(' ")')
-    if spanStart: r.append(r';if(document.getElementById){var v=document.getElementById("adjustNoFilter");if(v.innerHTML){v.OIH=v.innerHTML;if(v.OIH==v.innerHTML)v.innerHTML="<a href=\"#adjustNoFilter\" onClick=\"this.parentNode.innerHTML=this.parentNode.OIH;return false\">More<"+"/A>"; }}') # (hide the span by default, if browser has enough JS support to do it) (TODO: could do it with non-innerHTML DOM functionality if necessary, but that's more long-winded and might also need to look out for non-working 'this' functionality)
-    r.append('}\n//--></script>')
-    return "".join(r)
-
-def detect_renderCheck(): return r"""(document.getElementsByTagName && function(){var b=document.getElementsByTagName("BODY")[0],d=document.createElement("DIV"),s=document.createElement("SPAN"); if(!(b.appendChild && b.removeChild && s.innerHTML))return 0; d.appendChild(s); function wid(chr) { s.innerHTML = chr; b.appendChild(d); var width = s.offsetWidth; b.removeChild(d); return width; } var w1=wid("\u%s"),w2=wid("\uffff"),w3=wid("\ufffe"),w4=wid("\u2fdf"); return (w1!=w2 && w1!=w3 && w1!=w4)}())""" % options.renderCheck
-# ffff, fffe - guaranteed invalid by Unicode, but just might be treated differently by browsers
-# 2fdf unallocated character at end of Kangxi radicals block, hopefully won't be used
-#  do NOT use fffd, it's sometimes displayed differently to other unrenderable characters
-# Works even in Opera Mini, which must somehow communicate the client's font metrics to the proxy
 
 def htmlFind(html,markup):
     # basically html.lower().find(markup), but we need to be
@@ -5109,6 +5181,122 @@ if(document.getElementById) {
         html = html[:i]+bodyAppend+html[i:]
     return html
 
+# --------------------------------------------------
+# HTML adjustment to enable interaction w.server-run JS
+# --------------------------------------------------
+
+class AddClickCodes:
+    # add webdriver_click_code + clickID before any #
+    # don't put & or = in it due to checkViewsource's arglist processing, try ;id or -txt
+    def __init__(self,url): self.url = url
+    def init(self,parser):
+        self.parser = parser
+        self.linkStart = self.href = None
+        self.linkTexts = set() ; self.inA = 0
+    def handle_starttag(self, tag, attrs):
+        if not tag=="a": return
+        if self.inA==0: self.currentLinkText = ""
+        self.inA += 1
+        attrsD = dict(attrs)
+        if not ("onclick" in attrsD or attrsD.get("href","").startswith("javascript:")): return # not a js link
+        href = attrsD.get("href","")
+        if '#' in href: href = href[href.index('#'):]
+        else: href = ""
+        if "id" in attrsD: # we can rewrite it straight away
+            attrsD["href"] = self.url + webdriver_click_code + ';' + attrsD["id"] + href
+        else: # we have to wait to see the text inside it
+            self.linkStart = len(self.parser.out) # assumes further processing hasn't already appended anything
+            self.href = href
+            self.original_href = attrsD.get("href","#")
+            if self.original_href.startswith("javascript:"): self.original_href = "#" # take it out
+            attrsD["href"] = '"PLACEHOLDER"' + webdriver_click_code # make sure there's quotes in the placeholder so we always get quoted by encAtt (simplifies the back-off replace below)
+        return tag, attrsD
+    def handle_endtag(self, tag):
+        if not tag=="a": return
+        self.inA = max(self.inA-1,0)
+        if not self.linkStart: return
+        # DON'T try to write 'shortest unique text', because
+        # that can change if another link is clicked (e.g. if
+        # clicking the other link makes it disappear) and we
+        # don't know what state the page will be in + could
+        # end up with duplicate URLs.  Write full link text.
+        if self.currentLinkText in self.linkTexts: replaceWith = self.original_href.replace('&','&amp;').replace('"','&quot;') # oops, not unique, back off
+        else: replaceWith = self.url + webdriver_click_code + '-' + self.currentLinkText + self.href
+        self.linkTexts.add(self.currentLinkText)
+        self.parser.out[self.linkStart] = self.parser.out[self.linkStart].replace('&quot;PLACEHOLDER&quot;' + webdriver_click_code,replaceWith)
+        self.linkStart = None ; self.currentLinkText = ""
+    def handle_data(self,data):
+        if self.inA==1: self.currentLinkText += data
+
+# --------------------------------------------------
+# Options for allowing user to switch stylesheets etc
+# --------------------------------------------------
+
+detect_iframe = """(window.frameElement && window.frameElement.nodeName.toLowerCase()=="iframe" && function(){var i=window.location.href.indexOf("/",7); return (i>-1 && window.top.location.href.slice(0,i)==window.location.href.slice(0,i))}())""" # expression that's true if we're in an iframe that belongs to the same site, so can omit reminders etc
+def reloadSwitchJS(cookieName,jsCookieString,flipLogic,readableName,cookieHostToSet,cookieExpires,extraCondition=None):
+    # writes a complete <script> to switch something on/off by cookie and reload (TODO: non-JS version would be nice, but would mean intercepting more URLs)
+    # if flipLogic, "cookie=1" means OFF, default ON
+    # document.write includes a trailing space so another one can be added after
+    isOn,setOn,setOff = (cookieName+"=1" in jsCookieString),"1","0"
+    if flipLogic: isOn,setOn,setOff = (not isOn),setOff,setOn
+    if extraCondition: extraCondition = "&&"+extraCondition
+    else: extraCondition = ""
+    if cssReload_cookieSuffix and isOn: return r"""<script><!--
+if(!%s%s&&document.readyState!='complete')document.write("%s: On | "+'<a href="'+location.href.replace(location.hash,"")+'%s%s=%s">Off<\/a> ')
+//--></script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOff) # TODO: create a unique id for the link and # it ? (a test of this didn't always work on Opera Mini though)
+    elif cssReload_cookieSuffix: return r"""<script><!--
+if(!%s%s&&document.readyState!='complete')document.write("%s: "+'<a href="'+location.href.replace(location.hash,"")+'%s%s=%s">On<\/a> | Off ')
+//--></script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOn)
+    elif isOn: return r"""<script><!--
+if(!%s%s&&document.readyState!='complete')document.write("%s: On | "+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">Off<\/a> ')
+//--></script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOff,cookieHostToSet,cookieExpires,cookieName,setOff,cookieHostToSet,cookieExpires)
+    else: return r"""<script><!--
+if(!%s%s&&document.readyState!='complete')document.write("%s: "+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">On<\/a> | Off ')
+//--></script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOn,cookieHostToSet,cookieExpires,cookieName,setOn,cookieHostToSet,cookieExpires)
+
+def reloadSwitchJSMultiple(cookieName,jsCookieString,flipInitialItems,readableNames,cookieHostToSet,cookieExpires):
+    # flipInitialItems: for adjustNoFilter compatibility between one and multiple items, 1 means off, 0 (default) means 1st item, 2 means 2nd etc.  (Currently, this function is only ever called with flipInitialItems==True)
+    r = [r"""<script><!--
+if(!%s&&document.readyState!='complete'){document.write("%s: """ % (detect_iframe,readableNames[0])]
+    spanStart = 0
+    for i in range(len(readableNames)):
+        if i: r.append(" | ")
+        if i==len(readableNames)-1:
+            rN = "Off"
+            if flipInitialItems: chk = "1"
+            else: chk = "0"
+        else:
+            if i==2:
+                spanStart = len(r)
+                r.append('<span id=adjustNoFilter>')
+                # (gets here if len(readableNames)>3; use this as ID because we already have transform_in_selected_tag on it) (NB if quoting the id, use r'\"' because we're in a document.write)
+            rN = readableNames[i+1]
+            if flipInitialItems:
+                if i: chk=str(i+1)
+                else: chk="0"
+            else: chk = str(i+1)
+        if i >= 9: chk="x"+str(len(chk))+"-"+chk # so we can continue to use the 'x in string' code without worrying about common prefixes 1, 10, 100 ...
+        isOn = (cookieName+"="+chk) in jsCookieString
+        if chk=="0" and not isOn and not cookieName+"=" in jsCookieString: isOn = 1 # default
+        if isOn:
+            r.append(rN)
+            if 2 <= i < len(readableNames)-1:
+                # want to keep it unhidden if an option is selected that's not in the first 2 and isn't the "Off"
+                del r[spanStart]
+                spanStart = 0
+        else: r.append(r""""+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">'+"%s<"+"\/a>""" % (cookieName,chk,cookieHostToSet,cookieExpires,cookieName,chk,cookieHostToSet,cookieExpires,rN))
+    if spanStart: r.append('<"+"/span>')
+    r.append(' ")')
+    if spanStart: r.append(r';if(document.getElementById){var v=document.getElementById("adjustNoFilter");if(v.innerHTML){v.OIH=v.innerHTML;if(v.OIH==v.innerHTML)v.innerHTML="<a href=\"#adjustNoFilter\" onClick=\"this.parentNode.innerHTML=this.parentNode.OIH;return false\">More<"+"/A>"; }}') # (hide the span by default, if browser has enough JS support to do it) (TODO: could do it with non-innerHTML DOM functionality if necessary, but that's more long-winded and might also need to look out for non-working 'this' functionality)
+    r.append('}\n//--></script>')
+    return "".join(r)
+
+def detect_renderCheck(): return r"""(document.getElementsByTagName && function(){var b=document.getElementsByTagName("BODY")[0],d=document.createElement("DIV"),s=document.createElement("SPAN"); if(!(b.appendChild && b.removeChild && s.innerHTML))return 0; d.appendChild(s); function wid(chr) { s.innerHTML = chr; b.appendChild(d); var width = s.offsetWidth; b.removeChild(d); return width; } var w1=wid("\u%s"),w2=wid("\uffff"),w3=wid("\ufffe"),w4=wid("\u2fdf"); return (w1!=w2 && w1!=w3 && w1!=w4)}())""" % options.renderCheck
+# ffff, fffe - guaranteed invalid by Unicode, but just might be treated differently by browsers
+# 2fdf unallocated character at end of Kangxi radicals block, hopefully won't be used
+#  do NOT use fffd, it's sometimes displayed differently to other unrenderable characters
+# Works even in Opera Mini, which must somehow communicate the client's font metrics to the proxy
+
 def addCssHtmlAttrs(html,attrsToAdd):
    i=htmlFind(html,"<body")
    if i==-1: return html # TODO: what of HTML documents that lack <body> (and frameset), do we add one somewhere? (after any /head ??)
@@ -5119,6 +5307,10 @@ def addCssHtmlAttrs(html,attrsToAdd):
    for a in re.findall(r'[A-Za-z_0-9]+\=',attrsToAdd): attrs = attrs.replace(a,"old"+a) # disable corresponding existing attributes (if anyone still uses them these days)
    return html[:i] + attrs + " " + attrsToAdd + html[j:]
 
+# --------------------------------------------------
+# View-source support etc
+# --------------------------------------------------
+
 def ampEncode(t): return t.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
 # (needed below because these entities will be in cleartext to the renderer; also used by serve_mailtoPage to avoid cross-site scripting)
 def txt2html(t): return ampEncode(t).replace("\n","<br>")
@@ -5126,6 +5318,10 @@ def txt2html(t): return ampEncode(t).replace("\n","<br>")
 def ampDecode(t): return t.replace("&lt;","<").replace("&gt;",">").replace("&amp;","&")
 # ampDecode is needed if passing text with entity names to Renderer below (which ampEncode's its result and we might want it to render & < > chars)
 # (shouldn't need to cope with other named entities: find_text_in_HTML already processes all known ones in htmlentitydefs, and LXML also decodes all the ones it knows about)
+
+# --------------------------------------------------
+# Support old phones etc: CJK characters to images
+# --------------------------------------------------
 
 class Renderer:
     def __init__(self):
@@ -5238,29 +5434,9 @@ def imgDecode(code):
     elif code.startswith("_"): return unichr(int(code[1:],16)) # (see TODO above)
     else: return base64.b64decode(code).decode('utf-8','replace')
 
-ipv4_regexp = re.compile(r'^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$')
-def ipv4_to_int(ip):
-    m = re.match(ipv4_regexp,ip)
-    if m: return (int(m.group(1))<<24) | (int(m.group(2))<<16) | (int(m.group(3))<<8) | int(m.group(4)) # else None
-def ipv4range_to_ints(ip):
-    if '-' in ip: return tuple(ipv4_to_int(i) for i in ip.split('-'))
-    elif '/' in ip:
-        start,bits = ip.split('/')
-        start = ipv4_to_int(start)
-        return start, start | ~(-1 << (32-int(bits)))
-    else: return ipv4_to_int(ip),ipv4_to_int(ip)
-def ipv4ranges_func(ipRanges_and_results):
-    isIP = True ; rangeList=None ; fList = []
-    for field in ipRanges_and_results.split('|'):
-        if isIP: rangeList = [ipv4range_to_ints(i) for i in field.split(',')]
-        else: fList.append((rangeList,field))
-        isIP = not isIP
-    def f(ip):
-        ipInt = ipv4_to_int(ip)
-        for rl,result in fList:
-            if any((l<=ipInt<=h) for l,h in rl):
-                return result # else None
-    return f
+# --------------------------------------------------
+# Support pinging watchdogs and Dynamic DNS services
+# --------------------------------------------------
 
 class Dynamic_DNS_updater:
     def __init__(self):
@@ -5344,6 +5520,12 @@ class Dynamic_DNS_updater:
         subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE)
         self.forceTime=time.time()+options.ip_force_interval
 
+def open_upnp():
+    if options.ip_query_url2=="upnp":
+        global miniupnpc ; import miniupnpc # sudo pip install miniupnpc or apt-get install python-miniupnpc
+        miniupnpc = miniupnpc.UPnP()
+        miniupnpc.discoverdelay=200
+
 watchdog = None
 def openWatchdog():
     global watchdog
@@ -5392,6 +5574,11 @@ class WatchdogPings:
         if not options.watchdogWait: # run from main thread
             IOLoop.instance().add_timeout(time.time()+options.watchdog,lambda *args:self.ping())
         # else one ping only (see separate_thread)
+
+# --------------------------------------------------
+# Support for "slow server delegates to fast server"
+# (e.g. always-on Raspberry Pi + sometimes-on dev box)
+# --------------------------------------------------
 
 fasterServer_up = False
 def FSU_set(new_FSU,interval):
@@ -5458,6 +5645,10 @@ class checkServer:
         self.count = 0
 checkServer=checkServer()
 
+# --------------------------------------------------
+# Debugging and status dumps
+# --------------------------------------------------
+
 lastDebugMsg = "None" # for 'stopping watchdog ping'
 def debuglog(msg,logRepeats=True,stillIdle=False):
     # This function *must* return None.
@@ -5483,14 +5674,9 @@ def requestStatusDump(*args):
     "SIGUSR2 handler (requests status dump, currently from JS proxy only)" # TODO: document this (and that SIGUSR1 also calls it)
     global status_dump_requested ; status_dump_requested = True
 
-def check_injected_globals():
-    try: defined_globals
-    except: return
-    for s in set(globals().keys()).difference(defined_globals):
-        if s in options: errExit("Error: adjuster.%s should be adjuster.options.%s" % (s,s)) # (tell them off, don't try to patch up: this could go more subtly wrong if they do it again with something we happened to have defined in our module before)
-        elif type(eval(s)) in [str,bool,int]: errExit("Don't understand injected %s %s (misspelled option?)" % (repr(type(eval(s))),s))
+# --------------------------------------------------
+# And finally...
+# --------------------------------------------------
 
 if __name__ == "__main__": main()
-else:
-    defined_globals = True # so included in itself
-    defined_globals = set(globals().keys())
+else: setup_defined_globals() # for wrapper import
