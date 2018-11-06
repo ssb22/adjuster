@@ -1,18 +1,29 @@
 #!/usr/bin/env python
 
-program_name = "Web Adjuster v0.273 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.274 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-
+# 
 #     http://www.apache.org/licenses/LICENSE-2.0
-
+# 
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+# ================================================
+# Viewing this code in separate files
+# -----------------------------------
+# For ease of installation, adjuster.py is distributed
+# as a single Python file.  If you want to break it
+# into parts for easier code-reading, please run:
+#
+#   python adjuster.py --split-files
+# 
+# ================================================
 
 # If you want to compare this code to old versions, the old
 # versions are being kept in the E-GuideDog SVN repository on
@@ -25,6 +36,37 @@ program_name = "Web Adjuster v0.273 (c) 2012-18 Silas S. Brown"
 import sys,os
 twoline_program_name = program_name+"\nLicensed under the Apache License, Version 2.0"
 
+#@file: split-files.py
+# --------------------------------------------------
+# Split into separate files for easier code-viewing
+# --------------------------------------------------
+if '--split-files' in sys.argv:
+    d=open("adjuster.py").read()
+    assert not "\n#+# " in d
+    apache = "#+# \n#+# "+d.split("\n\n")[2].replace("\n","\n#+# ")+"\n#+# \n"
+    try: os.mkdir("src")
+    except: pass
+    os.chdir("src")
+    Makefile = open("Makefile","w")
+    Makefile.write("# automatically generated\n\nFiles=")
+    filesDone = set()
+    for f in ("\n#@file: top.py\n"+d).split("\n#@file: "):
+        try: fname,contents = f.split(None,1)
+        except: continue # e.g. before top.py
+        assert not fname in filesDone,"Duplicate "+fname
+        filesDone.add(fname)
+        print "Writing src/"+fname
+        out = open(fname,"w")
+        if not fname=="top.py":
+            out.write("#@file: "+fname+"\n"+apache)
+        out.write(contents)
+        if not fname=="end.py": out.write("\n")
+        Makefile.write(fname+" ")
+    print "Writing src/Makefile"
+    Makefile.write("\n\n../adjuster.py: $(Files)\n\tcat $(Files) | grep -v '^#[+]# ' > $@\n")
+    raise SystemExit
+
+#@file: import1-tornado.py
 # --------------------------------------------------
 # Basic Tornado import (or not if generating my website)
 # --------------------------------------------------
@@ -66,6 +108,7 @@ else: # normal run: go ahead with the import
         def define(*args,**kwargs): pass
 getfqdn_default = "is the machine's domain name" # default is ... (avoid calling getfqdn unnecessarily, as the server might be offline/experimental and we don't want to block on an nslookup with every adjuster start)
 
+#@file: options.py
 # --------------------------------------------------
 # Options and help text
 # --------------------------------------------------
@@ -359,11 +402,12 @@ if not tornado:
     print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <kbd>python adjuster.py --help</kbd> to see a full list of the ones available on your setup. They typically include <kbd>log_file_max_size</kbd>, <kbd>log_file_num_backups</kbd>, <kbd>log_file_prefix</kbd> and <kbd>log_to_stderr</kbd>." # and --logging=debug but that may generate a lot of entries from curl_httpclient
     raise SystemExit
 
+#@file: import2-other.py
 # --------------------------------------------------
 # Further imports
 # --------------------------------------------------
 
-import time,os,commands,string,urllib,urlparse,re,socket,logging,subprocess,threading,base64,htmlentitydefs,signal,traceback
+import time,os,commands,string,urllib,urllib2,urlparse,re,socket,logging,subprocess,threading,base64,htmlentitydefs,signal,traceback
 try: import simplejson as json # Python 2.5, and faster?
 except: import json # Python 2.6
 from HTMLParser import HTMLParser,HTMLParseError
@@ -382,6 +426,7 @@ try: # can we page the help text?
     tornado.options.options.__dict__['print_help'] = new_top
 except: raise
 
+#@file: domain-rewrite.py
 # --------------------------------------------------
 # Domain-rewriting service routines
 # --------------------------------------------------
@@ -536,6 +581,29 @@ def url_is_ours(url,cookieHost="cookie-host\n"):
         else: r="http://"+rh
         return r + rest
 
+def fixDNS(val,reqH):
+    # undo our domain rewrites (for Referer and for the path part of the URL); change http://X-0 to https://X (HTTPS hack)
+    start = 0
+    for http in ["http://", "http%3A%2F%2F",
+                 "https://", "https%3A%2F%2F"]:
+        if val.startswith(http):
+            start = len(http) ; break
+    i = start ; proto = val[:start]
+    while i<len(val) and val[i] in string.letters+string.digits+'.-': i += 1
+    if i<len(val) and val[i]==':': # port no.
+        i += 1
+        while i<len(val) and val[i] in string.digits: i += 1
+    if i==start: return val
+    r=convert_to_real_host(val[start:i],reqH.cookie_host())
+    if r in [-1,"error"]: # shouldn't happen
+        return val # (leave unchanged if it does)
+    elif not r: r="" # ensure it's a string
+    elif r.endswith(".0"): # undo HTTPS hack
+        r = r[:-2]
+        if proto and not proto.startswith("https"): proto=proto[:4]+'s'+proto[5:] # (TODO: what if not proto here?)
+    return proto+r+val[i:]
+
+#@file: config.py
 # --------------------------------------------------
 # Reading configuration files etc
 # --------------------------------------------------
@@ -846,6 +914,7 @@ def setup_defined_globals(): # see above
     defined_globals = True # so included in itself
     defined_globals = set(globals().keys())
 
+#@file: log-multi.py
 # --------------------------------------------------
 # Logging and busy-signalling (especially multicore)
 # --------------------------------------------------
@@ -923,6 +992,7 @@ def init429():
     CrossProcess429 = CrossProcess429()
     if CrossProcess429.needed(): CrossProcess429.init()
 
+#@file: log-whois-etc.py
 # --------------------------------------------------
 # WHOIS logging and browser logging
 # --------------------------------------------------
@@ -1019,6 +1089,7 @@ def initLogging_preListen():
     nullLog = NullLogger()
     accessLog = BrowserLogger()
 
+#@file: profile.py
 # --------------------------------------------------
 # Profiling and process naming
 # --------------------------------------------------
@@ -1135,6 +1206,7 @@ def setProcName(name="adjuster"):
         ctypes.cdll.LoadLibrary('libc.so.6').prctl(15,ctypes.byref(b),0,0,0)
     except: pass # oh well
 
+#@file: server-control.py
 # --------------------------------------------------
 # Start / stop / install
 # --------------------------------------------------
@@ -1220,6 +1292,7 @@ def run_netstat():
                 pids.add(int(ps[:ps.index('/')]))
     return pids
 
+#@file: ssl-multiprocess.py
 # --------------------------------------------------
 # Support for SSL termination in separate processes
 # --------------------------------------------------
@@ -1242,7 +1315,6 @@ def maybe_sslfork_monitor():
     global sslforks_to_monitor
     if not sslforks_to_monitor: return
     global sslfork_monitor_pid
-    import urllib2 # don't use IOLoop for this monitoring: too confusing if we have to restart it on fork
     pid = os.fork()
     if pid:
         sslfork_monitor_pid = pid ; return
@@ -1264,6 +1336,7 @@ def maybe_sslfork_monitor():
         if i < len(sslforks_to_monitor)-1:
             sslforks_to_monitor = [sslforks_to_monitor[i]]
             i = 0 # we'll monitor only one in the child
+        # don't use IOLoop for this monitoring: too confusing if we have to restart it on fork
         try: urlopen = urllib2.build_opener(urllib2.ProxyHandler({})).open # don't use the system proxy if set
         except: urlopen = urllib2.urlopen # wrong version?
         while True:
@@ -1305,6 +1378,7 @@ class AliveResponder(RequestHandler):
     SUPPORTED_METHODS = ("GET",)
     def get(self, *args, **kwargs): self.write("1")
 
+#@file: port-listen.py
 # --------------------------------------------------
 # Port listening - main, SSL-termination and JS-upstream
 # --------------------------------------------------
@@ -1468,6 +1542,7 @@ def setup_stdio():
             StdinPass.connect((options.address, port_randomise.get(options.port,options.port)), lambda *args:(StdinPass.write(''.join(StdinPending)),ClearPending(),StdinPass.read_until_close(lambda last:(sys.stdout.write(last),sys.stdout.close()),lambda chunk:sys.stdout.write(chunk))))
     IOLoop.instance().add_handler(sys.stdin.fileno(), doStdin, IOLoop.READ)
 
+#@file: up-down.py
 # --------------------------------------------------
 # General startup and shutdown tasks
 # --------------------------------------------------
@@ -1567,6 +1642,7 @@ def stop_threads0():
     os.killpg(os.getpgrp(),signal.SIGTERM)
     os.abort() # if the above didn't work, this should
 
+#@file: tornado-setup.py
 # --------------------------------------------------
 # Basic Tornado-server setup
 # --------------------------------------------------
@@ -1629,6 +1705,7 @@ def startServers():
         if core == "all" or core == coreNo:
             for port,s in sList: s.start()
 
+#@file: overload.py
 # --------------------------------------------------
 # Multicore: pause/restart when a core is overloaded
 # --------------------------------------------------
@@ -1661,6 +1738,7 @@ def reallyPauseOrRestartMainServer(shouldRun):
     mainServerReallyPaused = not mainServerReallyPaused
     debuglog("reallyPaused=%s on core %s" % (repr(mainServerReallyPaused),repr(coreNo)))
 
+#@file: workarounds.py
 # --------------------------------------------------
 # Miscellaneous bug workarounds
 # --------------------------------------------------
@@ -1728,6 +1806,7 @@ def check_LXML():
     except TypeError: sys.stderr.write("LXML library too old - ignoring useLXML option\n") # no target= option in 1.x
     options.useLXML = False
 
+#@file: unix.py
 # --------------------------------------------------
 # More setup: Unix forking, privileges etc
 # --------------------------------------------------
@@ -1757,6 +1836,7 @@ def notifyReady():
     sdnotify.SystemdNotifier().notify("READY=1") # so you can do an adjuster.service (w/out --background) with Type=notify and ExecStart=/usr/bin/python /path/to/adjuster.py --config=...
 # TODO: also send "WATCHDOG=1" so can use WatchdogSec ? (but multicore / js_interpreter could be a problem)
 
+#@file: curl-setup.py
 # --------------------------------------------------
 # cURL client setup
 # --------------------------------------------------
@@ -1824,6 +1904,7 @@ except: # Windows?
             return o()
     zlib = zlib()
 
+#@file: message-user.py
 # --------------------------------------------------
 # Support for showing messages to specific IP addresses
 # --------------------------------------------------
@@ -1859,6 +1940,7 @@ def ipv4ranges_func(ipRanges_and_results):
                 return result # else None
     return f
 
+#@file: connect-ssl.py
 # --------------------------------------------------
 # Service routines for CONNECT passing to SSL terminator
 # --------------------------------------------------
@@ -1894,6 +1976,7 @@ def writeOrError(opposite,name,stream,data):
         try: opposite.close() # (try to close the server stream we're reading if the client has gone away, and vice versa)
         except: pass
 
+#@file: misc.py
 # --------------------------------------------------
 # Miscellaneous variables
 # --------------------------------------------------
@@ -1915,6 +1998,7 @@ webdriver_click_code = "._adjustPJSC_"
 
 redirectFiles_Extensions=set("pdf epub mp3 aac zip gif png jpeg jpg exe tar tgz tbz ttf woff swf txt doc rtf midi mid wav ly c h py".split()) # TODO: make this list configurable + maybe add a "minimum content length before it's worth re-directing" option
 
+#@file: js-webdriver.py
 # --------------------------------------------------
 # Server-side Javascript execution support
 # --------------------------------------------------
@@ -2442,6 +2526,7 @@ def webdriver_fetch(url,prefetched,ua,clickElementID,clickLinkText,via,asScreens
     debuglog("webdriver_queue len=%d after adding %s" % (len(webdriver_queue),url))
     webdriver_checkServe() # safe as we're IOLoop thread
 
+#@file: http-rewrite.py
 # --------------------------------------------------
 # Service routines for basic HTTP header rewriting
 # --------------------------------------------------
@@ -2466,6 +2551,7 @@ rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Enco
                    'Range', # TODO: we can pass Range to remote server if and only if we guarantee not to need to change anything  (could also add If-Range and If-None-Match to the list, but these should be harmless to pass to the remote server and If-None-Match might actually help a bit in the case where the document doesn't change)
 ]
 
+#@file: request-forwarder.py
 # --------------------------------------------------
 # Our main RequestForwarder class.  Handles incoming
 # HTTP requests, generates requests to upstream servers
@@ -3077,41 +3163,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 elif txt[0]=='j': return self.serve_bookmarklet_json(filterNo)
                 elif txt[0]=='u': return self.serve_backend_post(filterNo)
                 elif txt[0] in 'iap':
-                    # Android or iOS instructions
-                    # (a=Android i=iPhone p=iPad)
-                    # (Similar technique does NOT work in Opera Mini 5.1.21594 or Opera Mobile 10.00 (both 2010) on Windows Mobile 6.1: can end up with a javascript: bookmark but it has no effect when selected)
-                    theSys = {"i":"iPhone","p":"iPad","a":"Android"}[txt[0]]
-                    title = None
-                    if '#' in options.htmlFilter:
-                        fNames=options.htmlFilterName.split('#')
-                        if filterNo+1 < len(fNames):
-                            title=fNames[filterNo+1]
-                    elif options.htmlFilterName:
-                        title=options.htmlFilterName
-                    if title: title += " on current page" # because page won't be visible while choosing bookmarks, unlike on desktops
-                    else: title=theSys+" bookmarklet - Web Adjuster" # will be the default name of the bookmark
-                    # TODO: we say txt[0]+'z' in the instructions to display on another device below, but if there are enough filters to get up to 'z' then the title on the other device will be whatever THAT filter is; might be better to just use txt in that situation
-                    i0 = "<h3>%s bookmarklet</h3>To install this bookmarklet on %s, follow the instructions below. You might want to take some notes first, because this page will <em>not</em> be displayed throughout the process! If you have another device, you can show another copy of these instructions on it by going to <kbd>http://%sz</kbd>" % (theSys, theSys, self.request.host+options.submitPath+txt[0])
-                    if "Firefox/" in self.request.headers.get("User-Agent",""): i0 += "<h4>Not Yet Working On Mobile Firefox!</h4>Please use Chrome/Safari.<p>TODO: extension for mobile Firefox?"
-                    i0 += "<h4>Instructions</h4><ol><li>"
-                    sharp = "<li>You should see a sharp sign (#). If you don't, you might have to scroll a little to the right to get it into view. When you see the sharp sign, press immediately to the right of it. (This can be difficult, depending on your eyesight and the size of your fingers. You must put the text cursor <em>immediately</em> to the right of that sharp. Keep trying until you get it in <em>exactly</em> the right place.)<li>Use the backspace key to delete everything up to and including the sharp. The code should now start with the word <code>javascript</code>.<li>"
-                    if txt[0] in 'ip':
-                        if txt[0]=='i': # iPhone
-                            menu="centre square button below"
-                            bookmarkOpt="Bookmark"
-                            bDone = "Done"
-                            bookmarks = "(one to the right of menu button below)"
-                        else: # iPad
-                            menu="look near the top right of the iPad's screen for a square button with an arrow going up"
-                            bookmarkOpt="Add Bookmark"
-                            bDone = "Save"
-                            bookmarks = "(look near the top left of the iPad's screen for an open book) if the bookmarks are not already showing"
-                        i0 += "Press Menu (%s) and choose %s, to bookmark <b>this</b> page<li>Change the name if you want, and press %s<li>Press Bookmarks %s<li>Press Edit (bottom left or bottom right)<li>Find the bookmark you made and press it<li>Long-press the <em>second</em> line to get the selection menu on it<li>Press Select<li>Gently drag the left-most marker over to the left so that it scrolls to the extreme left of the address%sPress \"Done\" three times to come back here." % (menu,bookmarkOpt,bDone,bookmarks,sharp)
-                    else: # Android
-                        i0 += "Press Menu and Save to Bookmarks, to bookmark <b>this</b> page (on some phones that option is just a drawing of a star)<li>Change the label if you want, but <b>do not</b> press OK<li>Long-press the <em>second</em> line to get the selection on it<li>Gently drag the marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"OK\" to come back here."
-                    i0 += "<li>The bookmarklet is now ready for use. Go to whatever page you want to use it on, and select it from the bookmarks to use it."
-                    if txt[0]=='a': i0 += " <b>On later versions of Android, it doesn't work to choose the bookmark directly</b>: you have to start typing <kbd>javascript:</kbd> in the URL box and select it that way."
-                    return self.doResponse2(htmlhead(title)+i0+"</ol></body></html>","noFilterOptions",False)
+                    return self.doResponse2(htmlhead(title)+android_ios_instructions(self.request.host,self.request.headers.get("User-Agent","")),"noFilterOptions",False)
             txt = zlib.decompressobj().decompress(base64.b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
             self.request.uri = "%s (input not logged, len=%d)" % (options.submitPath,len(txt))
         else: txt = self.request.arguments.get("i",None)
@@ -3413,28 +3465,6 @@ document.forms[0].i.focus()
         else: self.sendRequest(converterFlags,viewSource,isProxyRequest,follow_redirects=False) # (DON'T follow redirects - browser needs to know about them!)
     
     def change_request_headers(self,realHost,isProxyRequest):
-        def fixDNS(val):
-            # undo our domain rewrites (for Referer and for the path part of the URL); change http://X-0 to https://X (HTTPS hack)
-            if isProxyRequest: return val
-            start = 0
-            for http in ["http://", "http%3A%2F%2F",
-                         "https://", "https%3A%2F%2F"]:
-                if val.startswith(http):
-                    start = len(http) ; break
-            i = start ; proto = val[:start]
-            while i<len(val) and val[i] in string.letters+string.digits+'.-': i += 1
-            if i<len(val) and val[i]==':': # port no.
-                i += 1
-                while i<len(val) and val[i] in string.digits: i += 1
-            if i==start: return val
-            r=convert_to_real_host(val[start:i],self.cookie_host())
-            if r in [-1,"error"]: # shouldn't happen
-                return val # (leave unchanged if it does)
-            elif not r: r="" # ensure it's a string
-            elif r.endswith(".0"): # undo HTTPS hack
-                r = r[:-2]
-                if proto and not proto.startswith("https"): proto=proto[:4]+'s'+proto[5:] # (TODO: what if not proto here?)
-            return proto+r+val[i:]
         if options.default_cookies:
           for defaultCookie in options.default_cookies.split(';'):
             defaultCookie = defaultCookie.strip()
@@ -3461,7 +3491,7 @@ document.forms[0].i.focus()
         for v in self.request.headers.get_list("Referer"):
             if v:
                 self.original_referer = v
-                v = fixDNS(v)
+                if not isProxyRequest: v = fixDNS(v,self)
                 if enable_adjustDomainCookieName_URL_override: v = re.sub("[?&]"+re.escape(adjust_domain_cookieName)+"=[^&]*$","",v)
                 if v in ["","http://","http:///"]:
                     # it must have come from the URL box
@@ -3470,7 +3500,9 @@ document.forms[0].i.focus()
         for http in ["http://","http%3A%2F%2F"]: # xyz?q=http://... stuff
           if http in self.request.uri[1:]:
             u=self.request.uri.split(http)
-            for i in range(1,len(u)): u[i]=fixDNS(http+u[i])
+            if not isProxyRequest:
+                for i in range(1,len(u)):
+                    u[i]=fixDNS(http+u[i],self)
             self.request.uri="".join(u)
         self.removed_headers = []
         for h in rmClientHeaders:
@@ -3842,18 +3874,7 @@ document.forms[0].i.focus()
             runFilter("lame --quiet --mp3input -m m --abr %d - -o -" % options.bitrate,body,callback,False) # -m m = mono (TODO: optional?)
         else: callback(body,"")
     def getHtmlFilter(self,filterNo=None):
-        if not options.htmlFilterName: return options.htmlFilter # unconditional
-        if filterNo and '#' in options.htmlFilter:
-            return options.htmlFilter.split('#')[filterNo]
-        anf = self.getCookie("adjustNoFilter")
-        if not anf: anf = "0"
-        elif '-' in anf: anf = anf[anf.rindex("-")+1:]
-        if anf=="1": return None
-        elif '#' in options.htmlFilter:
-            htmlFilter = options.htmlFilter.split('#')
-            if anf=="0": return htmlFilter[0]
-            else: return htmlFilter[int(anf)-1]
-        else: return options.htmlFilter
+        return findFilter(self,filterNo)
     def doResponse2(self,body,do_html_process,do_json_process,htmlFilterOutput=None):
         debuglog("doResponse2"+self.debugExtras())
         # 2nd stage (domain change and external filter
@@ -3931,6 +3952,7 @@ document.forms[0].i.focus()
             if b in ua: return warn.replace("{B}",b)
         return ""
 
+#@file: ssl-certs.py
 # --------------------------------------------------
 # Self-signed SSL certificates for SSL interception
 # --------------------------------------------------
@@ -4017,6 +4039,7 @@ def unlink(fn):
     try: os.unlink(fn)
     except: pass
 
+#@file: request-forwarder-setup.py
 # --------------------------------------------------
 # Configurations of RequestForwarder for basic use,
 # CONNECT termination, and Javascript upstream handling
@@ -4043,6 +4066,7 @@ class UpSslRequestForwarder(RequestForwarder):
     WA_UseSSL = isPjsUpstream = False
     isSslUpstream = True # connectPort etc not needed
 
+#@file: wsgi.py
 # --------------------------------------------------
 # WSGI support for when we can't run as a server process
 # --------------------------------------------------
@@ -4095,14 +4119,13 @@ def httpfetch(url,**kwargs):
         # system calls that are too low-level for the
         # liking of platforms like AppEngine.  Maybe
         # we have to fall back to urllib2.
-        import urllib2
         data = kwargs.get('body',None)
         if not data: data = None
         headers = dict(kwargs.get('headers',{}))
         req = urllib2.Request(url, data, headers)
         if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
         r = None
-        try: resp = urllib2.urlopen(req,timeout=60)
+        try: resp = urllib2.build_opener(DoNotRedirect).open(req,timeout=60)
         except urllib2.HTTPError, e: resp = e
         except Exception, e: resp = r = wrapResponse(str(e)) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
         if r==None: r = wrapResponse(resp.read(),resp.info(),resp.getcode())
@@ -4129,6 +4152,10 @@ def wrapResponse(body,info={},code=500):
             else: return self.info.get_all()
     r.headers = H(info) ; r.body = body ; return r
 
+class DoNotRedirect(urllib2.HTTPRedirectHandler):
+    def http_error_302(self, req, fp, code, msg, headers): raise urllib2.HTTPError(req.get_full_url(), code, msg, headers, fp)
+    http_error_301 = http_error_303 = http_error_307 = http_error_302
+
 class SynchronousRequestForwarder(RequestForwarder):
    "A RequestForwarder for use in WSGI mode"
    WA_UseSSL = isPjsUpstream = isSslUpstream = False
@@ -4142,6 +4169,7 @@ class SynchronousRequestForwarder(RequestForwarder):
    def connect(self, *args, **kwargs): raise Exception("CONNECT is not implemented in WSGI mode") # so connectPort etc not needed
    def myfinish(self): pass
 
+#@file: user.py
 # --------------------------------------------------
 # URL/search box & general "end-user interface" support
 # --------------------------------------------------
@@ -4207,6 +4235,7 @@ document.write('<a href="javascript:history.go(-1)">Back to previous page</a>')
 //--></script>"""
 # (HTML5 defaults type to text/javascript, as do all pre-HTML5 browsers including NN2's 'script language="javascript"' thing, so we might as well save a few bytes)
 
+#@file: ruby-css.py
 # --------------------------------------------------
 # Ruby CSS support for Chinese/Japanese annotators etc
 # --------------------------------------------------
@@ -4225,6 +4254,7 @@ rubyEndScript = """
 function treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!="SCRIPT" && c.nodeName!="TEXTAREA" && !(c.nodeName=="A" && c.href)) { treewalk(c); if(c.nodeName=="RUBY" && c.title && !c.onclick) c.onclick=Function("alert(this.title)") } c=c.nextSibling; } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);
 //--></script>"""
 
+#@file: bookmarklet.py
 # --------------------------------------------------
 # Support accessing our text processing via bookmarklet
 # --------------------------------------------------
@@ -4349,6 +4379,44 @@ def addRubyScript():
     return r"""all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML="%s"; d.body.insertBefore(e,d.body.firstChild);
     e=d.createElement('span'); e.innerHTML="%s"; d.body.appendChild(e); d.rubyScriptAdded=1 });""" % (quote_for_JS_doublequotes(rScript),quote_for_JS_doublequotes(rubyEndScript))
 
+def android_ios_instructions(pType,reqHost,ua):
+    # Android or iOS instructions for adding bookmarklet
+    # (pType: a=Android i=iPhone p=iPad)
+    # (Similar technique does NOT work in Opera Mini 5.1.21594 or Opera Mobile 10.00 (both 2010) on Windows Mobile 6.1: can end up with a javascript: bookmark but it has no effect when selected)
+    theSys = {"i":"iPhone","p":"iPad","a":"Android"}[pType]
+    title = None
+    if '#' in options.htmlFilter:
+                        fNames=options.htmlFilterName.split('#')
+                        if filterNo+1 < len(fNames):
+                            title=fNames[filterNo+1]
+    elif options.htmlFilterName:
+        title=options.htmlFilterName
+    if title: title += " on current page" # because page won't be visible while choosing bookmarks, unlike on desktops
+    else: title=theSys+" bookmarklet - Web Adjuster" # will be the default name of the bookmark
+    # TODO: we say pType+'z' in the instructions to display on another device below, but if there are enough filters to get up to 'z' then the title on the other device will be whatever THAT filter is; might be better to just use txt in that situation
+    i0 = "<h3>%s bookmarklet</h3>To install this bookmarklet on %s, follow the instructions below. You might want to take some notes first, because this page will <em>not</em> be displayed throughout the process! If you have another device, you can show another copy of these instructions on it by going to <kbd>http://%sz</kbd>" % (theSys, theSys, reqHost+options.submitPath+pType)
+    if "Firefox/" in ua: i0 += "<h4>Not Yet Working On Mobile Firefox!</h4>Please use Chrome/Safari.<p>TODO: extension for mobile Firefox?"
+    i0 += "<h4>Instructions</h4><ol><li>"
+    sharp = "<li>You should see a sharp sign (#). If you don't, you might have to scroll a little to the right to get it into view. When you see the sharp sign, press immediately to the right of it. (This can be difficult, depending on your eyesight and the size of your fingers. You must put the text cursor <em>immediately</em> to the right of that sharp. Keep trying until you get it in <em>exactly</em> the right place.)<li>Use the backspace key to delete everything up to and including the sharp. The code should now start with the word <code>javascript</code>.<li>"
+    if pType in 'ip':
+        if pType=='i': # iPhone
+            menu="centre square button below"
+            bookmarkOpt="Bookmark"
+            bDone = "Done"
+            bookmarks = "(one to the right of menu button below)"
+        else: # iPad
+            menu="look near the top right of the iPad's screen for a square button with an arrow going up"
+            bookmarkOpt="Add Bookmark"
+            bDone = "Save"
+            bookmarks = "(look near the top left of the iPad's screen for an open book) if the bookmarks are not already showing"
+        i0 += "Press Menu (%s) and choose %s, to bookmark <b>this</b> page<li>Change the name if you want, and press %s<li>Press Bookmarks %s<li>Press Edit (bottom left or bottom right)<li>Find the bookmark you made and press it<li>Long-press the <em>second</em> line to get the selection menu on it<li>Press Select<li>Gently drag the left-most marker over to the left so that it scrolls to the extreme left of the address%sPress \"Done\" three times to come back here." % (menu,bookmarkOpt,bDone,bookmarks,sharp)
+    else: # Android
+        i0 += "Press Menu and Save to Bookmarks, to bookmark <b>this</b> page (on some phones that option is just a drawing of a star)<li>Change the label if you want, but <b>do not</b> press OK<li>Long-press the <em>second</em> line to get the selection on it<li>Gently drag the marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"OK\" to come back here."
+    i0 += "<li>The bookmarklet is now ready for use. Go to whatever page you want to use it on, and select it from the bookmarks to use it."
+    if pType=='a': i0 += " <b>On later versions of Android, it doesn't work to choose the bookmark directly</b>: you have to start typing <kbd>javascript:</kbd> in the URL box and select it that way."
+    return i0+"</ol></body></html>"
+
+#@file: run-filters.py
 # --------------------------------------------------
 # Text processing etc: handle running arbitrary filters
 # --------------------------------------------------
@@ -4585,6 +4653,7 @@ def find_HTML_in_JSON(jsonStr,htmlListFunc=None):
     codeTextList.append(jsonStr[i:])
     return codeTextList
 
+#@file: charsets.py
 # --------------------------------------------------
 # HTML character-set rewriting
 # --------------------------------------------------
@@ -4628,6 +4697,7 @@ def get_and_remove_httpequiv_charset(body):
     if body.startswith('<?xml version="1.0" encoding'): body = '<?xml version="1.0"'+body[body.find("?>"):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
     return charset, body
 
+#@file: run-browser.py
 # --------------------------------------------------
 # Options for running a foreground browser & stopping
 # --------------------------------------------------
@@ -4682,6 +4752,7 @@ def stopServer(reason=None):
     if reason.startswith("SIG") and hasattr(IOLoop.instance(),"add_callback_from_signal"): IOLoop.instance().add_callback_from_signal(stop)
     else: IOLoop.instance().add_callback(stop)
 
+#@file: convert-PDF-etc.py
 # --------------------------------------------------
 # File conversion options (PDF, MP3 etc)
 # --------------------------------------------------
@@ -4740,6 +4811,7 @@ def guessCMS(url,fmt):
     # (TODO: more possibilities for this?  Option to HEAD all urls and return what they resolve to? but fetch-ahead might not be a good idea on all sites)
     return fmt and options.guessCMS and "?" in url and "format="+fmt in url.lower() and not ((not fmt=="pdf") and "pdf" in url.lower())
 
+#@file: adjust-HTML.py
 # --------------------------------------------------
 # Various HTML adjustment options
 # --------------------------------------------------
@@ -5176,6 +5248,7 @@ if(document.getElementById) {
         html = html[:i]+bodyAppend+html[i:]
     return html
 
+#@file: js-links.py
 # --------------------------------------------------
 # HTML adjustment to enable interaction w.server-run JS
 # --------------------------------------------------
@@ -5223,6 +5296,7 @@ class AddClickCodes:
     def handle_data(self,data):
         if self.inA==1: self.currentLinkText += data
 
+#@file: user-switches.py
 # --------------------------------------------------
 # Options for allowing user to switch stylesheets etc
 # --------------------------------------------------
@@ -5286,6 +5360,20 @@ if(!%s&&document.readyState!='complete'){document.write("%s: """ % (detect_ifram
     r.append('}\n//--></script>')
     return "".join(r)
 
+def findFilter(reqH,filterNo):
+    if not options.htmlFilterName: return options.htmlFilter # unconditional
+    if filterNo and '#' in options.htmlFilter:
+        return options.htmlFilter.split('#')[filterNo]
+    anf = reqH.getCookie("adjustNoFilter")
+    if not anf: anf = "0"
+    elif '-' in anf: anf = anf[anf.rindex("-")+1:]
+    if anf=="1": return None
+    elif '#' in options.htmlFilter:
+        htmlFilter = options.htmlFilter.split('#')
+        if anf=="0": return htmlFilter[0]
+        else: return htmlFilter[int(anf)-1]
+    else: return options.htmlFilter
+
 def detect_renderCheck(): return r"""(document.getElementsByTagName && function(){var b=document.getElementsByTagName("BODY")[0],d=document.createElement("DIV"),s=document.createElement("SPAN"); if(!(b.appendChild && b.removeChild && s.innerHTML))return 0; d.appendChild(s); function wid(chr) { s.innerHTML = chr; b.appendChild(d); var width = s.offsetWidth; b.removeChild(d); return width; } var w1=wid("\u%s"),w2=wid("\uffff"),w3=wid("\ufffe"),w4=wid("\u2fdf"); return (w1!=w2 && w1!=w3 && w1!=w4)}())""" % options.renderCheck
 # ffff, fffe - guaranteed invalid by Unicode, but just might be treated differently by browsers
 # 2fdf unallocated character at end of Kangxi radicals block, hopefully won't be used
@@ -5302,6 +5390,7 @@ def addCssHtmlAttrs(html,attrsToAdd):
    for a in re.findall(r'[A-Za-z_0-9]+\=',attrsToAdd): attrs = attrs.replace(a,"old"+a) # disable corresponding existing attributes (if anyone still uses them these days)
    return html[:i] + attrs + " " + attrsToAdd + html[j:]
 
+#@file: view-source.py
 # --------------------------------------------------
 # View-source support etc
 # --------------------------------------------------
@@ -5314,6 +5403,7 @@ def ampDecode(t): return t.replace("&lt;","<").replace("&gt;",">").replace("&amp
 # ampDecode is needed if passing text with entity names to Renderer below (which ampEncode's its result and we might want it to render & < > chars)
 # (shouldn't need to cope with other named entities: find_text_in_HTML already processes all known ones in htmlentitydefs, and LXML also decodes all the ones it knows about)
 
+#@file: image-render.py
 # --------------------------------------------------
 # Support old phones etc: CJK characters to images
 # --------------------------------------------------
@@ -5429,6 +5519,7 @@ def imgDecode(code):
     elif code.startswith("_"): return unichr(int(code[1:],16)) # (see TODO above)
     else: return base64.b64decode(code).decode('utf-8','replace')
 
+#@file: ping.py
 # --------------------------------------------------
 # Support pinging watchdogs and Dynamic DNS services
 # --------------------------------------------------
@@ -5570,6 +5661,7 @@ class WatchdogPings:
             IOLoop.instance().add_timeout(time.time()+options.watchdog,lambda *args:self.ping())
         # else one ping only (see separate_thread)
 
+#@file: delegate.py
 # --------------------------------------------------
 # Support for "slow server delegates to fast server"
 # (e.g. always-on Raspberry Pi + sometimes-on dev box)
@@ -5640,6 +5732,7 @@ class checkServer:
         self.count = 0
 checkServer=checkServer()
 
+#@file: debug.py
 # --------------------------------------------------
 # Debugging and status dumps
 # --------------------------------------------------
@@ -5674,6 +5767,7 @@ def requestStatusDump(*args):
     "SIGUSR2 handler (requests status dump, currently from JS proxy only)" # TODO: document this (and that SIGUSR1 also calls it)
     global status_dump_requested ; status_dump_requested = True
 
+#@file: end.py
 # --------------------------------------------------
 # And finally...
 # --------------------------------------------------
