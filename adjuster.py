@@ -2575,6 +2575,8 @@ class RequestForwarder(RequestHandler):
 
     def cookie_host(self,checkReal=True,checkURL=True):
         # for cookies telling us what host the user wants
+        if self.isPjsUpstream or self.isSslUpstream:
+            return False
         if checkReal and convert_to_real_host(self.request.host,None): return # if we can get a real host without the cookie, the cookie does not apply to this host
         if enable_adjustDomainCookieName_URL_override and checkURL:
             if self.cookieViaURL: v = self.cookieViaURL
@@ -2752,7 +2754,7 @@ class RequestForwarder(RequestHandler):
 
     def can_serve_without_redirect(self,redir):
         # Try to serve without redirect if all links can be rewritten and urlboxPath might matter
-        if self.isSslUpstream or self.isPjsUpstream or options.wildcard_dns or options.urlboxPath=="/" or not self.htmlOnlyMode(): return
+        if self.isSslUpstream or self.isPjsUpstream or options.wildcard_dns or options.urlboxPath=="/" or not self.htmlOnlyMode(): return # TODO: isProxyRequest argument to htmlOnlyMode? (relevant only if someone configures an adjuster with a non-/ urlbox-path that ALSO accepts real-proxy requests)
         if not hasattr(self.request,"redirCount"):
             self.request.redirCount = 0
         if self.request.redirCount >= 10: return # loop?
@@ -2914,6 +2916,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 self.request.headers.add("Cookie",htmlmode_cookie_name+"="+val) # for htmlOnlyMode below in same request (TODO: delete old setting? but usually used only by redir)
     def htmlOnlyMode(self,isProxyRequest=False):
         if not options.htmlonly_mode: return False
+        if isProxyRequest: return False
         if force_htmlonly_mode: return True
         if hasattr(self.request,"old_cookie"): ck = self.request.old_cookie # so this can be called between change_request_headers and restore_request_headers, e.g. at the start of send_request for js_interpreter mode
         else: ck = ';'.join(self.request.headers.get_list("Cookie"))
@@ -3536,7 +3539,7 @@ document.forms[0].i.focus()
         if not body: body = None # required by some Tornado versions
         if self.isSslUpstream: ph,pp = None,None
         else: ph,pp = upstream_proxy_host,upstream_proxy_port
-        if options.js_interpreter and not self.isPjsUpstream and not self.isSslUpstream and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and self.canWriteBody():
+        if options.js_interpreter and self.htmlOnlyMode(isProxyRequest) and not follow_redirects and not self.request.uri in ["/favicon.ico","/robots.txt"] and self.canWriteBody():
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
             ua = self.request.headers.get("User-Agent","")
@@ -3698,11 +3701,12 @@ document.forms[0].i.focus()
                 if offsite:
                     # as cookie_host has been set, we know we CAN do this request if it were typed in directly....
                     value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + options.urlboxPath + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
-                    if self.htmlOnlyMode(): value += "&pr=on"
+                    if self.htmlOnlyMode(isProxyRequest): value += "&pr=on"
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html lang=\"en\"><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
-            elif can_do_cookie_host() and (offsite or (absolute and not options.urlboxPath=="/")) and self.htmlOnlyMode() and not options.htmlonly_css and enable_adjustDomainCookieName_URL_override: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally (TODO: can do this even if not enable_adjustDomainCookieName_URL_override, by issuing a Set-Cookie along with THIS response)
+            elif can_do_cookie_host() and (offsite or (absolute and not options.urlboxPath=="/")) and self.htmlOnlyMode(isProxyRequest) and not options.htmlonly_css and enable_adjustDomainCookieName_URL_override: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally (TODO: can do this even if not enable_adjustDomainCookieName_URL_override, by issuing a Set-Cookie along with THIS response)
+                debuglog("HTML-only mode cookie-domain redirect (isProxyRequest="+repr(isProxyRequest)+")"+self.debugExtras())
                 value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + options.urlboxPath + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
             doRedirect = value
           elif "set-cookie" in name.lower():
@@ -3896,7 +3900,10 @@ document.forms[0].i.focus()
     def sendHead(self,forPjs=False):
         # forPjs is for options.js_reproxy: we've identified the request as coming from js_interpreter and being its main document (not images etc).  Just check it's not a download link.
         # else for options.redirectFiles: it looks like we have a "no processing necessary" request that we can tell the browser to get from the real site.  But just confirm it's not a mis-named HTML document.
-        if forPjs and webdriver_prefetched[self.WA_PjsIndex]: return self.headResponse(webdriver_prefetched[self.WA_PjsIndex],True) # no need to send a separate HEAD request if we've already done a prefetch
+        if forPjs and webdriver_prefetched[self.WA_PjsIndex]:
+            # no need to send a separate HEAD request if we've already done a prefetch
+            debuglog("sendHead using prefetched head"+self.debugExtras())
+            return self.headResponse(webdriver_prefetched[self.WA_PjsIndex],True)
         debuglog("sendHead"+self.debugExtras())
         body = self.request.body
         if not body: body = None
