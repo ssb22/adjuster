@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 # TermLayout v0.12 (c) 2014-2015 Silas S. Brown
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 program_name = "Annotator Generator v0.652 (c) 2012-18 Silas S. Brown"
 

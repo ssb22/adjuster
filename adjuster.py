@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 
 program_name = "Web Adjuster v0.274 (c) 2012-18 Silas S. Brown"
 
@@ -273,7 +273,7 @@ define("ssh_proxy",help="host[:port][,URL] which, if set, can help to proxy SSH 
 # - If set host (and optional port, defaults to 22), then CONNECT requests for that server are accepted even without real_proxy.  Use (e.g.) ssh -o ProxyCommand "nc -X connect -x adjuster.example.org:80 %h %p" ssh-host
 # - This however won't work if the adjuster is running on a virtual hosting provider (like OpenShift) which doesn't support CONNECT (and many of them don't even support streaming 1-way connections like proxy2ssh, even if we modify Tornado to do that).  But you can set ,URL and write a ProxyCommand like this:
 """# ---------- cut here ----------
-#!/usr/bin/env python
+#!/usr/bin/env python2
 host_name = host_name_or_IP = "you need to set this"
 path_part_of_URL = "/you need to set this too"
 import sys,socket,select,time,os ; lastPostTime = 0
