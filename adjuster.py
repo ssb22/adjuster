@@ -41,7 +41,10 @@ twoline_program_name = program_name+"\nLicensed under the Apache License, Versio
 # Split into separate files for easier code-viewing
 # --------------------------------------------------
 if '--split-files' in sys.argv:
-    d=open("adjuster.py").read()
+    if '--autopep8' in sys.argv:
+        print "autopep8",__file__
+        d=os.popen("autopep8 '"+__file__.replace("'","'\"'\"'")+"'").read()
+    else: d=open(__file__).read()
     assert not "\n#+# " in d
     apache = "#+# \n#+# "+d.split("\n\n")[2].replace("\n","\n#+# ")+"\n#+# \n"
     try: os.mkdir("src")
@@ -50,6 +53,7 @@ if '--split-files' in sys.argv:
     Makefile = open("Makefile","w")
     Makefile.write("# automatically generated\n\nFiles=")
     filesDone = set()
+    d = d.replace("\n# @file","\n#@file") # in case autopep8
     for f in ("\n#@file: top.py\n"+d).split("\n#@file: "):
         try: fname,contents = f.split(None,1)
         except: continue # e.g. before top.py
@@ -68,12 +72,19 @@ if '--split-files' in sys.argv:
 
 #@file: import1-tornado.py
 # --------------------------------------------------
-# Basic Tornado import (or not if generating my website)
+# Basic Tornado import (or not if generating the website)
 # --------------------------------------------------
 
 if '--version' in sys.argv:
-    print twoline_program_name ; raise SystemExit # no imports needed
-elif '--html-options' in sys.argv: # for updating the website (this option is not included in the help text)
+    # no imports needed other than "sys" ("os" for above)
+    # (If this code has been run through autopep8, many
+    # imports might have been moved to the very top anyway,
+    # but at least it still won't depend on tornado just
+    # to print the version or the options as HTML.)
+    print twoline_program_name ; raise SystemExit
+elif '--html-options' in sys.argv:
+    # for updating the website
+    # (this option is not included in the help text)
     tornado=inDL=False
     print "<h3>Options for "+program_name[:program_name.index("(c)")].strip()+"</h3>"
     def heading(h):
@@ -92,7 +103,7 @@ elif '--html-options' in sys.argv: # for updating the website (this option is no
         help = amp(help)
         for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]: help=help.replace(ttify,"<nobr><kbd>"+ttify+"</kbd></nobr>")
         print "<dt><kbd>--"+name+"</kbd>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>"
-else: # normal run: go ahead with the import
+else: # normal run: go ahead with Tornado import
     import tornado
     from tornado.httpclient import AsyncHTTPClient,HTTPClient,HTTPError
     try: from tornado.httpserver import HTTPServer
@@ -106,7 +117,6 @@ else: # normal run: go ahead with the import
         # Looks like we're being imported by an extension
         # Some Tornado versions don't compile if 'define' is run twice
         def define(*args,**kwargs): pass
-getfqdn_default = "is the machine's domain name" # default is ... (avoid calling getfqdn unnecessarily, as the server might be offline/experimental and we don't want to block on an nslookup with every adjuster start)
 
 #@file: options.py
 # --------------------------------------------------
@@ -129,24 +139,41 @@ define("publicPort",default=0,help="The port to advertise in URLs etc, if differ
 define("user",help="The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.")
 define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real_proxy.")
 define("password",help="The password. If this is set, nobody can connect without specifying ?p= followed by this password. It will then be sent to them as a cookie so they don't have to enter it every time. Notes: (1) If wildcard_dns is False and you have multiple domains in host_suffix, then the password cookie will have to be set on a per-domain basis. (2) On a shared server you probably don't want to specify this on the command line where it can be seen by process-viewing tools; use a configuration file instead.")
-define("password_domain",help="The domain entry in host_suffix to which the password applies. For use when wildcard_dns is False and you have several domains in host_suffix, and only one of them (perhaps the one with an empty default_site) is to be password-protected, with the others public. If this option is used then prominentNotice (if set) will not apply to the passworded domain. You may put the password on two or more domains by separating them with slash (/).") # prominentNotice not apply: on the assumption that those who know the password understand what the tool is.  DOES apply anyway if =="htmlFilter".
+define("password_domain",help="The domain entry in host_suffix to which the password applies. For use when wildcard_dns is False and you have several domains in host_suffix, and only one of them (perhaps the one with an empty default_site) is to be password-protected, with the others public. If this option is used then prominentNotice (if set) will not apply to the passworded domain. You may put the password on two or more domains by separating them with slash (/).")
+# prominentNotice not apply to password_domain: this is on
+# the assumption that those who know the password understand
+# what the tool is.  prominentNotice DOES apply even to the
+# password_domain if prominentNotice=="htmlFilter".
+# 
 define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * when this is ignored and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
 define("open_proxy",default=False,help="Whether or not to allow running with no password. Off by default as a safeguard against accidentally starting an open proxy.")
 define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separated list of regular expressions specifying URLs that are not allowed to be fetched unless --real_proxy is in effect. Browsers requesting a URL that contains any of these will be redirected to the original site. Use for example if you want people to go direct when posting their own content to a particular site (this is of only limited use if your server also offers access to any other site on the Web, but it might be useful when that's not the case). Include ^https in the list to prevent Web Adjuster from fetching HTTPS pages for adjustment and return over normal HTTP. This access is enabled by default now that many sites use HTTPS for public pages that don't really need to be secure, just to get better placement on some search engines, but if sending confidential information to the site then beware you are trusting the Web Adjuster machine and your connection to it, plus its certificate verification might not be as thorough as your browser's.")
 define("real_proxy",default=False,help="Whether or not to accept requests with original domains like a \"real\" HTTP proxy.  Warning: this bypasses the password and implies open_proxy.  Off by default.")
-define("via",default=True,help="Whether or not to update the Via: and X-Forwarded-For: HTTP headers when forwarding requests") # (Via is "must" in RFC 2616)
+define("via",default=True,help="Whether or not to update the Via: and X-Forwarded-For: HTTP headers when forwarding requests")
+# (Via is "must" in RFC 2616, so this really shouldn't be set
+# to False except for experimental internal-only clients)
 define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP header when forwarding requests, as a courtesy to site administrators who wonder what's happening in their logs (and don't log Via: etc)")
-define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.") # TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, see comments in request_no_external_referer)
+define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.")
+# TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, see comments in request_no_external_referer)
 define("just_me",default=False,help="Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.")
 define("one_request_only",default=False,help="Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy): run with --one_request_only and forward the request to its port.  You may also wish to set --seconds if using this.")
 define("seconds",default=0,help="The maximum number of seconds for which to run the server (0 for unlimited).  If a time limit is set, the server will shut itself down after the specified length of time.")
 define("stdio",default=False,help="Forward standard input and output to our open port, in addition to being open to normal TCP connections.  This might be useful in conjuction with --one-request-only and --port=-1.")
 
-define("upstream_proxy",help="address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options, own_server or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.") # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies. The ":port"-only option rewrites URLs in requests but NOT ones referred to in documents: we assume the proxy can cope with that.
+define("upstream_proxy",help="address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options, own_server or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.")
+# The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies. The ":port"-only option rewrites URLs in requests but NOT ones referred to in documents: we assume the proxy can cope with that.
 
 define("ip_messages",help="Messages or blocks for specific IP address ranges (IPv4 only).  Format is ranges|message|ranges|message etc, where ranges are separated by commas; can be individual IPs, or ranges in either 'network/mask' or 'min-max' format; the first matching range-set is selected.  If a message starts with * then its ranges are blocked completely (rest of message, if any, is sent as the only reply to any request), otherwise message is shown on a 'click-through' page (requires Javascript and cookies).  If the message starts with a hyphen (-) then it is considered a minor edit of earlier messages and is not shown to people who selected `do not show again' even if they did this on a different version of the message.  Messages may include HTML.")
 
 heading("DNS and website settings")
+
+getfqdn_default = "is the machine's domain name"
+# getfqdn_default comes after "default" in the HTML,
+# hence "default is the machine's domain name".
+# Avoids calling getfqdn unnecessarily, as the server might
+# be offline/experimental and we don't want to block on an
+# nslookup with every adjuster start just to get the default.
+
 define("host_suffix",default=getfqdn_default,help="The last part of the domain name. For example, if the user wishes to change www.example.com and should do so by visiting www.example.com.adjuster.example.org, then host_suffix is adjuster.example.org. If you do not have a wildcard domain then you can still adjust one site by setting wildcard_dns to False, host_suffix to your non-wildcard domain, and default_site to the site you wish to adjust. If you have more than one non-wildcard domain, you can set wildcard_dns to False, host_suffix to all your domains separated by slash (/), and default_site to the sites these correspond to, again separated by slash (/); if two or more domains share the same default_site then the first is preferred in links and the others are assumed to be for backward compatibility. If wildcard_dns is False and default_site is empty (or if it's a /-separated list and one of its items is empty), then the corresponding host_suffix gives a URL box and sets its domain in a cookie (and adds a link at the bottom of pages to clear this and return to the URL box), but this should be done only as a last resort: you can browse only one domain at a time at that host_suffix; most links and HTTP redirects to other domains will leave the adjuster when not in HTML-only mode, which can negatively affect sites that use auxiliary domains for scripts etc and check Referer (unless you ensure these auxiliary domains are listed elsewhere in default_site). Also, the sites you visit at that host_suffix might be able to see some of each other's cookies etc (leaking privacy) although the URL box page will try to clear site cookies.")
 # ("preferred" / "backward compatibility" thing: can be useful if old domain has become unreliable, or if "preferred" domain is actually a URL-path-forwarding service with a memorable name which redirects browsers to an actual domain that's less memorable, and you want the memorable domain to be used in links etc, although in this case you might still get the less-memorable domain in the address bar)
 # TODO: (two or more domains pointing to the same default_site) "preferred" / "backward compatibility" thing above: or, add an option to periodically check which of our domains are actually 'up' and move them to the front of the host_suffix / default_site list; that way we don't have to guess ahead of time which one is more reliable and should be preferred.
@@ -154,7 +181,8 @@ define("host_suffix",default=getfqdn_default,help="The last part of the domain n
 # TODO at lower priority: empty (item in) host_suffix to match ALL (unknown) hosts, including IP hosts and no Host: header.  Fetch the corresponding default_site (empty means use cookies), and adjust it USING THE HOST SPECIFIED BY THE BROWSER to rewrite the links.  This could be useful if setting up an adjuster with NO domain name (IP only).  Could periodically upload our public IP to a separate static website via FTP/SSH/etc in case dynamic DNS is not reliable.  But if IP address has to change then all cookies would be 'lost'.  Also, if no password is set then IP-based "webserver probes" could cause us to send malicious-looking traffic to default_site.
 # TODO: Could do different hosts on different ports, which might also be useful if you have a domain name but only one.  Would have to check for cookie sharing (or just say "do this only if you don't mind it"); fasterServer would have to forward to same as incoming port.  Might be a problem if some users' firewalls disallow outgoing Web traffic to non-standard ports.
 # (In the current code, setting host_suffix to a public IP address should work: most browsers set Host: to the IP if requesting a URL by IP, and then the IP will be used in rewrites if it's the first thing specified for its corresponding default_site.  But adjuster will need to be reconfigured and restarted on every change of the public IP.)
-define("default_site",help="The site to fetch from if nothing is specified before host_suffix, e.g. example.org (add .0 at the end to specify an HTTPS connection, but see the 'prohibit' option). If default_site is omitted then the user is given a URL box when no site is specified; if it is 'error' then an error is shown in place of the URL box (the text of the error depends on the settings of wildcard_dns and real_proxy).") # using .0 here rather than https:// prefix because / is a separator: see the host_suffix help text (TODO: change the separator? but don't break existing installations)
+define("default_site",help="The site to fetch from if nothing is specified before host_suffix, e.g. example.org (add .0 at the end to specify an HTTPS connection, but see the 'prohibit' option). If default_site is omitted then the user is given a URL box when no site is specified; if it is 'error' then an error is shown in place of the URL box (the text of the error depends on the settings of wildcard_dns and real_proxy).")
+# --- using .0 here rather than https:// prefix because / is a separator: see the host_suffix help text (TODO: change the separator? but don't break existing installations)
 define("own_server",help="Where to find your own web server. This can be something like localhost:1234 or 192.168.0.2:1234. If it is set, then any request that does not match host_suffix will be passed to that server to deal with, unless real_proxy is in effect. You can use this option to put your existing server on the same public port without much reconfiguration. Note: the password option will NOT password-protect your own_server. (You might gain a little responsiveness if you instead set up nginx or similar to direct incoming requests appropriately; see comments in adjuster.py for example nginx settings.)")
 # without much reconfiguration: might just need to change which port number it listens on.
 # Alternatively you could set nginx (or similar) to reverse-proxy the host_suffix domains to the adjuster, e.g.:
@@ -182,7 +210,8 @@ define("own_server",help="Where to find your own web server. This can be somethi
 # is under heavy CPU load.
 
 define("ownServer_regexp",help="If own_server is set, you can set ownServer_regexp to a regular expression to match URL prefixes which should always be handled by your own server even if they match host_suffix. This can be used for example to add extra resources to any site, or to serve additional pages from the same domain, as long as the URLs used are not likely to occur on the sites being adjusted. The regular expression is matched against the requested host and the requested URL, so for example [^/]*/xyz will match any URL starting with /xyz on any host, whereas example.org/xyz will match these on your example.org domain. You can match multiple hosts and URLs by using regular expression grouping.")
-define("ownServer_if_not_root",default=True,help="When trying to access an empty default_site, if the path requested is not / then redirect to own_server (if set) instead of providing a URL box. If this is False then the URL box will be provided no matter what path was requested.") # TODO: "ownServer even if root" option, i.e. option to make host_suffix by itself go to own_server?  Or make ownServer_if_not_root permanent?  The logic that deals with off-site Location: redirects assumes the URL box will normally be at / (TODO document this?)
+define("ownServer_if_not_root",default=True,help="When trying to access an empty default_site, if the path requested is not / then redirect to own_server (if set) instead of providing a URL box. If this is False then the URL box will be provided no matter what path was requested.")
+# TODO: "ownServer even if root" option, i.e. option to make host_suffix by itself go to own_server?  Or make ownServer_if_not_root permanent?  The logic that deals with off-site Location: redirects assumes the URL box will normally be at / (TODO document this?)
 define('search_sites',multiple=True,help="Comma-separated list of search sites to be made available when the URL box is displayed (if default_site is empty). Each item in the list should be a URL (which will be prepended to the search query), then a space, then a short description of the site. The first item on the list is used by default; the user can specify other items by making the first word of their query equal to the first word of the short description. Additionally, if some of the letters of that first word are in parentheses, the user may specify just those letters. So for example if you have an entry http://search.example.com/?q= (e)xample, and the user types 'example test' or 'e test', it will use http://search.example.com/?q=test")
 define("urlbox_extra_html",help="Any extra HTML you want to place after the URL box (when shown), such as a paragraph explaining what your filters do etc.")
 define("urlboxPath",default="/",help="The path of the URL box for use in links to it. This might be useful for wrapper configurations, but a URL box can be served from any path on the default domain. If however urlboxPath is set to something other than / then efforts are made to rewrite links to use it more often when in HTML-only mode with cookie domain, which might be useful for limited-server situations. You can force HTML-only mode to always be on by prefixing urlboxPath with *")
@@ -195,26 +224,33 @@ define("headAppend",help="Code to append to the HEAD section of every HTML docum
 define("headAppendCSS",help="URL of a stylesheet to add to the HEAD section of every HTML document that has a BODY.  This option automatically generates the LINK REL=... markup for it, and also tries to delete the string '!important' from other stylesheets, to emulate setting this stylesheet as a user CSS.  Additionally, it is not affected by --js-upstream as headAppend is.  You can also include one or more 'fields' in the URL, by marking them with %s and following the URL with options e.g. http://example.org/style%s-%s.css;1,2,3;A,B will allow combinations like style1-A.css or style3-B.css; in this case appropriate selectors are provided with the URL box (values may optionally be followed by = and a description), and any visitors who have not set their options will be redirected to the URL box to do so.")
 define("protectedCSS",help="A regular expression matching URLs of stylesheets with are \"protected\" from having their '!important' strings deleted by headAppendCSS's logic. This can be used for example if you are adding scripts to allow the user to choose alternate CSS files in place of headAppendCSS, and you wish the alternate CSS files to have the same status as the one supplied in headAppendCSS.")
 define("cssName",help="A name for the stylesheet specified in headAppendCSS, such as \"High Contrast\".  If cssName is set, then the headAppendCSS stylesheet will be marked as \"alternate\", with Javascript links at the bottom of the page for browsers that lack their own CSS switching options.  If cssName begins with a * then the stylesheet is switched on by default; if cssName is not set then the stylesheet (if any) is always on.")
-define("cssNameReload",multiple=True,default="IEMobile 6,IEMobile 7,IEMobile 8,Opera Mini,Opera Mobi,rekonq",help="List of (old) browsers that require alternate code for the cssName option, which is slower as it involves reloading the page on CSS switches.  Use this if the CSS switcher provided by cssName does nothing on your browser.") # Opera Mini sometimes worked and sometimes didn't; maybe there were regressions at their proxy; JS switcher needs network traffic anyway on Opera Mini so we almost might as well use the reloading version (but in Spring 2014 they started having trouble with reload() AS WELL, see cssReload_cookieSuffix below)
+define("cssNameReload",multiple=True,default="IEMobile 6,IEMobile 7,IEMobile 8,Opera Mini,Opera Mobi,rekonq",help="List of (old) browsers that require alternate code for the cssName option, which is slower as it involves reloading the page on CSS switches.  Use this if the CSS switcher provided by cssName does nothing on your browser.")
+# cssNameReload: Opera Mini sometimes worked and sometimes didn't; maybe there were regressions at their proxy; JS switcher needs network traffic anyway on Opera Mini so we almost might as well use the reloading version (but in Spring 2014 they started having trouble with reload() AS WELL, see cssReload_cookieSuffix below)
 # Opera Mobile 10 on WM6.1 is fine with CSS switcher but it needs cssHtmlAttrs, TODO we might be able to have a list of browsers that require cssHtmlAttrs but not cssNameReload, add cssHtmlAttrs only if CSS is selected at time of page load, and make the 'off' switch remove them
 # TODO: Opera/9.5 on WM6.1 document.write can corrupt the display with EITHER script; page might also display for some time before the document.writes take effect.  Suggest those users upgrade to version 10 (= Opera/9.8) ?
-cssReload_cookieSuffix = "&&_adjuster_setCookie:" # enables code that works better on Opera Mini's transcoder (Spring 2014) by setting the cookie server-side. (Set to blank to use the old code. TODO: browser-dependent? make it a 'define' option?)
+cssReload_cookieSuffix = "&&_adjuster_setCookie:"
+# cssReload_cookieSuffix enables code that works better on Opera Mini's transcoder (Spring 2014) by setting the cookie server-side. (Set to blank to use the old code. TODO: browser-dependent? make it a 'define' option?)
 define("cssHtmlAttrs",help="Attributes to add to the BODY element of an HTML document when cssNameReload is in effect (or when it would be in effect if cssName were set). This is for old browsers that try to render the document first and apply CSS later. Example: 'text=\"yellow\" bgcolor=\"black\"' (not as flexible as CSS but can still make the rendering process less annoying). If headAppendCSS has \"fields\" then cssHtmlAttrs can list multiple sets of attributes separated by ; and each set corresponds with an option in the last field of headAppendCSS.") # e.g. IEMobile 7 (or Opera 10) on WM 6.1
-define("headAppendRuby",default=False,help="Convenience option which adds CSS and Javascript code to the HTML body that tries to ensure simple RUBY markup displays legibly across all modern browsers; this might be useful if you used Annotator Generator to make the htmlFilter program. (The option is named 'head' because it used to add markup to the HEAD; this was moved to the BODY to work around browser bugs.)") # IEMobile 6 drops whitespace after closing tags if document HEAD contains any STYLE element, even an empty one, except via link rel=Stylesheet. Style element works OK if placed at start of body.
-define("bodyAppend",help="Code to append to the BODY section of every HTML document that has one. Use for example to add a script that needs to be run after the rest of the body has been read, or to add a footer explaining how the page has been modified. See also prominentNotice.") # TODO: note that it will go at the bottom of IFRAMEs also, and suggest using something similar to prominentNotice's iframe-detection code?
+define("headAppendRuby",default=False,help="Convenience option which adds CSS and Javascript code to the HTML body that tries to ensure simple RUBY markup displays legibly across all modern browsers; this might be useful if you used Annotator Generator to make the htmlFilter program. (The option is named 'head' because it used to add markup to the HEAD; this was moved to the BODY to work around browser bugs.)")
+# headAppendRuby: IEMobile 6 drops whitespace after closing tags if document HEAD contains any STYLE element, even an empty one, except via link rel=Stylesheet. Style element works OK if placed at start of body.
+define("bodyAppend",help="Code to append to the BODY section of every HTML document that has one. Use for example to add a script that needs to be run after the rest of the body has been read, or to add a footer explaining how the page has been modified. See also prominentNotice.")
+# bodyAppend TODO: note that it will go at the bottom of IFRAMEs also, and suggest using something similar to prominentNotice's iframe-detection code?
 define("bodyAppendGoesAfter",help="If this is set to a regular expression matching some text or HTML code that appears verbatim in the body section, the code in bodyAppend will be inserted after the last instance of this regular expression (case sensitive) instead of at the end of the body. Use for example if a site styles its pages such that the end of the body is not a legible place for a footer.") # (e.g. it would overprint some position=fixed stuff)
-define("bodyPrepend",help="Code to place at the start of the BODY section of every HTML document that has one.") # May be a useful place to put some scripts. For example, a script that changes a low-vision stylesheet according to screen size might be better in the BODY than in the HEAD, because some Webkit-based browsers do not make screen size available when processing the HEAD of the starting page. # but sometimes it still goes wrong on Chromium startup; probably a race condition; might be worth re-running the script at end of page load just to make sure
+define("bodyPrepend",help="Code to place at the start of the BODY section of every HTML document that has one.")
+# bodyPrepend may be a useful place to put some scripts. For example, a script that changes a low-vision stylesheet according to screen size might be better in the BODY than in the HEAD, because some Webkit-based browsers do not make screen size available when processing the HEAD of the starting page. # but sometimes it still goes wrong on Chromium startup; probably a race condition; might be worth re-running the script at end of page load just to make sure
 define("prominentNotice",help="Text to add as a prominent notice to processed sites (may include HTML). If the browser has sufficient Javascript support, this will float relative to the browser window and will contain an 'acknowledge' button to hide it (for the current site in the current browsing session). Use prominentNotice if you need to add important information about how the page has been modified. If you set prominentNotice to the special value \"htmlFilter\", then the output of the htmlFilter option (if any) will be placed as a prominent notice; this can be used if you want to provide extra information or links derived from the content of the page. Note: if you include Javascript document.write() code in prominentNotice, check that document.readyState is not 'complete' or you might find the document is erased on some website/browser combinations when a site script somehow causes your script to be re-run after the document stream is closed. In some rare cases you might also need to verify that document.cookie does not contain _WA_warnOK=1") # e.g. if the site does funny things with the browser cache.  Rewriting the innerHTML manipulation to appendChild doesn't fix the need to check document.readyState
 define("staticDocs",help="url#path of static documents to add to every website, e.g. /_myStatic/#/var/www (make sure the first part is something not likely to be used by the websites you visit). This can be used to supply extra Javascript (e.g. for bodyPrepend to load) if it needs to be served from the same domain. Note: staticDocs currently overrides the password and own_server options.")
 define("delete",multiple=True,help="Comma-separated list of regular expressions to delete from HTML documents. Can be used to delete selected items of Javascript and other code if it is causing trouble for your browser. Will also delete from the text of pages; use with caution.")
 define("delete_css",multiple=True,help="Comma-separated list of regular expressions to delete from CSS documents (but not inline CSS in HTML); can be used to remove, for example, dimension limits that conflict with annotations you add, as an alternative to inserting CSS overrides.  In rare cases you might want to replace the deleted regexp with another, in which case you can use @@ to separate the two, and a second @@ can be used to specify a string in the CSS URL that must be present for the operation to take effect (this could be combined with a codeChanges to add query parameters to the URL if you want the change to occur only when the CSS is loaded from specific HTML pages).")
 define("delete_doctype",default=False,help="Delete the DOCTYPE declarations from HTML pages. This option is needed to get some old Webkit browsers to apply multiple CSS files consistently.")
 define("deleteOmit",multiple=True,default="iPhone,iPad,Android,Macintosh",help="A list of browsers that do not need the delete and delete-doctype options to be applied. If any of these strings occur in the user-agent then these options are disabled for that request, on the assumption that these browsers are capable enough to cope with the \"problem\" code. Any delete-css option is still applied however.")
-define("cacheOmit",multiple=True,default="IEMobile",help="A list of browsers that cannot be trusted to provide correct Cache-Control headers. Use this if your browser fails to renew data when you press Reload.") # e.g. IE6 on WM6.1 sets Cache-Control to "max-age=259200" (3 days) even if you press Reload, which can result in upstream caching proxies (e.g. on AppEngine) failing to re-query the original servers on a reload (e.g. for NextBuses, frustrating if you're trying to decide whether or not you have to run!)
+define("cacheOmit",multiple=True,default="IEMobile",help="A list of browsers that cannot be trusted to provide correct Cache-Control headers. Use this if your browser fails to renew data when you press Reload.")
+# cacheOmit: e.g. IE6 on WM6.1 sets Cache-Control to "max-age=259200" (3 days) even if you press Reload, which can result in upstream caching proxies (e.g. on AppEngine) failing to re-query the original servers on a reload (e.g. for NextBuses, frustrating if you're trying to decide whether or not you have to run!)
 define("codeChanges",help="Several lines of text specifying changes that are to be made to all HTML and Javascript code files on certain sites; use as a last resort for fixing a site's scripts. This option is best set in the configuration file and surrounded by r\"\"\"...\"\"\". The first line is a URL prefix (just \"http\" matches all); append a # to match an exact URL instead of a prefix, and #+number (e.g. #1 or #2) to match an exact URL and perform the change only that number of times in the page.  The second line is a string of code to search for, and the third is a string to replace it with. Further groups of URL/search/replace lines may follow; blank lines and lines starting with # are ignored. If the 'URL prefix' starts with a * then it is instead a string to search for within the code of the document body; any documents containing this code will match; thus it's possible to write rules of the form 'if the code contains A, then replace B with C'. This processing takes place before any 'delete' option takes effect so it's possible to pick up on things that will be deleted, and it occurs after the domain rewriting so it's possible to change rewritten domains in the search/replace strings (but the URL prefix above should use the non-adjusted version).")
 define("boxPrompt",default="Website to adjust",help="What to say before the URL box (when shown); may include HTML; for example if you've configured Web Adjuster to perform a single specialist change that can be described more precisely with some word other than 'adjust', you might want to set this.")
 define("viewsource",default=False,help="Provide a \"view source\" option. If set, you can see a page's pre-adjustment source code, plus client and server headers, by adding \".viewsource\" to the end of a URL (after any query parameters etc)")
-define("htmlonly_mode",default=True,help="Provide a checkbox allowing the user to see pages in \"HTML-only mode\", stripping out images, scripts and CSS; this might be a useful fallback for very slow connections if a site's pages bring in many external files and the browser cannot pipeline its requests. The checkbox is displayed by the URL box, not at the bottom of every page.") # if no pipeline, a slow UPLINK can be a problem, especially if many cookies have to be sent with each request for a js/css/gif/etc.
+define("htmlonly_mode",default=True,help="Provide a checkbox allowing the user to see pages in \"HTML-only mode\", stripping out images, scripts and CSS; this might be a useful fallback for very slow connections if a site's pages bring in many external files and the browser cannot pipeline its requests. The checkbox is displayed by the URL box, not at the bottom of every page.")
+# htmlonly_mode: if client has no pipeline, a slow UPLINK can be a problem, especially if many cookies have to be sent with each request for a js/css/gif/etc.
 # (and if wildcard_dns=False and we're domain multiplexing, our domain can accumulate a lot of cookies, causing requests to take more uplink bandwidth, TODO: do something about this?)
 define("htmlonly_css",default=False,help="Leave images and CSS in the page when in \"HTML-only mode\", removing only scripts")
 define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted website to put a special redirection page to handle mailto: links, showing the user the contents of the link first (in case a mail client is not set up). This must be made up of URL-safe characters starting with a / and should be a path that is unlikely to occur on normal websites and that does not conflict with renderPath. If this option is empty, mailto: links are not changed. (Currently, only plain HTML mailto: links are changed by this function; Javascript-computed ones are not.)")
@@ -226,32 +262,42 @@ define("htmlFilterName",help="A name for the task performed by htmlFilter. If th
 define("htmlJson",default=False,help="Try to detect HTML strings in JSON responses and feed them to htmlFilter. This can help when using htmlFilter with some AJAX-driven sites. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple HTML strings in the same JSON response will be given to it separated by newlines, and the newlines of the output determine which fragment to put back where. (If you combine htmlJson with htmlText, the external program will see text in HTML in JSON as well as text in HTML, but it won't see text in HTML in JSON in HTML.)")
 define("htmlText",default=False,help="Causes the HTML to be parsed, and only the text parts (not the markup) will be sent to htmlFilter. Useful to save doing HTML parsing in the external program. The external program is still allowed to include HTML markup in its output. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple text strings will be given to it separated by newlines, and the newlines of the output determine which modified string to put back where.")
 define("separator",help="If you are using htmlFilter with htmlJson and/or htmlText, you can set separator to any text string to be used as a separator between multiple items of data when passing them to the external program. By default, newlines are used for this, but you can set it to any other character or sequence of characters that cannot be added or removed by the program. (It does not matter if a website's text happens to use the separator characters.) If separator is set, not only will it be used as a separator BETWEEN items of data but also it will be added before the first and after the last item, thus allowing you to use an external program that outputs extra text before the first and after the last item. The extra text will be discarded. If however you do not set separator then the external program should not add anything extra before/after the document.")
-define("leaveTags",multiple=True,default="script,style,title,textarea,option",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names whose enclosed text should NOT be sent to the external program for modification. For this to work, the website must properly close these tags and must not nest them. (This list is also used for character-set rendering.)") # not including 'option' can break pages that need character-set rendering
-define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names which should be deleted if they occur in any section of running text. For example, \"wbr\" (word-break opportunity) tags (listed by default) might cause problems with phrase-based annotators.") # TODO: <span class="whatever">&nbsp;</span> (c.f. annogen's JS) ?  have already added to the bookmarklet JS (undocumented! see 'awkwardSpan') but not to the proxy version (the two find_text_in_HTML functions)
+define("leaveTags",multiple=True,default="script,style,title,textarea,option",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names whose enclosed text should NOT be sent to the external program for modification. For this to work, the website must properly close these tags and must not nest them. (This list is also used for character-set rendering.)")
+# leaveTags: not including 'option' can break pages that need character-set rendering
+define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names which should be deleted if they occur in any section of running text. For example, \"wbr\" (word-break opportunity) tags (listed by default) might cause problems with phrase-based annotators.")
+# stripTags TODO: <span class="whatever">&nbsp;</span> (c.f. annogen's JS) ?  have already added to the bookmarklet JS (undocumented! see 'awkwardSpan') but not to the proxy version (the two find_text_in_HTML functions)
 define("htmlUrl",default=False,help="Add a line containing the document's URL to the start of what gets sent to htmlFilter (useful for writing filters that behave differently for some sites; not yet implemented for submitBookmarklet, which will show a generic URL). The URL line must not be included in the filter's response.")
 
-define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.") # (see comments in serve_submitPage; "with htmlFilter" TODO: do we add "(or --render)" to this? but charset submit not entirely tested with all old browsers; TODO: consider use of chardet.detect(buf) in python-chardet)
+define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.")
+# (submitPath: see comments in serve_submitPage; "with htmlFilter" TODO: do we add "(or --render)" to this? but charset submit not entirely tested with all old browsers; TODO: consider use of chardet.detect(buf) in python-chardet)
 define("submitPrompt",default="Type or paste in some text to adjust",help="What to say before the form allowing users to enter their own text when submitPath is set (compare boxPrompt)")
 define("submitBookmarklet",default=True,help="If submitPath and htmlFilter is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly. The bookmarklets should work on modern desktop browsers and on iOS and Android; they should cope with frames and with Javascript-driven changes to a page, and on some browsers an option is provided to additionally place the page into a frameset so that links to other pages on the same site can be followed without explicitly reactivating the bookmarklet (but this does have disadvantages - page must be reloaded + URL display gets 'stuck' - so it's left to the user to choose).") # (and if the other pages check their top.location, things could break there as well)
-define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",help="A Javascript expression that evaluates true if a DOM text node 'c' should be processed by the 'bookmarklet' Javascript when submitPath and submitBookmarklet are set. To process ALL text, set this option to c.nodeValue.length, but if your htmlFilter will not change certain kinds of text then you can make the Javascript run more efficiently by not processing these (quote the expression carefully). The default setting will not process text that is all ASCII.") # + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8. (Previously said "To process ALL text, simply set this option to 'true'", but that can have odd effects on some sites' empty nodes. Saying c.nodeValue.length for now; c.nodeValue.match(/[^\s]/) might be better but needs more quoting explanation. Could change bookmarkletMainScript so it alters the DOM only if replacements[i] != oldTexts[i], c.f. annogen's android code, but that would mean future passes would re-send all the unchanged nodes cluttering the XMLHttpRequests especially if they fill a chunk - annogen version has the advantage of immediate local processing)
+define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",help="A Javascript expression that evaluates true if a DOM text node 'c' should be processed by the 'bookmarklet' Javascript when submitPath and submitBookmarklet are set. To process ALL text, set this option to c.nodeValue.length, but if your htmlFilter will not change certain kinds of text then you can make the Javascript run more efficiently by not processing these (quote the expression carefully). The default setting will not process text that is all ASCII.")
+# well, all ASCII + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8. (Previously said "To process ALL text, simply set this option to 'true'", but that can have odd effects on some sites' empty nodes. Saying c.nodeValue.length for now; c.nodeValue.match(/[^\s]/) might be better but needs more quoting explanation. Could change bookmarkletMainScript so it alters the DOM only if replacements[i] != oldTexts[i], c.f. annogen's android code, but that would mean future passes would re-send all the unchanged nodes cluttering the XMLHttpRequests especially if they fill a chunk - annogen version has the advantage of immediate local processing)
 define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate number of characters at a time that the 'bookmarklet' Javascript will send to the server if submitPath and submitBookmarklet are set. Setting this too high could impair browser responsiveness, but too low will be inefficient with bandwidth and pages will take longer to finish.")
-define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster (or an identically-configured copy) can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.") # e.g. example.rhcloud.com (although that does introduce the disadvantage of tying bookmarklet installations to the current URLs of the OpenShift service rather than your own domain)
+define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster (or an identically-configured copy) can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.")
 
 heading("Javascript execution options")
 define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with an appropriate version of Selenium (and ChromeDriver if you're using HeadlessChrome).  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
-define("js_upstream",default=False,help="Handle --headAppend, --bodyPrepend, --bodyAppend and --codeChanges upstream of our Javascript interpreter instead of making these changes as code is sent to the client, and make --staticDocs available to our interpreter as well as to the client.  This is for running experimental 'bookmarklets' etc with browsers like Lynx.") # TODO: what of delay? (or wait for XHRs to finish, call executeJavascript instead?)
+define("js_upstream",default=False,help="Handle --headAppend, --bodyPrepend, --bodyAppend and --codeChanges upstream of our Javascript interpreter instead of making these changes as code is sent to the client, and make --staticDocs available to our interpreter as well as to the client.  This is for running experimental 'bookmarklets' etc with browsers like Lynx.")
+# js_upstream TODO: what of delay? (or wait for XHRs to finish, call executeJavascript instead?)
 define("js_frames",default=False,help="When using js_interpreter, append the content of all frames and iframes to the main document. This might help with bandwidth reduction and with sites that have complex cross-frame dependencies that can be broken by sending separate requests through the adjuster.")
 define("js_instances",default=1,help="The number of virtual browsers to load when js_interpreter is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
-define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances.") # Even if some of those new requests won't immediately require js_interpreter work.  But it's better than having an excessively uneven distribution under load.  HTTP 429 is from RFC 6585, April 2012.  Without multicore, 'too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely. TODO: close even *before* reached full share of js_instances? as there may be other pages in prefetch, which will then have to wait for instances on this core even though there might already be spare instances on other cores.
-define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive PhantomJS processes. If you have Headless Chrome you can probably set this to 0.") # (js-restartAfter=1 precludes a faster response when a js_interpreter instance is already loaded with the page requested, although faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load, and is in any event unlikely to work if running multicore with many cores); TODO: check if PhantomJS 2.1.1 RAM usage is a regression from 2.0.1 ? but it's getting less relevant now there's Headless Chrome
-define("js_restartMins",default=10,help="Restart an idle js_interpreter instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --js-restartAfter=1.") # Setting it low does have the disadvantage of not being able to use an already-loaded page, see above
+define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances.")
+# js_429 + multicore: closes even though some of those new requests might not immediately require js_interpreter work.  But it's better than having an excessively uneven distribution under load.  HTTP 429 is from RFC 6585, April 2012.  Without multicore, 'too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely. TODO: close even *before* reached full share of js_instances? as there may be other pages in prefetch, which will then have to wait for instances on this core even though there might already be spare instances on other cores.
+define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive PhantomJS processes. If you have Headless Chrome you can probably set this to 0.")
+# (js-restartAfter=1 precludes a faster response when a js_interpreter instance is already loaded with the page requested, although faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load, and is in any event unlikely to work if running multicore with many cores); TODO: check if PhantomJS 2.1.1 RAM usage is a regression from 2.0.1 ? but it's getting less relevant now there's Headless Chrome
+define("js_restartMins",default=10,help="Restart an idle js_interpreter instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --js-restartAfter=1.")
+# js_restartMins: setting it low does have the disadvantage of not being able to use an already-loaded page, see above
 define("js_timeout1",default=30,help="When js_interpreter is in use, tell it to allow this number of seconds for initial page load. More time is allowed for XMLHttpRequest etc to finish (unless our client cuts the connection in the meantime).")
 define("js_timeout2",default=100,help="When js_interpreter is in use, this value in seconds is treated as a 'hard timeout': if a webdriver process does not respond at all within this time, it is assumed hung and emergency restarted.")
 define("js_retry",default=True,help="If a js_interpreter fails, restart it and try the same fetch again while the remote client is still waiting")
 define("js_fallback",default="X-Js-Fallback",help="If this is set to a non-empty string and a js_interpreter fails (even after js_retry if set), serve the page without Javascript processing instead of serving an error. The HTTP header specified by this option can tell the client whether or not Javascript was processed when a page is served.")
-define("js_reproxy",default=True,help="When js_interpreter is in use, have it send its upstream requests back through the adjuster on a different port. This allows js_interpreter to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a js_interpreter instance if the remote server is down.") # and works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with js_interpreter) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
+define("js_reproxy",default=True,help="When js_interpreter is in use, have it send its upstream requests back through the adjuster on a different port. This allows js_interpreter to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a js_interpreter instance if the remote server is down.")
+# js_reproxy also works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with js_interpreter) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
 define("js_UA",help="Custom user-agent string for js_interpreter requests, if for some reason you don't want to use the JS browser's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--js_reproxy) so scripts running in the JS browser itself will see its original user-agent.")
-define("js_images",default=True,help="When js_interpreter is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # plus some versions of Webkit leak memory (PhantomJS issue 12903), TODO: return a fake image if js_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
+define("js_images",default=True,help="When js_interpreter is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.")
+# js_images=False may also cause some versions of Webkit to leak memory (PhantomJS issue 12903), TODO: return a fake image if js_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("js_size",default="1024x768",help="The virtual screen dimensions of the browser when js_interpreter is in use (changing it might be useful for screenshots)")
 define("js_links",default=True,help="When js_interpreter is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
 define("js_multiprocess",default=True,help="When js_interpreter is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available. Recommended: if a webdriver instance gets 'stuck' in a way that somehow hangs its controlling process, we can detect and restart it.")
@@ -260,11 +306,14 @@ define("ssl_fork",default=False,help="Run SSL-helper proxies as separate process
 heading("Server control options")
 define("background",default=False,help="If True, fork to the background as soon as the server has started (Unix only). You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
 define("restart",default=False,help="If True, try to terminate any other process listening on our port number before we start (Unix only). Useful if Web Adjuster is running in the background and you want to quickly restart it with new options. Note that no check is made to make sure the other process is a copy of Web Adjuster; whatever it is, if it has our port open, it is asked to stop.")
-define("stop",default=False,help="Like 'restart', but don't replace the other process after stopping it. This option can be used to stop a background server (if it's configured with the same port number) without starting a new one. Unix only.") # "stop" overrides "restart", so if "restart" is set in a configuration file then you can still use "stop" on the command line
+define("stop",default=False,help="Like 'restart', but don't replace the other process after stopping it. This option can be used to stop a background server (if it's configured with the same port number) without starting a new one. Unix only.")
+# "stop" overrides "restart", so if "restart" is set in a configuration file then you can still use "stop" on the command line
 define("install",default=False,help="Try to install the program in the current user's Unix crontab as an @reboot entry, unless it's already there.  The arguments of the cron entry will be the same as the command line, with no directory changes, so make sure you are in the home directory before doing this.  The program will continue to run normally after the installation attempt.  (If you are on Cygwin then you might need to run cron-config also.)")
 define("pidfile",default="",help="Write our process ID to this file when running in the background, so you can set up a systemd service with Type=forking and PIDFile=this instead of using crontab. (Alternatively use 'pip install sdnotify' and run in the foreground with Type=notify.)")
-define("watchdog",default=0,help="(Linux only) Ping the system's watchdog every this number of seconds, so the watchdog can reboot the system if for any reason Web Adjuster stops functioning. The default value of 0 means do not ping the watchdog. If your machine's unattended boot is no longer reliable, beware of unnecessary reboot if you remotely stop the adjuster and are unable to restart it.") # e.g. some old Raspberry Pis no longer boot 100% of the time and have watchdogs that cannot be cleanly closed with 'V'
-define("watchdogWait",default=0,help="When the watchdog option is set, wait this number of seconds before stopping the watchdog pings. This causes the watchdog pings to be sent from a separate thread and therefore not stopped when the main thread is busy; they are stopped only when the main thread has not responded for watchdogWait seconds. This can be used to work around the limitations of a hardware watchdog that cannot be set to wait that long.") # such as the Raspberry Pi's Broadcom chip which defaults to 10 seconds and has max 15; you could say watchdog=5 and watchdogWait=60 (if you have an RPi which actually reboots when the watchdog goes off, see above)
+define("watchdog",default=0,help="(Linux only) Ping the system's watchdog every this number of seconds, so the watchdog can reboot the system if for any reason Web Adjuster stops functioning. The default value of 0 means do not ping the watchdog. If your machine's unattended boot is no longer reliable, beware of unnecessary reboot if you remotely stop the adjuster and are unable to restart it.")
+# watchdog beware: e.g. some old Raspberry Pis no longer boot 100% of the time and have watchdogs that cannot be cleanly closed with 'V'
+define("watchdogWait",default=0,help="When the watchdog option is set, wait this number of seconds before stopping the watchdog pings. This causes the watchdog pings to be sent from a separate thread and therefore not stopped when the main thread is busy; they are stopped only when the main thread has not responded for watchdogWait seconds. This can be used to work around the limitations of a hardware watchdog that cannot be set to wait that long.")
+# --- such as the Raspberry Pi's Broadcom chip which defaults to 10 seconds and has max 15; you could say watchdog=5 and watchdogWait=60 (if you have an RPi which actually reboots when the watchdog goes off, see above)
 define("watchdogDevice",default="/dev/watchdog",help="The watchdog device to use (set this to /dev/null to check main-thread responsiveness without actually pinging the watchdog)")
 define("browser",help="The Web browser command to run. If this is set, Web Adjuster will run the specified command (which is assumed to be a web browser), and will exit when this browser exits. This is useful in conjunction with --real_proxy to have a personal proxy run with the browser. You still need to set the browser to use the proxy; this can sometimes be done via browser command line or environment variables.")
 define("run",help="A command to run that is not a browser. If set, Web Adjuster will run the specified command and will restart it if it stops. The command will be stopped when Web Adjuster is shut down. This could be useful, for example, to run an upstream proxy.")
@@ -325,23 +374,32 @@ define("pdftotext",default=False,help="If True, add links to run PDF files throu
 define("pdfomit",help="A comma-separated list of regular expressions which, if any are found in a PDF link's URL, will result in a text link not being generated for that PDF link (although a conversion can still be attempted if a user manually enters the modified URL).  Use this to avoid confusion for PDF files you know cannot be converted.")
 define("epubtotext",default=False,help="If True, add links to run EPUB files through Calibre's 'ebook-convert' program (which must be present), to produce a text-only option (or a MOBI option if a Kindle is in use). A text link will be added just after any EPUB link that is found, so that you have a choice of downloading EPUB or text. The htmlJson setting will also be applied to the EPUB link finder, and see also the guessCMS option.")
 # pdftotext and epubtotext both use temporary files, which are created in the system default temp directory unless overridden by environment variables TMPDIR, TEMP or TMP, TODO: do we want an override for NamedTemporaryFile's dir= option ourselves?  (/dev/shm might make more sense on some Flash-based systems, although filling the RAM and writing to swap might do more damage than writing files in /tmp if it gets big; also hopefully some OS's won't actually write anything if the file has been deleted before the buffer needed to be flushed (TODO: check this))
-define("epubtozip",default=False,help="If True, add links to download EPUB files renamed to ZIP, as a convenience for platforms that don't have EPUB readers but can open them as ZIP archives and display the XHTML files they contain. The htmlJson setting will also be applied to the EPUB link finder, and see also the guessCMS option.") # TODO: option to cache the epub file and serve its component files individually, so other transforms can be applied and for platforms without ZIP capabilities
-define("guessCMS",default=False,help="If True, then the pdftotext, epubtotext and epubtozip options attempt to guess if a link is pointing to a PDF or EPUB file via a Content Management System (i.e. the URL does not end in .pdf or .epub, but contains something like ?format=PDF)") # (doesn't seem to work very well with the askBitrate option)
-define("pdfepubkeep",default=200,help="Number of seconds to keep any generated text files from PDF and EPUB.  If this is 0, the files will be deleted immediately, but that might be undesirable: if a mobile phone browser has a timeout that takes effect before ebook-convert has finished (this can sometimes be the case with Opera Mini for example), it might be best to allow the user to wait a short time and re-submit the request, this time getting a cached response.") # Opera Mini's opera:config can set the loading timeout to longer, default is 30 seconds.
-define("waitpage",default=True,help="If the browser seems to be an interactive one, generate a 'please wait' page while converting PDF or EPUB files to text. Not effective if pdfepubkeep is set too low.") # TODO: mp3 also? (would need to add MP3s to pdfepubkeep)
+define("epubtozip",default=False,help="If True, add links to download EPUB files renamed to ZIP, as a convenience for platforms that don't have EPUB readers but can open them as ZIP archives and display the XHTML files they contain. The htmlJson setting will also be applied to the EPUB link finder, and see also the guessCMS option.")
+# epubtozip TODO: option to cache the epub file and serve its component files individually, so other transforms can be applied and for platforms without ZIP capabilities
+define("guessCMS",default=False,help="If True, then the pdftotext, epubtotext and epubtozip options attempt to guess if a link is pointing to a PDF or EPUB file via a Content Management System (i.e. the URL does not end in .pdf or .epub, but contains something like ?format=PDF)")
+# TODO: guessCMS doesn't seem to work very well with the askBitrate option
+define("pdfepubkeep",default=200,help="Number of seconds to keep any generated text files from PDF and EPUB.  If this is 0, the files will be deleted immediately, but that might be undesirable: if a mobile phone browser has a timeout that takes effect before ebook-convert has finished (this can sometimes be the case with Opera Mini for example), it might be best to allow the user to wait a short time and re-submit the request, this time getting a cached response.")
+# pdfepubkeep: note also that Opera Mini's opera:config can set the loading timeout to longer, default is 30 seconds.
+define("waitpage",default=True,help="If the browser seems to be an interactive one, generate a 'please wait' page while converting PDF or EPUB files to text. Not effective if pdfepubkeep is set too low.")
+# waitpage TODO: mp3 also? (would need to add MP3s to pdfepubkeep)
 
 heading("Character rendering options")
 # TODO: option to add a switch at top of page ?
-define("render",default=False,help="Whether to enable the character-set renderer. This functionality requires the Python Imaging Library and suitable fonts. The settings of htmlJson and leaveTags will also be applied to the renderer. Text from computed Javascript writes might not be rendered as images.") # ("computed" as in not straight from a JSON document.  TODO: could write a piece of JS that goes through the DOM finding them? ditto any JS alterations that haven't been through htmlFilter, although you'd have to mark the ones that have and this could be filter-dependent)
-define("renderFont",help="The font file to use for the character-set renderer (if enabled). This should be a font containing all the characters you want to render, and it should be in .TTF, .OTF or other Freetype-supported format (.PCF is sometimes possible if renderSize is set correctly, e.g. 16 for wenquanyi_12pt.pcf)") # TODO: different fonts for different Unicode ranges? (might be hard to auto-detect missing characters)
+define("render",default=False,help="Whether to enable the character-set renderer. This functionality requires the Python Imaging Library and suitable fonts. The settings of htmlJson and leaveTags will also be applied to the renderer. Text from computed Javascript writes might not be rendered as images.")
+# ("computed" as in not straight from a JSON document.  TODO: could write a piece of JS that goes through the DOM finding them? ditto any JS alterations that haven't been through htmlFilter, although you'd have to mark the ones that have and this could be filter-dependent)
+define("renderFont",help="The font file to use for the character-set renderer (if enabled). This should be a font containing all the characters you want to render, and it should be in .TTF, .OTF or other Freetype-supported format (.PCF is sometimes possible if renderSize is set correctly, e.g. 16 for wenquanyi_12pt.pcf)")
+# renderFont TODO: different fonts for different Unicode ranges? (might be hard to auto-detect missing characters)
 define("renderInvert",default=False,help="If True, the character-set renderer (if enabled) will use a black background. Useful when you are also adding a stylesheet with a dark background.")
 define("renderSize",default=20,help="The height (in pixels) to use for the character-set renderer if it is enabled.")
 define("renderPath",default="/@_",help="The location on every adjusted website to put the character-set renderer's images, if enabled. This must be made up of URL-safe characters starting with a / and should be a short path that is unlikely to occur on normal websites.")
 define("renderFormat",default="png",help="The file format of the images to be created by the character-set renderer if it is enabled, for example 'png' or 'jpeg'.")
 define("renderRange",multiple=True,help="The lowest and highest Unicode values to be given to the character-set renderer if it is enabled. For example 3000:A6FF for most Chinese characters. Multiple ranges are allowed. Any characters NOT in one of the ranges will be passed to the browser to render. If the character-set renderer is enabled without renderRange being set, then ALL text will be rendered to images.")
-define("renderOmit",multiple=True,default="iPhone,iPad,Android,Macintosh,Windows NT 6,Windows NT 10,Windows Phone OS,Lynx/2",help="A list of platforms that do not need the character-set renderer. If any of these strings occur in the user-agent then the character set renderer is turned off even if it is otherwise enabled, on the assumption that these platforms either have enough fonts already, or wouldn't show the rendered images anyway.") # (Win: Vista=6.0 7=6.1 8=6.2 reportedly don't need language packs for display) (Lynx: being careful by specifying /2 to try to avoid false positives; don't list w3m as some versions can do graphics; not sure about Links/ELinks etc)
-define("renderOmitGoAway",default=False,help="If set, any browsers that match renderOmit will not be allowed to use the adjuster. This is for servers that are set to do character rendering only and do not have enough bandwidth for people who don't need this function and just want a proxy.") # (See also the extended syntax of the headAppendCSS option, which forces all users to choose a stylesheet, especially if cssName is not set; that might be useful if the server's sole purpose is to add stylesheets and you don't want to provide a straight-through service for non-stylesheet users.)
-define("renderCheck",help="If renderOmit does not apply to the browser, it might still be possible to check for native character-set support via Javascript. renderCheck can be set to the Unicode value of a character to be checked (try 802F for complete Chinese support); if the browser reports its width differently from known unprintable characters, we assume it won't need our renderer.") # 802F shouldn't create false positives in environments that support only GB2312, only Big5, only SJIS or only KSC instead of all Chinese. It does have GB+ and Big5+ codes (and also demonstrates that we want a hex number). If browser's "unprintable character" glyph happens to be the same width as renderCheck anyway then we could have a false negative, but that's better than a false positive and the user can still switch it off manually if renderName is left set.
+define("renderOmit",multiple=True,default="iPhone,iPad,Android,Macintosh,Windows NT 6,Windows NT 10,Windows Phone OS,Lynx/2",help="A list of platforms that do not need the character-set renderer. If any of these strings occur in the user-agent then the character set renderer is turned off even if it is otherwise enabled, on the assumption that these platforms either have enough fonts already, or wouldn't show the rendered images anyway.")
+# (Explanation for renderOmit defaults: Win Vista=6.0 7=6.1 8=6.2 reportedly don't need language packs for display; Lynx: being careful by specifying /2 to try to avoid false positives; don't list w3m as some versions can do graphics; not sure about Links/ELinks etc)
+define("renderOmitGoAway",default=False,help="If set, any browsers that match renderOmit will not be allowed to use the adjuster. This is for servers that are set to do character rendering only and do not have enough bandwidth for people who don't need this function and just want a proxy.")
+# renderOmitGoAway: see also the extended syntax of the headAppendCSS option, which forces all users to choose a stylesheet, especially if cssName is not set; that might be useful if the server's sole purpose is to add stylesheets and you don't want to provide a straight-through service for non-stylesheet users.
+define("renderCheck",help="If renderOmit does not apply to the browser, it might still be possible to check for native character-set support via Javascript. renderCheck can be set to the Unicode value of a character to be checked (try 802F for complete Chinese support); if the browser reports its width differently from known unprintable characters, we assume it won't need our renderer.")
+# renderCheck: 802F shouldn't create false positives in environments that support only GB2312, only Big5, only SJIS or only KSC instead of all Chinese. It does have GB+ and Big5+ codes (and also demonstrates that we want a hex number). If browser's "unprintable character" glyph happens to be the same width as renderCheck anyway then we could have a false negative, but that's better than a false positive and the user can still switch it off manually if renderName is left set.
 define("renderNChar",default=1,help="The maximum number of characters per image to be given to the character-set renderer if it is enabled. Keeping this low means the browser cache is more likely to be able to re-use images, but some browsers might struggle if there are too many separate images. Don't worry about Unicode \"combining diacritic\" codes: any found after a character that is to be rendered will be included with it without counting toward the renderNChar limit and without needing to be in renderRange.")
 define("renderWidth",default=0,help="The maximum pixel width of a 'word' when using the character-set renderer. If you are rendering a language that uses space to separate words, but are using only one or two characters per image, then the browser might split some words in the middle. Setting renderWidth to some value other than 0 can help to prevent this: any word narrower than renderWidth will be enclosed in a <nobr> element. (This will however be ineffective if your stylesheet overrides the behaviour of <nobr>.) You should probably not set renderWidth if you intend to render languages that do not separate words with spaces.")
 define("renderDebug",default=False,help="If the character-set renderer is having problems, try to insert comments in the HTML source to indicate why.  The resulting HTML is not guaranteed to be well-formed, but it might help you debug a misbehaving htmlFilter.  This option may also insert comments in bad HTML before the htmlFilter stage even when the renderer is turned off.")
@@ -357,27 +415,35 @@ define("ip_query_aggressive",default=False,help="If a query to ip_query_url fail
 define("ip_force_interval",default=7*24*3600,help="Number of seconds before ip_change_command (if set) is run even if there was no IP change.  This is to let Dynamic DNS services know that we are still around.  Set to 0 to disable forced updates (a forced update will occur on server startup anyway), otherwise an update will occur on the next IP check after ip_force_interval has elapsed.")
 
 heading("Speedup options")
-define("useLXML",default=False,help="Use the LXML library for parsing HTML documents. This is usually faster, but it can fail if your system does not have a good installation of LXML and its dependencies. Use of LXML libraries may also result in more changes to all HTML markup: this should be harmless for browsers, but beware when using options like bodyAppendGoesAfter then you might or might not be dealing with the original HTML depending on which filters are switched on.") # (hence bodyAppendGoesAfter now takes regexps as of adjuster 0.1836) / dependencies: did have ", or if the websites you visit are badly broken" but it turns out some breakages are actually better handled by LXML than by HTMLParser, e.g. <div id=something">
+define("useLXML",default=False,help="Use the LXML library for parsing HTML documents. This is usually faster, but it can fail if your system does not have a good installation of LXML and its dependencies. Use of LXML libraries may also result in more changes to all HTML markup: this should be harmless for browsers, but beware when using options like bodyAppendGoesAfter then you might or might not be dealing with the original HTML depending on which filters are switched on.")
+# useLXML: (hence bodyAppendGoesAfter now takes regexps as of adjuster 0.1836) / dependencies: did have ", or if the websites you visit are badly broken" but it turns out some breakages are actually better handled by LXML than by HTMLParser, e.g. <div id=something">
 define("usepycurl",default=True,help="Use the pycurl library if available (setting this to False might save a little RAM at the expense of remote-server tolerance)")
-define("renderBlocks",default=False,help="Treat all characters rendered by the character-set renderer as \"blocks\" that are guaranteed to have the same dimensions (true for example if you are using the renderer for Chinese characters only). This is faster than checking words individually, but it may produce incorrect HEIGHT and WIDTH attributes if given a range of characters whose dimensions do differ.") # TODO: blocksRange option for if want to render some that do and some that don't? (but profile it: PIL's getsize just might turn out to be quicker than the high-level range-check code)
+define("renderBlocks",default=False,help="Treat all characters rendered by the character-set renderer as \"blocks\" that are guaranteed to have the same dimensions (true for example if you are using the renderer for Chinese characters only). This is faster than checking words individually, but it may produce incorrect HEIGHT and WIDTH attributes if given a range of characters whose dimensions do differ.")
+# renderBlocks TODO: blocksRange option for if want to render some that do and some that don't? (but profile it: PIL's getsize just might turn out to be quicker than the high-level range-check code)
 define("fasterServer",help="Address:port of another instance of Web Adjuster to which we forward all traffic whenever it is available. When the other instance is not available, traffic will be handled by this one. Use for example if you have a slower always-on machine and a faster not-always-on machine and you want the slower machine to delegate to the faster machine when available. See also ipTrustReal.")
-define("ipTrustReal",help="IP address of a machine that we trust, for example a machine that is using us as fasterServer. Any traffic coming from this machine with an X-Real-Ip header will be logged as though it originated at the value of its X-Real-Ip header. Setting this to * will cause X-Real-Ip to be trusted from ANY connection.") # , which might be useful in an environment where you know the adjuster can be reached only via a proxy but the proxy's address can change; see also trust_XForwardedFor. (TODO: multiple IPs option like ip_messages?  but might need to make it ipv6 ready)
+define("ipTrustReal",help="IP address of a machine that we trust, for example a machine that is using us as fasterServer. Any traffic coming from this machine with an X-Real-Ip header will be logged as though it originated at the value of its X-Real-Ip header. Setting this to * will cause X-Real-Ip to be trusted from ANY connection.")
+# , which might be useful in an environment where you know the adjuster can be reached only via a proxy but the proxy's address can change; see also trust_XForwardedFor. (TODO: multiple IPs option like ip_messages?  but might need to make it ipv6 ready)
 define("trust_XForwardedFor",default=False,help="Like ipTrustReal but trusts X-Forwarded-For header from any IP if set to True (use this in an environment where the adjuster can be reached only via a load balancer etc)")
-define("fasterServerNew",default=True,help="If fasterServer is set, assume it is running Web Adjuster v0.17 or later and use a more lightweight method of checking its availability. You might need to set this to False if for some reason you can't upgrade the fasterServer first.") # (don't do auto-fallback as that creates unnecessary extra traffic, plus sending an unrecognized ping2 could clutter logs)
+define("fasterServerNew",default=True,help="If fasterServer is set, assume it is running Web Adjuster v0.17 or later and use a more lightweight method of checking its availability. You might need to set this to False if for some reason you can't upgrade the fasterServer first.")
+# (fasterServerNew: don't do auto-fallback as that creates unnecessary extra traffic, plus sending an unrecognized ping2 could clutter logs)
 define("machineName",help="A name for the current machine to insert into the \"Server\" HTTP header for adjusted requests, for example to let users know if it's your faster or your slower machine that's currently serving them (although they'd need to inspect the headers to find out)")
-define("redirectFiles",default=False,help="If, when not functioning as a \"real\" HTTP proxy, a URL is received that looks like it requires no processing on our part (e.g. an image or downloadable file that the user does not want converted), and if this is confirmed via a HEAD request to the remote server, then redirect the browser to fetch it directly and not via Web Adjuster. This takes bandwidth off the adjuster server, and should mean faster downloads, especially from sites that are better connected than the adjuster machine. However it might not work with sites that restrict \"deep linking\". (As a precaution, the confirmatory HEAD request is sent with a non-adjusted Referer header to simulate what the browser would send if fetching directly. If this results in an HTML \"Referer denied\" message then Web Adjuster will proxy the request in the normal way. This precaution might not detect ALL means of deep-linking denial though.)") # e.g. cookie-based, or serving an image but not the real one.  But it works with Akamai-based assets servers as of 2013-09 (but in some cases you might be able to use codeChanges to point these requests back to the site's original server instead of the Akamai one, if the latter just mirrors the former which is still available, and therefore save having to proxy the images.  TODO: what if you can't do that but you can run another service on a higher bandwidth machine that can cache them, but can't run the adjuster on the higher-bandwidth machine; can we redirect?)
+define("redirectFiles",default=False,help="If, when not functioning as a \"real\" HTTP proxy, a URL is received that looks like it requires no processing on our part (e.g. an image or downloadable file that the user does not want converted), and if this is confirmed via a HEAD request to the remote server, then redirect the browser to fetch it directly and not via Web Adjuster. This takes bandwidth off the adjuster server, and should mean faster downloads, especially from sites that are better connected than the adjuster machine. However it might not work with sites that restrict \"deep linking\". (As a precaution, the confirmatory HEAD request is sent with a non-adjusted Referer header to simulate what the browser would send if fetching directly. If this results in an HTML \"Referer denied\" message then Web Adjuster will proxy the request in the normal way. This precaution might not detect ALL means of deep-linking denial though.)")
+# --- e.g. it won't detect cookie-based deep-linking denial, or serving an image but not the real one.  But it works with Akamai-based assets servers as of 2013-09 (but in some cases you might be able to use codeChanges to point these requests back to the site's original server instead of the Akamai one, if the latter just mirrors the former which is still available, and therefore save having to proxy the images.  TODO: what if you can't do that but you can run another service on a higher bandwidth machine that can cache them, but can't run the adjuster on the higher-bandwidth machine; can we redirect?)
 # If adjuster machine is running on a home broadband connection, don't forget the "uplink" speed of that broadband is likely to be lower than the "downlink" speed; the same should not be the case of a site running at a well-connected server farm.  There's also extra delay if Web Adjuster has to download files first (which might be reduced by implementing streaming).  Weighed against this is the extra overhead the browser has of repeating its request elsewhere, which could be an issue if the file is small and the browser's uplink is slow; in that case fetching it ourselves might be quicker than having the browser repeat the request; see TODO comment elsewhere about minimum content length before redirectFiles.
 # TODO: for Referer problems in redirectFiles, if we're not on HTTPS, could redirect to an HTTPS page (on a separate private https server, or https://www.google.com/url/?q= but they might add checks) which then redirs to the target HTTP page, but that might not strip Referer on MSIE 7 etc, may have to whitelist browsers+versions for it, or test per-request but that wld lead to 4 redirects per img instead of 2 although cld cache (non-empty) ok-browser-strings (and hold up other requests from same browser until we know or have timed out ??); do this only if sendHead returns false but sendHead with proper referer returns ok (and cache a few sites where this is the case so don't have to re-test) ??  also it might not work in places where HTTPS is forbidden
 # TODO: redirectFiles could call request_no_external_referer and test with blank Referer instead of non-adjusted Referer, but we'd have to figure out some way of verifying that the browser actually supports 'Referrer-Policy: same-origin' before doing this
 
 define("upstream_guard",default=True,help="Modify scripts and cookies sent by upstream sites so they do not refer to the cookie names that our own scripts use. This is useful if you chain together multiple instances of Web Adjuster, such as for testing another installation without coming out of your usual proxy. If however you know that this instance will not be pointed to another, you can set upstream_guard to False to save some processing.")
-define("skipLinkCheck",multiple=True,help="Comma-separated list of regular expressions specifying URLs to which we won't try to add or modify links for the pdftotext, epubtotext, epubtozip, askBitrate or mailtoPath options.  This processing can take some time on large index pages with thousands of links; if you know that none of them are PDF, EPUB, MP3 or email links, or if you don't mind not processing any that are, then it saves time to skip this step for those pages.") # TODO: it would be nice to have a 'max links on the page' limit as an alternative to a list of URL patterns
+define("skipLinkCheck",multiple=True,help="Comma-separated list of regular expressions specifying URLs to which we won't try to add or modify links for the pdftotext, epubtotext, epubtozip, askBitrate or mailtoPath options.  This processing can take some time on large index pages with thousands of links; if you know that none of them are PDF, EPUB, MP3 or email links, or if you don't mind not processing any that are, then it saves time to skip this step for those pages.")
+# skipLinkCheck TODO: it would be nice to have a 'max links on the page' limit as an alternative to a list of URL patterns
 
 define("extensions",help="Name of a custom Python module to load to handle certain requests; this might be more efficient than setting up a separate Tornado-based server. The module's handle() function will be called with the URL and RequestHandler instance as arguments, and should return True if it processed the request, but anyway it should return as fast as possible. This module does NOT take priority over forwarding the request to fasterServer.")
 
 define("loadBalancer",default=False,help="Set this to True if you have a default_site set and you are behind any kind of \"load balancer\" that works by issuing a GET / with no browser string. This option will detect such requests and avoid passing them to the remote site.")
-define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)") # and --ssl-fork if there's not TOO many instances taking up the RAM; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server)
-define("internalPort",default=0,help="The first port number to use for internal purposes when ssl_fork is in effect.  Internal ports needed by real_proxy (for SSL) and js_reproxy are normally allocated from the ephemeral port range, but if ssl_fork delegates to independent processes then some of them need to be at known numbers. The default of 0 means one higher than 'port'; several unused ports may be needed starting at this number. If your Tornado is modern enough to support reuse_port then you can have multiple Adjuster instances listening on the same port (e.g. for one_request_only) provided they have different internalPort settings when run with ssl_fork.  Note however that the --stop and --restart options will NOT distinguish between different internalPort settings, only 'port'.") # If running on Openshift in non-WSGI mode, you'd better not use real_proxy or js_reproxy because Openshift won't let you open ports other than OPENSHIFT_PYTHON_PORT (TODO: find some way to multiplex everything on one port? how to authenticate our JS-interpreter connections if the load-balancer makes remote connections to that port also seem to come from our IP?)
+define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)")
+# --- and --ssl-fork if there's not TOO many instances taking up the RAM; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server)
+define("internalPort",default=0,help="The first port number to use for internal purposes when ssl_fork is in effect.  Internal ports needed by real_proxy (for SSL) and js_reproxy are normally allocated from the ephemeral port range, but if ssl_fork delegates to independent processes then some of them need to be at known numbers. The default of 0 means one higher than 'port'; several unused ports may be needed starting at this number. If your Tornado is modern enough to support reuse_port then you can have multiple Adjuster instances listening on the same port (e.g. for one_request_only) provided they have different internalPort settings when run with ssl_fork.  Note however that the --stop and --restart options will NOT distinguish between different internalPort settings, only 'port'.")
+# Some environments (e.g. old OpenShift 2) can't use real_proxy or js_reproxy because the container won't let us open extra ports even for internal purposes; TODO: find some way to multiplex everything on one port? how to authenticate our JS-interpreter connections if the load-balancer makes remote connections to that port also seem to come from our IP?
 define("fixed_ports",default=False,help="Do not allocate ports (even internal ports) from the ephemeral port range even when this is otherwise possible. This option might help if you are firewalling your loopback interface and want to write specific exceptions (although that still won't work if you're using js_interpreter=HeadlessChrome or similar which opens its own ephemeral ports as well: use containers if you're concerned). Fixed ports may result in failures if internal ports are already taken.")
 define("compress_responses",default=True,help="Use gzip to compress responses for clients that indicate they are compatible with it. You may want to turn this off if your server's CPU is more important than your network bandwidth (e.g. browser on same machine).")
 
@@ -390,17 +456,21 @@ define("profile",default=0,help="Log timing statistics every N seconds (only whe
 define("profile_lines",default=5,help="Number of lines to log when profile option is in use (not applicable if using --multicore)")
 define("renderLog",default=False,help="Whether or not to log requests for character-set renderer images. Note that this can generate a LOT of log entries on some pages.")
 define("logUnsupported",default=False,help="Whether or not to log attempts at requests using unsupported HTTP methods. Note that this can sometimes generate nearly as many log entries as renderLog if some browser (or malware) tries to do WebDAV PROPFIND requests on each of the images.")
-define("logRedirectFiles",default=True,help="Whether or not to log requests that result in the browser being simply redirected to the original site when the redirectFiles option is on.") # (Since this still results in a HEAD request being sent to the remote site, this option defaults to True in case you need it to diagnose "fair use of remote site" problems)
+define("logRedirectFiles",default=True,help="Whether or not to log requests that result in the browser being simply redirected to the original site when the redirectFiles option is on.")
+# (Since redirectFiles still results in a HEAD request being sent to the remote site, the logRedirectFiles option defaults to True in case you need it to diagnose "fair use of remote site via adjuster" problems)
 define("ownServer_useragent_ip",default=False,help="If own_server is set, and that server cannot be configured to log the X-Real-Ip header we set when we proxy for it, you can if you wish turn on this option, which will prepend the real IP to the User-Agent header on the first request of each connection (most servers can log User-Agent). This is slightly dangerous: fake IPs can be inserted into the log if keep-alive is used.") # (and it might break some user-agent detection)
 define("ipNoLog",multiple=True,help="A comma-separated list of IP addresses which can use the adjuster without being logged. If your network has a \"friendly probing\" service then you might want to use this to stop it filling up the logs.  (Any tracebacks it causes will still be logged however.)")
-define("squashLogs",default=True,help="Try to remove some duplicate information from consecutive log entries, to make logs easier to check. You might want to set this to False if you plan to use automatic search tools on the logs. Currently not supported with multicore, and will automatically be set to False if multicore is enabled.") # (word 'some' is important as not all duplicate info is guaranteed to be removed. TODO: move BrowserLogger to the collection process so can collate for multicore?)
+define("squashLogs",default=True,help="Try to remove some duplicate information from consecutive log entries, to make logs easier to check. You might want to set this to False if you plan to use automatic search tools on the logs. Currently not supported with multicore, and will automatically be set to False if multicore is enabled.")
+# (squashLogs: word 'some' is important as not all duplicate info is guaranteed to be removed. TODO: move BrowserLogger to the collection process so can collate for multicore?)
 define("whois",default=False,help="Try to log the Internet service provider for each IP address in the logs.  Requires the 'whois' program.  The extra information is written as separate log entries when it becomes available, and not for recent duplicate IPs or IPs that do not submit valid requests.")
-define("errorHTML",default="Adjuster error has been logged",help="What to say when an uncaught exception (due to a misconfiguration or programming error) has been logged. HTML markup is allowed in this message. If for some reason you have trouble accessing the log files, the traceback can usually be included in the page itself by placing {traceback} in the message.") # TODO: this currently requires Tornado 2.1+ (document this? see TODO in write_error)
+define("errorHTML",default="Adjuster error has been logged",help="What to say when an uncaught exception (due to a misconfiguration or programming error) has been logged. HTML markup is allowed in this message. If for some reason you have trouble accessing the log files, the traceback can usually be included in the page itself by placing {traceback} in the message.")
+# errorHTML TODO: this currently requires Tornado 2.1+ (document this? see TODO in write_error)
 define("logDebug",default=False,help="Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules. On Unix you may also toggle this at runtime by sending SIGUSR1 to the process(es).") # see debuglog()
 # and continuing into the note below:
 if not tornado:
     print "</dl>"
-    print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <kbd>python adjuster.py --help</kbd> to see a full list of the ones available on your setup. They typically include <kbd>log_file_max_size</kbd>, <kbd>log_file_num_backups</kbd>, <kbd>log_file_prefix</kbd> and <kbd>log_to_stderr</kbd>." # and --logging=debug but that may generate a lot of entries from curl_httpclient
+    print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <kbd>python adjuster.py --help</kbd> to see a full list of the ones available on your setup. They typically include <kbd>log_file_max_size</kbd>, <kbd>log_file_num_backups</kbd>, <kbd>log_file_prefix</kbd> and <kbd>log_to_stderr</kbd>."
+    # and --logging=debug, but that may generate a lot of entries from curl_httpclient
     raise SystemExit
 
 #@file: import2-other.py
@@ -410,7 +480,7 @@ if not tornado:
 
 import time,os,commands,string,urllib,urllib2,urlparse,re,socket,logging,subprocess,threading,base64,htmlentitydefs,signal,traceback
 try: import simplejson as json # Python 2.5, and faster?
-except: import json # Python 2.6
+except ImportError: import json # Python 2.6
 from HTMLParser import HTMLParser,HTMLParseError
 try: import psutil
 except ImportError: psutil = None
@@ -425,7 +495,7 @@ try: # can we page the help text?
         pydoc.pager(dat.getvalue())
     tornado.options.options.__dict__['old_top'] = tornado.options.options.print_help
     tornado.options.options.__dict__['print_help'] = new_top
-except: raise
+except: pass # oh well, can't page the help text
 
 #@file: domain-rewrite.py
 # --------------------------------------------------
@@ -445,7 +515,8 @@ def convert_to_real_host(requested_host,cookie_host=None):
     # we should display the URL entry box etc.
     # Returns -1 if we should pass to options.own_server.
     if requested_host:
-      port=":"+str(options.publicPort) # might or might not be present in the user's request
+      port=":"+str(options.publicPort)
+      # port might or might not be present in user's request
       orig_requested_host = requested_host
       if requested_host.endswith(port): requested_host=requested_host[:-len(port)]
       n=0
@@ -461,7 +532,8 @@ def convert_to_real_host(requested_host,cookie_host=None):
     if options.own_server: return -1
     else: return defaultSite()
 def convert_to_via_host(requested_host):
-    if not requested_host: requested_host = "" # ?
+    if not requested_host: # ??
+        requested_host = ""
     port=":"+str(options.publicPort) # the port to advertise
     orig_requested_host = requested_host
     if requested_host.endswith(port): requested_host=requested_host[:-len(port)]
@@ -494,7 +566,7 @@ def convert_to_requested_host(real_host,cookie_host=None):
 def dedot(domain):
     # - means . but -- is a real - (OK as 2 dots can't come together and a - can't come immediately after a dot in domain names, so --- = -., ---- = --, ----- = --. etc)
     d2 = domain.replace("-","--").replace(".","-")
-    if len(d2) > 63: return domain # because RFC 1035 puts a 63-byte limit on each label (so our cross-domain preferences cookies can't work on very long domains, TODO document this?)
+    if len(d2) > 63: return domain # We can't do it because RFC 1035 puts a 63-byte limit on each label (so our cross-domain preferences cookies can't work on very long domains, TODO document this?)
     else: return d2
 def redot(domain): return domain.replace("--","@MINUS@").replace("-",".").replace("@MINUS@","-")
 
@@ -510,9 +582,14 @@ def protocolWithHost(realHost):
     x,y = protocolAndHost(realHost) ; return x+y
 
 def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyRequest=False,isSslUpstream=False):
-    if isProxyRequest: # called for Location: headers etc (not for document bodies)
+    if isProxyRequest:
+        # When running as a real proxy, domain_process is
+        # still called for Location: headers etc (not for
+        # document bodies), and the only thing we need to
+        # check is the upstream_rewrite_ssl option: if our
+        # UPstream proxy says .0 in a Location: URL due to
+        # upstream_rewrite_ssl, then take it out.
         if upstream_rewrite_ssl and not isSslUpstream:
-            # Although we don't need a full domain_process when the client is sending us a proxy request, we still have to beware of our UPstream proxy saying .0 in a Location: URL due to upstream_rewrite_ssl: take it out
             m = re.match(r"http(://[A-Za-z0-9.-]*)\.0(?![A-Za-z0-9.-])",text)
             if m: return "https"+m.group(1)
         return text
@@ -537,7 +614,8 @@ def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyReques
             if https: protocol = "https://"
             else: protocol = "http://"
         if protocol=="https://": oldhost += ".0" # HTTPS hack (see protocolAndHost)
-        newHP = "http://" + convert_to_requested_host(oldhost,cookieHost) # TODO: unless using https to communicate with the adjuster itself, in which case would either have to run a server with certificates set up or make it a WSGI-etc script running on one, and if that's the case then might wish to check through the rest of the code (search http://) to ensure this would always work well
+        newHP = "http://" + convert_to_requested_host(oldhost,cookieHost)
+        # newHP TODO: unless using https to communicate with the adjuster itself, in which case would either have to run a server with certificates set up or make it a WSGI-etc script running on one, and if that's the case then might wish to check through the rest of the code (search http://) to ensure this would always work well
         if newHP.endswith(".0"): return m.group() # undo HTTPS hack if we have no wildcard_dns and convert_to_requested_host sent that URL off-site
         return newHP
     if stopAtOne: count=1
@@ -661,22 +739,22 @@ def parse_config_file(cfg):
     else: tornado.options.parse_config_file(cfg,final=False)
   except tornado.options.Error,e: optErr(e.message)
 def check_config_file(cfg):
-    # (why doesn't Tornado do this by default?  catch
-    # capitalisation and spelling errors etc)
+    # Tornado doesn't catch capitalisation and spelling errors etc by default
     try:
         options = tornado.options.options._options
         from tornado.util import exec_in
     except: return
     d = {} ; exec_in(open(cfg,'rb').read(),d,d)
     for k in d.keys():
-        if not k in options and not k.replace('_','-') in options and type(d[k]) in [str,unicode,list,bool,int]: # (allow functions etc)
+        if not k in options and not k.replace('_','-') in options:
+            if not type(d[k]) in [str,unicode,list,bool,int]: continue # allow functions etc in config file
             errExit("Unrecognised global '%s' in configuration file '%s'" % (k,cfg))
 
 def readOptions():
     # Reads options from command line and/or config files
     parse_command_line(final=False)
     configsDone = [] ; cDir = []
-    if not options.config: options.config=os.environ.get("ADJUSTER_CFG","") # must do HERE rather than setting default= in the define() call, or options.config=None below might not work
+    if not options.config: options.config=os.environ.get("ADJUSTER_CFG","") # environment check: must do HERE rather than setting default= in the define() call, or options.config=None below might not work
     while options.config and (options.config,os.getcwd()) not in configsDone:
         config = options.config ; options.config=None
         oldDir = os.getcwd()
@@ -689,17 +767,24 @@ def readOptions():
     configsDone.reverse() # we want config= within a config file to mean the outermost config overrides anything set in the innermost config, so read them in reverse order:
     for (config,_),cd in zip(configsDone,cDir):
         os.chdir(cd) ; parse_config_file(config)
-    parse_command_line(True) # need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files) + ensure command-line options override config files
+    parse_command_line(True)
+    # --- need to do this again to ensure logging is set up for the *current* directory (after any chdir's while reading config files) + ensure command-line options override config files
 
 def preprocessOptions():
     initLogDebug() ; initLogging_preListen()
-    if options.version: errExit("--version is for the command line only, not for config files") # to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
+    if options.version:
+        # If we get here, someone tried to put "version" in a config file.  Flag this as an error to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
+        errExit("--version is for the command line only, not for config files")
     if options.one_request_only:
-        if options.multicore or options.fasterServer or options.whois or options.own_server or options.ssh_proxy: errExit("--one-request-only is not compatible with multicore, fasterServer, whois, own_server or ssh_proxy") # (TODO: it could be MADE compatible with fasterServer, whois, etc, but that would need more work.  watchdog works in theory but is inadvisable unless you're running this in some kind of loop)
+        if options.multicore or options.fasterServer or options.whois or options.own_server or options.ssh_proxy:
+            errExit("--one-request-only is not compatible with multicore, fasterServer, whois, own_server or ssh_proxy")
+            # (TODO: it could be MADE compatible with fasterServer, whois, etc, but that would need more work.  watchdog works in theory but is inadvisable unless you're running this in some kind of loop)
         if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
             warn("pdfepubkeep and waitpage won't work with --one-request-only: clearing them")
             options.pdfepubkeep = options.waitpage = False
-        if options.js_interpreter and not options.js_instances==1: errExit("--one-request-only doesn't make sense with a js_instances value other than 1") # (well we could start N instances if you like, but what's the point? - this probably indicates 'wrong config= option' or something, so flag it)
+        if options.js_interpreter and not options.js_instances==1:
+            errExit("--one-request-only doesn't make sense with a js_instances value other than 1")
+            # (well we could start N instances if you like, but what's the point? - this probably indicates 'wrong config= option' or something, so flag it)
     if options.restart and options.watchdog and options.watchdogDevice=="/dev/watchdog" and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
     if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
     if type(options.mailtoSMS)==type(""): options.mailtoSMS=options.mailtoSMS.split(',')
@@ -736,7 +821,7 @@ def preprocessOptions():
     if type(options.cacheOmit)==type(""): options.cacheOmit=options.cacheOmit.split(',')
     if options.renderOmitGoAway:
         if options.renderCheck: errExit("Setting both renderOmitGoAway and renderCheck is not yet implemented (renderOmitGoAway assumes all testing is done by renderOmit only).  Please unset either renderOmitGoAway or renderCheck.")
-        options.renderName = "" # so it can't be switched on/off (because there's not a lot of point in switching it off if we're renderOmitGoAway; TODO: document this behaviour?)
+        options.renderName = "" # override renderName to blank so it can't be switched on/off, because there's not a lot of point in switching it off if we're renderOmitGoAway (TODO: document this behaviour?)
     if type(options.deleteOmit)==type(""): options.deleteOmit=options.deleteOmit.split(',')
     if type(options.cssName)==type(""): options.cssName=options.cssName.replace('"',"&quot;") # for embedding in JS
     if type(options.cssNameReload)==type(""): options.cssNameReload=options.cssNameReload.split(',')
@@ -757,7 +842,9 @@ def preprocessOptions():
     global cores ; cores = 1
     if options.multicore:
         options.squashLogs = False
-        if not 'linux' in sys.platform: errExit("multicore option not supported on this platform") # it does work on BSD/Mac, but some incoming connections get 'lost' so it's not a good idea
+        if not 'linux' in sys.platform:
+            errExit("multicore option not supported on this platform")
+            # --- it does work on BSD/Mac, but some incoming connections get 'lost' so it's not a good idea
         import tornado.process
         cores = tornado.process.cpu_count()
         if cores==1: options.multicore = False
@@ -766,7 +853,8 @@ def preprocessOptions():
             options.js_instances += (cores - (options.js_instances % cores))
             sys.stderr.write("multicore: changing js_instances %d -> %d (%d per core x %d cores)\n" % (old,options.js_instances,options.js_instances/cores,cores))
     if options.js_interpreter=="HeadlessChrome":
-        try: maxI=int(open("/proc/sys/fs/inotify/max_user_instances")) # Linux only
+        try: # check inotify limit (Linux only)
+            maxI=int(open("/proc/sys/fs/inotify/max_user_instances"))
         except: maxI = -1
         if not maxI==-1 and options.js_instances > maxI*20: warn("This system might run out of inotify instances with that number of Headless Chrome processes.  Try:\nsudo sysctl -n -w fs.inotify.max_user_watches=%d\nsudo sysctl -n -w fs.inotify.max_user_instances=%d" % (options.js_instances*40,options.js_instances*20))
     global js_per_core
@@ -889,7 +977,9 @@ def preprocessOptions():
     h = options.headAppendCSS
     if h and '%s' in h:
         if not ';' in h: errExit("If putting %s in headAppendCSS, must also put ; with options (please read the help text)")
-        if options.default_site: errExit("Cannot set default_site when headAppendCSS contains options, because we need the URL box to show those options") # TODO: unless we implement some kind of inline setting, or special options URL ?
+        if options.default_site:
+            errExit("Cannot set default_site when headAppendCSS contains options, because we need the URL box to show those options")
+            # TODO: unless we implement some kind of inline setting, or special options URL ?
         if options.cssHtmlAttrs and ';' in options.cssHtmlAttrs and not len(options.cssHtmlAttrs.split(';'))==len(h.rsplit(';',1)[1].split(',')): errExit("Number of choices in headAppendCSS last field does not match number of choices in cssHtmlAttrs")
         for n in range(len(h.split(';'))-1):
             upstreamGuard.add("adjustCss"+str(n)+"s")
@@ -932,7 +1022,9 @@ class CrossProcessLogging(logging.Handler):
         "Called by initLogging before forks.  Starts the separate logListener process."
         if not self.needed(): return
         try: logging.getLogger().handlers
-        except: errExit("The logging module on this system is not suitable for --log-file-prefix with --ssl-fork or --js-multiprocess") # because we won't know how to clear its handlers and start again in the child processes
+        except:
+            # Ouch, we won't know how to clear logging's handlers and start again in the child processes
+            errExit("The logging module on this system is not suitable for --log-file-prefix with --ssl-fork or --js-multiprocess")
         if not multiprocessing: return # we'll have to open multiple files in initChild instead
         self.loggingQ=multiprocessing.Queue()
         def logListener():
@@ -946,7 +1038,7 @@ class CrossProcessLogging(logging.Handler):
         "Called after a fork.  toAppend helps to describe the child for logfile naming when multiprocessing is not available."
         if not options.log_file_prefix: return # stderr is OK
         if multiprocessing:
-            try: multiprocessing.process.current_process()._children.clear() # so it doesn't try to join() to children it doesn't have (multiprocessing wasn't really designed for the parent to fork() outside of multiprocessing later on)
+            try: multiprocessing.process.current_process()._children.clear() # multiprocessing wasn't really designed for the parent to fork() later on
             except: pass # probably wrong version
             return # should be OK now
         logging.getLogger().handlers = [] # clear Tornado's
@@ -1088,7 +1180,7 @@ class BrowserLogger:
             self.lastMethodStuff = methodStuff
         msg = ip+r+browser
     else: msg = '%s "%s %s%s %s" %s' % (req.remote_ip, req.method, host, req.uri, req.version, browser) # could add "- - [%s]" with time.strftime("%d/%b/%Y:%X") if don't like Tornado-logs date-time format (and - - - before the browser %s)
-    logging.info(msg.replace('\x1b','[ESC]')) # terminal safe (in case of malformed URLs)
+    logging.info(msg.replace('\x1b','[ESC]')) # make sure we are terminal safe, in case of malformed URLs
     if options.whois and hasattr(req,"valid_for_whois"): self.whoisLogger(req.remote_ip)
 
 def initLogging_preListen():
@@ -1198,9 +1290,9 @@ def showProfile(pjsOnly=False):
 
 def setProcName(name="adjuster"):
     "Try to set the process name for top/ps"
-    try: # works on both Linux and BSD/Mac if installed (although doesn't affect Mac OS 10.7 "Activity Monitor")
+    try: # setproctitle works on both Linux and BSD/Mac if installed (but doesn't affect Mac OS 10.7 "Activity Monitor")
         import setproctitle # sudo pip install setproctitle or apt-get install python-setproctitle (requires gcc)
-        return setproctitle.setproctitle(name) # (TODO: this also stops 'ps axwww' from displaying command-line arguments; make it optional?)
+        return setproctitle.setproctitle(name) # TODO: this also stops 'ps axwww' from displaying command-line arguments; make it optional?
     except: pass
     try: # ditto but non-Mac BSD not checked:
         import procname # sudo pip install procname (requires gcc)
@@ -1245,11 +1337,13 @@ def stopOther():
         except: pass
         if not pid==None:
             if not psutil or psutil.pid_exists(pid):
-                tryStop(pid,True) # will rm pidfile if had permission to send the stop signal
+                tryStop(pid,True) # tryStop will rm pidfile if had permission to send the stop signal
                 triedStop = pid
             else: unlink(options.pidfile) # stale
         if not options.port: return
-    elif not options.port: errExit("Cannot use --restart or --stop with --port=0 and no --pidfile") # because the listening port is used to identify the other process
+    elif not options.port:
+        # Oops: the listening port is used to identify the other process; without it, we don't know which process to stop
+        errExit("Cannot use --restart or --stop with --port=0 and no --pidfile")
     pids = run_lsof()
     if pids==False: # no lsof, or couldn't make sense of it
         # Could try "fuser -n tcp "+str(options.port), but it can be slow on a busy system.  Try netstat instead.
@@ -1273,10 +1367,10 @@ def tryStop(pid,alsoRemovePidfile=False):
     except: sys.stderr.write("Failed to stop %s process at PID %d\n" % (other,pid))
 def run_lsof():
     # TODO: check ssl-fork ports as well as main port ? (also in run_netstat)
-    out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # >/dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
+    out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # Redirect lsof's stderr to /dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
     if out.startswith("lsof: unsupported"):
         # lsof 4.81 has -sTCP:LISTEN but lsof 4.78 does not.  However, not including -sTCP:LISTEN can cause lsof to make unnecessary hostname queries for established connections.  So fall back only if have to.
-        out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # -Ts ensures will say LISTEN on the pid that's listening
+        out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # lsof -Ts ensures will say LISTEN on the pid that's listening
         lines = filter(lambda x:"LISTEN" in x,out.split("\n")[1:])
     elif not out.strip() and not commands.getoutput("which lsof 2>/dev/null"): return False
     else: lines = out.split("\n")[1:]
@@ -1309,7 +1403,8 @@ sslfork_monitor_pid = None
 def sslSetup(HelperStarter, ping_portNo, isFixed=False):
     if options.ssl_fork: # queue it to be started by monitor
         if options.multicore and sslforks_to_monitor: sslforks_to_monitor[0][1] = (lambda c1=HelperStarter,c2=sslforks_to_monitor[0][1]:(c1(),c2())) # chain it, as in multicore mode we'll have {N cores} * {single process handling all SSL ports}, rather than cores * processes (TODO: if one gets stuck but others on the port can still handle requests, do we want to somehow detect the individual stuck one and restart it to reduce wasted CPU load?)
-        else: # no multicore, or this is the first SSL helper, so we need to associate it with a (non-SSL) ping responder
+        else:
+            # no multicore, or this is the first SSL helper, so we need to associate it with a (non-SSL) ping responder
             sslforks_to_monitor.append([None,HelperStarter,(lambda *_:listen_on_port(Application([(r"(.*)",AliveResponder,{})],log_function=nullLog),ping_portNo,"127.0.0.1",False)),ping_portNo])
             return ping_portNo + 1 # where to put the next listener
     else: # just run it on the current process, and we can randomise the internal port and keep track of what it is
@@ -1331,8 +1426,10 @@ def maybe_sslfork_monitor():
     except: pass
     signal.signal(signal.SIGTERM, terminateSslForks)
     signal.signal(signal.SIGINT, terminateSslForks)
-    setProcName("adjusterSSLmon") # 15 chars is max for some "top" implementations
-    CrossProcessLogging.initChild("SSL") # not SSLmon because helper IDs will be appended to it also
+    setProcName("adjusterSSLmon")
+    # (15 chars is max for some "top" implementations)
+    CrossProcessLogging.initChild("SSL")
+    # (not SSLmon because helper IDs will be appended to it)
     global is_sslHelp ; is_sslHelp = True
     for i in xrange(len(sslforks_to_monitor)):
       if i==len(sslforks_to_monitor)-1: pid = 0 # don't bother to fork for the last one
@@ -1359,7 +1456,7 @@ def restart_sslfork(n,oldN):
         if options.multicore: oldN = "s"
         else: oldN = " "+str(oldN)
         logging.error("Restarting SSL helper%s via pid %d as not heard from port %d" % (oldN,sslforks_to_monitor[n][0],sslforks_to_monitor[n][3]))
-        emergency_zap_pid_and_children(sslforks_to_monitor[n][0]) # (may have children if multicore)
+        emergency_zap_pid_and_children(sslforks_to_monitor[n][0]) # may have children if multicore
     # TODO: if profile_forks_too, do things with profile?
     pid = os.fork()
     if pid: sslforks_to_monitor[n][0] = pid
@@ -1395,7 +1492,7 @@ def open_extra_ports():
     nextPort = options.internalPort
     # don't add any other ports here: NormalRequestForwarder assumes the real_proxy SSL helper will be at internalPort
     # All calls to sslSetup and maybe_sslfork_monitor must be made before ANY other calls to listen_on_port (as we don't yet want there to be an IOLoop instance when maybe_sslfork_monitor is called)
-    if options.real_proxy: nextPort = sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=False),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1) # gzip=False because little point if we know the final client is on localhost.  A modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port.
+    if options.real_proxy: nextPort = sslSetup(lambda port=nextPort:listen_on_port(Application([(r"(.*)",SSLRequestForwarder(),{})],log_function=accessLog,gzip=False),port,"127.0.0.1",False,ssl_options={"certfile":duff_certfile()}),nextPort+1) # A modified Application that's 'aware' it's the SSL-helper version (use SSLRequestForwarder & no need for staticDocs listener) - this will respond to SSL requests that have been CONNECT'd via the first port.  We set gzip=False because little point if we know the final client is on localhost.
     if options.js_reproxy:
         # ditto for js_interpreter (saves having to override its user-agent, or add custom headers requiring PhantomJS 1.5+, for us to detect its connections back to us)
         global js_proxy_port
@@ -1534,7 +1631,7 @@ def setup_stdio():
     global StdinPass,StdinPending
     StdinPass,StdinPending = None,[]
     def doStdin(fd,events):
-        l=os.read(fd,1024) # 1 line or 1024 bytes (TODO: double-check this can never block)
+        l=os.read(fd,1024) # read 1 line or 1024 bytes (TODO: double-check this can never block)
         if not l: # EOF (but don't close stdout yet)
             IOLoop.instance().remove_handler(sys.stdin.fileno())
             return
@@ -1569,7 +1666,7 @@ def banner(delayed=False):
         if options.watchdogWait: ret.append("(abort if unresponsive for %d seconds)" % options.watchdogWait)
     if options.ssl_fork and not options.background: ret.append("To inspect processes, use: pstree "+str(os.getpid()))
     ret = "\n".join(ret)+"\n"
-    if delayed: ret=ret.replace("Listening","Will listen").replace("Writing","Will write") # for --ssl-fork --background (need early fork, TODO: unless write a PID somewhere)
+    if delayed: ret=ret.replace("Listening","Will listen").replace("Writing","Will write") # for --ssl-fork --background, need early fork (TODO: unless write a PID somewhere)
     sys.stderr.write(ret)
     if not options.background:
         # set window title for foreground running
@@ -1584,19 +1681,22 @@ def set_title(t):
   is_xterm = "xterm" in term
   is_screen = (term=="screen" and os.environ.get("STY",""))
   is_tmux = (term=="screen" and os.environ.get("TMUX",""))
-  if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
+  if is_xterm or is_tmux:
+      sys.stderr.write("\033]0;%s\007" % (t,))
+      # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
   else: return
   if not t: return
   import atexit
   atexit.register(set_title,"")
   global can_do_ansi_colour
-  can_do_ansi_colour = is_xterm or (is_screen and "VT 100/ANSI" in os.environ.get("TERMCAP","")) # used by showProfile (TODO: if profile_forks_too, we'd need to set this earlier than the call to banner / set_title in order to make it available to SSL forks etc, otherwise only the main one has purple profile output. Multicore is already OK (but does only counts per core).)
+  can_do_ansi_colour = is_xterm or (is_screen and "VT 100/ANSI" in os.environ.get("TERMCAP",""))
+  # can_do_ansi_colour is used by showProfile (TODO: if profile_forks_too, we'd need to set this earlier than the call to banner / set_title in order to make it available to SSL forks etc, otherwise only the main one has purple profile output. Multicore is already OK (but does only counts per core).)
 can_do_ansi_colour=False
 
 coreNo = "unknown" # want it to be non-False to begin with
 def announceInterrupt():
-    if coreNo or options.multicore: return # silent helper process (coreNo=="unknown"), or we announce interrupts differently in multicore (see start_multicore)
+    if coreNo or options.multicore: return # we are a silent helper process (coreNo=="unknown"), or we announce interrupts differently in multicore (see start_multicore), so nothing to do here
     if options.background: logging.info("SIGINT received"+find_adjuster_in_traceback())
     else: sys.stderr.write("\nKeyboard interrupt"+find_adjuster_in_traceback()+"\n")
 def announceShutdown():
@@ -1669,7 +1769,8 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
     h = HTTPServer(application,**kwargs)
     # Don't set backlog=0: it's advisory only and is often rounded up to 8; we use CrossProcess429 instead
     if port in port_randomise:
-        s = tornado.netutil.bind_sockets(0,"127.0.0.1") # should get len(s)==1 if address=="127.0.0.1" (may get more than one socket, with different ports, if address maps to some mixed IPv4/IPv6 configuration)
+        s = tornado.netutil.bind_sockets(0,"127.0.0.1")
+        # should get len(s)==1 if address=="127.0.0.1" (may get more than one socket, with different ports, if address maps to some mixed IPv4/IPv6 configuration)
         port_randomise[port] = s[0].getsockname()[1]
         h.add_sockets(s)
     theServers[core].append((port,h))
@@ -1823,8 +1924,9 @@ def dropPrivileges():
         # need to drop privileges
         import pwd ; pwd=pwd.getpwnam(options.user)
         os.setuid(pwd[2])
-        # and help our external programs:
-        os.environ['HOME'] = pwd[5] # (so they don't try to load root's preferences etc)
+        # and help our external programs so they
+        # don't try to load root's preferences etc
+        os.environ['HOME'] = pwd[5]
         os.environ['USER']=os.environ['LOGNAME']=options.user
 
 def unixfork():
@@ -1832,7 +1934,7 @@ def unixfork():
     os.setsid()
     if os.fork(): sys.exit()
     devnull = os.open("/dev/null", os.O_RDWR)
-    for fd in range(3): os.dup2(devnull,fd) # commenting out this line will let you see stderr after the fork (TODO debug option?)
+    for fd in range(3): os.dup2(devnull,fd) # commenting out this loop will let you see stderr after the fork (TODO debug option?)
     if options.pidfile:
         try: open(options.pidfile,"w").write(str(os.getpid()))
         except: pass
@@ -1840,7 +1942,7 @@ def unixfork():
 def notifyReady():
     try: import sdnotify # sudo pip install sdnotify
     except ImportError: return
-    sdnotify.SystemdNotifier().notify("READY=1") # so you can do an adjuster.service (w/out --background) with Type=notify and ExecStart=/usr/bin/python /path/to/adjuster.py --config=...
+    sdnotify.SystemdNotifier().notify("READY=1") # we send READY=1 so you can do an adjuster.service (w/out --background) with Type=notify and ExecStart=/usr/bin/python /path/to/adjuster.py --config=...
 # TODO: also send "WATCHDOG=1" so can use WatchdogSec ? (but multicore / js_interpreter could be a problem)
 
 #@file: curl-setup.py
@@ -1872,7 +1974,7 @@ def setupCurl(maxCurls,error=None):
         c.setopt = mySetopt
         return c
     pycurl.Curl = _newCurl
-    curl_max_clients = min(max(maxCurls,10),1000) # to work around Tornado issue 2127, and we'll warn about the issue ourselves if we go over:
+    curl_max_clients = min(max(maxCurls,10),1000) # constrain curl_max_clients to between 10 and 1000 to work around Tornado issue 2127, and we'll warn about the issue ourselves if we go over:
     curl_inUse_clients = 0
     try: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",max_clients=curl_max_clients)
     except: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # will try in MyAsyncHTTPClient too (different versions of Tornado and all that...)
@@ -1926,7 +2028,8 @@ else: cookieHash = lambda msg: hex(hash(msg))[2:] # this fallback is not portabl
 ipv4_regexp = re.compile(r'^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$')
 def ipv4_to_int(ip):
     m = re.match(ipv4_regexp,ip)
-    if m: return (int(m.group(1))<<24) | (int(m.group(2))<<16) | (int(m.group(3))<<8) | int(m.group(4)) # else None
+    if m: return (int(m.group(1))<<24) | (int(m.group(2))<<16) | (int(m.group(3))<<8) | int(m.group(4))
+    else: return None
 def ipv4range_to_ints(ip):
     if '-' in ip: return tuple(ipv4_to_int(i) for i in ip.split('-'))
     elif '/' in ip:
@@ -1994,13 +2097,17 @@ set_window_onerror = False # for debugging Javascript on some mobile browsers (T
 
 # Domain-setting cookie for when we have no wildcard_dns and no default_site:
 adjust_domain_cookieName = "_adjusterDN_"
+
 adjust_domain_none = "0" # not a valid top-level domain (TODO hopefully no user wants this as a local domain...)
+
 enable_adjustDomainCookieName_URL_override = True # TODO: document this!  (Allow &_adjusterDN_=0 or &_adjusterDN_=wherever in bookmark URLs, so it doesn't matter what setting the cookie has when the bookmark is activated)
 
 seen_ipMessage_cookieName = "_adjusterIPM_"
 
 htmlmode_cookie_name = "_adjustZJCG_" # zap JS, CSS and Graphics
+
 password_cookie_name = "_pxyAxsP_" # "proxy access password". have to pick something that's unlikely to collide with a site's cookie
+
 webdriver_click_code = "._adjustPJSC_"
 
 redirectFiles_Extensions=set("pdf epub mp3 aac zip gif png jpeg jpg exe tar tgz tbz ttf woff swf txt doc rtf midi mid wav ly c h py".split()) # TODO: make this list configurable + maybe add a "minimum content length before it's worth re-directing" option
@@ -2015,8 +2122,9 @@ class WebdriverWrapper:
     def __init__(self): self.theWebDriver = None
     def new(self,*args):
         try:
-            import resource ; resource.setrlimit(resource.RLIMIT_CORE,(0,0)) # in case of emergency_zap_pid_and_children
-        except: pass
+            # No coredump, for emergency_zap_pid_and_children
+            import resource ; resource.setrlimit(resource.RLIMIT_CORE,(0,0))
+        except: pass # oh well, have coredumps then :-(
         self.theWebDriver = get_new_webdriver(*args)
     def quit(self,*args):
         if not self.theWebDriver: return
@@ -2069,7 +2177,7 @@ def emergency_zap_pid_and_children(pid):
         try: c.kill(9)
         except: pass
     except: pass # no psutil, or process already gone
-    try: os.kill(pid,9),os.waitpid(pid, 0) # the waitpid is necessary to clear it from the process table, but we should NOT use os.WNOHANG, as if we do, there's a race condition with the os.kill taking effect (even -9 isn't instant)
+    try: os.kill(pid,9),os.waitpid(pid, 0) # waitpid is necessary to clear it from the process table, but we should NOT use os.WNOHANG, as if we do, there's a race condition with the os.kill taking effect (even -9 isn't instant)
     except OSError: pass # maybe pid already gone
 try: from selenium.common.exceptions import TimeoutException
 except: # no Selenium or wrong version
@@ -2189,12 +2297,13 @@ def _renew_wd(wd,firstTime):
     wd.wd_threadStart = False
     IOLoop.instance().add_callback(webdriver_checkServe)
 def find_adjuster_in_traceback():
-    l = traceback.extract_tb(sys.exc_info()[2]) # must do this BEFORE the following try: (it'll overwrite it even when except: block has finished)
+    l = traceback.extract_tb(sys.exc_info()[2])
+    # (must do that BEFORE the following try, which will overwrite sys.exc_info: it doesn't nest)
     try: p = sys.exc_info()[1].args[-1]
     except: p = ""
     if "adjuster line" in p: return p # for webdriverWrapper_receiver
     for i in xrange(len(l)-1,-1,-1):
-        if "adjuster.py" in l[i][0]: return ", adjuster line "+str(l[i][1])
+        if __file__ in l[i][0]: return ", adjuster line "+str(l[i][1])
     return ""
 def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,manager,tooLate):
     global helper_thread_count
@@ -2299,7 +2408,7 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         if not currentUrl: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
     if currentUrl == "about:blank":
         debuglog("got about:blank instead of "+url)
-        return wrapResponse("webdriver failed to load") # rather than an actual redirect to about:blank, which breaks some versions of Lynx
+        return wrapResponse("webdriver failed to load") # don't return an actual redirect to about:blank, which breaks some versions of Lynx
     debuglog("Getting data from webdriver %d (current_url=%s)" % (manager.index,currentUrl))
     if asScreenshot: return wrapResponse(manager.getpng(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
     elif not re.sub('#.*','',currentUrl) == url: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
@@ -2338,7 +2447,7 @@ def get_new_HeadlessChrome(index,renewing):
     opts.add_argument("--incognito") # reduce space taken up by above
     if options.js_reproxy:
         opts.add_argument("--proxy-server=127.0.0.1:%d" % proxyPort(index))
-        opts.add_argument("--ignore-certificate-errors") # ignored by Chrome 59 (which was the first version to support Headless) and possibly some earlier versions
+        opts.add_argument("--ignore-certificate-errors") # --ignore-certificate-errors is ignored by Chrome 59 (which was the first version to support Headless) and possibly some earlier versions, but we'll put it in just in case somebody runs an ancient non-headless Chrome in an offline experiment
         opts.add_argument("--allow-insecure-localhost") # Chrome 62+ can at least do *.localhost & 127.* but we'd need to domain-rewrite for this to help (proxy-host doesn't count)
         # Chrome 65 and chromedriver 2.35/2.36? can do:
         dc = wd_DesiredCapabilities(log_complaints)
@@ -2350,7 +2459,11 @@ def get_new_HeadlessChrome(index,renewing):
     if options.js_UA and not options.js_UA.startswith("*"): opts.add_argument("--user-agent="+options.js_UA)
     if not options.js_images: opts.add_experimental_option("prefs",{"profile.managed_default_content_settings.images":2})
     # TODO: do we need to disable Javascript's ability to open new windows and tabs, plus target="_blank" etc, especially if using clickElementID?
-    if options.via and not options.js_reproxy and log_complaints: warn("--via ignored when running HeadlessChrome without --js-reproxy") # unless you want to implement a Chrome extension to do it
+    if options.via and not options.js_reproxy and log_complaints:
+        # Oops: how can we put in a Via: header if we don't
+        # have an upstream proxy to do so?  unless you want
+        # to implement a Chrome extension to do it (TODO?)
+        warn("--via ignored when running HeadlessChrome without --js-reproxy")
     if "x" in options.js_size:
         w,h = options.js_size.split("x",1)
     else: w,h = options.js_size,768
@@ -2390,7 +2503,11 @@ def get_new_HeadlessFirefox(index,renewing):
     elif options.upstream_proxy: profile.set_proxy(options.upstream_proxy)
     if options.js_UA and not options.js_UA.startswith("*"): profile.set_preference("general.useragent.override",options.js_UA)
     if not options.js_images: profile.set_preference("permissions.default.image", 2)
-    if options.via and not options.js_reproxy and log_complaints: warn("--via ignored when running HeadlessFirefox without --js-reproxy") # unless you want to implement a Firefox extension to do it
+    if options.via and not options.js_reproxy and log_complaints:
+        # Oops: how can we put in a Via: header if we don't
+        # have an upstream proxy to do so?  unless you want
+        # to implement a Firefox extension to do it (TODO?)
+        warn("--via ignored when running HeadlessFirefox without --js-reproxy")
     # TODO: do any other options need to be set?  disable plugins, Firefox-update prompts, new windows/tabs with JS, etc?  or does Selenium do that?
     if options.logDebug: binary=FirefoxBinary(log_file=sys.stderr) # TODO: support logDebug to a file as well
     else: binary=FirefoxBinary()
@@ -2539,17 +2656,23 @@ def webdriver_fetch(url,prefetched,ua,clickElementID,clickLinkText,via,asScreens
 # --------------------------------------------------
 
 def fixServerHeader(i):
-    i.set_header("Server",serverName) # TODO: in "real" proxy mode, "Server" might not be the most appropriate header to set for this
+    i.set_header("Server",serverName)
+    # TODO: in "real" proxy mode, "Server" might not be the most appropriate header to set for this
     try: i.clear_header("Date") # Date is added by Tornado 3; HTTP 1.1 says it's mandatory but then says don't put it if you're a clockless server (which we might be I suppose) so it seems leaving it out is OK especially if not specifying Age etc, and leaving it out saves bytes.  But if the REMOTE server specifies a Date then we should probably pass it on (see comments in doResponse below)
     except: pass # (ok if "Date" wasn't there)
 
 rmServerHeaders = set([
     # server headers to remove.  We'll do our own connection type etc (but don't include "Date" in this list: if the remote server includes a Date it would be useful to propagate that as a reference for its Age headers etc, TODO: unless remote server is broken? see also comment in fixServerHeader re having no Date by default).  Many servers' Content-Location is faulty; it DOESN'T necessarily provide the new base href; it might be relative; it might be identical to the actual URL fetched; many browsers ignore it anyway
     "connection","content-length","content-encoding","transfer-encoding","etag","content-md5","server","alternate-protocol","strict-transport-security","content-location",
+    
     "x-associated-content", # should NOT be sent to browser (should be interpreted by a server's SPDY/push module) but somebody might misread the specs (at least one Wikipedia editor did)
+    
     "x-host","x-http-reason", # won't necessarily be the same
+    
     "content-security-policy","x-webkit-csp","x-content-security-policy", # sorry but if we're adjusting the site by adding our own scripts/styles we are likely to be broken by a CSP that restricts which of these we're allowed to do. (Even if we adjust the domains listed on those headers, what if our scripts rely on injecting inline code?)  Sites shouldn't *depend* on CSP to prevent XSS: it's just a belt-and-braces that works only in recent browsers.  Hopefully our added styles etc will break the XSS-introduced ones if we hit a lazy site.
+    
     "vary", # we modify this (see code)
+    
     "alt-svc",
 ])
 # TODO: WebSocket (and Microsoft SM) gets the client to say 'Connection: Upgrade' with a load of Sec-WebSocket-* headers, check what Tornado does with that
@@ -2753,7 +2876,7 @@ class RequestForwarder(RequestHandler):
         debuglog("Serving redirect ("+repr(status)+" to "+repr(redir)+")"+self.debugExtras())
         try: self.set_status(status)
         except ValueError: self.set_status(status, "Redirect") # e.g. 308 (not all Tornado versions handle it)
-        for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # so redirect() can be called AFTER a site's headers are copied in
+        for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # clear these here, so redirect() can still be called even after a site's headers were copied in
         self.add_header("Location",redir)
         self.add_header("Content-Type","text/html")
         if self.canWriteBody(): self.write('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % redir.replace('&','&amp;').replace('"','&quot;'))
@@ -2806,7 +2929,7 @@ class RequestForwarder(RequestHandler):
         if " curl/" in ua or " Wget/" in ua: return False # (but don't return false for libcurl/)
         self.set_status(200)
         self.add_nocache_headers()
-        self.add_header("Refresh","10") # TODO: configurable?  and make sure it does not exceed options.pdfepubkeep
+        self.add_header("Refresh","10") # TODO: configurable refresh period?  and make sure it does not exceed options.pdfepubkeep
         self.clear_header("Content-Disposition")
         self.clear_header("Content-Type")
         self.add_header("Content-Type","text/html")
@@ -2849,13 +2972,14 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             try: self.clear_header(h)
             except: pass
         # (Date is added by Tornado 3, which can also add "Vary: Accept-Encoding" but that's done after we get here, TODO: option to ping via a connect and low-level TCP keepalive bytes?)
-        self.set_header("Etag","0") # shorter than Tornado's computed one (clear_header won't work with Etag; TODO: could override RequestHandler's compute_etag and make it return None if we've set somewhere that we don't want Etag on this request)
+        self.set_header("Etag","0") # clear_header won't work with Etag, but at least we can set one that's shorter than Tornado's computed one (TODO: could override RequestHandler's compute_etag and make it return None if we've set somewhere that we don't want Etag on the current request)
 
     def answerPing(self,newVersion):
         # answer a "ping" request from another machine that's using us as a fasterServer
         self.thin_down_headers()
-        if newVersion and not wsgi_mode: # TODO: document that it's a bad idea to set up a fasterServer in wsgi_mode (can't do ipTrustReal, must have fasterServerNew=False, ...)
+        if newVersion and not wsgi_mode:
             # Forget the headers, just write one byte per second for as long as the connection is open
+            # TODO: document that it's a bad idea to set up a fasterServer in wsgi_mode (can't do ipTrustReal, must have fasterServerNew=False, ...)
             stream = self.request.connection.stream
             stream.socket.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
             def writeBytes():
@@ -2881,7 +3005,8 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         if options.trust_XForwardedFor:
             xff = self.request.headers.get_list("X-Forwarded-For")
             if xff:
-                xff = xff[0].split() # TODO: is it always the first header we want?
+                xff = xff[0].split()
+                # (TODO: do we always want FIRST header?)
                 if xff:
                     self.request.remote_ip = xff[0]
                     return
@@ -2920,7 +3045,12 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 if htmlonly_mode: val="1"
                 else: val="0"
                 self.setCookie_with_dots(htmlmode_cookie_name+"="+val)
-                self.request.headers.add("Cookie",htmlmode_cookie_name+"="+val) # for htmlOnlyMode below in same request (TODO: delete old setting? but usually used only by redir)
+                # and also add it to self.request.headers,
+                # for the benefit of htmlOnlyMode below
+                # which sees the same request
+                # (TODO: delete old setting? but it's
+                # usually used only by redir)
+                self.request.headers.add("Cookie",htmlmode_cookie_name+"="+val)
     def htmlOnlyMode(self,isProxyRequest=False):
         if not options.htmlonly_mode: return False
         if isProxyRequest: return False
@@ -2941,7 +3071,8 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             wanted_host = v[i:j]
             if v[i-4]=='s': wanted_host += ".0" # HTTPS hack (see protocolAndHost)
             ch = self.cookie_host(checkURL=False) # current cookie hostname
-            if convert_to_requested_host(wanted_host,ch)==wanted_host: # can't do it without changing cookie_host
+            if convert_to_requested_host(wanted_host,ch)==wanted_host:
+                # can't do it without changing cookie_host
                 if enable_adjustDomainCookieName_URL_override:
                     # do it by URL so they can bookmark it (that is if it doesn't immediately redirect)
                     # (TODO: option to also include the password in this link so it can be passed it around?  and also in the 'back to URL box' link?  but it would be inconsistent because not all links can do that, unless we consistently 302-redirect everything so that they do, but that would reduce the efficiency of the browser's HTTP fetches.  Anyway under normal circumstances we probably won't want users accidentally spreading include-password URLs)
@@ -2971,15 +3102,15 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         elif not self.request.uri.startswith("/"): # invalid
             self.set_status(400) ; self.myfinish() ; return True
         if options.ssl_fork and self.request.headers.get("X-WA-FromSSLHelper",""):
-            self.request.connection.stream.isFromSslHelper = True # (it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it)
-            del self.request.headers["X-WA-FromSSLHelper"] # (don't pass it to upstream servers)
+            self.request.connection.stream.isFromSslHelper = True # it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it
+            del self.request.headers["X-WA-FromSSLHelper"] # don't pass it to upstream servers
         if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection.stream,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, or we're on port+0 and forked SSL helper has forwarded it to us, so the host asked for must be a .0 host for https
             if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
             
     def handleSSHTunnel(self):
         if not allowConnectURL=="http://"+self.request.host+self.request.uri: return
-        self.thin_down_headers() ; self.add_header("Pragma","no-cache") # hopefully enough and don't need all of self.add_nocache_headers
-        global the_ssh_tunnel # TODO: support more than one? (but will need to use session IDs etc; GNU httptunnel does just 1 tunnel as of 3.x so maybe we're OK)
+        self.thin_down_headers() ; self.add_header("Pragma","no-cache") # hopefully "Pragma: no-cache" is enough and we don't need all of self.add_nocache_headers
+        global the_ssh_tunnel # TODO: support more than one SSH tunnel? (but will need to use session IDs etc; GNU httptunnel does just 1 tunnel as of 3.x so maybe we're OK)
         try:
             if self.request.body=="new connection":
                 self.request.body = ""
@@ -3063,7 +3194,8 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         ckCount = N = 0
         for o in opts:
             chosen = self.getCookie("adjustCss" + str(ckCount) + "s", "")
-            if not chosen: # we don't have all the necessary cookies to choose a stylesheet, so don't have one (TODO: or do we just want to go to the first listed?)
+            if not chosen:
+                # we don't have all the necessary cookies to choose a stylesheet, so don't have one (TODO: or do we just want to go to the first listed?)
                 if cha and ';' in cha: return "", ""
                 else: return "", cha
             poss_vals = [re.sub('=.*','',x) for x in o.split(',')]
@@ -3113,7 +3245,8 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def serve_URLbox(self):
         if not options.wildcard_dns: self.clearUnrecognisedCookies() # TODO: optional?
         self.addCookieFromURL()
-        self.doResponse2(urlbox_html(self.htmlOnlyMode() or self.checkBrowser(["Lynx/"]),self.cssOptionsHtml(),self.getArg("q") or self.getArg("d")),True,False) # TODO: run htmlFilter on it also? (render etc will be done by doResponse2)
+        r = urlbox_html(self.htmlOnlyMode() or self.checkBrowser(["Lynx/"]),self.cssOptionsHtml(),self.getArg("q") or self.getArg("d"))
+        self.doResponse2(r,True,False) # TODO: run htmlFilter on it also? (render etc will be done by doResponse2)
 
     def serve_hostError(self):
         l = []
@@ -3147,8 +3280,9 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 elif self.checkBrowser(["iPhone OS 8","iPhone OS 9"]): sep = '&'
                 else: sep = '?'
                 smsLink = '<br><a href="sms:'+sep+'body=%s">Send as SMS (text message)</a>' % urllib.quote(rm_u8punc(smsLink))
-                if self.checkBrowser(["Windows Mobile"]): # TODO: others? configurable?
-                    # browsers may also have this problem with EMAIL
+                if self.checkBrowser(["Windows Mobile"]):
+                    # TODO: others? configurable?
+                    # browsers that may also have this problem with EMAIL
                     uri = uri.replace("%26","%20-amp-%20")
                     if not "body=" in uri: uri += "&body="
                     uri = uri.replace("body=","body=[Before%20sending%20this%20text,%20replace%20-amp-%20with%20an%20ampersand.%20This%20substitution%20has%20been%20done%20as%20your%20phone%20isn't%20compliant%20with%20RFC%205724.]%20")
@@ -3221,7 +3355,8 @@ document.forms[0].i.focus()
     def serve_err(self,err):
         self.set_status(500)
         self.add_header("Content-Type","text/plain")
-        logging.error("Bookmarklet error: "+err) # +' '+repr(self.request.body)
+        logging.error("Bookmarklet error: "+err)
+        # +' '+repr(self.request.body)
         if self.canWriteBody(): self.write(err)
         self.myfinish()
     def serve429(self,retrySecs=0):
@@ -3265,7 +3400,7 @@ document.forms[0].i.focus()
 
     def checkTextCache(self,newext):
         # check for PDF/EPUB conversion on other threads or cached
-        if not options.pdfepubkeep: return False # we don'tguarantee to update kept_tempfiles properly if it's 0 (e.g. pdf can just pipe, so don't need unlinkOutputLater)
+        if not options.pdfepubkeep: return False # we don't guarantee to update kept_tempfiles properly if it's 0 (e.g. pdf can just pipe, so don't need unlinkOutputLater)
         ktkey = (self.request.host, self.request.uri)
         if ktkey in kept_tempfiles:
             def tryRead():
@@ -3319,14 +3454,14 @@ document.forms[0].i.focus()
         if mainServerPaused and not self.isPjsUpstream and not self.isSslUpstream: return self.serve429()
         self.doReq0()
     def doReq0(self):
-        debuglog("doReq"+self.debugExtras()) # MUST keep this here: it also sets profileIdle=False
+        debuglog("doReq"+self.debugExtras()) # MUST keep this debuglog call: it also sets profileIdle=False
         try: reqsInFlight.add(id(self)) # for profile
         except: pass # e.g. not options.profile
         if not self.isPjsUpstream and not self.isSslUpstream:
             try: origReqInFlight.add(id(self))
             except: pass # e.g. not options.profile
             if options.one_request_only:
-                IOLoop.instance().handle_callback_exception = lambda *args:0 # Tornado 4 raises EBADF in accept_handler if you call server.stop() from a request handler (TODO: handle other errors using the original exception handler?)
+                IOLoop.instance().handle_callback_exception = lambda *args:0 # Tornado 4 raises EBADF in accept_handler if you call server.stop() from a request handler, so disable its handle_callback_exception to reduce log clutter (TODO: handle other errors using the original exception handler?)
                 mainServer.stop()
         if wsgi_mode and self.request.path==urllib.quote(os.environ.get("SCRIPT_NAME","")+os.environ.get("PATH_INFO","")) and 'SCRIPT_URL' in os.environ:
             # workaround for Tornado 2.x limitation when used with CGI and htaccess redirects
@@ -3342,12 +3477,12 @@ document.forms[0].i.focus()
             try: uri2 = self.request.uri.decode('utf-8').encode('latin1')
             except: uri2 = self.request.uri
             if not self.request.uri == uri2: self.request.uri = urllib.quote(uri2)
-        if self.request.method=="HEAD": self.set_header("Content-Length","-1") # we don't know yet: Tornado please don't add it!  (NB this is for HEAD only, not OPTIONS, which should have Content-Length 0 or some browsers time out) (TODO: in non-WSGI mode could call .flush() after writing headers (with callback param), then Content-Length won't be added on .finish())
+        if self.request.method=="HEAD": self.set_header("Content-Length","-1") # we don't yet the content length, so Tornado please don't add it!  (NB this is for HEAD only, not OPTIONS, which should have Content-Length 0 or some browsers time out) (TODO: in non-WSGI mode could call .flush() after writing headers (with callback param), then Content-Length won't be added on .finish())
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
             elif self.request.uri=="/ping": return self.answerPing(False)
         elif options.loadBalancer and self.request.headers.get("User-Agent","")=="" and self.request.uri=="/": return self.answer_load_balancer()
-        self.find_real_IP() # must do this BEFORE forwarding to fasterServer, because might also be behind nginx etc
+        self.find_real_IP() # must find real ip BEFORE forwarding to fasterServer, because might also be behind nginx etc
         if fasterServer_up:
             return self.forwardFor(options.fasterServer,"fasterServer")
         if self.forwardToOtherPid(): return
@@ -3365,7 +3500,7 @@ document.forms[0].i.focus()
                 self.request.suppress_logger_host_convert = self.request.valid_for_whois = True
                 return self.myfinish()
             if ownServer_regexp and ownServer_regexp.match(self.request.host+self.request.uri):
-                self.request.headers["Connection"] = "close" # MUST do this (keepalive can go wrong if it subsequently fetches a URL that DOESN'T match ownServer_regexp, but comes from the same domain, and this goes to ownServer incorrectly), TODO mention it in the help text?, TODO might we occasionally need something similar for ownServer_if_not_root etc?, TODO at lower priority: if we can reasonably repeat the requests then do that insntead of using forwardFor
+                self.request.headers["Connection"] = "close" # MUST use 'Connection: Close' here, as keepalive can go wrong if it subsequently fetches a URL that DOESN'T match ownServer_regexp but comes from the same domain and this goes to ownServer incorrectly.  TODO mention it in the help text?, TODO might we occasionally need something similar for ownServer_if_not_root etc?, TODO at lower priority: if we can reasonably repeat the requests then do that insntead of using forwardFor
                 return self.forwardFor(options.own_server)
             if cssReload_cookieSuffix and cssReload_cookieSuffix in self.request.uri:
                 ruri,rest = self.request.uri.split(cssReload_cookieSuffix,1)
@@ -3381,10 +3516,12 @@ document.forms[0].i.focus()
         elif realHost==0 and options.ownServer_if_not_root: realHost=options.own_server # asking by cookie to adjust the same host, so don't forwardFor() it but fetch it normally and adjust it
         isProxyRequest = self.isPjsUpstream or self.isSslUpstream or (options.real_proxy and realHost == self.request.host)
         self.request.valid_for_whois = True # (if options.whois, don't whois unless it gets this far, e.g. don't whois any that didn't even match "/(.*)" etc)
-        maybeRobots = (not self.isPjsUpstream and not self.isSslUpstream and not options.robots and self.request.uri=="/robots.txt") # don't actually serveRobots yet, because MIGHT want to pass it to own_server (see below)
+        maybeRobots = (not self.isPjsUpstream and not self.isSslUpstream and not options.robots and self.request.uri=="/robots.txt")
+        # don't actually serveRobots yet, because MIGHT want to pass it to own_server (see below)
         
         self.is_password_domain=False # needed by doResponse2
-        if options.password and not options.real_proxy and not self.isPjsUpstream and not self.isSslUpstream: # whether or not open_proxy, because might still have password (perhaps on password_domain), anyway the doc for open_proxy says "allow running" not "run"
+        if options.password and not options.real_proxy and not self.isPjsUpstream and not self.isSslUpstream:
+          # whether or not open_proxy, because might still have password (perhaps on password_domain), anyway the doc for open_proxy says "allow running" not "run"
           # First ensure the wildcard part of the host is de-dotted, so the authentication cookie can be shared across hosts.
           # (This is not done if options.real_proxy because we don't want to touch the hostname for that)
           host = self.request.host
@@ -3433,7 +3570,7 @@ document.forms[0].i.focus()
             elif maybeRobots: return self.serveRobots()
             # Serve URL box
             self.set_css_from_urlbox()
-            if self.getArg("try"): return self.serve_URLbox() # we just set the stylesheet (TODO: preserve any already-typed URL?)
+            if self.getArg("try"): return self.serve_URLbox() # we just set the stylesheet
             if options.submitPath and self.getArg("sPath"): return self.redirect("http://"+hostSuffix()+publicPortStr()+options.submitPath)
             v=self.getArg("q")
             if v: return self.handle_URLbox_query(v)
