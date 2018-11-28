@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.274 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.275 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,6 +44,7 @@ if '--split-files' in sys.argv:
     if '--autopep8' in sys.argv:
         print "autopep8",__file__
         d=os.popen("autopep8 '"+__file__.replace("'","'\"'\"'")+"'").read()
+        assert "\n\n" in d, "check you have autopep8 command"
     else: d=open(__file__).read()
     assert not "\n#+# " in d
     apache = "#+# \n#+# "+d.split("\n\n")[2].replace("\n","\n#+# ")+"\n#+# \n"
@@ -2624,12 +2625,15 @@ def webdriver_checkServe(*args):
     # how many queue items can be served right now?
     # (called on IOLoop thread when new item added, or when
     # a server is finished)
+    debuglog("Entering webdriver_checkServe, runners=%d" % len(webdriver_runner))
     for i in xrange(len(webdriver_runner)):
         if not webdriver_queue: break # just to save a little
         if not webdriver_runner[i].wd_threadStart:
             while webdriver_queue:
                 url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate = webdriver_queue.pop(0)
-                if tooLate(): continue
+                if tooLate():
+                    debuglog("tooLate() for "+url)
+                    continue
                 debuglog("Starting fetch of "+url+" on webdriver instance "+str(i+webdriver_runner[i].start))
                 webdriver_via[i],webdriver_UA[i] = via,ua
                 webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,tooLate)
@@ -2637,6 +2641,7 @@ def webdriver_checkServe(*args):
                 break
     if webdriver_allBusy(): pauseOrRestartMainServer(0) # we're "paused" anyway when not in the poll wait, so might as well call this only at end, to depend on the final status (and make sure to call webdriver_allBusy() no matter what, as it has the side-effect of updating webdriver_maxBusy)
     else: pauseOrRestartMainServer(1)
+    debuglog("Finishing webdriver_checkServe, webdriver_queue len=%d" % len(webdriver_queue))
 def webdriver_checkRenew(*args):
     for i in webdriver_runner:
         if not i.wd_threadStart and i.usageCount and i.finishTime + options.js_restartMins < time.time(): i.renew_webdriver_newThread() # safe because we're running in the IOLoop thread, which therefore can't start wd_thread between our test of wd_threadStart and renew_webdriver_newThread
@@ -3052,12 +3057,17 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 # usually used only by redir)
                 self.request.headers.add("Cookie",htmlmode_cookie_name+"="+val)
     def htmlOnlyMode(self,isProxyRequest=False):
+        # order is important here
         if not options.htmlonly_mode: return False
-        if isProxyRequest: return False
-        if force_htmlonly_mode: return True
-        if hasattr(self.request,"old_cookie"): ck = self.request.old_cookie # so this can be called between change_request_headers and restore_request_headers, e.g. at the start of send_request for js_interpreter mode
+        elif self.isPjsUpstream or self.isSslUpstream:
+            return False
+        elif self.auto_htmlOnlyMode(isProxyRequest):
+            return True
+        elif isProxyRequest: return False
+        elif force_htmlonly_mode: return True
+        elif hasattr(self.request,"old_cookie"): ck = self.request.old_cookie # so this can be called between change_request_headers and restore_request_headers, e.g. at the start of send_request for js_interpreter mode
         else: ck = ';'.join(self.request.headers.get_list("Cookie"))
-        return htmlmode_cookie_name+"=1" in ck or self.auto_htmlOnlyMode(isProxyRequest)
+        return htmlmode_cookie_name+"=1" in ck
     def auto_htmlOnlyMode(self,isProxyRequest): return options.js_interpreter and (isProxyRequest or (not options.wildcard_dns and not can_do_cookie_host()))
     
     def handle_URLbox_query(self,v):
@@ -3360,6 +3370,7 @@ document.forms[0].i.focus()
         if self.canWriteBody(): self.write(err)
         self.myfinish()
     def serve429(self,retrySecs=0):
+        debuglog("serve429"+self.debugExtras())
         try: self.set_status(429,"Too many requests")
         except: self.set_status(429)
         if retrySecs: self.add_header("Retry-After",str(retrySecs))
