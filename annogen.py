@@ -74,7 +74,7 @@ parser.add_option("-s", "--spaces",
                   action="store_false",
                   dest="removeSpace",
                   default=True,
-                  help="Set this if you are working with a language that uses whitespace in its non-markedup version (not fully tested).  The default is to assume that there will not be any whitespace in the language, which is correct for Chinese and Japanese.")
+                  help="Set this if you are working with a language that uses whitespace in its non-markedup version (not fully tested).  The default is to assume that there will not be any whitespace in the language, which is correct for Chinese, Japanese and Thai.")
 cancelOpt("spaces","store_true","removeSpace")
 
 parser.add_option("-c", "--capitalisation",
