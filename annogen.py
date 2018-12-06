@@ -74,7 +74,7 @@ parser.add_option("-s", "--spaces",
                   action="store_false",
                   dest="removeSpace",
                   default=True,
-                  help="Set this if you are working with a language that uses whitespace in its non-markedup version (not fully tested).  The default is to assume that there will not be any whitespace in the language, which is correct for Chinese, Japanese and Thai.")
+                  help="Set this if you are working with a language that uses whitespace in its non-markedup version (not fully tested).  The default is to assume that there will not be any whitespace in the language, which is correct for Chinese and Japanese.")
 cancelOpt("spaces","store_true","removeSpace")
 
 parser.add_option("-c", "--capitalisation",
@@ -300,7 +300,7 @@ parser.add_option("-P", "--primitive",
 cancelOpt("primitive")
 
 parser.add_option("-y","--ybytes",default=0,
-                  help="Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed if the seed collocations can be used to distinguish between them.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of (non-whitespace) bytes between them.")
+                  help="Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed when seed collocations can be used to distinguish between them, and the analysis is likely to be faster.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of (non-whitespace) bytes between them.")
 parser.add_option("--ybytes-max",default=0,
                   help="Extend the Yarowsky seed-collocation search to check over larger ranges up to this maximum.  If this is set then several ranges will be checked in an attempt to determine the best one for each word, but see also ymax-threshold.")
 parser.add_option("--ymax-threshold",default=1,
@@ -3222,9 +3222,15 @@ static void topLevelMatch() {
 def splitWords(text,phrases=False):
     # split text into words, ignoring anything between markupStart and markupEnd
     # if phrases = True, instead of words, split on any non-whitespace char outside markupStart..markupEnd
+    warnPhrases = phrases
     if phrases: it=re.finditer(phrasePattern,text)
     else: it=re.finditer(wordPattern,text)
-    for i in it: yield i.group()
+    for i in it:
+      y = i.group()
+      if len(y) > 1000000 and warnPhrases:
+        sys.stderr.write("WARNING: Your corpus needs more phrase delimiters!\nVery long phrases can take a LONG time to process.\n")
+        warnPhrases = False
+      yield y
 
 markupPattern = re.compile(re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),flags=re.DOTALL)
 wordPattern = re.escape(markupStart)+'.*?'+re.escape(markupEnd)
@@ -3306,7 +3312,7 @@ def normalise():
       try:
         f=open_try_bz2(checkpoint+os.sep+'normalised','rb')
         corpus_unistr = f.read().decode('utf-8')
-        return
+        return sys.stderr.write("Normalised copy loaded\n")
       except: # if re-generating 'normalised', will also need to regenerate 'map' and 'checkpoint' if present
         assert main, "normalise checkpoint not readable in non-main module"
         rm_f(checkpoint+os.sep+'map.bz2') ; rm_f(checkpoint+os.sep+'map')
@@ -3477,7 +3483,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
         # (TODO: until the above is implemented, consider recommending --ymax-threshold=0, because, now that Yarowsky-like collocations can be negative, the 'following word' could just go in as a collocation with low ybytes)
         # TODO: also, if the exceptions to rule AB are always of the form "Z A B", and we can guarantee to generate a phrase rule for "Z A B", then AB can still be default.  (We should already catch this when the exceptions are "ZA B", but not when they are "Z A B", and --ymax-threshold=0 probably won't always help here, especially if Z==B; Mandarin "mei2you3" / "you3 mei2 you3" comes to mind)
         llen = len(mdStart)+len(nonAnnot)
-        if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+("("+re.escape(mdEnd)+"((?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?").join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
+        if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+("(?:"+re.escape(mdEnd)+"(?:(?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?").join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
           if nonAnnot==diagnose: diagnose_write("%s is default by majority-case rule after checking for dangerous overlaps etc" % (withAnnot_unistr,))
           yield True ; return
     run_in_background = canBackground and len(okStarts) > 500 and executor # In a test with 300, 500, 700 and 900, the 500 threshold was fastest on concurrent.futures, but by just a few seconds.  TODO: does mpi4py.futures have a different 'sweet spot' here? (low priority unless we can get MPI to outdo concurrent.futures in this application)
@@ -3652,9 +3658,8 @@ def test_rule(withAnnot_unistr,yBytesRet,canBackground=None):
     # (If we deal only in rules that ALWAYS work, we can
     # build them up incrementally without "cross-talk")
     # yield "backgrounded" = task has been backgrounded; .next() collects result (nb we default to NOT canBackground, as test_rule is called from several places of which ONE can handle backgrounding)
-    if primitive:
-      yield True ; return
-    if ybytes:
+    if primitive: yield True
+    elif ybytes:
         # Doesn't have to be always right, but put the indicators in yBytesRet
         ybrG = yarowsky_indicators(withAnnot_unistr,canBackground)
         ybr = ybrG.next()
@@ -3663,12 +3668,13 @@ def test_rule(withAnnot_unistr,yBytesRet,canBackground=None):
         if ybr==True or not ybr:
           yield ybr ; return
         yBytesRet.append(ybr) # (negate, list of indicators, nbytes)
-        yield True ; return
-    phrase = markDown(withAnnot_unistr)
-    ret = corpus_markedDown.count(phrase) == len(getOkStarts(withAnnot_unistr))
-    if diagnose and diagnose==phrase:
-      diagnose_write("occurrences(%s)==occurrences(%s) = %s" % (phrase,withAnnot_unistr,ret))
-    yield ret
+        yield True
+    else: # non-ybytes version: accept rule only if it exactly matches the corpus
+      phrase = markDown(withAnnot_unistr)
+      ret = corpus_markedDown.count(phrase) == len(getOkStarts(withAnnot_unistr))
+      if diagnose and diagnose==phrase:
+        diagnose_write("occurrences(%s)==occurrences(%s) = %s" % (phrase,withAnnot_unistr,ret))
+      yield ret
 
 def all_possible_rules(words,covered):
     # Iterate over ALL possible rules derived from the
@@ -3840,7 +3846,7 @@ def generate_map():
       try:
         f=open_try_bz2(checkpoint+os.sep+'map','rb')
         m2c_map,precalc_sets,yPriorityDic = pickle.Unpickler(f).load()
-        return
+        return sys.stderr.write("Corpus map loaded\n")
       except: pass
     assert main, "Only main should generate corpus map"
     sys.stderr.write("Generating corpus map... ")
@@ -3962,9 +3968,11 @@ def analyse():
             backgrounded = []
             write_checkpoint((phraseNo,wordLen,covered,toCover,accum.__dict__))
             lastCheckpoint = time.time() ; phraseLastCheckpoint = phraseNo
-          if time.time() >= lastUpdate + 2:
-            status_update(phraseNo,len(phrases),wordLen,len(accum.rules),phraseLastUpdate,lastUpdate,phraseLastCheckpoint,lastCheckpoint,int(100.0*covered/toCover),len(accum.rejectedRules),startTime)
-            lastUpdate = time.time() ; phraseLastUpdate = phraseNo
+        if time.time() >= lastUpdate + 2:
+          if toCover: cov=int(100.0*covered/toCover)
+          else: cov = 0
+          status_update(phraseNo,len(phrases),wordLen,len(accum.rules),phraseLastUpdate,lastUpdate,phraseLastCheckpoint,lastCheckpoint,cov,len(accum.rejectedRules),startTime)
+          lastUpdate = time.time() ; phraseLastUpdate = phraseNo
         aRules = accum.addRulesForPhrase(phrases[phraseNo],wordLen==1) # TODO: we're saying canBackground only if wordLen==1 because longer phrases can be backgrounded only if they're guaranteed not to have mutual effects; do we want to look into when we can do that?  (and update the help text for --single-core if changing)
         arr = aRules.next()
         if arr=="backgrounded": backgrounded.append(aRules)
