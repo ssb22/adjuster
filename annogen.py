@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.652 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.653 (c) 2012-18 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -212,15 +212,19 @@ parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
 parser.add_option("--ndk",
                   action="store_true",default=False,
-                  help="Android NDK: make a C annotator and use ndk-build to compile it into a 32-bit Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, it restricts which Android versions can be supported if you are compiling on newer toolsets (see --ndk-pre-* options), and it's unsuitable for environments where dual 32-/64-bit binaries are required, such as \"Play Store\" in 2019+.  The speed bonus of NDK is increasingly negligible now that --data-driven and --zlib are also available in the Java version.") # 'increasingly' due to Android's own improvements to JIT etc.  Could add support for dual 32/64-bit, but that would double the binary size (unless shared data is passed in from the Java, but if the JIT works well anyway then what's the point)
+                  help="[DEPRECATED] Android NDK: make a C annotator and use ndk-build to compile it into a 32-bit Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, it restricts which Android versions can be supported if you are compiling on newer toolsets (see --ndk-pre-* options), and \"Play Store\" is set to drop support for 32-bit-only binaries in June 2019. I will probably remove this option at that point, because the speed bonus of NDK is increasingly negligible now that --data-driven and --zlib are also available in the Java version.") # 'increasingly' due to Android's own improvements to JIT etc.  Could add support for dual 32/64-bit, but that would double the binary size (unless shared data is passed in from the Java and/or some trick is done to ship separate 32/64-bit APKs, but if the JIT works well anyway then what's the point of setting up new equipment to test the necessary NDK tweaks)
 cancelOpt("ndk")
+parser.add_option("--ndk-pre-2018",
+                  action="store_true",default=False,
+                  help="When building with ndk-build, assume it's older than the June 2018 release (r18b) and therefore supports Android versions below 4.1")
+cancelOpt("ndk-pre-2018")
 parser.add_option("--ndk-pre-2017",
                   action="store_true",default=False,
                   help="When building with ndk-build, assume it's older than the July 2017 release (r15c) and therefore supports Android versions below 4.0")
 cancelOpt("ndk-pre-2017")
 parser.add_option("--ndk-pre-2016",
                   action="store_true",default=False,
-                  help="When building with ndk-build, assume it's older than the June 2016 release (r12) and therefore supports Android versions below 2.3")
+                  help="When building with ndk-build, assume it's older than the June 2016 release (r12) and therefore supports Android versions below 2.3") # NOT tested with the r11 (March 2016) release of the NDK, which changed the default target of the toolchain to arm7 and required -targetoption armv5te-linux-androideabi somewhere to support very old devices
 cancelOpt("ndk-pre-2016")
 
 parser.add_option("--bookmarks",
@@ -395,7 +399,7 @@ if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
 if ndk and not android: errExit("You must set --android=URL when using --ndk. E.g. --android=file:///android_asset/index.html")
-if (ndk_pre_2016 or ndk_pre_2017) and not ndk: errExit("--ndk-pre-* options don't make sense when not using --ndk")
+if (ndk_pre_2016 or ndk_pre_2017 or ndk_pre_2018) and not ndk: errExit("--ndk-pre-* options don't make sense when not using --ndk")
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
 if (extra_js or extra_css) and not (android or ios): errExit("--extra-js and --extra-css require either --android or --ios")
 if not extra_js: extra_js = ""
@@ -1548,7 +1552,8 @@ int main(int argc,char*argv[]) {
 # Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list) (TODO: API 1's shouldOverrideUrlLoading was deprecated in API 24; if they remove it, we may have to provide both to remain compatible?)
 if ndk_pre_2016 or not ndk: android_minSdkVersion,armabi = "1","armeabi"
 elif ndk_pre_2017: android_minSdkVersion,armabi = "9","armeabi" # Android 2.3
-else: android_minSdkVersion,armabi = "14","armeabi-v7a" # Android 4.0
+elif ndk_pre_2018: android_minSdkVersion,armabi = "14","armeabi-v7a" # Android 4.0
+else: android_minSdkVersion,armabi = "16","armeabi-v7a" # Android 4.1
 android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:installLocation="preferExternal" >
 <uses-permission android:name="android.permission.INTERNET" />"""
