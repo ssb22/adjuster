@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.275 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.276 (c) 2012-18 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -247,6 +247,7 @@ define("delete_doctype",default=False,help="Delete the DOCTYPE declarations from
 define("deleteOmit",multiple=True,default="iPhone,iPad,Android,Macintosh",help="A list of browsers that do not need the delete and delete-doctype options to be applied. If any of these strings occur in the user-agent then these options are disabled for that request, on the assumption that these browsers are capable enough to cope with the \"problem\" code. Any delete-css option is still applied however.")
 define("cacheOmit",multiple=True,default="IEMobile",help="A list of browsers that cannot be trusted to provide correct Cache-Control headers. Use this if your browser fails to renew data when you press Reload.")
 # cacheOmit: e.g. IE6 on WM6.1 sets Cache-Control to "max-age=259200" (3 days) even if you press Reload, which can result in upstream caching proxies (e.g. on AppEngine) failing to re-query the original servers on a reload (e.g. for NextBuses, frustrating if you're trying to decide whether or not you have to run!)
+define("zeroWidthDelete",multiple=True,default="IEMobile,MSIE 6",help="A list of (old) browsers that cannot be relied on to process Unicode zero-width space (U+200b) correctly and need it removed from websites")
 define("codeChanges",help="Several lines of text specifying changes that are to be made to all HTML and Javascript code files on certain sites; use as a last resort for fixing a site's scripts. This option is best set in the configuration file and surrounded by r\"\"\"...\"\"\". The first line is a URL prefix (just \"http\" matches all); append a # to match an exact URL instead of a prefix, and #+number (e.g. #1 or #2) to match an exact URL and perform the change only that number of times in the page.  The second line is a string of code to search for, and the third is a string to replace it with. Further groups of URL/search/replace lines may follow; blank lines and lines starting with # are ignored. If the 'URL prefix' starts with a * then it is instead a string to search for within the code of the document body; any documents containing this code will match; thus it's possible to write rules of the form 'if the code contains A, then replace B with C'. This processing takes place before any 'delete' option takes effect so it's possible to pick up on things that will be deleted, and it occurs after the domain rewriting so it's possible to change rewritten domains in the search/replace strings (but the URL prefix above should use the non-adjusted version).")
 define("boxPrompt",default="Website to adjust",help="What to say before the URL box (when shown); may include HTML; for example if you've configured Web Adjuster to perform a single specialist change that can be described more precisely with some word other than 'adjust', you might want to set this.")
 define("viewsource",default=False,help="Provide a \"view source\" option. If set, you can see a page's pre-adjustment source code, plus client and server headers, by adding \".viewsource\" to the end of a URL (after any query parameters etc)")
@@ -820,6 +821,7 @@ def preprocessOptions():
     create_inRenderRange_function(options.renderRange)
     if type(options.renderOmit)==type(""): options.renderOmit=options.renderOmit.split(',')
     if type(options.cacheOmit)==type(""): options.cacheOmit=options.cacheOmit.split(',')
+    if type(options.zeroWidthDelete)==type(""): options.zeroWidthDelete=options.zeroWidthDelete.split(',')
     if options.renderOmitGoAway:
         if options.renderCheck: errExit("Setting both renderOmitGoAway and renderCheck is not yet implemented (renderOmitGoAway assumes all testing is done by renderOmit only).  Please unset either renderOmitGoAway or renderCheck.")
         options.renderName = "" # override renderName to blank so it can't be switched on/off, because there's not a lot of point in switching it off if we're renderOmitGoAway (TODO: document this behaviour?)
@@ -3913,9 +3915,13 @@ document.forms[0].i.focus()
             charset2, body = get_and_remove_httpequiv_charset(body)
             if charset2: charset=charset2 # override server header (TODO: is this always correct?)
             if charset=="gb2312": charset="gb18030" # 18030 is a superset of 2312, and some pages say 2312 for backward compatibility with old software when they're actually 18030 (most Chinese software treats both as equivalent, but not all Western software does)
-            try: "".decode(charset)
-            except: charset="latin-1" # ?? (unrecognised charset name)
-            if not charset=="utf-8": body=body.decode(charset,'replace').encode('utf-8')
+            if not charset=="utf-8":
+                try: "".decode(charset)
+                except: charset="latin-1" # ?? (unrecognised charset name)
+                body=body.decode(charset,'replace').encode('utf-8')
+            if self.checkBrowser(options.zeroWidthDelete):
+                body=body.replace(u"\u200b".encode('utf-8'),"") # U+200B zero-width space, sometimes used for word-wrapping purposes, but needs deleting for old browsers
+                # TODO: what about &#8203; and &#x200b;
         if do_pdftotext or do_epubtotext:
             if do_epubtotext and self.isKindle():
                 self.set_header("Content-Type","application/x-mobipocket-ebook")
