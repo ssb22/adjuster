@@ -3796,7 +3796,7 @@ document.forms[0].i.focus()
             else: tryFetchTrunc = tryFetch
             tryFetchTrunc = tryFetchTrunc.replace('\x1b','[ESC]') # terminal safe (in case of malformed URLs)
             logging.error(error+" when fetching "+tryFetchTrunc) # better log it for the admin, especially if options.upstream_proxy, because it might be an upstream proxy malfunction
-            error = """%s<h1>Error</h1>%s<br>Was trying to fetch %s<hr>This is %s</body></html>""" % (htmlhead("Error"),error,ampEncode(tryFetch),serverName_html)
+            error = """%s<h1>Error</h1>%s<br>Was trying to fetch <a href="%s">%s</a><hr>This is %s</body></html>""" % (htmlhead("Error"),error,ampEncode(tryFetch),ampEncode(tryFetch),serverName_html)
             self.set_status(504)
             return self.doResponse2(error,True,False)
         if response.headers.get("Content-Encoding","")=="gzip": # sometimes Tornado's client doesn't decompress it for us, for some reason
