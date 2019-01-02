@@ -1683,7 +1683,6 @@ if pleco_hanping: android_src += r"""
                             // TODO: to prevent popup disappearing if items[0] is tapped, use d.setAdapter instead of d.setItems?
                             // items must then implement android.widget.ListAdapter with: boolean isEnabled(int position) { return position!=0; } boolean areAllItemsEnabled() { return false; } int getCount(); Object getItem(int position); long getItemId(int position) { return position; } int getItemViewType(int position) { return -1; } boolean hasStableIds() { return true; } boolean isEmpty() { return false; } void registerDataSetObserver(android.database.DataSetObserver observer) {} void unregisterDataSetObserver(android.database.DataSetObserver observer) {}
                             // but need to implement android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) (init convertView or get a new one) and int getViewTypeCount()
-                            // final ArrayList<String> l = new ArrayList<String>(); l.add(aa); etc 
                             d.setItems(items,new android.content.DialogInterface.OnClickListener() {
                                 @TargetApi(11) public void onClick(android.content.DialogInterface dialog,int id) {
                                     int test=0,i;
