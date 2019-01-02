@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.654 (c) 2012-18 Silas S. Brown"
+program_name = "Annotator Generator v0.655 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1635,10 +1635,8 @@ android_src += r"""
         if(Integer.valueOf(Build.VERSION.SDK) >= 19) WebView.setWebContentsDebuggingEnabled(true);
         // ---------------------------------------------"""
 if pleco_hanping: android_src += r"""
-        // Delete the following long line if you DON'T want to link pop-ups to Pleco (when installed):
-        try { getApplicationContext().getPackageManager().getPackageInfo("com.pleco.chinesesystem", 0); gotPleco = true; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
-        // Delete the following long line if you DON'T want to link pop-ups to Hanping (when installed) if not linking to Pleco (there's room for only one of the two in the AlertDialog)
-        if(!gotPleco && Integer.valueOf(Build.VERSION.SDK) >= 11) for(int i=0; i<3; i++) try { hanpingPackage="com.embermitre.hanping.cantodict.app.pro com.embermitre.hanping.app.pro com.embermitre.hanping.app.lite".split(" ")[i]; hanpingVersion=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage, 0).versionCode; break; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
+        try { getApplicationContext().getPackageManager().getPackageInfo("com.pleco.chinesesystem", 0); gotPleco = true; dictionaries++; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
+        if(Integer.valueOf(Build.VERSION.SDK) >= 11) for(int i=0; i<3; i++) try { hanpingVersion[i]=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage[i],0).versionCode; if(hanpingVersion[i]!=0) { dictionaries++; if(i==1) break /* don't also check Lite if got Pro*/; } } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
         // ---------------------------------------------"""
 android_src += r"""
         if(Integer.valueOf(Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheMaxSize(10*1048576) /* if API==7 i.e. exactly Android 2.1 (deprecated in API 8) */ ; browser.getSettings().setAppCacheEnabled(true); } // not to be confused with the normal browser cache
@@ -1674,12 +1672,28 @@ android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPo
                     DialogTask(String t,String a) { tt=t; aa=a; }
                     public void run() {
                         android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
-                        if(tt.length()>0) d.setTitle(tt);
+                        if(tt.length()>0) d.setTitle(tt);"""
+if pleco_hanping: android_src += r"""
+                        if(tt.length()>0 && dictionaries>1) {
+                            String[] items=new String[dictionaries+1]; items[0]=aa; int i=1;
+                            if(hanpingVersion[0]!=0) items[i++]="\u25b6CantoDict";
+                            if(hanpingVersion[1]!=0) items[i++]="\u25b6Hanping Pro";
+                            if(hanpingVersion[2]!=0) items[i++]="\u25b6Hanping Lite";
+                            if(gotPleco) items[i++]="\u25b6Pleco";
+                            d.setItems(items,new android.content.DialogInterface.OnClickListener() {
+                                @TargetApi(11) public void onClick(android.content.DialogInterface dialog,int id) {
+                                    int test=0,i;
+                                    if(gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt); startActivity(p); }
+                                    for(i=0; i<3; i++) if(hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt.split(" ",2)[0]).build()); h.setPackage(hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(h); }
+                        } });
+                        } else"""
+android_src += r"""
                         d.setMessage(aa);
                         d.setNegativeButton("Copy",new android.content.DialogInterface.OnClickListener() {
                                 public void onClick(android.content.DialogInterface dialog,int id) { copy(tt+" "+aa,false); }
                         });"""
 if pleco_hanping: android_src += r"""
+                        if(dictionaries==1) { /* for consistency with old versions, have a 'middle button' if there's only one recognised dictionary app installed */
                         if(tt.length()==0) { /* Pleco or Hanping button not added if empty title i.e. error/info box */ }
                         else if(gotPleco) d.setNeutralButton("Pleco", new android.content.DialogInterface.OnClickListener() {
                             public void onClick(android.content.DialogInterface dialog,int id) {
@@ -1691,16 +1705,17 @@ if pleco_hanping: android_src += r"""
                                 i.putExtra("replacesearchtext", tt);
                                 startActivity(i);
                             }
-                        }); else if(hanpingVersion!=0) d.setNeutralButton("Hanping", new android.content.DialogInterface.OnClickListener() {
+                        }); else d.setNeutralButton("Hanping", new android.content.DialogInterface.OnClickListener() {
                             @TargetApi(11)
                             public void onClick(android.content.DialogInterface dialog,int id) {
+                                int v; for(v=0; hanpingVersion[v]==0; v++);
                                 Intent i = new Intent(Intent.ACTION_VIEW);
-                                i.setData(new android.net.Uri.Builder().scheme(hanpingVersion<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage.indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt.split(" ",2)[0]).build());
-                                i.setPackage(hanpingPackage);
+                                i.setData(new android.net.Uri.Builder().scheme(hanpingVersion[v]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[v].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt.split(" ",2)[0]).build());
+                                i.setPackage(hanpingPackage[v]);
                                 i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
                                 startActivity(i);
                             }
-                        });"""
+                        }); }"""
 if glossfile: android_src += r"""
                         if (tt.length()>0) {
                         // TODO: 3-line persist to pop-ups (scan)?
@@ -1950,7 +1965,10 @@ android_src += r"""
     }
     String sentText = null;"""
 if pleco_hanping: android_src += r"""
-    boolean gotPleco = false; int hanpingVersion = 0; String hanpingPackage = null;"""
+    int dictionaries = 0;
+    boolean gotPleco = false;
+    String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
+    int[] hanpingVersion = new int[]{0,0,0};"""
 android_src += r"""
     static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtra1="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } };",xtra2="",annotScan=jsAddRubyCss+";tw0()",case3="var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
     android.os.Handler theTimer;
