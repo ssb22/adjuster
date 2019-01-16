@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.276 (c) 2012-18 Silas S. Brown"
+program_name = "Web Adjuster v0.277 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -106,7 +106,7 @@ elif '--html-options' in sys.argv:
         print "<dt><kbd>--"+name+"</kbd>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>"
 else: # normal run: go ahead with Tornado import
     import tornado
-    from tornado.httpclient import AsyncHTTPClient,HTTPClient,HTTPError
+    from tornado.httpclient import AsyncHTTPClient,HTTPError
     try: from tornado.httpserver import HTTPServer
     except: HTTPServer = None # may happen in WSGI mode (e.g. AppEngine can have trouble importing this)
     from tornado.ioloop import IOLoop
@@ -1981,8 +1981,6 @@ def setupCurl(maxCurls,error=None):
     curl_inUse_clients = 0
     try: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",max_clients=curl_max_clients)
     except: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # will try in MyAsyncHTTPClient too (different versions of Tornado and all that...)
-    try: HTTPClient.configure("tornado.curl_httpclient.CurlHTTPClient") # for WSGI
-    except: pass # not all Tornado versions support configure on HTTPClient, and we still want to define the following if AsyncHTTPClient.configure worked
     def MyAsyncHTTPClient():
         try: problem = not len(AsyncHTTPClient()._free_list)
         except:
@@ -2957,7 +2955,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
 
     def forwardFor(self,server,serverType="ownServer"):
         debuglog("forwardFor "+server+self.debugExtras())
-        if wsgi_mode: raise Exception("Not yet implemented for WSGI mode") # no .connection; we'd probably have to repeat the request with HTTPClient
+        if wsgi_mode: raise Exception("Not yet implemented for WSGI mode") # no .connection
         if server==options.own_server and options.ownServer_useragent_ip:
             r = self.request.headers.get("User-Agent","")
             if r: r=" "+r
@@ -4260,44 +4258,30 @@ def make_WSGI_application():
     if options.staticDocs: handlers.insert(0,static_handler()) # (the staticDocs option is probably not really needed in a WSGI environment if we're behind a wrapper that can also list static URIs, but keeping it anyway might be a convenience for configuration-porting; TODO: warn that this won't work with htaccess redirect and SCRIPT_URL thing)
     return tornado.wsgi.WSGIApplication(handlers)
 
-class HTTPClient_Fixed(HTTPClient):
-    def __init__(self,*args):
-        self._closed = True # so don't get error in 'del' if have to catch an exception in the constructor
-        HTTPClient.__init__(self,*args)
-
 wsgi_mode = False
 def httpfetch(url,**kwargs):
     url = re.sub("[^ -~]+",lambda m:urllib.quote(m.group()),url) # sometimes needed to get out of redirect loops
     debuglog("httpfetch "+url+" "+repr(kwargs)+repr([(n,v) for n,v in kwargs['headers'].get_all()]))
     if not wsgi_mode:
         return MyAsyncHTTPClient().fetch(url,**kwargs)
-    # ---------------------------------
-    # -------- wsgi_mode only: --------
-    # ---------------------------------
-    callback = kwargs['callback']
-    del kwargs['callback']
-    try: r = HTTPClient_Fixed().fetch(url,**kwargs)
-    except HTTPError, e: r = e.response
-    except:
-        # Ouch.  In many Tornado versions, HTTPClient
-        # is no more than a wrapper around
-        # AsyncHTTPClient with an IOLoop call.  That
-        # may work on some WSGI servers but not on
-        # others; in particular it might include
-        # system calls that are too low-level for the
-        # liking of platforms like AppEngine.  Maybe
-        # we have to fall back to urllib2.
-        data = kwargs.get('body',None)
-        if not data: data = None
-        headers = dict(kwargs.get('headers',{}))
-        req = urllib2.Request(url, data, headers)
-        if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
-        r = None
-        try: resp = urllib2.build_opener(DoNotRedirect).open(req,timeout=60)
-        except urllib2.HTTPError, e: resp = e
-        except Exception, e: resp = r = wrapResponse(str(e)) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
-        if r==None: r = wrapResponse(resp.read(),resp.info(),resp.getcode())
-    callback(r)
+    # ----------------------------
+    # -------- wsgi_mode: --------
+    # Don't use HTTPClient: it usually just wraps ASyncHTTPClient with an IOLoop,
+    # not all WSGI servers will support this (and a functioning ssl module
+    # is required for https URLs), platforms like AppEngine will go wrong
+    # and error sometimes gets raised later so we can't reliably catch it here.
+    # Go straight to urllib2 instead.
+    data = kwargs.get('body',None)
+    if not data: data = None
+    headers = dict(kwargs.get('headers',{}))
+    req = urllib2.Request(url, data, headers)
+    if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
+    r = None
+    try: resp = urllib2.build_opener(DoNotRedirect).open(req,timeout=60)
+    except urllib2.HTTPError, e: resp = e
+    except Exception, e: resp = r = wrapResponse(str(e)) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
+    if r==None: r = wrapResponse(resp.read(),resp.info(),resp.getcode())
+    kwargs['callback'](r)
 def wrapResponse(body,info={},code=500):
     "Makes a urllib2 response or an error message look like an HTTPClient response.  info can be a headers dict or a resp.info() object."
     class Empty: pass
