@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.277 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.278 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -4392,13 +4392,13 @@ document.write('<a href="javascript:history.go(-1)">Back to previous page</a>')
 # Ruby CSS support for Chinese/Japanese annotators etc
 # --------------------------------------------------
 
-rubyCss1 = "ruby{display:inline-table;vertical-align:bottom;-webkit-border-vertical-spacing:1px;padding-top:0.5ex;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}"
+rubyCss1 = "ruby{display:inline-table;vertical-align:bottom;-webkit-border-vertical-spacing:1px;padding-top:0.5ex;}ruby *{display: inline;vertical-align:top;line-height:1.0;text-indent:0;text-align:center;white-space:nowrap;padding-left:0px !important;padding-right:0px !important /* if we space-separate words */}rb{display:table-row-group;font-size: 100%;}rt{display:table-header-group;font-size:100%;line-height:1.1;}"
 rubyScript = '<style>'+rubyCss1+'</style>'
 # And the following hack is to stop the styles in the 'noscript' and the variable (and any others) from being interpreted if an HTML document with this processing is accidentally referenced as a CSS source (which can mess up ruby):
 rubyScript = "<!-- { } @media(none) { -->" + rubyScript
 # By the way, also try to specify some nice fonts (but IE doesn't like this) :
 rubyScript_fonts = '<!--[if !IE]>--><style>rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style><!--<![endif]-->'
-rubyScript_fonts = '<!--[if IE 6]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->' + rubyScript_fonts # IE6/WM6 workaround
+rubyScript_fonts = '<!--[if lt IE 8]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->' + rubyScript_fonts # IE6/WM6 workaround
 rubyScript += rubyScript_fonts
 # and this goes at the END of the body:
 rubyEndScript = """
@@ -4452,7 +4452,9 @@ def bookmarkletMainScript(jsonPostUrl,forceSameWindow):
     # MutationObserver gives faster response times when supported, but might not respond to ALL events on all browsers, so we keep the size check as well.
     if options.submitBookmarkletDomain: locProto = '(location.protocol=="https:"?"https:":"http:")+'
     else: locProto = ""
-    return r"""var leaveTags=%s,stripTags=%s;
+    # TODO: make mergeTags configurable, and implement it in the non-JS version (and expand it so it's not dependent on both of the consecutive EM-etc elements being leaf nodes?) (purpose is to stop problems with <em>txt1</em><em>txt2</em> resulting in an annotator receiving txt1 and txt2 separately and not adding space between them when necessary)
+    # TODO: also apply annogen's "adapt existing ruby markup to gloss-only" logic? (but if they're using a bookmarklet, they might want, and should at least be able to put up with, an annotation of the whole thing, so this is low priority)
+    return r"""var leaveTags=%s,stripTags=%s,mergeTags=['EM','I','B','STRONG'];
 function HTMLSizeChanged(callback) {
   if(typeof window.sizeChangedLoop=="undefined") window.sizeChangedLoop=0; var me=++window.sizeChangedLoop;
   var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r };
@@ -4497,6 +4499,9 @@ function walk(n,document) {
       cNext.previousSibling.nodeValue += cNext.nodeValue;
       n.removeChild(cNext); cNext = ps
     }
+    } else if(c.nodeType==1 && cNext && cNext.nodeType==1 && mergeTags.indexOf(c.nodeName)!=-1 && c.nodeName==cNext.nodeName && c.childNodes.length==1 && cNext.childNodes.length==1 && isTxt(c.firstChild) && isTxt(cNext.firstChild)) {
+      cNext.firstChild.nodeValue = c.firstChild.nodeValue+cNext.firstChild.nodeValue;
+      n.removeChild(c);
     }
     c=cNext;
   }
