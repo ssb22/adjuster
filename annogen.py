@@ -1362,9 +1362,77 @@ if bookmarks:
 
 jsAddRubyCss += ";d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })"
 
-def jsAnnot(alertStr,xtra1,xtra2,annotScan,case3):
-  r = "var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'],mergeTags=['EM','I','B','STRONG'];function annotPopAll(e){function f(c){var i=0,r='',cn=c.childNodes;for(;i < cn.length;i++)r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:''));return r} " + alertStr + " }; "+xtra1+" function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }; function tw0() { "+xtra2+"all_frames_docs(function(d){annotWalk(d,d,false)}) }; function annotScan() {"+extra_js+annotScan+"}; function annotWalk(n,document,inLink) { var c=n.firstChild; while(c) { var ps = c.previousSibling, cNext = c.nextSibling; function isTxt(n) {return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"+r"\\"+"s*$/)}; if (c.nodeType==1 && (c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"+r"\\"+"s*$/))))) && isTxt(cNext) && isTxt(ps)){n.removeChild(c);cNext.previousSibling.nodeValue+=cNext.nodeValue;n.removeChild(cNext);cNext=ps}else if(c.nodeType==1&&cNext&&cNext.nodeType==1&&mergeTags.indexOf(c.nodeName)!=-1&&c.nodeName==cNext.nodeName&&c.childNodes.length==1&&cNext.childNodes.length==1&&isTxt(c.firstChild)&&isTxt(cNext.firstChild)){cNext.firstChild.nodeValue=c.firstChild.nodeValue+cNext.firstChild.nodeValue;n.removeChild(c)}c=cNext}c=n.firstChild;while(c){var cNext=c.nextSibling;switch(c.nodeType){case 1:if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0'){annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href));if(c.nodeName=='RUBY' && c.outerHTML) c.outerHTML=c.outerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*)<span class=.?_adjust0.?>[^<]*<ruby([^>]*)><rb>(.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,attrs,rb,close,rt){return '<span class=_adjust0><ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby></span>'})}break; case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"+case3+"} } c=cNext } }" # TODO: adapt that regexp for processing at the ruby's PARENT (signalled via return value of annotWalk) so fewer calls to outerHTML are needed?
-  assert not '"' in r.replace(r'\"',''), "Unescaped \" character in jsAnnot param"
+def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
+  # 
+  # Common code for the JS-based DOM annotators
+  # 
+  r = """var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
+  
+  mergeTags=['EM','I','B','STRONG']; /* we'll merge 2 of these the same if they're leaf elements */
+  
+  function annotPopAll(e){
+    /* onclick code: alert box for glosses etc */
+    function f(c){ /* scan all text under c */
+      var i=0,r='',cn=c.childNodes;
+      for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:''));
+      return r } """ + alertStr + """ };
+  
+  function all_frames_docs(c) {
+    /* Call function c on all documents in the window */
+    var f=function(w) {
+      if(w.frames && w.frames.length) {
+        var i; for(i=0; i<w.frames.length; i++)
+          f(w.frames[i]) }
+      c(w.document) };
+    f(window) };
+  
+  """+xtraDecls+"""
+  function tw0() { """+textWalkInit+"""
+    all_frames_docs(function(d){annotWalk(d,d,false)}) };
+  
+  function annotScan() {"""+extra_js+annotScan+"""};
+  
+  function annotWalk(n,document,inLink) {
+    /* Our main DOM-walking code */
+    
+    /* 1. check for WBR and mergeTags */
+    function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"""+r"\\"+"""s*$/)};
+    var c=n.firstChild; while(c) {
+      var ps = c.previousSibling, cNext = c.nextSibling;
+      if (c.nodeType==1) { if((c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"""+r"\\"+"""s*$/))))) && isTxt(cNext) && isTxt(ps)) {
+        n.removeChild(c);
+        cNext.previousSibling.nodeValue+=cNext.nodeValue;
+        n.removeChild(cNext); cNext=ps}
+      else if(cNext && cNext.nodeType==1 && mergeTags.indexOf(c.nodeName)!=-1 && c.nodeName==cNext.nodeName && c.childNodes.length==1 && cNext.childNodes.length==1 && isTxt(c.firstChild) && isTxt(cNext.firstChild)){
+        cNext.firstChild.nodeValue=c.firstChild.nodeValue+cNext.firstChild.nodeValue;
+        n.removeChild(c)} }
+      c=cNext}
+    
+    /* 2. recurse into nodes, or annotate new text */
+    c=n.firstChild; while(c){
+      var cNext=c.nextSibling;
+      switch(c.nodeType) {
+        case 1:
+          if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
+            annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href));
+            if(c.nodeName=='RUBY' && c.outerHTML) {
+              /* Uh-oh, there was already ruby on the page
+                 and we just messed it up.  Keep our new
+                 title (at least the first one), and
+                 normalise the markup so our 3-line option
+                 still works.
+                 TODO: adapt this regexp for processing at the ruby's PARENT (signalled via return value of annotWalk) so fewer calls to outerHTML are needed?  Or set a flag on the recursive call to just return an html string, w/out putting it into the DOM only to be taken out ?  or at least do the recursive call on a copy of the DOM-fragment instead of the real thing?
+              */
+              c.outerHTML=c.outerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*)<span class=.?_adjust0.?>[^<]*<ruby([^>]*)><rb>(.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,attrs,rb,close,rt){return '<span class=_adjust0><ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby></span>'});
+            }
+          }
+          break;
+        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+"""}
+      }
+    c=cNext }
+  }"""
+  r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
+  assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param'
   return r
 
 if ios:
@@ -1407,7 +1475,7 @@ if ios:
 }
 - (void)webViewDidFinishLoad:(UIWebView *)webView
 {
-    [webView stringByEvaluatingJavaScriptFromString:@" """+jsAnnot(alertStr="window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a'",xtra1="var texts,tLen,oldTexts,otPtr,replacements; ",xtra2="texts = new Array(); tLen=0; otPtr=0; ",annotScan="oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a'",case3=r"""var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=cnv) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; if(!inLink) r=r.replace(/<ruby title=/g,'<ruby onclick=\"annotPopAll(this)\" title=');newNode.innerHTML=r; otPtr=i;} else if (tLen < 1024) { texts[texts.length]=cnv;tLen += cnv.length;} else return""")+r"""annotScan()"];
+    [webView stringByEvaluatingJavaScriptFromString:@" """+jsAnnot(alertStr="window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a'",xtraDecls="var texts,tLen,oldTexts,otPtr,replacements; ",textWalkInit="texts = new Array(); tLen=0; otPtr=0; ",annotScan="oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a'",case3=r"""var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=cnv) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; if(!inLink) r=r.replace(/<ruby title=/g,'<ruby onclick=\"annotPopAll(this)\" title=');newNode.innerHTML=r; otPtr=i;} else if (tLen < 1024) { texts[texts.length]=cnv;tLen += cnv.length;} else return""")+r"""annotScan()"];
 }
 - (BOOL)webView:(UIWebView*)webView shouldStartLoadWithRequest:(NSURLRequest*)request navigationType:(UIWebViewNavigationType)navigationType {
     NSURL *URL = [request URL];
@@ -1971,7 +2039,7 @@ if pleco_hanping: android_src += r"""
     String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
     int[] hanpingVersion = new int[]{0,0,0};"""
 android_src += r"""
-    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtra1="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } };",xtra2="",annotScan=jsAddRubyCss+";tw0()",case3="var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
+    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } };",textWalkInit="",annotScan=jsAddRubyCss+";tw0()",case3="var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
     android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
     @TargetApi(19)
