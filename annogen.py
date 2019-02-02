@@ -1414,16 +1414,17 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
       switch(c.nodeType) {
         case 1:
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
-            annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href));
-            if(c.nodeName=='RUBY' && c.outerHTML) {
-              /* Uh-oh, there was already ruby on the page
-                 and we just messed it up.  Keep our new
-                 title (at least the first one), and
+            var nf=c.nodeName=='RUBY'&&c.outerHTML; /* "need to fix" as there was already ruby on the page (and check for outerHTML as our fix-logic won't work without it, e.g. on Android versions before 4.4, TODO!) */
+            var e2p=nf?c.cloneNode(true):c; /* element to process (clone it first so as not to disturb the DOM if we know we won't keep the result due to need-fix) */
+            annotWalk(e2p,document,inLink||(c.nodeName=='A'&&!!c.href));
+            if(nf) {
+              /* Undo mess-up of existing ruby.  Keep new
+                 title (at least for first word), and
                  normalise the markup so our 3-line option
                  still works.
-                 TODO: adapt this regexp for processing at the ruby's PARENT (signalled via return value of annotWalk) so fewer calls to outerHTML are needed?  Or set a flag on the recursive call to just return an html string, w/out putting it into the DOM only to be taken out ?  or at least do the recursive call on a copy of the DOM-fragment instead of the real thing?
+                 TODO: do this at the level of the ruby's PARENT so fewer calls to outerHTML are needed?  (will need to check children for "RUBY" before recurse in)
               */
-              c.outerHTML=c.outerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*)<span class=.?_adjust0.?>[^<]*<ruby([^>]*)><rb>(.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,attrs,rb,close,rt){return '<span class=_adjust0><ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby></span>'});
+              c.outerHTML=e2p.outerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*)<span class=.?_adjust0.?>[^<]*<ruby([^>]*)><rb>(.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,attrs,rb,close,rt){return '<span class=_adjust0><ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby></span>'});
             }
           }
           break;
