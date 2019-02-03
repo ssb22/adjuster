@@ -1409,28 +1409,23 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
       c=cNext}
     
     /* 2. recurse into nodes, or annotate new text */
+    var nf=false; /* "need to fix" as there was already ruby on the page */
     c=n.firstChild; while(c){
       var cNext=c.nextSibling;
       switch(c.nodeType) {
         case 1:
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
-            var nf=c.nodeName=='RUBY'&&c.outerHTML; /* "need to fix" as there was already ruby on the page (and check for outerHTML as our fix-logic won't work without it, e.g. on Android versions before 4.4, TODO!) */
-            var e2p=nf?c.cloneNode(true):c; /* element to process (clone it first so as not to disturb the DOM if we know we won't keep the result due to need-fix) */
-            annotWalk(e2p,document,inLink||(c.nodeName=='A'&&!!c.href));
-            if(nf) {
-              /* Undo mess-up of existing ruby.  Keep new
-                 title (at least for first word), and
-                 normalise the markup so our 3-line option
-                 still works.
-                 TODO: do this at the level of the ruby's PARENT so fewer calls to outerHTML are needed?  (will need to check children for "RUBY" before recurse in)
-              */
-              c.outerHTML=e2p.outerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*)<span class=.?_adjust0.?>[^<]*<ruby([^>]*)><rb>(.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,attrs,rb,close,rt){return '<span class=_adjust0><ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby></span>'});
-            }
-          }
-          break;
+            nf=nf||(c.nodeName=='RUBY'&&c.outerHTML); /* (check for outerHTML as our fix-logic won't work without it, e.g. on Android versions before 4.4, TODO!) */
+            annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href));
+          } break;
         case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+"""}
       }
     c=cNext }
+    
+    /* 3. Batch-fix any damage we did to existing ruby.
+       Keep new title (at least for first word); normalise
+       the markup so our 3-line option still works. */
+    if(nf) {var o=n.outerHTML; var p=o.replace(/<ruby[^>]*>((?:<[^>]*>)*)<span class=.?_adjust0.?>[^<]*<ruby([^>]*)><rb>(.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,attrs,rb,close,rt){return '<span class=_adjust0><ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby></span>'}); if(o!=p) n.outerHTML=p; }
   }"""
   r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param'
