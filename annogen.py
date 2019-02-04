@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.656 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.657 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1317,6 +1317,7 @@ c_end += r"""  while(!FINISHED) {
 }"""
 
 # jsAddRubyCss will be in a quoted string in ObjC / Java source, so all " and \ must be escaped:
+# (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
 jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
 if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'li{display:list-item !important}':'')" # needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here)
 jsAddRubyCss += "+'</style>'"
@@ -1415,7 +1416,7 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
       switch(c.nodeType) {
         case 1:
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
-            nf=nf||(c.nodeName=='RUBY'&&c.outerHTML); /* (check for outerHTML as our fix-logic won't work without it, e.g. on Android versions before 4.4, TODO!) */
+            nf=nf||(c.nodeName=='RUBY');
             annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href));
           } break;
         case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+"""}
@@ -1425,7 +1426,7 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
     /* 3. Batch-fix any damage we did to existing ruby.
        Keep new title (at least for first word); normalise
        the markup so our 3-line option still works. */
-    if(nf) {var o=n.outerHTML; var p=o.replace(/<ruby[^>]*>((?:<[^>]*>)*)<span class=.?_adjust0.?>[^<]*<ruby([^>]*)><rb>(.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,attrs,rb,close,rt){return '<span class=_adjust0><ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby></span>'}); if(o!=p) n.outerHTML=p; }
+    if(nf) n.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>[^<]*<ruby([^>]*)><rb>(.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,attrs,rb,close,rt){return '<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'})+'</span>';
   }"""
   r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param'
