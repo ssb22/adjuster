@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.657 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.658 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1318,7 +1318,7 @@ c_end += r"""  while(!FINISHED) {
 
 # jsAddRubyCss will be in a quoted string in ObjC / Java source, so all " and \ must be escaped:
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
-jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
+jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
 if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'li{display:list-item !important}':'')" # needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here)
 jsAddRubyCss += "+'</style>'"
 if bookmarks:
@@ -1342,6 +1342,7 @@ if bookmarks:
   bookmarkLink = r'\"'+"javascript:"+bookmarkLink0+r'\"' # not ' as bookmarkLink0 contains '
   copyLink0 = "ssb_local_annotator.copy(location.href,true)"
   copyLink = "'javascript:"+copyLink0+"'" # ' is OK here
+  forwardLink = "'javascript:history.go(1)'"
   closeLink = r'\"'+"javascript:var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)"+r'\"'
   if bookmarks_developer:
     # If phone is in "Developer mode":
@@ -1355,8 +1356,8 @@ if bookmarks:
     bookmarkOnclick = r"'+(ssb_local_annotator.isDevMode()?'onclick=\"if(((typeof ssb_local_annotator_dblTap==\\'undefined\\')?null:ssb_local_annotator_dblTap)==null) ssb_local_annotator_dblTap=setTimeout(function(){"+bookmarkLink0.replace("'",r"\\'")+r";ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);document.getElementById(\\'ssb_local_annotator_css\\').innerHTML+=\\'ruby:not([title]){border:thin blue solid}\\';ssb_local_annotator.alert(\\'\\',\\'Developer mode: words without glosses boxed in blue\\');ssb_local_annotator_dblTap=null}return false\" ':'')+'"
     copyOnclick = r"'+(ssb_local_annotator.isDevMode()?'onclick=\"if(((typeof ssb_local_annotator_dblTap2==\\'undefined\\')?null:ssb_local_annotator_dblTap2)==null) ssb_local_annotator_dblTap2=setTimeout(function(){"+copyLink0+r";ssb_local_annotator_dblTap2=null},500); else { clearTimeout(ssb_local_annotator_dblTap2);document.body.innerHTML=document.body.parentElement.outerHTML.replace(/&/g,\\'&\\'+\\'amp;\\').replace(/</g,\\'&\\'+\\'lt;\\').replace(/\\\\n/g,\\'<br>\\').replace(/([&]lt;!--.*?-->)/g,\\'<font color=purple>$1</font>\\').replace(/([&]lt;[A-Za-z/].*?>)/g,\\'<font color=green>$1</font>\\');ssb_local_annotator.alert(\\'\\',\\'Developer mode: show DOM\\');ssb_local_annotator_dblTap2=null}return false\" ':'')+'" # Note: outerHTML requires Chrome 33 (which Android 4.4 has, but may be a bit buggy)
   else: bookmarkOnclick = copyOnclick = ""
-  toolset_string = toolset_openTag + "+(function(bookmarkLink,copyLink,closeLink){return '<a "+bookmarkOnclick+r"""href=\"'+bookmarkLink+'\"'+(("""+emoji_supported+r"""?('>\ud83d\udd16</a> &nbsp; <a """+copyOnclick+r"""href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; <a href=\"'+closeLink+'\">\u274c'):(' style=\"color: white !important\">Bookmark</a> <a href=\"'+copyLink+'\" style=\"color: white !important\">Copy</a> <a href=\"'+closeLink+'\" style=\"color: white !important\">X'))+'</a>'})("""+bookmarkLink+","+copyLink+","+closeLink+")+"+toolset_closeTag # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
-  # TODO: (don't know how much more room there is on smaller devices, but) U+1F504 Reload (just do window.location.reload); U+27A1 U+FE0F Forward (can use history.go(1) but @android.webkit.JavascriptInterface public boolean canGoForward() { return browser.canGoForward(); } to set its visibility (by id ?)  or do a browser.evaluateJavascript after browser.goBack() UNLESS goBack is async (doc doesn't say))
+  toolset_string = toolset_openTag + "+(function(bookmarkLink,copyLink,forwardLink,closeLink){return '<a "+bookmarkOnclick+r"""href=\"'+bookmarkLink+'\"'+(("""+emoji_supported+r"""?('>\ud83d\udd16</a> &nbsp; <a """+copyOnclick+r"""href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; <span id=annogenFwdBtn style=\"display: none\"><a href=\"'+forwardLink+'\">\u27a1\ufe0f</a> &nbsp;</span> <a href=\"'+closeLink+'\">\u274c'):(' style=\"color: white !important\">Bookmark</a> <a href=\"'+copyLink+'\" style=\"color: white !important\">Copy</a> <a id=annogenFwdBtn style=\"display: none\" href=\"'+forwardLink+'\" style=\"color: white !important\">Fwd</a> <a href=\"'+closeLink+'\" style=\"color: white !important\">X'))+'</a>'})("""+bookmarkLink+","+copyLink+","+forwardLink+","+closeLink+")+"+toolset_closeTag # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
+  # TODO: (don't know how much more room there is on smaller devices, but) U+1F504 Reload (just do window.location.reload)
   toolset_string = should_suppress_toolset+"?'':("+toolset_string+")"
   return should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+")"
  jsAddRubyCss += "+("+bookmarkJS()+")"
@@ -1419,14 +1420,14 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
             nf=nf||(c.nodeName=='RUBY');
             annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href));
           } break;
-        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+"""}
+        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+r"""}
       }
     c=cNext }
     
     /* 3. Batch-fix any damage we did to existing ruby.
        Keep new title (at least for first word); normalise
        the markup so our 3-line option still works. */
-    if(nf) n.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>[^<]*<ruby([^>]*)><rb>(.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,attrs,rb,close,rt){return '<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'})+'</span>';
+    if(nf) n.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>[^<]*(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return '<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'})+'</span>';
   }"""
   r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param'
@@ -1704,7 +1705,7 @@ if pleco_hanping: android_src += r"""
         if(Integer.valueOf(Build.VERSION.SDK) >= 11) for(int i=0; i<3; i++) try { hanpingVersion[i]=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage[i],0).versionCode; if(hanpingVersion[i]!=0) { dictionaries++; if(i==1) break /* don't also check Lite if got Pro*/; } } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
         // ---------------------------------------------"""
 android_src += r"""
-        if(Integer.valueOf(Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheMaxSize(10*1048576) /* if API==7 i.e. exactly Android 2.1 (deprecated in API 8) */ ; browser.getSettings().setAppCacheEnabled(true); } // not to be confused with the normal browser cache
+        if(Integer.valueOf(Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheEnabled(true); } // not to be confused with the normal browser cache
         if(Integer.valueOf(Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. swipe-closed in Activity Manager)
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
@@ -1904,6 +1905,11 @@ if bookmarks: android_src += r"""
                 String s="";"""+"".join(r"""
                 try { s = createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==jPackage)+r"""
                 return s+getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
+            }
+            @JavascriptInterface public boolean canFwd() {
+                // return browser.canGoForward(); // wrong thread; fudge it for now (TODO improve this)
+                boolean r = wentBack; wentBack = false;
+                return r;
             }""" # and even if not bookmarks:
 android_src += "\n}\n"
 if not ndk:
@@ -1989,8 +1995,13 @@ android_src += r"""
                 }
                 public void onPageFinished(WebView view,String url) {
                     if(Integer.valueOf(Build.VERSION.SDK) < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
-                    browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
-                    else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged();var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink)}}).observe(document.body,{childList:true,subtree:true})");
+                    browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() {"""
+android_checkFwd = "if(ssb_local_annotator.canFwd()){var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'}"
+if bookmarks: android_src += android_checkFwd
+android_src += r""" AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
+                    else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged();"""
+if bookmarks: android_src += "function AnnotFwdChk() { "+android_checkFwd+"else window.setTimeout(AnnotFwdChk,1000) } AnnotFwdChk();"
+android_src += r"""var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink)}}).observe(document.body,{childList:true,subtree:true})");
                 } });
         if(Integer.valueOf(Build.VERSION.SDK) >= 3) {
             browser.getSettings().setBuiltInZoomControls(true);
@@ -2064,7 +2075,7 @@ android_src += r"""
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
-            if (browser.canGoBack()) { browser.goBack(); return true; }
+            if (browser.canGoBack()) { browser.goBack(); wentBack=true; return true; }
         } return super.onKeyDown(keyCode, event);
     }
     @SuppressWarnings("deprecation") // using getText so works on API 1 (TODO consider adding a version check and the more-modern alternative android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip(); if (c != null && c.getItemCount()>0) return c.getItemAt(0).coerceToText(this).toString(); return ""; )
@@ -2081,6 +2092,7 @@ android_src += r"""
     @Override protected void onSaveInstanceState(Bundle outState) { browser.saveState(outState); }
     @Override protected void onDestroy() { if(isFinishing() && Integer.valueOf(Build.VERSION.SDK)<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
     WebView browser;
+    boolean wentBack = false;
 }
 """
 android_bringToFront=r"""package %%JPACKAGE%%;
