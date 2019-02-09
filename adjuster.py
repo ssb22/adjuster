@@ -2679,6 +2679,7 @@ rmServerHeaders = set([
     "vary", # we modify this (see code)
     
     "alt-svc",
+    "public-key-pins","public-key-pins-report-only",
 ])
 # TODO: WebSocket (and Microsoft SM) gets the client to say 'Connection: Upgrade' with a load of Sec-WebSocket-* headers, check what Tornado does with that
 rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Encoding','X-Forwarded-Host','X-Forwarded-Port','X-Forwarded-Server','X-Forwarded-Proto','X-Request-Start','TE','Upgrade',
