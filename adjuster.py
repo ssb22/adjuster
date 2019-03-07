@@ -5392,7 +5392,7 @@ if(document.getElementById) {
     if bodyAppend1 and bodyAppend: bodyAppend = '<span style="float:left">' + bodyAppend1 + '</span><span style="float:left;width:1em"><br></span><span style="float: right">'+bodyAppend+'</span><span style="clear:both"></span>' # (the <br> is in case CSS is off or overrides float)
     elif bodyAppend1: bodyAppend = bodyAppend1
     if options.bodyAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): bodyAppend = options.bodyAppend + bodyAppend
-    elif bodyAppend: bodyAppend='<p>'+bodyAppend # TODO: ?
+    elif bodyAppend: bodyAppend='<p>'+bodyAppend # TODO: "if" rather than "elif" if options.bodyAppend doesn't start with <center> etc, or if it's just a script with no text; TODO: is '<p>' always what we want if not options.bodyAppend ?
     if bodyAppend:
         i = -1
         if options.bodyAppendGoesAfter:
