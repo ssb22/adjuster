@@ -4398,7 +4398,7 @@ rubyScript = '<style>'+rubyCss1+'</style>'
 # And the following hack is to stop the styles in the 'noscript' and the variable (and any others) from being interpreted if an HTML document with this processing is accidentally referenced as a CSS source (which can mess up ruby):
 rubyScript = "<!-- { } @media(none) { -->" + rubyScript
 # By the way, also try to specify some nice fonts (but IE doesn't like this) :
-rubyScript_fonts = '<!--[if !IE]>--><style>rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style><!--<![endif]-->'
+rubyScript_fonts = '<!--[if !IE]>--><style>rt { font-family: Gandhari Unicode, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif !important; }</style><!--<![endif]-->'
 rubyScript_fonts = '<!--[if lt IE 8]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->' + rubyScript_fonts # IE6/WM6 workaround
 rubyScript += rubyScript_fonts
 # and this goes at the END of the body:

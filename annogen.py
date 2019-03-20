@@ -1318,7 +1318,7 @@ c_end += r"""  while(!FINISHED) {
 
 # jsAddRubyCss will be in a quoted string in ObjC / Java source, so all " and \ must be escaped:
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
-jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
+jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari Unicode, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
 if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'li{display:list-item !important}':'')" # needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here)
 jsAddRubyCss += "+'</style>'"
 if bookmarks:
@@ -1566,7 +1566,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
     strcpy(fname,"\\c.html");
     outFile=fopen(fname,"w");
   }
-  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style id=\"ruby\">ruby { display: inline-table; vertical-align: bottom; -webkit-border-vertical-spacing: 1px; padding-top: 0.5ex; } ruby * { display: inline; vertical-align: top; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if lt IE 8]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->\n<!--[if !IE]>-->\n<style>rt { font-family: Gandhari, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n");
+  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style id=\"ruby\">ruby { display: inline-table; vertical-align: bottom; -webkit-border-vertical-spacing: 1px; padding-top: 0.5ex; } ruby * { display: inline; vertical-align: top; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if lt IE 8]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->\n<!--[if !IE]>-->\n<style>rt { font-family: Gandhari Unicode, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n");
   p=pOrig; copyP=p;
   matchAll();
   free(pOrig);
@@ -1673,6 +1673,7 @@ import java.io.ByteArrayOutputStream;"""
 android_src += r"""
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.zip.ZipInputStream;
@@ -1861,7 +1862,7 @@ android_src += r"""
                 if(Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
                     ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
-                if(toast) android.widget.Toast.makeText(act, "Copied \""+copiedText+"\"",android.widget.Toast.LENGTH_LONG).show();
+                if(toast) Toast.makeText(act, "Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
             }"""
 if bookmarks: android_src += r"""
             @SuppressLint("DefaultLocale")
@@ -1880,7 +1881,7 @@ if bookmarks: android_src += r"""
                 e = sp.edit();
                 e.putString("prefs",s);
                 } while(!e.commit());
-                android.widget.Toast.makeText(act, "Added bookmark", android.widget.Toast.LENGTH_LONG).show();
+                Toast.makeText(act, "Added bookmark", Toast.LENGTH_LONG).show();
             }
             @JavascriptInterface public void deleteBM(String p) {
                 android.content.SharedPreferences.Editor e; boolean done=false; String s,p2;"""+"".join(r"""
@@ -1915,11 +1916,14 @@ if bookmarks: android_src += r"""
             }""" # and even if not bookmarks:
 android_src += "\n}\n"
 if not ndk:
-  if data_driven: android_src += "try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { android.widget.Toast.makeText(this, \"Cannot load annotator data!\", android.widget.Toast.LENGTH_LONG).show(); }" # TODO: should we keep one of these static and synchronized, in case some version of Android gives us multiple instances and we start taking up more RAM than necessary?
+  if data_driven: android_src += "try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this, \"Cannot load annotator data!\", Toast.LENGTH_LONG).show(); }" # TODO: should we keep one of these static and synchronized, in case some version of Android gives us multiple instances and we start taking up more RAM than necessary?
   else: android_src += "annotator=new %%JPACKAGE%%.Annotator();"
 android_src += r"""
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
+        // final MainActivity act = this;
         browser.setWebViewClient(new WebViewClient() {
+                // Uncommenting the following line will result in app rejection from Google Play:
+                // @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); handler.proceed(); }
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }"""
 if epub: android_src += r"""
                 @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
