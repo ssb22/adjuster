@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6581 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6582 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1920,10 +1920,9 @@ if not ndk:
   else: android_src += "annotator=new %%JPACKAGE%%.Annotator();"
 android_src += r"""
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
-        // final MainActivity act = this;
+        final MainActivity act = this;
         browser.setWebViewClient(new WebViewClient() {
-                // Uncommenting the following line will result in app rejection from Google Play:
-                // @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); handler.proceed(); }
+                @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); if(Integer.valueOf(Build.VERSION.SDK)<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }"""
 if epub: android_src += r"""
                 @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
@@ -2127,7 +2126,7 @@ function update() {
 var newClip = ssb_local_annotator.getClip();
 if (newClip && newClip != curClip) {
   document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\u200b/g,'').replace(/(https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+)/gi,function r(m,p1) { return '<a href="'+p1.replace('&amp;','&')+'">'+p1+'</a>' });
-  curClip = newClip; if(ssb_local_annotator.annotate(newClip,false)!=newClip) ssb_local_annotator.bringToFront();
+  curClip = newClip; if(ssb_local_annotator.annotate(newClip,false)!=newClip) ssb_local_annotator.bringToFront(); // should work on Android 9 or below; Android Q (API 29) takes away background clipboard access and we'll just get newClip="" until we're brought to foreground manually
 } window.setTimeout(update,1000) } update(); </script>
 </body></html>"""
 java_src = r"""package %%JPACKAGE%%;
