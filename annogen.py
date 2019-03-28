@@ -4544,8 +4544,8 @@ def openfile(fname,mode='r'):
     lzma = bz2 = None
     if fname.endswith(".xz"): import lzma # 'pip install lzma' or 'apt-get install python2.7-lzma' may be required for .xz files
     elif fname.endswith(".bz2"): import bz2
-    if re.match("https?://",fname):
-        assert mode=='r', "cannot write to "+fname
+    if re.match("https?://",fname) or fname.startswith("ftp://"):
+        assert mode in ['r','rb'], "cannot write to "+fname
         import urllib2
         sys.stderr.write("Fetching "+fname+"\n")
         fileobj = urllib2.urlopen(fname)
