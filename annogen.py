@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6582 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6583 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1506,7 +1506,7 @@ elif windows_clipboard: c_end += r"""
 static void errorExit(char* text) {
   TCHAR msg[500];
   DWORD e = GetLastError();
-  wsprintf(msg,TEXT("%s: %d"),text,e);
+  wsprintf(msg,TEXT("%hs: %d"),text,e);
   MessageBox(NULL, msg, TEXT("Error"), 0);
   exit(1);
 }
@@ -1537,7 +1537,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
   HANDLE hClipMemory;
   if (!OpenClipboard(win)) errorExit("OpenClipboard");
   hClipMemory = GetClipboardData(CF_UNICODETEXT);
-  if(!hClipMemory) errorExit("GetClipboardData");
+  if(!hClipMemory) errorExit("GetClipboardData"); // empty clipboard?
   TCHAR*u16 = (TCHAR*)GlobalLock(hClipMemory);
   int u8bytes=0; while(u16[u8bytes++]); u8bytes*=3;
   p=(POSTYPE)malloc(++u8bytes);
@@ -1559,14 +1559,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
   char fname[MAX_PATH];
   #ifndef _WINCE
   GetTempPathA(sizeof(fname) - 7, fname);
-  strcat(fname,"c.html"); /* c for clipboard */
+  strcat(fname,"c.html"); // c for clipboard
   outFile = fopen(fname,"w");
   #endif
   if (!outFile) {
     strcpy(fname,"\\c.html");
     outFile=fopen(fname,"w");
+    if (!outFile) errorExit("Cannot write c.html");
   }
-  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style id=\"ruby\">ruby { display: inline-table; vertical-align: bottom; -webkit-border-vertical-spacing: 1px; padding-top: 0.5ex; } ruby * { display: inline; vertical-align: top; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if lt IE 8]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->\n<!--[if !IE]>-->\n<style>rt { font-family: Gandhari Unicode, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n");
+  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style id=\"ruby\">ruby { display: inline-table; vertical-align: bottom; -webkit-border-vertical-spacing: 1px; padding-top: 0.5ex; } ruby * { display: inline; vertical-align: top; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if lt IE 8]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->\n<!--[if !IE]>-->\n<style>rt { font-family: Gandhari Unicode, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n<h3>Clipboard</h3>");
   p=pOrig; copyP=p;
   matchAll();
   free(pOrig);
