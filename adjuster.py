@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.278 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.279 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -3999,7 +3999,9 @@ document.forms[0].i.focus()
               if options.js_links:
                   adjustList.append(AddClickCodes(url))
               adjustList.append(StripJSEtc(self.urlToFetch,transparent=self.auto_htmlOnlyMode(isProxyRequest)))
-              if not options.htmlonly_css: adjustList.append(transform_in_selected_tag("style",lambda s:"",True)) # strips JS events also (TODO: support this in htmlonly_css ? although htmlonly_css is mostly a 'developer' option)
+              if not options.htmlonly_css:
+                  adjustList.append(transform_in_selected_tag("style",lambda s:"",True)) # strips JS events also (TODO: support this in htmlonly_css ? although htmlonly_css is mostly a 'developer' option)
+                  adjustList.append(AriaCopier())
           elif options.upstream_guard:
             # don't let upstream scripts get confused by our cookies (e.g. if the site is running Web Adjuster as well)
             # TODO: do it in script files also?
@@ -5209,6 +5211,14 @@ def transform_in_selected_tag(intag,transformFunc,events=False):
             if self.intag:
                 return transformFunc(data)
     return Adjustment()
+
+class AriaCopier:
+    def init(self,parser): self.parser = parser
+    def handle_starttag(self, tag, attrs):
+        for k,v in items(attrs):
+            if k=="aria-label": self.parser.addDataFromTagHandler(v+" ")
+    def handle_endtag(*args): pass
+    def handle_data(*args): pass
 
 def fixHTML(htmlStr):
     # some versions of Python's HTMLParser can't cope with missing spaces between attributes:
