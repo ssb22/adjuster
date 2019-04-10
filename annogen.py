@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6583 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6584 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1323,7 +1323,8 @@ if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'li{disp
 jsAddRubyCss += "+'</style>'"
 if bookmarks:
  def bookmarkJS():
-  assert not '"' in android
+  "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks"
+  assert not '"' in android, "bookmarkJS needs re-implementing if --android URL contains quotes: please %-escape it"
   should_show_bookmarks = "(location.href=='"+android.replace("'",r"\\'")+"'&&!document.noBookmarks)" # noBookmarks is used for handling ACTION_SEND, since it has the same href (TODO @lower-priority: use different href instead?)
   are_there_bookmarks = "ssb_local_annotator.getBMs().replace(/,/g,'')"
   show_bookmarks_string = r"""'<div style=\"border: red solid; background: black; color: white;\">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style=\"color:#ff0000;text-decoration:none\" href=\"javascript:if(confirm(\\'Delete '+title.replace(/\\'/g,\"&apos;\").replace(/\"/g,\"&quot;\")+\"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')[\"+i+']);location.reload()}\">Delete</a>] <a style=\"color:#00ff00;text-decoration:none\" href=\"'+url+'\">'+title+'</a>'}return c+'</ul>'})()+'</div>'""" # TODO: use of confirm() will include the line "the page at file:// says", could do without that (but reimplementing will need complex callbacks rather than a simple 'if')
@@ -1335,9 +1336,9 @@ if bookmarks:
   ]
   if epub: should_suppress_toolset.append("location.href.slice(0,12)=='http://epub/'")
   should_suppress_toolset = "("+"||".join(should_suppress_toolset)+")"
-  toolset_openTag = r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 40%; bottom: 0px; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important; overflow: auto !important;\">'"""
+  site_css_overrides = r"""position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important; overflow: auto !important;"""
+  toolset_openTag = r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; right: 40%; bottom: 0px; """+site_css_overrides+r"""\">'"""
   toolset_closeTag = "'</span>'"
-  emoji_supported = "function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
   bookmarkLink0 = "ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))"
   bookmarkLink = r'\"'+"javascript:"+bookmarkLink0+r'\"' # not ' as bookmarkLink0 contains '
   copyLink0 = "ssb_local_annotator.copy(location.href,true)"
@@ -1356,10 +1357,18 @@ if bookmarks:
     bookmarkOnclick = r"'+(ssb_local_annotator.isDevMode()?'onclick=\"if(((typeof ssb_local_annotator_dblTap==\\'undefined\\')?null:ssb_local_annotator_dblTap)==null) ssb_local_annotator_dblTap=setTimeout(function(){"+bookmarkLink0.replace("'",r"\\'")+r";ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);document.getElementById(\\'ssb_local_annotator_css\\').innerHTML+=\\'ruby:not([title]){border:thin blue solid}\\';ssb_local_annotator.alert(\\'\\',\\'Developer mode: words without glosses boxed in blue\\');ssb_local_annotator_dblTap=null}return false\" ':'')+'"
     copyOnclick = r"'+(ssb_local_annotator.isDevMode()?'onclick=\"if(((typeof ssb_local_annotator_dblTap2==\\'undefined\\')?null:ssb_local_annotator_dblTap2)==null) ssb_local_annotator_dblTap2=setTimeout(function(){"+copyLink0+r";ssb_local_annotator_dblTap2=null},500); else { clearTimeout(ssb_local_annotator_dblTap2);document.body.innerHTML=document.body.parentElement.outerHTML.replace(/&/g,\\'&\\'+\\'amp;\\').replace(/</g,\\'&\\'+\\'lt;\\').replace(/\\\\n/g,\\'<br>\\').replace(/([&]lt;!--.*?-->)/g,\\'<font color=purple>$1</font>\\').replace(/([&]lt;[A-Za-z/].*?>)/g,\\'<font color=green>$1</font>\\');ssb_local_annotator.alert(\\'\\',\\'Developer mode: show DOM\\');ssb_local_annotator_dblTap2=null}return false\" ':'')+'" # Note: outerHTML requires Chrome 33 (which Android 4.4 has, but may be a bit buggy)
   else: bookmarkOnclick = copyOnclick = ""
-  toolset_string = toolset_openTag + "+(function(bookmarkLink,copyLink,forwardLink,closeLink){return '<a "+bookmarkOnclick+r"""href=\"'+bookmarkLink+'\"'+(("""+emoji_supported+r"""?('>\ud83d\udd16</a> &nbsp; <a """+copyOnclick+r"""href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; <span id=annogenFwdBtn style=\"display: none\"><a href=\"'+forwardLink+'\">\u27a1\ufe0f</a> &nbsp;</span> <a href=\"'+closeLink+'\">\u274c'):(' style=\"color: white !important\">Bookmark</a> <a href=\"'+copyLink+'\" style=\"color: white !important\">Copy</a> <a id=annogenFwdBtn style=\"display: none\" href=\"'+forwardLink+'\" style=\"color: white !important\">Fwd</a> <a href=\"'+closeLink+'\" style=\"color: white !important\">X'))+'</a>'})("""+bookmarkLink+","+copyLink+","+forwardLink+","+closeLink+")+"+toolset_closeTag # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
+  emoji_supported = "(function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
+  bookmarks_emoji = r"""'>\ud83d\udd16</a> &nbsp; <a """+copyOnclick+r"""href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; <span id=annogenFwdBtn style=\"display: none\"><a href=\"'+forwardLink+'\">\u27a1\ufe0f</a> &nbsp;</span> <a href=\"'+closeLink+'\">\u274c'"""
+  bookmarks_noEmoji = r"""' style=\"color: white !important\">Bookmark</a> <a href=\"'+copyLink+'\" style=\"color: white !important\">Copy</a> <a id=annogenFwdBtn style=\"display: none\" href=\"'+forwardLink+'\" style=\"color: white !important\">Fwd</a> <a href=\"'+closeLink+'\" style=\"color: white !important\">X'"""
+  toolset_string = "(function(bookmarkLink,copyLink,forwardLink,closeLink){return "+toolset_openTag+"+'<a "+bookmarkOnclick+r"""href=\"'+bookmarkLink+'\"'+(ssb_local_annotator_toolE?("""+bookmarks_emoji+"):("+bookmarks_noEmoji+r"""))+'</a>'+"""+toolset_closeTag+"})("+bookmarkLink+","+copyLink+","+forwardLink+","+closeLink+")" # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
   # TODO: (don't know how much more room there is on smaller devices, but) U+1F504 Reload (just do window.location.reload)
   toolset_string = should_suppress_toolset+"?'':("+toolset_string+")"
-  return should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+")"
+  
+  # Highlighting function (TODO: document that --bookmark also does this, after we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions?)
+  # Currently shows only on Android 5+.  In Chrome 33 on Android 4.4, any attempt to reveal the highlight controls results in the selection being cancelled, so it's better if we don't do it so that at least basic select/copy can work.  I don't know exactly which version of Chrome started working, but I know it's above 33.  (Android 5+ had Chrome updates to app webkit components; Android 4.4 didn't)
+  unconditional_inject = "ssb_local_annotator_toolE="+emoji_supported+r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){s[i].style.background=colour;if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','This app cannot yet SAVE your highlights. They may be lost when you leave.')}}};if(!document.gotSelChg){document.gotSelChg=true;var m=navigator.userAgent.match(/Chrom(e|ium)[/]([0-9]+)[.]/); if(m && m[2] > 33)document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+'\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return '<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: grey !important; color: black !important; right: 0px; top: 3em; """+site_css_overrides+r"""\">'+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('white')+'</button>'"""
+  unconditional_inject = "(function(){"+unconditional_inject+"})()"
+  return unconditional_inject+"+("+should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+"))"
  jsAddRubyCss += "+("+bookmarkJS()+")"
 
 jsAddRubyCss += ";d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })" # end of all_frames_docs call for add-ruby
@@ -1428,8 +1437,10 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
     
     /* 3. Batch-fix any damage we did to existing ruby.
        Keep new title (at least for first word); normalise
-       the markup so our 3-line option still works. */
-    if(nf) n.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>[^<]*(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return '<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'})+'</span>';
+       the markup so our 3-line option still works.
+       Also ensure all ruby is space-separated like ours,
+       so our padding CSS overrides don't give inconsistent results */
+    if(nf) n.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>[^<]*(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return '<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby><ruby/ig,'</ruby> <ruby')+'</span>';
   }"""
   r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param'
