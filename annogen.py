@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6584 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6585 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1372,7 +1372,7 @@ if bookmarks:
 
 jsAddRubyCss += ";d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })" # end of all_frames_docs call for add-ruby
 jsAddRubyCss += ";tw0()" # perform the first annotation scan after adding the ruby (calls all_frames_docs w.annotWalk)
-jsAddRubyCss += ";setTimeout(function(){var h=window.location.hash.slice(1);if(h&&document.getElementById(h)) document.getElementById(h).scrollIntoView()},500)" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs; TODO: is this really necessary on iOS?)
+jsAddRubyCss += ";if(!window.doneHash){window.doneHash=1;setTimeout(function(){var h=window.location.hash.slice(1);if(h&&document.getElementById(h)) document.getElementById(h).scrollIntoView()},500)}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs; TODO: is this really necessary on iOS?), but don't redo this every time doc length changes on Android
 
 def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
   # 
@@ -4189,6 +4189,7 @@ def allVars(u):
   try: cjk_cLookup
   except NameError:
     sys.stderr.write("(checking CJK closures for missing glosses)\n")
+    global stderr_newline ; stderr_newline = True
     from cjklib.characterlookup import CharacterLookup
     cjk_cLookup = CharacterLookup("C") # param doesn't matter for getCharacterVariants, so just put "C" for now
     cjk_cLookup.varCache = {} # because getCharacterVariants can be slow if it uses SQL queries
@@ -4322,6 +4323,7 @@ def outputParser(rulesAndConds):
       for rule,conds in rulesAndConds: addRule(rule,conds,dummyDict)
       for l in read_manual_rules(): addRule(l,[],dummyDict)
     if reannotator:
+      global stderr_newline ; stderr_newline = False
       sys.stderr.write("Reannotating... ")
       dryRun()
       # Setting buffer size is not enough on all systems.
@@ -4354,7 +4356,8 @@ def outputParser(rulesAndConds):
         open('reannotator-debug-in.txt','w').write("\n".join(l).encode(outcode)+"\n")
         open('reannotator-debug-out.txt','w').write("\n".join(l2).encode(outcode)+"\n")
         errExit("Reannotator command didn't output the same number of lines as we gave it (gave %d, got %d).  Input and output have been written to reannotator-debug-in.txt and reannotator-debug-out.txt for inspection.  Bailing out." % (len(l),len(l2)))
-      sys.stderr.write("(%d items)\n" % len(l))
+      if stderr_newline: sys.stderr.write("Reannotated %d items\n" % len(l))
+      else: sys.stderr.write("(%d items)\n" % len(l))
       toReannotateSet = set() ; reannotateDict = dict(zip(l,l2)) ; del l,l2
     if compress:
       global squashStrings ; squashStrings = set() # discard any that were made in any reannotator dry-run
@@ -4442,7 +4445,7 @@ include $(BUILD_SHARED_LIBRARY)
       open(jSrc+"/../res/menu/main.xml","w").write('<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
       open(jSrc+"/../res/values/dimens.xml","w").write('<resources><dimen name="activity_horizontal_margin">16dp</dimen><dimen name="activity_vertical_margin">16dp</dimen></resources>\n')
       open(jSrc+"/../res/values/styles.xml","w").write('<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"></style></resources>\n')
-      open(jSrc+"/../res/values/strings.xml","w").write('<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="app_name">'+app_name+'</string></resources>\n')
+      open(jSrc+"/../res/values/strings.xml","w").write('<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="app_name">'+app_name.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')+'</string></resources>\n')
     elif c_sharp: outfile.write(cSharp_end)
     elif golang: outfile.write(golang_end)
     elif not java: outfile.write(c_end)

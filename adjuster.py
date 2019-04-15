@@ -33,7 +33,7 @@ program_name = "Web Adjuster v0.279 (c) 2012-19 Silas S. Brown"
 # and on BitBucket https://bitbucket.org/ssb22/adjuster
 # although some early ones are missing.
 
-import sys,os
+import sys,os,re
 twoline_program_name = program_name+"\nLicensed under the Apache License, Version 2.0"
 
 #@file: split-files.py
@@ -103,6 +103,7 @@ elif '--html-options' in sys.argv:
         def amp(h): return h.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
         help = amp(help)
         for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]: help=help.replace(ttify,"<nobr><kbd>"+ttify+"</kbd></nobr>")
+        for w in ["lot","not","all","Important","between","any"]: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","<strong>"+w+"</strong>",help)
         print "<dt><kbd>--"+name+"</kbd>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>"
 else: # normal run: go ahead with Tornado import
     import tornado
@@ -480,7 +481,7 @@ if not tornado:
 # Further imports
 # --------------------------------------------------
 
-import time,os,commands,string,urllib,urllib2,urlparse,re,socket,logging,subprocess,threading,base64,htmlentitydefs,signal,traceback
+import time,commands,string,urllib,urllib2,urlparse,socket,logging,subprocess,threading,base64,htmlentitydefs,signal,traceback
 try: import simplejson as json # Python 2.5, and faster?
 except ImportError: import json # Python 2.6
 from HTMLParser import HTMLParser,HTMLParseError
