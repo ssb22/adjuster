@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.279 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.2791 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -4407,8 +4407,8 @@ rubyScript += rubyScript_fonts
 # and this goes at the END of the body:
 rubyEndScript = """
 <script><!--
-function treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!="SCRIPT" && c.nodeName!="TEXTAREA" && !(c.nodeName=="A" && c.href)) { treewalk(c); if(c.nodeName=="RUBY" && c.title && !c.onclick) c.onclick=Function("alert(this.title)") } c=c.nextSibling; } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);
-//--></script>"""
+function treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!="SCRIPT" && c.nodeName!="TEXTAREA" && !(c.nodeName=="A" && c.href)) { treewalk(c); if(c.nodeName=="RUBY" && c.title && !c.clkAdded) {c.addEventListener('click',Function("alert(this.title)")); c.clkAdded=1 } } c=c.nextSibling; } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);
+//--></script>""" # don't use onclick= as our bookmarklets could be incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
 
 #@file: bookmarklet.py
 # --------------------------------------------------

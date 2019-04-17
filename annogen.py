@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6585 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6586 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -243,8 +243,8 @@ parser.add_option("-e","--epub",
 cancelOpt("epub")
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application")
-parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate.")
-parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android or iOS browser app")
+parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js")
+parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read --extra-css=@file.css")
 parser.add_option("--app-name",default="Annotating browser",
                   help="User-visible name of the Android app")
 
@@ -406,9 +406,11 @@ if ndk and not android: errExit("You must set --android=URL when using --ndk. E.
 if (ndk_pre_2016 or ndk_pre_2017 or ndk_pre_2018) and not ndk: errExit("--ndk-pre-* options don't make sense when not using --ndk")
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
 if (extra_js or extra_css) and not (android or ios): errExit("--extra-js and --extra-css require either --android or --ios")
-if not extra_js: extra_js = ""
-if extra_js.rstrip() and not extra_js.rstrip()[-1] in ';}': errExit("--extra-js must end with a semicolon or a closing brace")
 if not extra_css: extra_css = ""
+if not extra_js: extra_js = ""
+if extra_css.startswith("@") and os.path.exists(extra_css[1:]): extra_css = open(extra_css[1:]).read()
+if extra_js.startswith("@") and os.path.exists(extra_js[1:]): extra_js = open(extra_js[1:]).read()
+if extra_js.rstrip() and not extra_js.rstrip()[-1] in ';}': errExit("--extra-js must end with a semicolon or a closing brace")
 jPackage = None
 if nested_switch: nested_switch=int(nested_switch) # TODO: if java, override it?  or just rely on the help text for --nested-switch (TODO cross-reference it from --java?)
 if java:
@@ -1321,9 +1323,8 @@ c_end += r"""  while(!FINISHED) {
 jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari Unicode, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
 if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'li{display:list-item !important}':'')" # needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here)
 jsAddRubyCss += "+'</style>'"
-if bookmarks:
- def bookmarkJS():
-  "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks"
+def bookmarkJS():
+  "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks, and event-setup code to be added after (to work around onclick= restrictions on some sites)"
   assert not '"' in android, "bookmarkJS needs re-implementing if --android URL contains quotes: please %-escape it"
   should_show_bookmarks = "(location.href=='"+android.replace("'",r"\\'")+"'&&!document.noBookmarks)" # noBookmarks is used for handling ACTION_SEND, since it has the same href (TODO @lower-priority: use different href instead?)
   are_there_bookmarks = "ssb_local_annotator.getBMs().replace(/,/g,'')"
@@ -1367,14 +1368,15 @@ if bookmarks:
   # Highlighting function (TODO: document that --bookmark also does this, after we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions?)
   unconditional_inject = "ssb_local_annotator_toolE="+emoji_supported+r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){s[i].style.background=colour;if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','This app cannot yet SAVE your highlights. They may be lost when you leave.')}}};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+'\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return '<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; """+site_css_overrides+r"""\">'+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
   unconditional_inject = "(function(){"+unconditional_inject+"})()"
-  return unconditional_inject+"+("+should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+"))"
- jsAddRubyCss += "+("+bookmarkJS()+")"
-
-jsAddRubyCss += ";d.body.insertBefore(e,d.body.firstChild); d.rubyScriptAdded=1 })" # end of all_frames_docs call for add-ruby
+  return unconditional_inject+"+("+should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+"))", "var a=e.getElementsByTagName('*'),i;for(i=0;i < a.length; i++) if(a[i].onclick){var c=Function(a[i].getAttribute('onclick'));a[i].removeAttribute('onclick');a[i].addEventListener('click',c)}"
+if bookmarks: jsAddRubyCss += "+("+bookmarkJS()[0]+")"
+jsAddRubyCss += ";d.body.insertBefore(e,d.body.firstChild)"
+if bookmarks: jsAddRubyCss += ";"+bookmarkJS()[1]
+jsAddRubyCss += ";d.rubyScriptAdded=1 })" # end of all_frames_docs call for add-ruby
 jsAddRubyCss += ";tw0()" # perform the first annotation scan after adding the ruby (calls all_frames_docs w.annotWalk)
 jsAddRubyCss += ";if(!window.doneHash){window.doneHash=1;setTimeout(function(){var h=window.location.hash.slice(1);if(h&&document.getElementById(h)) document.getElementById(h).scrollIntoView()},500)}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs; TODO: is this really necessary on iOS?), but don't redo this every time doc length changes on Android
 
-def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
+def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
   # 
   # Common code for the JS-based DOM annotators
   # 
@@ -1383,7 +1385,8 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
   mergeTags=['EM','I','B','STRONG']; /* we'll merge 2 of these the same if they're leaf elements */
   
   function annotPopAll(e){
-    /* onclick code: alert box for glosses etc */
+    /* click handler: alert box for glosses etc */
+    if(e.currentTarget) e=e.currentTarget;
     function f(c){ /* scan all text under c */
       var i=0,r='',cn=c.childNodes;
       for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:''));
@@ -1402,7 +1405,7 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
   function tw0() { """+textWalkInit+"""
     all_frames_docs(function(d){annotWalk(d,d,false)}) };
   
-  function annotScan() {"""+extra_js+annotScan+"""};
+  function annotScan() {"""+extra_js.replace('\\',r'\\').replace('"',r'\"')+annotScan+"""};
   
   function annotWalk(n,document,inLink) {
     /* Our main DOM-walking code */
@@ -1439,7 +1442,10 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3):
        the markup so our 3-line option still works.
        Also ensure all ruby is space-separated like ours,
        so our padding CSS overrides don't give inconsistent results */
-    if(nf) n.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>[^<]*(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return '<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby><ruby/ig,'</ruby> <ruby')+'</span>';
+    if(nf) {
+        n.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>[^<]*(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return '<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby><ruby/ig,'</ruby> <ruby')+'</span>';
+        if(!inLink) {var a=n.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) """+postFixCond+r""" a[i].addEventListener('click',annotPopAll)}
+    }
   }"""
   r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param'
@@ -1485,7 +1491,7 @@ if ios:
 }
 - (void)webViewDidFinishLoad:(UIWebView *)webView
 {
-    [webView stringByEvaluatingJavaScriptFromString:@" """+jsAnnot(alertStr="window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a'",xtraDecls="var texts,tLen,oldTexts,otPtr,replacements; ",textWalkInit="texts = new Array(); tLen=0; otPtr=0; ",annotScan="oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a'",case3=r"""var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=cnv) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; if(!inLink) r=r.replace(/<ruby title=/g,'<ruby onclick=\"annotPopAll(this)\" title=');newNode.innerHTML=r; otPtr=i;} else if (tLen < 1024) { texts[texts.length]=cnv;tLen += cnv.length;} else return""")+r"""annotScan()"];
+    [webView stringByEvaluatingJavaScriptFromString:@" """+jsAnnot(alertStr="window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a'",xtraDecls="var texts,tLen,oldTexts,otPtr,replacements; ",textWalkInit="texts = new Array(); tLen=0; otPtr=0; ",annotScan="oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a'",case3=r"""var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=cnv) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; newNode.innerHTML=r; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) a[i].addEventListener('click',annotPopAll)} otPtr=i;} else if (tLen < 1024) { texts[texts.length]=cnv;tLen += cnv.length;} else return""",postFixCond=r"if(a[i].title)")+r"""annotScan()"];
 }
 - (BOOL)webView:(UIWebView*)webView shouldStartLoadWithRequest:(NSURLRequest*)request navigationType:(UIWebViewNavigationType)navigationType {
     NSURL *URL = [request URL];
@@ -1610,7 +1616,7 @@ int main(int argc,char*argv[]) {
   for(; i<argc; i++) {
     if(!strcmp(argv[i],"--help")) {"""
   if sharp_multi: c_end += r"""
-      puts("Params are [annotation number] [options]");"""
+      puts("Parameters: [annotation number] [options]");"""
   c_end += r"""
       puts("--ruby   = output ruby markup (default)");
       puts("--raw    = output just the annotations without the base text");
@@ -1724,15 +1730,22 @@ android_src += r"""
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
         @TargetApi(1)
-        class A {
-            public A(MainActivity act) { this.act = act; }
-            MainActivity act; String copiedText="";"""
+        class A {"""
 if sharp_multi: android_src += r"""
-            int annotNo = 0;
-            @JavascriptInterface public void setAnnotNo(int no) { annotNo = no; }
+            public A(MainActivity act,int no) { this.act = act; this.annotNo = no; }
+            int annotNo;
+            @JavascriptInterface public void setAnnotNo(int no) { annotNo = no;
+                android.content.SharedPreferences.Editor e;
+                do {
+                e = getSharedPreferences("ssb_local_annotator",0).edit();
+                e.putString("annotNo",String.valueOf(annotNo));
+                } while(!e.commit()); }
             @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
+else: android_src += r"""
+            public A(MainActivity act) { this.act = act; }"""
 android_src += r"""
-            @JavascriptInterface public String annotate(String t,boolean inLink) """
+            MainActivity act; String copiedText="";
+            @JavascriptInterface public String annotate(String t) """
 if data_driven: android_src += "throws java.util.zip.DataFormatException "
 android_src += '{ String r='
 if ndk and sharp_multi: android_src += 'jniAnnotate(t,annotNo)'
@@ -1745,7 +1758,7 @@ if sharp_multi and not ndk: android_src += r""";
                 while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(annotNo+1)+"</rt>");
                 m.appendTail(sb); r=sb.toString()"""
 if epub: android_src += """; if(r.contains("<ruby")) r="&lrm;"+r""" # needed due to &rlm; in the back-navigation links of some footnotes etc (TODO: is adding all these potentially-unnecessary &lrm; marks more or less overhead than checking for browser.getUrl().startsWith("http://epub/") every time this method is called?)
-android_src += r"""; if(!inLink) r=r.replaceAll("<ruby","<ruby onclick=\"annotPopAll(this)\""); return r; } // now we have a Copy button, it's convenient to put this on ALL ruby elements, not just ones with title
+android_src += r"""; return r; }
             @JavascriptInterface public void alert(String t,String a) {
                 class DialogTask implements Runnable {
                     String tt,aa;
@@ -1882,7 +1895,7 @@ if bookmarks: android_src += r"""
                 do {
                    android.content.SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
                    String s=sp.getString("prefs", ",");
-                   if((","+s).contains(","+p+",")) {
+                   if((","+s).contains(","+p+",")) { // we have to give it a number
                        int count=1; String p2; while(true) {
                            p2=String.format("%s (%d)", p, ++count);
                            if(!(","+s).contains(","+p2+",")) break;
@@ -1930,7 +1943,9 @@ if not ndk:
   if data_driven: android_src += "try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this, \"Cannot load annotator data!\", Toast.LENGTH_LONG).show(); }" # TODO: should we keep one of these static and synchronized, in case some version of Android gives us multiple instances and we start taking up more RAM than necessary?
   else: android_src += "annotator=new %%JPACKAGE%%.Annotator();"
 android_src += r"""
-        browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
+        browser.addJavascriptInterface(new A(this"""
+if sharp_multi: android_src += ',Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("annotNo", "0"))'
+android_src += r"""),"ssb_local_annotator"); // hope no conflict with web JS
         final MainActivity act = this;
         browser.setWebViewClient(new WebViewClient() {
                 @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); if(Integer.valueOf(Build.VERSION.SDK)<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
@@ -2063,7 +2078,7 @@ if pleco_hanping: android_src += r"""
     String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
     int[] hanpingVersion = new int[]{0,0,0};"""
 android_src += r"""
-    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } };",textWalkInit="",annotScan=jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv,inLink); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv }")+r"""";
+    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } };",textWalkInit="",annotScan=jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+r""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
     android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
     @TargetApi(19)
