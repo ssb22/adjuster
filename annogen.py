@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6586 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6587 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1368,7 +1368,7 @@ def bookmarkJS():
   # Highlighting function (TODO: document that --bookmark also does this, after we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions?)
   unconditional_inject = "ssb_local_annotator_toolE="+emoji_supported+r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){s[i].style.background=colour;if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','This app cannot yet SAVE your highlights. They may be lost when you leave.')}}};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+'\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return '<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; """+site_css_overrides+r"""\">'+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
   unconditional_inject = "(function(){"+unconditional_inject+"})()"
-  return unconditional_inject+"+("+should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+"))", "var a=e.getElementsByTagName('*'),i;for(i=0;i < a.length; i++) if(a[i].onclick){var c=Function(a[i].getAttribute('onclick'));a[i].removeAttribute('onclick');a[i].addEventListener('click',c)}"
+  return unconditional_inject+"+("+should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+"))", "var a=e.getElementsByTagName('*'),i;for(i=0;i < a.length; i++){var c=a[i].getAttribute('onclick');if(c){a[i].removeAttribute('onclick');a[i].addEventListener('click',Function(c))}else{c=a[i].getAttribute('href');if(c&&c.slice(0,11)=='javascript:')a[i].addEventListener('click',Function(c.slice(11)+';return false'))}}"
 if bookmarks: jsAddRubyCss += "+("+bookmarkJS()[0]+")"
 jsAddRubyCss += ";d.body.insertBefore(e,d.body.firstChild)"
 if bookmarks: jsAddRubyCss += ";"+bookmarkJS()[1]
