@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6587 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6588 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -241,6 +241,10 @@ parser.add_option("-e","--epub",
                   action="store_true",default=False,
                   help="When generating an Android browser, make it also respond to requests to open EPUB files. This results in an app that requests the 'read external storage' permission on Android versions below 6.") # see comments around READ_EXTERNAL_STORAGE below
 cancelOpt("epub")
+parser.add_option("--android-print",
+                  action="store_true",default=False,
+                  help="When generating an Android browser, include code to provide a Print option (usually print to PDF) and a simple highlight-selection option. The Print option will require Android 4.4, but the app should still run without it on earlier versions of Android.")
+cancelOpt("android-print")
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application")
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js")
@@ -405,6 +409,7 @@ if android and not java: errExit('You must set --java=/path/to/src//name/of/pack
 if ndk and not android: errExit("You must set --android=URL when using --ndk. E.g. --android=file:///android_asset/index.html")
 if (ndk_pre_2016 or ndk_pre_2017 or ndk_pre_2018) and not ndk: errExit("--ndk-pre-* options don't make sense when not using --ndk")
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
+if android_print and not bookmarks: errExit("The current implementation of --android-print requires --bookmarks to be set as well")
 if (extra_js or extra_css) and not (android or ios): errExit("--extra-js and --extra-css require either --android or --ios")
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
@@ -1322,6 +1327,7 @@ c_end += r"""  while(!FINISHED) {
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
 jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari Unicode, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
 if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'li{display:list-item !important}':'')" # needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here)
+if android_print: jsAddRubyCss += "+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
 jsAddRubyCss += "+'</style>'"
 def bookmarkJS():
   "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks, and event-setup code to be added after (to work around onclick= restrictions on some sites)"
@@ -1337,7 +1343,7 @@ def bookmarkJS():
   ]
   if epub: should_suppress_toolset.append("location.href.slice(0,12)=='http://epub/'")
   should_suppress_toolset = "("+"||".join(should_suppress_toolset)+")"
-  site_css_overrides = r"""position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important; overflow: auto !important;"""
+  site_css_overrides = r"""position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; overflow: auto !important;"""
   toolset_openTag = r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; right: 40%; bottom: 0px; """+site_css_overrides+r"""\">'"""
   toolset_closeTag = "'</span>'"
   bookmarkLink0 = "ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))"
@@ -1359,14 +1365,17 @@ def bookmarkJS():
     copyOnclick = r"'+(ssb_local_annotator.isDevMode()?'onclick=\"if(((typeof ssb_local_annotator_dblTap2==\\'undefined\\')?null:ssb_local_annotator_dblTap2)==null) ssb_local_annotator_dblTap2=setTimeout(function(){"+copyLink0+r";ssb_local_annotator_dblTap2=null},500); else { clearTimeout(ssb_local_annotator_dblTap2);document.body.innerHTML=document.body.parentElement.outerHTML.replace(/&/g,\\'&\\'+\\'amp;\\').replace(/</g,\\'&\\'+\\'lt;\\').replace(/\\\\n/g,\\'<br>\\').replace(/([&]lt;!--.*?-->)/g,\\'<font color=purple>$1</font>\\').replace(/([&]lt;[A-Za-z/].*?>)/g,\\'<font color=green>$1</font>\\');ssb_local_annotator.alert(\\'\\',\\'Developer mode: show DOM\\');ssb_local_annotator_dblTap2=null}return false\" ':'')+'" # Note: outerHTML requires Chrome 33 (which Android 4.4 has, but may be a bit buggy)
   else: bookmarkOnclick = copyOnclick = ""
   emoji_supported = "(function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
-  bookmarks_emoji = r"""'>\ud83d\udd16</a> &nbsp; <a """+copyOnclick+r"""href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; <span id=annogenFwdBtn style=\"display: none\"><a href=\"'+forwardLink+'\">\u27a1\ufe0f</a> &nbsp;</span> <a href=\"'+closeLink+'\">\u274c'"""
+  bookmarks_emoji = r"""'>\ud83d\udd16</a> &nbsp; <a """+copyOnclick+r"""href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; """
+  if android_print: bookmarks_emoji += r"""'+(ssb_local_annotator.canPrint()?('<a href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint()+'</a> &nbsp; '):'')+'""" # don't need bookmarks_noEmoji equivalent, because pre-4.4 devices can't print anyway
+  bookmarks_emoji += r"""<span id=annogenFwdBtn style=\"display: none\"><a href=\"'+forwardLink+'\">\u27a1\ufe0f</a> &nbsp;</span> <a href=\"'+closeLink+'\">\u274c'"""
   bookmarks_noEmoji = r"""' style=\"color: white !important\">Bookmark</a> <a href=\"'+copyLink+'\" style=\"color: white !important\">Copy</a> <a id=annogenFwdBtn style=\"display: none\" href=\"'+forwardLink+'\" style=\"color: white !important\">Fwd</a> <a href=\"'+closeLink+'\" style=\"color: white !important\">X'"""
   toolset_string = "(function(bookmarkLink,copyLink,forwardLink,closeLink){return "+toolset_openTag+"+'<a "+bookmarkOnclick+r"""href=\"'+bookmarkLink+'\"'+(ssb_local_annotator_toolE?("""+bookmarks_emoji+"):("+bookmarks_noEmoji+r"""))+'</a>'+"""+toolset_closeTag+"})("+bookmarkLink+","+copyLink+","+forwardLink+","+closeLink+")" # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
   # TODO: (don't know how much more room there is on smaller devices, but) U+1F504 Reload (just do window.location.reload)
   toolset_string = should_suppress_toolset+"?'':("+toolset_string+")"
   
-  # Highlighting function (TODO: document that --bookmark also does this, after we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions?)
-  unconditional_inject = "ssb_local_annotator_toolE="+emoji_supported+r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){s[i].style.background=colour;if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','This app cannot yet SAVE your highlights. They may be lost when you leave.')}}};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+'\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return '<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; """+site_css_overrides+r"""\">'+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
+  unconditional_inject = "ssb_local_annotator_toolE="+emoji_supported
+  # Highlighting function, currently depending on android_print (calls canPrint, and currently no other way to save highlights, TODO: figure out how we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions)
+  if android_print: unconditional_inject += r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return '<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; """+site_css_overrides+r"""\">'+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
   unconditional_inject = "(function(){"+unconditional_inject+"})()"
   return unconditional_inject+"+("+should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+"))", "var a=e.getElementsByTagName('*'),i;for(i=0;i < a.length; i++){var c=a[i].getAttribute('onclick');if(c){a[i].removeAttribute('onclick');a[i].addEventListener('click',Function(c))}else{c=a[i].getAttribute('href');if(c&&c.slice(0,11)=='javascript:')a[i].addEventListener('click',Function(c.slice(11)+';return false'))}}"
 if bookmarks: jsAddRubyCss += "+("+bookmarkJS()[0]+")"
@@ -1687,6 +1696,15 @@ if epub: android_src += r"""
 import android.webkit.WebResourceResponse;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;"""
+if android_print: android_src += r"""
+import android.os.CancellationSignal;
+import android.os.ParcelFileDescriptor;
+import java.lang.reflect.InvocationTargetException;
+import android.print.PageRange;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintDocumentAdapter.LayoutResultCallback;
+import android.print.PrintManager;"""
 android_src += r"""
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -1818,7 +1836,7 @@ if glossfile: android_src += r"""
                         d.setPositiveButton("3 line", new android.content.DialogInterface.OnClickListener() {
                                 public void onClick(android.content.DialogInterface dialog,int id) {
 class InjectorTask implements Runnable { InjectorTask() {} public void run() { browser.loadUrl(
-"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++)ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"/(;]*)([^\"]*)\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby onclick=\"annotPopAll(this)\" title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>'); ad0=document.body.innerHTML;ssb_local_annotator.alert('','3-line definitions tend to be incomplete!')"
+"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"/(;]*)([^\"]*)\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>');var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)} ad0=document.body.innerHTML;ssb_local_annotator.alert('','3-line definitions tend to be incomplete!')"
 /* Above rp elements are to make firstChild etc work in
    dialogue.  Don't do whole document.body.innerHTML, or
    scripts like document.write may execute a second time,
@@ -1827,7 +1845,9 @@ class InjectorTask implements Runnable { InjectorTask() {} public void run() { b
    ad0 found.  Also need the alert box, or document.write
    scripts in the page run twice.  (This 'tend to be
    incomplete' message seems as good as any.  NB the
-   glosses are being trimmed.)  */
+   glosses are being trimmed.)  onclick= is removed in the
+   postprocessing loop due to sites that put unsafe-inline
+   in their Content-Security-Policy headers. */
 ); } } act.runOnUiThread(new InjectorTask()); }});
                         } else """
 android_src += r"""
@@ -1839,6 +1859,31 @@ android_src += r"""
             }
             @JavascriptInterface public String getClip() {
                 String r=readClipboard(); if(r.equals(copiedText)) return ""; else return r;
+            }"""
+if android_print: android_src += r"""
+            @JavascriptInterface public String canPrint() {
+                if(Integer.valueOf(Build.VERSION.SDK) >= 24) return "\ud83d\udda8";
+                else if(Integer.valueOf(Build.VERSION.SDK) >= 19) return "<span style=color:black;background:white;padding:0.3ex>P</span>";
+                else return "";
+            }
+            boolean printing_in_progress = false;
+            @TargetApi(19)
+            @JavascriptInterface public void print() {
+                act.runOnUiThread(new Runnable(){
+                    @Override public void run() {
+                        if(printing_in_progress) return;
+                        printing_in_progress = true;
+                        try {
+                            ((PrintManager) act.getSystemService(android.content.Context.PRINT_SERVICE)).print("annotated",new PrintDocumentAdapter(){
+                                PrintDocumentAdapter delegate=(Integer.valueOf(Build.VERSION.SDK) >= 21) ? (PrintDocumentAdapter)(WebView.class.getMethod("createPrintDocumentAdapter",new Class[] { String.class }).invoke(browser,"Annotated document")) : browser.createPrintDocumentAdapter(); // (createPrintDocumentAdapter w/out string deprecated in API 21; using introspection so this still compiles with API 19 SDKs e.g. old Eclipse)
+                                @Override @SuppressLint("WrongCall") public void onLayout(PrintAttributes a, PrintAttributes b, CancellationSignal c, LayoutResultCallback d, Bundle e) { delegate.onLayout(a, b, c, d, e); }
+                                @Override public void onWrite(PageRange[] a, ParcelFileDescriptor b, CancellationSignal c, WriteResultCallback d) { try { delegate.onWrite(a,b,c,d); } catch(IllegalStateException e){Toast.makeText(act, "Print glitch. Press Back and try again.",Toast.LENGTH_LONG).show();} }
+                                @Override public void onStart() { browser.setVisibility(android.view.View.INVISIBLE); delegate.onStart(); }
+                                @Override public void onFinish() { delegate.onFinish(); browser.setVisibility(android.view.View.VISIBLE); printing_in_progress=false; }
+                            },new PrintAttributes.Builder().build());
+                        } catch (NoSuchMethodException e) {} catch (IllegalAccessException e) {} catch (InvocationTargetException e) {}
+                    }
+                });
             }"""
 if bookmarks_developer: android_src += r"""
             // isDevMode for --bookmarks-developer: (I shared this bit with StackOverflow by the way)
@@ -2003,7 +2048,7 @@ if epub: android_src += r"""
                                     int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
                                     String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
                                     if(mimeType==null || mimeType=="application/xhtml+xml") mimeType="text/html"; // needed for annogen style modifications
-                                    if(mimeType=="text/html") return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><a style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important;\" href=\""+epubPrefix+"N="+part+"\">Next page</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                    if(mimeType=="text/html") return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\""+epubPrefix+"N="+part+"\">Next page</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                                     else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
@@ -2015,6 +2060,7 @@ if epub: android_src += r"""
                         return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
                     } finally { try { zin.close(); } catch(IOException e) {} }
                 }"""
+if epub and android_print: android_src = android_src.replace("Next page</a>",r"""Next page</a><script>if(ssb_local_annotator.canPrint())document.write('<a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
 android_src += r"""
                 float scale = 0; boolean scaling = false;
                 public void onScaleChanged(final WebView view,float from,final float to) {
@@ -2101,8 +2147,8 @@ android_src += r"""
     }
     boolean nextBackHides = false;
     @Override public void onPause() { super.onPause(); nextBackHides = false; } // but may still be visible on Android 7+, so don't pause the browser yet
-    @Override public void onStop() { super.onStop(); if(browser!=null && Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onPause(); } // NOW pause the browser (screen off or app not visible)
-    @Override public void onStart() { super.onStart(); if(browser!=null && Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onResume(); }
+    @TargetApi(11) @Override public void onStop() { super.onStop(); if(browser!=null && Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onPause(); } // NOW pause the browser (screen off or app not visible)
+    @TargetApi(11) @Override public void onStart() { super.onStart(); if(browser!=null && Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onResume(); }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
