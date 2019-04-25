@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.2791 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.2792 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -150,6 +150,7 @@ define("password_domain",help="The domain entry in host_suffix to which the pass
 define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * when this is ignored and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
 define("open_proxy",default=False,help="Whether or not to allow running with no password. Off by default as a safeguard against accidentally starting an open proxy.")
 define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separated list of regular expressions specifying URLs that are not allowed to be fetched unless --real_proxy is in effect. Browsers requesting a URL that contains any of these will be redirected to the original site. Use for example if you want people to go direct when posting their own content to a particular site (this is of only limited use if your server also offers access to any other site on the Web, but it might be useful when that's not the case). Include ^https in the list to prevent Web Adjuster from fetching HTTPS pages for adjustment and return over normal HTTP. This access is enabled by default now that many sites use HTTPS for public pages that don't really need to be secure, just to get better placement on some search engines, but if sending confidential information to the site then beware you are trusting the Web Adjuster machine and your connection to it, plus its certificate verification might not be as thorough as your browser's.")
+define("prohibitUA",multiple=True,default="TwitterBot",help="Comma-separated list of regular expressions which, if they occur in browser strings, result in the browser being redirected to the original site. Use for example if you want certain robots that ignore robots.txt to go direct.")
 define("real_proxy",default=False,help="Whether or not to accept requests with original domains like a \"real\" HTTP proxy.  Warning: this bypasses the password and implies open_proxy.  Off by default.")
 define("via",default=True,help="Whether or not to update the Via: and X-Forwarded-For: HTTP headers when forwarding requests")
 # (Via is "must" in RFC 2616, so this really shouldn't be set
@@ -226,7 +227,7 @@ define("headAppend",help="Code to append to the HEAD section of every HTML docum
 define("headAppendCSS",help="URL of a stylesheet to add to the HEAD section of every HTML document that has a BODY.  This option automatically generates the LINK REL=... markup for it, and also tries to delete the string '!important' from other stylesheets, to emulate setting this stylesheet as a user CSS.  Additionally, it is not affected by --js-upstream as headAppend is.  You can also include one or more 'fields' in the URL, by marking them with %s and following the URL with options e.g. http://example.org/style%s-%s.css;1,2,3;A,B will allow combinations like style1-A.css or style3-B.css; in this case appropriate selectors are provided with the URL box (values may optionally be followed by = and a description), and any visitors who have not set their options will be redirected to the URL box to do so.")
 define("protectedCSS",help="A regular expression matching URLs of stylesheets with are \"protected\" from having their '!important' strings deleted by headAppendCSS's logic. This can be used for example if you are adding scripts to allow the user to choose alternate CSS files in place of headAppendCSS, and you wish the alternate CSS files to have the same status as the one supplied in headAppendCSS.")
 define("cssName",help="A name for the stylesheet specified in headAppendCSS, such as \"High Contrast\".  If cssName is set, then the headAppendCSS stylesheet will be marked as \"alternate\", with Javascript links at the bottom of the page for browsers that lack their own CSS switching options.  If cssName begins with a * then the stylesheet is switched on by default; if cssName is not set then the stylesheet (if any) is always on.")
-define("cssNameReload",multiple=True,default="IEMobile 6,IEMobile 7,IEMobile 8,Opera Mini,Opera Mobi,rekonq",help="List of (old) browsers that require alternate code for the cssName option, which is slower as it involves reloading the page on CSS switches.  Use this if the CSS switcher provided by cssName does nothing on your browser.")
+define("cssNameReload",multiple=True,default="IEMobile 6,IEMobile 7,IEMobile 8,Opera Mini,Opera Mobi,rekonq,MSIE 5,MSIE 6,MSIE 7,MSIE 9,MSIE 10",help="List of (old) browsers that require alternate code for the cssName option, which is slower as it involves reloading the page on CSS switches.  Use this if the CSS switcher provided by cssName does nothing on your browser.")
 # cssNameReload: Opera Mini sometimes worked and sometimes didn't; maybe there were regressions at their proxy; JS switcher needs network traffic anyway on Opera Mini so we almost might as well use the reloading version (but in Spring 2014 they started having trouble with reload() AS WELL, see cssReload_cookieSuffix below)
 # Opera Mobile 10 on WM6.1 is fine with CSS switcher but it needs cssHtmlAttrs, TODO we might be able to have a list of browsers that require cssHtmlAttrs but not cssNameReload, add cssHtmlAttrs only if CSS is selected at time of page load, and make the 'off' switch remove them
 # TODO: Opera/9.5 on WM6.1 document.write can corrupt the display with EITHER script; page might also display for some time before the document.writes take effect.  Suggest those users upgrade to version 10 (= Opera/9.8) ?
@@ -834,6 +835,7 @@ def preprocessOptions():
     if type(options.delete)==type(""): options.delete=options.delete.split(',')
     if type(options.delete_css)==type(""): options.delete_css=options.delete_css.split(',')
     if type(options.prohibit)==type(""): options.prohibit=options.prohibit.split(',')
+    if type(options.prohibitUA)==type(""): options.prohibitUA=options.prohibitUA.split(',')
     if type(options.skipLinkCheck)==type(""): options.skipLinkCheck=options.skipLinkCheck.split(',')
     global viaName,serverName,serverName_html
     viaName = program_name[:program_name.index("(c)")].strip() # Web Adjuster vN.NN
@@ -3269,6 +3271,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         self.doResponse2(htmlhead()+err+'</body></html>',True,False) # TODO: run htmlFilter on it also? (render etc will be done by doResponse2)
 
     def serve_mailtoPage(self):
+        if any(re.search(x,self.request.headers.get("User-Agent","")) for x in options.prohibitUA): return self.serveRobots()
         uri = self.request.uri[len(options.mailtoPath):].replace('%%+','%') # we encode % as %%+ to stop browsers and transcoders from arbitrarily decoding e.g. %26 to &
         if '?' in uri:
             addr,rest = uri.split('?',1)
@@ -3308,7 +3311,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
 
     def serve_submitPage(self):
         self.request.suppress_logger_host_convert = True
-        if self.request.uri=="/favicon.ico":
+        if self.request.uri=="/favicon.ico" or any(re.search(x,self.request.headers.get("User-Agent","")) for x in options.prohibitUA):
             # avoid logging favicon.ico tracebacks when submitPath=="/"
             self.set_status(400) ; self.myfinish() ; return
         if len(self.request.uri) > len(options.submitPath):
@@ -3580,7 +3583,7 @@ document.forms[0].i.focus()
             return self.serve_hostError()
         if not realHost: # default_site(s) not set
             if options.own_server and options.ownServer_if_not_root and len(self.request.path)>1: return self.forwardFor(options.own_server)
-            elif maybeRobots: return self.serveRobots()
+            elif maybeRobots or any(re.search(x,self.request.headers.get("User-Agent","")) for x in options.prohibitUA): return self.serveRobots()
             # Serve URL box
             self.set_css_from_urlbox()
             if self.getArg("try"): return self.serve_URLbox() # we just set the stylesheet
@@ -3609,7 +3612,7 @@ document.forms[0].i.focus()
         else: protocol,realHost = protocolAndHost(realHost)
         self.change_request_headers(realHost,isProxyRequest)
         self.urlToFetch = protocol+self.request.headers["Host"]+self.request.uri
-        if not isProxyRequest and any(re.search(x,self.urlToFetch) for x in options.prohibit):
+        if not isProxyRequest and (any(re.search(x,self.urlToFetch) for x in options.prohibit) or any(re.search(x,self.request.headers.get("User-Agent","")) for x in options.prohibitUA)):
             self.restore_request_headers()
             return self.redirect(self.urlToFetch)
         # TODO: consider adding "not self.request.headers.get('If-Modified-Since','')" to the below list of sendHead() conditions, in case any referer-denying servers decide it's OK to send out "not modified" replies even to the wrong referer (which they arguably shouldn't, and seem not to as of 2013-09, but if they did then adjuster might erroneously redirect the SECOND time a browser displays the image)
@@ -5313,9 +5316,9 @@ window.onerror=function(msg,url,line){alert(msg); return true}
               if useCss:
                   headAppend += '<link rel="stylesheet" type="text/css" href="%s"%s>' % (cssToAdd,link_close)
                   if attrsToAdd: html=addCssHtmlAttrs(html,attrsToAdd)
-          else: # client-side only CSS switcher:
+          else: # no slow_CSS_switch; client-side only CSS switcher using "disabled" attribute on the LINK element:
             headAppend += """<link rel="alternate stylesheet" type="text/css" id="adjustCssSwitch" title="%s" href="%s"%s>""" % (cssName,cssToAdd,link_close)
-            # On some Webkit versions, MUST set disabled to true (from JS?) before setting it to false will work. And in MSIE9 it seems must do this from the BODY not the HEAD, so merge into the next script (also done the window.onload thing for MSIE; hope it doesn't interfere with any site's use of window.onload) :
+            # On some Webkit versions, MUST set disabled to true (from JS?) before setting it to false will work. And in MSIE9 it seems must do this from the BODY not the HEAD, so merge into the next script (also done the window.onload thing for MSIE; hope it doesn't interfere with any site's use of window.onload).  (Update: some versions of MSIE9 end up with CSS always-on, so adding these to default cssNameReload)
             if options.cssName.startswith("*"): cond='document.cookie.indexOf("adjustCssSwitch=0")==-1'
             else: cond='document.cookie.indexOf("adjustCssSwitch=1")>-1'
             bodyPrepend += """<script><!--
