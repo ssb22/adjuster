@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.2792 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.2793 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -3335,7 +3335,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             if (options.password and submitPathIgnorePassword) or options.submitPath=='/' or defaultSite(): urlbox_footer = "" # not much point linking them back to the URL box under the first circumstance, and there isn't one for the other two
             else: urlbox_footer = '<p><a href="http://'+hostSuffix()+publicPortStr()+options.urlboxPath+'">Process a website</a></p>'
             # TODO: what if their browser doesn't submit in the correct charset?  for example some versions of Lynx need -display_charset=UTF-8 otherwise they might double-encode pasted-in UTF-8 and remove A0 bytes even though it appears to display correctly (and no, adding accept-charset won't help: that's for if the one to be accepted differs from the document's)
-            return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3>Upload Text</h3>%s:<p><span style="float:right"><input type="submit"><script><!--
+            return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3>Upload Text</h3>%s:<p><span style="float:right"><input type="submit" value="Upload"><script><!--
 document.write(' (Ctrl-Enter) | <a href="javascript:history.go(-1)">Back</a>')
 //--></script></span><br><textarea name="i" style="width:100%%;clear:both;height:60%%" rows="5" cols="20" placeholder="Type or paste your text here"
 onKeyDown="if((event.ctrlKey||event.metaKey) && (event.keyCode==13 || event.which==13)) document.forms[0].submit(); else return true;">
@@ -3983,7 +3983,7 @@ document.forms[0].i.focus()
             if i==-1: i=htmlFind(body,"<html")
             if not i==-1: i = body.find('>',i)+1
             if i: body=body[:i]+"<style>html{background:#fff}</style>"+body[i:] # setting on 'html' rather than 'body' allows body bgcolor= to override.  (body background= is not supported in HTML5 and PhantomJS will ignore it anyway.)
-            if options.js_upstream: body = html_additions(body,(None,None),False,"","",False,"","PjsUpstream",False,"") # just headAppend,bodyPrepend,bodyAppend (no css,ruby,render,UI etc, nor htmlFilter from below)
+            if options.js_upstream: body = html_additions(body,(None,None),False,"","",False,"","PjsUpstream",False,False,"") # just headAppend,bodyPrepend,bodyAppend (no css,ruby,render,UI etc, nor htmlFilter from below)
           if do_js_process and options.js_upstream: body = js_process(body,self.urlToFetch)
           return self.doResponse3(body) # write & finish
         elif self.isSslUpstream: return self.doResponse3(body)
@@ -4051,7 +4051,7 @@ document.forms[0].i.focus()
         # has been run) - now add scripts etc, and render
         canRender = options.render and (do_html_process or (do_json_process and options.htmlJson)) and not self.checkBrowser(options.renderOmit)
         jsCookieString = ';'.join(self.request.headers.get_list("Cookie"))
-        if do_html_process: body = html_additions(body,self.cssAndAttrsToAdd(),self.checkBrowser(options.cssNameReload),self.cookieHostToSet(),jsCookieString,canRender,self.cookie_host(),self.is_password_domain,not do_html_process=="noFilterOptions",htmlFilterOutput) # noFilterOptions is used by bookmarklet code (to avoid confusion between filter options on current screen versus bookmarklets)
+        if do_html_process: body = html_additions(body,self.cssAndAttrsToAdd(),self.checkBrowser(options.cssNameReload),self.cookieHostToSet(),jsCookieString,canRender,self.cookie_host(),self.is_password_domain,self.checkBrowser(["Edge/"]),not do_html_process=="noFilterOptions",htmlFilterOutput) # noFilterOptions is used by bookmarklet code (to avoid confusion between filter options on current screen versus bookmarklets)
         if canRender and not "adjustNoRender=1" in jsCookieString:
             if do_html_process: func = find_text_in_HTML
             else: func=lambda body:find_HTML_in_JSON(body,find_text_in_HTML)
@@ -5290,7 +5290,7 @@ def htmlFind(html,markup):
     def blankOut(m): return " "*(m.end()-m.start())
     return re.sub("<!--.*?-->",blankOut,html,flags=re.DOTALL).lower().find(markup) # TODO: improve efficiency of this? (blankOut doesn't need to go through the entire document)
 
-def html_additions(html,(cssToAdd,attrsToAdd),slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain,addHtmlFilterOptions,htmlFilterOutput):
+def html_additions(html,(cssToAdd,attrsToAdd),slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain,IsEdge,addHtmlFilterOptions,htmlFilterOutput):
     # Additions to make to HTML only (not on HTML embedded in JSON)
     # called from doResponse2 if do_html_process is set
     if html.startswith("<?xml"): link_close = " /"
@@ -5353,7 +5353,9 @@ if(!%s&&document.readyState!='complete')document.write('<a href="http://%s?%s=%s
 if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';if(location.href==\'http://%s\')location.reload(true);else location.href=\'http://%s?nocache=\'+Math.random()">Back to URL box<\/a>')
 //--></script>""" % (detect_iframe,adjust_domain_cookieName,adjust_domain_none,cookieExpires,cookieHostToSet+publicPortStr()+options.urlboxPath,cookieHostToSet+publicPortStr()+options.urlboxPath) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
     if options.headAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): headAppend += options.headAppend
-    if options.headAppendRuby and not is_password_domain=="PjsUpstream": bodyPrepend += rubyScript
+    if options.headAppendRuby and not is_password_domain=="PjsUpstream":
+        bodyPrepend += rubyScript
+        if IsEdge: bodyPrepend += "<table><tr><td>" # bug observed in Microsoft Edge 17, only when printing: inline-table with table-header-group gobbles whitespace before next inline-table, unless whole document is wrapped in a table cell
     if is_password_domain=="PjsUpstream": pn = None
     elif options.prominentNotice=="htmlFilter": pn = htmlFilterOutput
     elif options.prominentNotice and not is_password_domain: pn = options.prominentNotice
@@ -5384,7 +5386,9 @@ if(document.getElementById) {
         #" # (this comment helps XEmacs21's syntax highlighting)
         # (Above code works around a bug in MSIE 9 by setting the cookie BEFORE doing the removeChild.  Otherwise the cookie does not persist.)
         if options.prominentNotice=="htmlFilter": bodyPrepend = bodyPrepend.replace("document.cookie='_WA_warnOK=1;path=/';","") # don't set the 'seen' cookie if the notice will be different on every page and if that's the whole point of htmlFilter
-    if options.headAppendRuby and not is_password_domain=="PjsUpstream": bodyAppend += rubyEndScript
+    if options.headAppendRuby and not is_password_domain=="PjsUpstream":
+        if IsEdge: bodyAppend += "</td></tr></table>"
+        bodyAppend += rubyEndScript
     if headAppend:
         i=htmlFind(html,"</head")
         if i==-1: # no head section?
