@@ -2198,7 +2198,7 @@ function update() {
 var newClip = ssb_local_annotator.getClip();
 if (newClip && newClip != curClip) {
   document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\u200b/g,'').replace(/(https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+)/gi,function r(m,p1) { return '<a href="'+p1.replace('&amp;','&')+'">'+p1+'</a>' });
-  curClip = newClip; if(ssb_local_annotator.annotate(newClip,false)!=newClip) ssb_local_annotator.bringToFront(); // should work on Android 9 or below; Android Q (API 29) takes away background clipboard access and we'll just get newClip="" until we're brought to foreground manually
+  curClip = newClip; if(ssb_local_annotator.annotate(newClip)!=newClip) ssb_local_annotator.bringToFront(); // should work on Android 9 or below; Android Q (API 29) takes away background clipboard access and we'll just get newClip="" until we're brought to foreground manually
 } window.setTimeout(update,1000) } update(); </script>
 </body></html>"""
 java_src = r"""package %%JPACKAGE%%;
