@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6589 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.659 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -4394,24 +4394,23 @@ def outputParser(rulesAndConds):
       # started reading from its output.
       global toReannotateSet, reannotateDict
       l = [ll for ll in toReannotateSet if ll and not "\n" in ll] # TODO: handle the case where "\n" is in ll?  (shouldn't happen in 'sensible' annotators)
-      def reader_thread():
-        global threadReading,threadRead
-        threadReading = True
-        threadRead = cout.read().decode(outcode).splitlines() # TODO: reannotatorCode instead of outcode?
+      def reader_thread(comms):
+        comms[0] = True
+        comms[1] = cout.read().decode(outcode).splitlines() # TODO: reannotatorCode instead of outcode?
       if reannotator.startswith('##'): cmd=reannotator[2:]
       elif reannotator[0]=='#': cmd=reannotator[1:]
       else: cmd = reannotator
       import thread ; sys.setcheckinterval(100)
       global cout ; cin,cout = os.popen2(cmd)
-      global threadReading,threadRead ; threadReading=threadRead=False
-      thread.start_new_thread(reader_thread,())
-      while threadReading == False: time.sleep(0.1)
+      comms = [False,False]
+      thread.start_new_thread(reader_thread,(comms,))
+      while comms[0] == False: time.sleep(0.1)
       # NOW ready to start writing:
       cin.write("\n".join(l).encode(outcode)+"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
-      while threadRead == False: time.sleep(1)
-      l2 = threadRead
+      while comms[1] == False: time.sleep(1)
+      l2 = comms[1]
       sys.setcheckinterval(32767)
-      del cin,cout,cmd,threadRead
+      del cin,cout,cmd,comms
       while len(l2)>len(l) and not l2[-1]: del l2[-1] # don't mind extra blank line(s) at end of output
       if not len(l)==len(l2):
         open('reannotator-debug-in.txt','w').write("\n".join(l).encode(outcode)+"\n")
@@ -4731,7 +4730,14 @@ if main:
      rm_f("../"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
      rm_f("bin/"+dirName0+".ap_")
      rm_f("bin/"+dirName0+".apk")
-     cmd_or_exit("du -h ../"+dirName+".apk")
+     if 'SERVICE_ACCOUNT_KEY' in os.environ:
+       import httplib2,googleapiclient.discovery,oauth2client.service_account
+       service = googleapiclient.discovery.build('androidpublisher', 'v2', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
+       eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
+       v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("Uploaded "+dirName+".apk (version code "+str(v)+")\n")
+       service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'versionCodes':[v]}).execute()
+       sys.stderr.write("Committed edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
+     else: cmd_or_exit("du -h ../"+dirName+".apk")
    else: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
 (You might need to change targetSdkVersion in AndroidManifest.xml if
    your SDK insists on a different target version)
@@ -4741,10 +4747,12 @@ before the Annogen run (change the examples obviously) :
    export NDK=/usr/local/android-ndk-r10c # if using --ndk and it's not in $SDK/ndk-bundle or on PATH
    export PLATFORM=$SDK/platforms/android-19
    export BUILD_TOOLS=$SDK/build-tools/21.0.2
+   # To get a release build, additionally set:
    export KEYSTORE_FILE=/path/to/keystore
    export KEYSTORE_USER='your user name'
    export KEYSTORE_PASS='your password'
-   # (if the KEYSTORE variables are unset, you'll get a 'debug' build)
+   # To upload the release to Google Play, additionally set:
+   export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
 
 You may also wish to create some icons in res/drawable*
    (using Android Studio or the earlier ADT tools)
