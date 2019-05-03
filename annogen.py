@@ -1652,6 +1652,7 @@ if ndk_pre_2016 or not ndk: android_minSdkVersion,armabi = "1","armeabi"
 elif ndk_pre_2017: android_minSdkVersion,armabi = "9","armeabi" # Android 2.3
 elif ndk_pre_2018: android_minSdkVersion,armabi = "14","armeabi-v7a" # Android 4.0
 else: android_minSdkVersion,armabi = "16","armeabi-v7a" # Android 4.1
+android_upload = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"])
 android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:installLocation="preferExternal" >
 <uses-permission android:name="android.permission.INTERNET" />"""
@@ -4480,15 +4481,7 @@ def outputParser(rulesAndConds):
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace('%%ANDROID-URL%%',android))
       open(java+os.sep+"BringToFront.java","w").write(android_bringToFront.replace("%%JPACKAGE%%",jPackage))
       open(jSrc+"/../assets/clipboard.html",'w').write(android_clipboard)
-      try: manifest = open(jSrc+"/../AndroidManifest.xml").read() # keep existing version codes (don't replace with 1 and 1.0) and existing targetSdkVersion, but do update android_urls (below)
-      except IOError: manifest = android_manifest # first AndroidManifest.xml
-      def pathQ(x):
-        x = urlparse.urlparse(x)
-        if x.query: return x.path+"?"+x.query
-        else: return x.path
-      new_manifest = "\n".join(l for l in manifest.split("\n") if l and not '<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="' in l and not l=="</activity></application></manifest>") + ''.join(('\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" android:pathPrefix="%s" /></intent-filter>'%(urlparse.urlparse(x).scheme,urlparse.urlparse(x).netloc,pathQ(x))) for x in android_urls.split()) + "\n</activity></application></manifest>\n"
-      if not manifest==new_manifest:
-        open(jSrc+"/../AndroidManifest.xml","w").write(new_manifest)
+      update_android_manifest()
       if ndk:
         outfile.write(c_end)
         o=open(jSrc+"/../jni/Android.mk",'w')
@@ -4518,6 +4511,22 @@ include $(BUILD_SHARED_LIBRARY)
     outfile.write("\n/* Tab-delimited summary of the rules: (total %d)\n" % len(rulesAndConds))
     outputRulesSummary(rulesAndConds)
     outfile.write("*/\n")
+
+def update_android_manifest():
+  try: manifest = open(jSrc+"/../AndroidManifest.xml").read() # keep existing version codes (don't replace with 1 and 1.0) and existing targetSdkVersion, but do update android_urls (below)
+  except IOError: manifest = android_manifest # first AndroidManifest.xml
+  old_manifest = manifest
+  if android_upload:
+    sys.stderr.write("AndroidManifest.xml: bumping versionCode for upload\n (assuming you've taken care of versionName separately, if needed)\n") # (might not be needed if the previous upload wasn't actually released for example)
+    manifest = re.sub(r'(android:versionCode\s*=\s*")([1-9][0-9]*)(?=")',lambda m:m.group(1)+str(int(m.group(2))+1),manifest)
+  def pathQ(x):
+    x = urlparse.urlparse(x)
+    if x.query: return x.path+"?"+x.query
+    else: return x.path
+  manifest = "\n".join(l for l in manifest.split("\n") if l and not '<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="' in l and not l=="</activity></application></manifest>") + ''.join(('\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" android:pathPrefix="%s" /></intent-filter>'%(urlparse.urlparse(x).scheme,urlparse.urlparse(x).netloc,pathQ(x))) for x in android_urls.split()) + "\n</activity></application></manifest>\n"
+  if not manifest==old_manifest:
+    open(jSrc+"/../AndroidManifest.xml","w").write(manifest)
+  else: assert not android_upload, "Couldn't bump version code in "+repr(manifest)
 
 def write_glossMiss(glossMiss):
   if not glossmiss: return
@@ -4705,6 +4714,10 @@ if main and not compile_only:
 if main:
  if android:
    if all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS"]):
+     if android_upload and compile_only:
+       # AndroidManifest.xml will not have been updated
+       # so we'd better do it now:
+       update_android_manifest()
      os.chdir(jSrc+"/..")
      if ndk:
        if "NDK" in os.environ:
@@ -4730,12 +4743,14 @@ if main:
      rm_f("../"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
      rm_f("bin/"+dirName0+".ap_")
      rm_f("bin/"+dirName0+".apk")
-     if 'SERVICE_ACCOUNT_KEY' in os.environ:
+     if android_upload:
        import httplib2,googleapiclient.discovery,oauth2client.service_account
        service = googleapiclient.discovery.build('androidpublisher', 'v2', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
        v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("Uploaded "+dirName+".apk (version code "+str(v)+")\n")
        service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'versionCodes':[v]}).execute()
+       # There doesn't seem to be a way to add "what's new" release notes automatically (e.g. to "updated annotator"); it's not in listings() or details().  You should do it manually when the beta is released to production.
+       # Google Play's behaviour as of 2019-05: beta releases without "what's new" will show the "what's new" of the last production release; production releases without "what's new" MAY show the "what's new" of the last production release, or MAY show "Information not provided by developer" (it's unclear what determines which message is shown).
        sys.stderr.write("Committed edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
      else: cmd_or_exit("du -h ../"+dirName+".apk")
    else: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
