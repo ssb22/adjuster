@@ -4745,12 +4745,15 @@ if main:
      rm_f("bin/"+dirName0+".apk")
      if android_upload:
        import httplib2,googleapiclient.discovery,oauth2client.service_account
+       sys.stderr.write("Logging in... ")
        service = googleapiclient.discovery.build('androidpublisher', 'v2', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
+       sys.stderr.write("uploading... ")
        v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("Uploaded "+dirName+".apk (version code "+str(v)+")\n")
        service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'versionCodes':[v]}).execute()
        # There doesn't seem to be a way to add "what's new" release notes automatically (e.g. to "updated annotator"); it's not in listings() or details().  You should do it manually when the beta is released to production.
        # Google Play's behaviour as of 2019-05: beta releases without "what's new" will show the "what's new" of the last production release; production releases without "what's new" MAY show the "what's new" of the last production release, or MAY show "Information not provided by developer" (it's unclear what determines which message is shown).
+       sys.stderr.write("committing...\n")
        sys.stderr.write("Committed edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
      else: cmd_or_exit("du -h ../"+dirName+".apk")
    else: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
