@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.659 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6591 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -102,6 +102,8 @@ parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
 parser.add_option("--glossmiss-hide",
                   help="Comma-separated list of references to hide from the glossmiss file (does not affect the glossmiss-omit option)")
+parser.add_option("--glossmiss-match",
+                  help="If supplied, any references not matching this regular expression will be hidden from the glossmiss file (does not affect the glossmiss-omit option)")
 parser.add_option("-M","--glossmiss-omit",
                   action="store_true",
                   default=False,
@@ -1399,7 +1401,7 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
     function f(c){ /* scan all text under c */
       var i=0,r='',cn=c.childNodes;
       for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:''));
-      return r } """ + alertStr + """ };
+      return r } """ + alertStr + r""" };
   
   function all_frames_docs(c) {
     /* Call function c on all documents in the window */
@@ -1410,20 +1412,20 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
       c(w.document) };
     f(window) };
   
-  """+xtraDecls+"""
-  function tw0() { """+textWalkInit+"""
-    all_frames_docs(function(d){annotWalk(d,d,false)}) };
+  """+xtraDecls+r"""
+  function tw0() { """+textWalkInit+r"""
+    all_frames_docs(function(d){annotWalk(d,d,false,false)}) };
   
-  function annotScan() {"""+extra_js.replace('\\',r'\\').replace('"',r'\"')+annotScan+"""};
+  function annotScan() {"""+extra_js.replace('\\',r'\\').replace('"',r'\"')+annotScan+r"""};
   
-  function annotWalk(n,document,inLink) {
+  function annotWalk(n,document,inLink,inRuby) {
     /* Our main DOM-walking code */
     
     /* 1. check for WBR and mergeTags */
-    function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"""+r"\\"+"""s*$/)};
+    function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^\\s*$/)};
     var c=n.firstChild; while(c) {
       var ps = c.previousSibling, cNext = c.nextSibling;
-      if (c.nodeType==1) { if((c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^"""+r"\\"+"""s*$/))))) && isTxt(cNext) && isTxt(ps)) {
+      if (c.nodeType==1) { if((c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\\s*$/))))) && isTxt(cNext) && isTxt(ps)) {
         n.removeChild(c);
         cNext.previousSibling.nodeValue+=cNext.nodeValue;
         n.removeChild(cNext); cNext=ps}
@@ -1434,27 +1436,31 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
     
     /* 2. recurse into nodes, or annotate new text */
     var nf=false; /* "need to fix" as there was already ruby on the page */
-    c=n.firstChild; while(c){
+    c=n.firstChild; var cP=null,subfixes=0; while(c){
+      if(!nf && subfixes > 5) { if(subfixes < 100){setTimeout(function(){window.curLen=0},20);subfixes=100}break; } /* more next time (don't let fixup hold up fg thread) */
       var cNext=c.nextSibling;
       switch(c.nodeType) {
         case 1:
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
             nf=nf||(c.nodeName=='RUBY');
-            annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href));
+            if(!nf && !inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) c.parentElement.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */
+            var f=annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY')); if(f) subfixes+=f;
           } break;
         case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+r"""}
       }
-    c=cNext }
+      cP=c; c=cNext;
+      if(!nf && !inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) c.parentElement.insertBefore(document.createTextNode(' '),c.previousSibling); /* space after the inline link or em etc */
+    }
     
     /* 3. Batch-fix any damage we did to existing ruby.
        Keep new title (at least for first word); normalise
        the markup so our 3-line option still works.
        Also ensure all ruby is space-separated like ours,
        so our padding CSS overrides don't give inconsistent results */
-    if(nf) {
+    if(nf) { ++subfixes;
         n.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>[^<]*(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return '<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
         if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')"""+postFixCond+r"""n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(n)}
-    }
+    } return subfixes;
   }"""
   r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param'
@@ -1514,7 +1520,7 @@ if ios:
         startPtr = [texts UTF8String]; readPtr = startPtr; writePtr = startPtr;
         outBytes = [NSMutableData alloc]; matchAll(); OutWriteByte(0);
         if([texts length]>0) [self.myWebView stringByEvaluatingJavaScriptFromString:[@"replacements=\"" stringByAppendingString:[[[[[[NSString alloc] initWithUTF8String:[outBytes bytes]] stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""] stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"] stringByAppendingString:@"\".split('/@@---------@@/');oldTexts=texts;"""+jsAddRubyCss+r""""]]];
-        [self.myWebView stringByEvaluatingJavaScriptFromString:@"if(typeof window.sizeChangedLoop=='undefined') window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window), stFunc=function(){window.setTimeout(tFunc,1000)}, tFunc=function(){if(window.sizeChangedLoop==me){if(getLen(window)==curLen) stFunc(); else annotScan()}}; stFunc(); var m=window.MutationObserver||window.WebKitMutationObserver; if(m) new m(function(mut,obs){if(mut[0].type=='childList'){obs.disconnect();if(window.sizeChangedLoop==me)annotScan()}}).observe(document.body,{childList:true,subtree:true})"]; // HTMLSizeChanged(annotScan)
+        [self.myWebView stringByEvaluatingJavaScriptFromString:@"if(typeof window.sizeChangedLoop=='undefined') window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; window.curLen=getLen(window); var stFunc=function(){window.setTimeout(tFunc,1000)}, tFunc=function(){if(window.sizeChangedLoop==me){if(getLen(window)==window.curLen) stFunc(); else annotScan()}}; stFunc(); var m=window.MutationObserver||window.WebKitMutationObserver; if(m) new m(function(mut,obs){if(mut[0].type=='childList'){obs.disconnect();if(window.sizeChangedLoop==me)annotScan()}}).observe(document.body,{childList:true,subtree:true})"]; // HTMLSizeChanged(annotScan)
         return NO;
     }
     return YES;
@@ -1776,7 +1782,7 @@ if sharp_multi and not ndk: android_src += r""";
                 StringBuffer sb=new StringBuffer();
                 while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(annotNo+1)+"</rt>");
                 m.appendTail(sb); r=sb.toString()"""
-if epub: android_src += """; if(r.contains("<ruby")) r="&lrm;"+r""" # needed due to &rlm; in the back-navigation links of some footnotes etc (TODO: is adding all these potentially-unnecessary &lrm; marks more or less overhead than checking for browser.getUrl().startsWith("http://epub/") every time this method is called?)
+if epub: android_src += """; if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"&lrm;"+r""" # needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair
 android_src += r"""; return r; }
             @JavascriptInterface public void alert(String t,String a) {
                 class DialogTask implements Runnable {
@@ -1999,7 +2005,8 @@ android_src += r"""),"ssb_local_annotator"); // hope no conflict with web JS
 if epub: android_src += r"""
                 @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
                     String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
-                    if (!url.startsWith(epubPrefix)) return null;
+                    loadingEpub = url.startsWith(epubPrefix); // TODO: what if an epub includes off-site prerequisites? (should we be blocking that?) : setting loadingEpub false would suppress the lrm marks (could make them unconditional but more overhead; could make loadingEpub 'stay on' for rest of session)
+                    if (!loadingEpub) return null;
                     android.content.SharedPreferences sp=getPreferences(0);
                     String epubUrl=sp.getString("epub","");
                     if(epubUrl.length()==0) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("epubUrl setting not found").getBytes()));
@@ -2079,7 +2086,7 @@ if bookmarks: android_src += android_checkFwd
 android_src += r""" AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
                     else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged();"""
 if bookmarks: android_src += "function AnnotFwdChk() { "+android_checkFwd+"else window.setTimeout(AnnotFwdChk,1000) } AnnotFwdChk();"
-android_src += r"""var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink)}}).observe(document.body,{childList:true,subtree:true})");
+android_src += r"""var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})");
                 } });
         if(Integer.valueOf(Build.VERSION.SDK) >= 3) {
             browser.getSettings().setBuiltInZoomControls(true);
@@ -2169,7 +2176,9 @@ android_src += r"""
     }
     @Override protected void onSaveInstanceState(Bundle outState) { browser.saveState(outState); }
     @Override protected void onDestroy() { if(isFinishing() && Integer.valueOf(Build.VERSION.SDK)<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
-    WebView browser;
+    WebView browser;"""
+if epub: android_src += " boolean loadingEpub = false;"
+android_src += r"""
     boolean wentBack = false;
 }
 """
@@ -4536,7 +4545,7 @@ def write_glossMiss(glossMiss):
   for w in sorted(list(glossMiss)):
     try: num = str(len(getOkStarts(w)))+'\t'
     except: num = '?\t' # num occurrences in e.g.s
-    a,b,r = markDown(w),annotationOnly(w),refs(w,glossmiss_hide)
+    a,b,r = markDown(w),annotationOnly(w),refs(w,True)
     if a and b and not r=="\t": gm.write((num+a+"\t"+b+r+'\n').encode(incode)) # TODO: glosscode ? glossMissCode ??
     if time.time() >= t + 2:
       sys.stderr.write(("(%d of %d)" % (count,len(glossMiss)))+clear_eol)
@@ -4545,9 +4554,9 @@ def write_glossMiss(glossMiss):
   if prndProg: sys.stderr.write("done"+clear_eol+"\n")
 
 if norefs:
-  def refs(rule,omit={}): return ""
+  def refs(*args): return ""
 else:
-  def refs(rule,omit={}):
+  def refs(rule,omit=False):
     global refMap
     try: refMap
     except:
@@ -4575,8 +4584,9 @@ else:
       app=refMap[rmPos][1]
       if not app in ret: ret.append(app)
       rmPos += 1
-    if ret: return "\t"+"; ".join(r for r in ret if not r in omit) # (if all in omit, still return the \t to indicate we did find some)
-    else: return ""
+    if not ret: return ""
+    elif not omit: return "\t"+"; ".join(ret)
+    else: return "\t"+"; ".join(r for r in ret if not r in glossmiss_hide and (not glossmiss_match or re.match(glossmiss_match,r))) # (if all in omit, still return the \t to indicate we did find some)
 
 def outputRulesSummary(rulesAndConds):
     # (summary because we don't here specify which part
@@ -4749,12 +4759,12 @@ if main:
        service = googleapiclient.discovery.build('androidpublisher', 'v2', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
        sys.stderr.write("uploading... ")
-       v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("Uploaded "+dirName+".apk (version code "+str(v)+")\n")
+       v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
        service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'versionCodes':[v]}).execute()
        # There doesn't seem to be a way to add "what's new" release notes automatically (e.g. to "updated annotator"); it's not in listings() or details().  You should do it manually when the beta is released to production.
        # Google Play's behaviour as of 2019-05: beta releases without "what's new" will show the "what's new" of the last production release; production releases without "what's new" MAY show the "what's new" of the last production release, or MAY show "Information not provided by developer" (it's unclear what determines which message is shown).
-       sys.stderr.write("committing...\n")
-       sys.stderr.write("Committed edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
+       sys.stderr.write("Committing... ")
+       sys.stderr.write("\rCommitted edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
      else: cmd_or_exit("du -h ../"+dirName+".apk")
    else: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
 (You might need to change targetSdkVersion in AndroidManifest.xml if
