@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6591 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6592 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1436,20 +1436,20 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
     
     /* 2. recurse into nodes, or annotate new text */
     var nf=false; /* "need to fix" as there was already ruby on the page */
-    c=n.firstChild; var cP=null,subfixes=0; while(c){
-      if(!nf && subfixes > 5) { if(subfixes < 100){setTimeout(function(){window.curLen=0},20);subfixes=100}break; } /* more next time (don't let fixup hold up fg thread) */
+    if(!inRuby) for(c=n.firstChild; c; c=c.nextSibling) if(c.nodeType==1 && c.nodeName=='RUBY') { nf=true; break; }
+    var nReal = n; if(nf) n=n.cloneNode(true); /* if messing with existing ruby, first do it offline for speed */
+    c=n.firstChild; var cP=null; while(c){
       var cNext=c.nextSibling;
       switch(c.nodeType) {
         case 1:
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
-            nf=nf||(c.nodeName=='RUBY');
-            if(!nf && !inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) c.parentElement.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */
-            var f=annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY')); if(f) subfixes+=f;
+            if(!nf && !inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */
+            annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY'));
           } break;
         case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+r"""}
       }
       cP=c; c=cNext;
-      if(!nf && !inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) c.parentElement.insertBefore(document.createTextNode(' '),c.previousSibling); /* space after the inline link or em etc */
+      if(!nf && !inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling); /* space after the inline link or em etc */
     }
     
     /* 3. Batch-fix any damage we did to existing ruby.
@@ -1458,10 +1458,10 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
        (TODO: this throws away hints at glossfile middle column e.g. chai1 vs cha4.  But only for the gloss line, and we do have an 'incomplete' warning.  Passing context in to every annotation call in an existing ruby could slow things down considerably.)
        Also ensure all ruby is space-separated like ours,
        so our padding CSS overrides don't give inconsistent results */
-    if(nf) { ++subfixes;
-        n.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>[^<]*(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return '<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
-        if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')"""+postFixCond+r"""n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(n)}
-    } return subfixes;
+    if(nf) {
+        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>[^<]*(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return '<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
+        if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')"""+postFixCond+r"""n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}
+    }
   }"""
   r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param'
@@ -1521,7 +1521,7 @@ if ios:
         startPtr = [texts UTF8String]; readPtr = startPtr; writePtr = startPtr;
         outBytes = [NSMutableData alloc]; matchAll(); OutWriteByte(0);
         if([texts length]>0) [self.myWebView stringByEvaluatingJavaScriptFromString:[@"replacements=\"" stringByAppendingString:[[[[[[NSString alloc] initWithUTF8String:[outBytes bytes]] stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""] stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"] stringByAppendingString:@"\".split('/@@---------@@/');oldTexts=texts;"""+jsAddRubyCss+r""""]]];
-        [self.myWebView stringByEvaluatingJavaScriptFromString:@"if(typeof window.sizeChangedLoop=='undefined') window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; window.curLen=getLen(window); var stFunc=function(){window.setTimeout(tFunc,1000)}, tFunc=function(){if(window.sizeChangedLoop==me){if(getLen(window)==window.curLen) stFunc(); else annotScan()}}; stFunc(); var m=window.MutationObserver||window.WebKitMutationObserver; if(m) new m(function(mut,obs){if(mut[0].type=='childList'){obs.disconnect();if(window.sizeChangedLoop==me)annotScan()}}).observe(document.body,{childList:true,subtree:true})"]; // HTMLSizeChanged(annotScan)
+        [self.myWebView stringByEvaluatingJavaScriptFromString:@"if(typeof window.sizeChangedLoop=='undefined') window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window); var stFunc=function(){window.setTimeout(tFunc,1000)}, tFunc=function(){if(window.sizeChangedLoop==me){if(getLen(window)==curLen) stFunc(); else annotScan()}}; stFunc(); var m=window.MutationObserver||window.WebKitMutationObserver; if(m) new m(function(mut,obs){if(mut[0].type=='childList'){obs.disconnect();if(window.sizeChangedLoop==me)annotScan()}}).observe(document.body,{childList:true,subtree:true})"]; // HTMLSizeChanged(annotScan)
         return NO;
     }
     return YES;
