@@ -1332,7 +1332,7 @@ if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'li{disp
 if android_print: jsAddRubyCss += "+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
 jsAddRubyCss += "+'</style>'"
 def bookmarkJS():
-  "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks, and event-setup code to be added after (to work around onclick= restrictions on some sites)"
+  "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks, and event-setup code to be added after (to work around onclick= restrictions on some sites, i.e. ones that set the HTTP header Content-Security-Policy: unsafe-inline)"
   assert not '"' in android, "bookmarkJS needs re-implementing if --android URL contains quotes: please %-escape it"
   should_show_bookmarks = "(location.href=='"+android.replace("'",r"\\'")+"'&&!document.noBookmarks)" # noBookmarks is used for handling ACTION_SEND, since it has the same href (TODO @lower-priority: use different href instead?)
   are_there_bookmarks = "ssb_local_annotator.getBMs().replace(/,/g,'')"
