@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6592 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6593 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -211,10 +211,18 @@ cancelOpt("c-sharp")
 parser.add_option("--java",
                   help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
 parser.add_option("--android",
-                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.  If you load a page containing Javascript that allows the user to navigate to arbitrary URLs, you'll have an annotating Web browser app: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.")
+                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.  If you load a page containing Javascript that allows the user to navigate to arbitrary URLs, you'll have an annotating Web browser app: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  Huawei devices sold after c.2019-05-20 won't have Play Store access, and Huawei's "AppGallery" was accepting only registered companies not individual developers, so 'side-loading' will be needed there too (unless you're a registered company).
+parser.add_option("--android-pre-2016",
+                  action="store_true",default=False,
+                  help="When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way won't be allowed on \"Play Store\" in August 2019 (November 2019 for updates) unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.")
+cancelOpt("android-pre-2016")
+parser.add_option("--android-https-only",
+                  action="store_true",default=False,
+                  help="When generating an Android app, let Android 9+ restrict it to HTTPS-only URLs")
+cancelOpt("android-https-only")
 parser.add_option("--ndk",
                   action="store_true",default=False,
-                  help="[DEPRECATED] Android NDK: make a C annotator and use ndk-build to compile it into a 32-bit Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, it restricts which Android versions can be supported if you are compiling on newer toolsets (see --ndk-pre-* options), and \"Play Store\" is set to drop support for 32-bit-only binaries in June 2019. I will probably remove this option at that point, because the speed bonus of NDK is increasingly negligible now that --data-driven and --zlib are also available in the Java version.") # 'increasingly' due to Android's own improvements to JIT etc.  Could add support for dual 32/64-bit, but that would double the binary size (unless shared data is passed in from the Java and/or some trick is done to ship separate 32/64-bit APKs, but if the JIT works well anyway then what's the point of setting up new equipment to test the necessary NDK tweaks)
+                  help="[DEPRECATED] Android NDK: make a C annotator and use ndk-build to compile it into a 32-bit Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, it restricts which Android versions can be supported if you are compiling on newer toolsets (see --ndk-pre-* options), and \"Play Store\" is set to drop support for 32-bit-only binaries in August 2019. I will probably remove this option at that point, because the speed bonus of NDK is increasingly negligible now that --data-driven and --zlib are also available in the Java version.") # 'increasingly' due to Android's own improvements to JIT etc.  Could add support for dual 32/64-bit, but that would double the binary size (unless shared data is passed in from the Java and/or some trick is done to ship separate 32/64-bit APKs, but if the JIT works well anyway then what's the point of setting up new equipment to test the necessary NDK tweaks)
 cancelOpt("ndk")
 parser.add_option("--ndk-pre-2018",
                   action="store_true",default=False,
@@ -234,7 +242,7 @@ parser.add_option("-L","--pleco-hanping",
 cancelOpt("pleco-hanping")
 
 parser.add_option("--bookmarks",
-                  help="Android bookmarks: comma-separated list of package names that share our bookmarks. If this is not specified, the browser will not be given a bookmarks function. If it is set to the same value as the package specified in --java, bookmarks are kept in just this Android app. If it is set to a comma-separated list of packages that have also been generated by annogen (presumably with different annotation types), and if each one has the same android:sharedUserId attribute in AndroidManifest.xml's 'manifest' tag and is signed by the same certificate, then bookmarks can be shared across the set of browser apps, but beware that adding an android:sharedUserId attribute to an app that has already been released without one causes some devices to refuse the update.")
+                  help="Android bookmarks: comma-separated list of package names that share our bookmarks. If this is not specified, the browser will not be given a bookmarks function. If it is set to the same value as the package specified in --java, bookmarks are kept in just this Android app. If it is set to a comma-separated list of packages that have also been generated by annogen (presumably with different annotation types), and if each one has the same android:sharedUserId attribute in AndroidManifest.xml's 'manifest' tag (you'll need to add this manually), and if the same certificate is used to sign all of them, then bookmarks can be shared across the set of browser apps.  But beware: adding an android:sharedUserId attribute to an app that has already been released without one causes some devices to refuse the update with a 'cannot install' message (details via adb logcat; affected users would need to uninstall and reinstall instead of update, and some of them may not notice the instruction to do so).")
 parser.add_option("-B","--bookmarks-developer",
                   action="store_true",default=False,
                   help="When Android bookmarks are enabled, include extra code so that, if the device is in 'developer mode' and the Add Bookmark tool is double-tapped, all words lacking glosses are marked with a blue border. This might give you an idea of how good your glossfile coverage is in practice.")
@@ -456,6 +464,7 @@ if java or javascript or python or c_sharp or golang:
       if main and android:
         os.system("rm -rf "+shell_escape(jSrc+"/../bin")) # needed to get rid of old *.class files that might be no longer used
         for d in ["assets","bin","gen","res/layout","res/menu","res/values"]: os.system("mkdir -p "+shell_escape(jSrc+"/../"+d))
+        if not android_https_only and not android_pre_2016: os.system("mkdir -p "+shell_escape(jSrc+"/../res/xml"))
     elif c_filename.endswith(".c"):
       if javascript: c_filename = c_filename[:-2]+".js"
       elif c_sharp: c_filename = c_filename[:-2]+".cs"
@@ -1660,8 +1669,9 @@ elif ndk_pre_2018: android_minSdkVersion,armabi = "14","armeabi-v7a" # Android 4
 else: android_minSdkVersion,armabi = "16","armeabi-v7a" # Android 4.1
 android_upload = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"])
 android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:installLocation="preferExternal" >
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:sharedUserId="" android:installLocation="preferExternal" >
 <uses-permission android:name="android.permission.INTERNET" />"""
+# The versionCode, versionName and sharedUserId attributes in the above are also picked up on in the code below
 if epub: android_manifest += r"""<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />"""
 # On API 19 (Android 4.4), the external storage permission is:
 # (1) needed for opening epubs from a file manager,
@@ -1674,9 +1684,14 @@ if epub: android_manifest += r"""<uses-permission android:name="android.permissi
 # so I would imagine the permission doesn't need activating on Android 8, but
 # for completeness we need to test Android 6 and Android 7 somehow (TODO)
 android_manifest += r"""
-<uses-sdk android:minSdkVersion="""+'"'+android_minSdkVersion+r"""" android:targetSdkVersion="26" />
+<uses-sdk android:minSdkVersion="""+'"'+android_minSdkVersion+'" android:targetSdkVersion="'
+if android_pre_2016 and not android_https_only: android_manifest += '26' # stuck on API 26 in these circumstances, won't be able to upload updates to Play Store after November 2019 unless you upgrade your SDK or accept https-only
+else: android_manifest += '28'
+android_manifest += r"""" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
-<application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" >
+<application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" """
+if not android_https_only and not android_pre_2016: android_manifest += 'android:networkSecurityConfig="@xml/network_security_config" '
+android_manifest += r""">
 <service android:name=".BringToFront" android:exported="false"/>
 <activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleInstance" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
@@ -4508,6 +4523,7 @@ include $(BUILD_SHARED_LIBRARY)
       open(jSrc+"/../res/values/dimens.xml","w").write('<resources><dimen name="activity_horizontal_margin">16dp</dimen><dimen name="activity_vertical_margin">16dp</dimen></resources>\n')
       open(jSrc+"/../res/values/styles.xml","w").write('<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"></style></resources>\n')
       open(jSrc+"/../res/values/strings.xml","w").write('<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="app_name">'+app_name.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')+'</string></resources>\n')
+      if not android_https_only and not android_pre_2016: open(jSrc+"/../res/xml/network_security_config.xml","w").write('<?xml version="1.0" encoding="utf-8"?>\n<network-security-config><base-config cleartextTrafficPermitted="true" /></network-security-config>\n')
     elif c_sharp: outfile.write(cSharp_end)
     elif golang: outfile.write(golang_end)
     elif not java: outfile.write(c_end)
@@ -4522,17 +4538,23 @@ include $(BUILD_SHARED_LIBRARY)
     outfile.write("*/\n")
 
 def update_android_manifest():
-  try: manifest = open(jSrc+"/../AndroidManifest.xml").read() # keep existing version codes (don't replace with 1 and 1.0) and existing targetSdkVersion, but do update android_urls (below)
-  except IOError: manifest = android_manifest # first AndroidManifest.xml
-  old_manifest = manifest
+  try: manifest = old_manifest = open(jSrc+"/../AndroidManifest.xml").read() # keep existing version codes (don't replace with 1 and 1.0) and existing targetSdkVersion, but do update android_urls (below)
+  except IOError: manifest,old_manifest = android_manifest,None
+  def readAttr(aName):
+    allVals = re.findall(re.escape(aName)+r'\s*=\s*"([^"]*)"',manifest)
+    assert len(allVals)==1, "AndroidManifest.xml has %d instances of %s, should be 1" % (len(allVals),aName)
+    return allVals[0]
+  versionCode,versionName = readAttr("android:versionCode"),readAttr("android:versionName")
+  if "android:sharedUserId" in manifest: sharedUID = readAttr("android:sharedUserId")
+  else: sharedUID = ""
   if android_upload:
     sys.stderr.write("AndroidManifest.xml: bumping versionCode for upload\n (assuming you've taken care of versionName separately, if needed)\n") # (might not be needed if the previous upload wasn't actually released for example)
-    manifest = re.sub(r'(android:versionCode\s*=\s*")([1-9][0-9]*)(?=")',lambda m:m.group(1)+str(int(m.group(2))+1),manifest)
+    versionCode = str(int(versionCode)+1)
   def pathQ(x):
     x = urlparse.urlparse(x)
     if x.query: return x.path+"?"+x.query
     else: return x.path
-  manifest = "\n".join(l for l in manifest.split("\n") if l and not '<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="' in l and not l=="</activity></application></manifest>") + ''.join(('\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" android:pathPrefix="%s" /></intent-filter>'%(urlparse.urlparse(x).scheme,urlparse.urlparse(x).netloc,pathQ(x))) for x in android_urls.split()) + "\n</activity></application></manifest>\n"
+  manifest = android_manifest.replace('%%JPACKAGE%%',jPackage).replace('android:versionCode="1"','android:versionCode="'+versionCode+'"').replace('android:versionName="1.0"','android:versionName="'+versionName+'"').replace('android:sharedUserId=""','android:sharedUserId="'+sharedUID+'"').replace('android:sharedUserId="" ','') + ''.join(('\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" android:pathPrefix="%s" /></intent-filter>'%(urlparse.urlparse(x).scheme,urlparse.urlparse(x).netloc,pathQ(x))) for x in android_urls.split()) + "\n</activity></application></manifest>\n"
   if not manifest==old_manifest:
     open(jSrc+"/../AndroidManifest.xml","w").write(manifest)
   else: assert not android_upload, "Couldn't bump version code in "+repr(manifest)
@@ -4724,10 +4746,8 @@ if main and not compile_only:
 if main:
  if android:
    if all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS"]):
-     if android_upload and compile_only:
-       # AndroidManifest.xml will not have been updated
-       # so we'd better do it now:
-       update_android_manifest()
+     if compile_only: # AndroidManifest.xml will not have been updated
+       if android_upload: update_android_manifest() # so we'd better do it now
      os.chdir(jSrc+"/..")
      if ndk:
        if "NDK" in os.environ:
@@ -4767,8 +4787,6 @@ if main:
        sys.stderr.write("\rCommitted edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
      else: cmd_or_exit("du -h ../"+dirName+".apk")
    else: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
-(You might need to change targetSdkVersion in AndroidManifest.xml if
-   your SDK insists on a different target version)
 To have Annogen build it for you, set these environment variables
 before the Annogen run (change the examples obviously) :
    export SDK=/home/example/Android/Sdk
