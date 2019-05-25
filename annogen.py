@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6593 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6594 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1999,11 +1999,6 @@ if bookmarks: android_src += r"""
                 String s="";"""+"".join(r"""
                 try { s = createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==jPackage)+r"""
                 return s+getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
-            }
-            @JavascriptInterface public boolean canFwd() {
-                // return browser.canGoForward(); // wrong thread; fudge it for now (TODO improve this)
-                boolean r = wentBack; wentBack = false;
-                return r;
             }""" # and even if not bookmarks:
 android_src += "\n}\n"
 if not ndk:
@@ -2016,7 +2011,7 @@ android_src += r"""),"ssb_local_annotator"); // hope no conflict with web JS
         final MainActivity act = this;
         browser.setWebViewClient(new WebViewClient() {
                 @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); if(Integer.valueOf(Build.VERSION.SDK)<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
-                public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else return false; }"""
+                public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else { needJsCommon=3; return false; } }"""
 if epub: android_src += r"""
                 @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
                     String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
@@ -2089,19 +2084,14 @@ android_src += r"""
                 public void onScaleChanged(final WebView view,float from,final float to) {
                     if (Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.KITKAT || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
                     scaling=view.postDelayed(new Runnable() { public void run() {
-                        view.evaluateJavascript("javascript:document.body.style.width=(window.innerWidth*.96)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null);
+                        view.evaluateJavascript("javascript:document.body.style.width=(window.innerWidth-getComputedStyle(document.body).marginLeft.replace(/px/,'')*1-getComputedStyle(document.body).marginRight.replace(/px/,'')*1)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null); // window.outerWidth will still be excessive on 4.4; not sure there's much we can do about that
                         scale=to; scaling=false;
                     } }, 100);
                 }
                 public void onPageFinished(WebView view,String url) {
                     if(Integer.valueOf(Build.VERSION.SDK) < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
-                    browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() {"""
-android_checkFwd = "if(ssb_local_annotator.canFwd()){var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'}"
-if bookmarks: android_src += android_checkFwd
-android_src += r""" AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
-                    else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged();"""
-if bookmarks: android_src += "function AnnotFwdChk() { "+android_checkFwd+"else window.setTimeout(AnnotFwdChk,1000) } AnnotFwdChk();"
-android_src += r"""var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})");
+                    browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
+                    else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})");
                 } });
         if(Integer.valueOf(Build.VERSION.SDK) >= 3) {
             browser.getSettings().setBuiltInZoomControls(true);
@@ -2147,7 +2137,7 @@ if pleco_hanping: android_src += r"""
     String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
     int[] hanpingVersion = new int[]{0,0,0};"""
 android_src += r"""
-    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } };",textWalkInit="",annotScan=jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+r""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
+    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };",textWalkInit="",annotScan=jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+r""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
     android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
     @TargetApi(19)
@@ -2158,24 +2148,25 @@ android_src += r"""
                 @Override
                 public void run() {
                     final Runnable r = this;
-                    browser.evaluateJavascript(js_common+"AnnotIfLenChanged()",new android.webkit.ValueCallback<String>() {
+                    browser.evaluateJavascript(((needJsCommon>0)?js_common:"")+"AnnotIfLenChanged()",new android.webkit.ValueCallback<String>() {
                         @Override
                         public void onReceiveValue(String s) {
-                            theTimer.postDelayed(r,1000);
+                            theTimer.postDelayed(r,(s!=null && s.equals("sameLen"))?5000:1000);
                         }
                     });
+                    if(needJsCommon>0) --needJsCommon;
                 }
             },0);
         }
     }
-    boolean nextBackHides = false;
+    boolean nextBackHides = false; int needJsCommon=3;
     @Override public void onPause() { super.onPause(); nextBackHides = false; } // but may still be visible on Android 7+, so don't pause the browser yet
     @TargetApi(11) @Override public void onStop() { super.onStop(); if(browser!=null && Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onPause(); } // NOW pause the browser (screen off or app not visible)
     @TargetApi(11) @Override public void onStart() { super.onStart(); if(browser!=null && Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onResume(); }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
-            if (browser.canGoBack()) { browser.goBack(); wentBack=true; return true; }
+            if (browser.canGoBack()) { browser.goBack(); needJsCommon=3; new android.os.Handler().postDelayed(new Runnable() { @Override public void run() { browser.evaluateJavascript("var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'",null); } },900); return true; }
         } return super.onKeyDown(keyCode, event);
     }
     @SuppressWarnings("deprecation") // using getText so works on API 1 (TODO consider adding a version check and the more-modern alternative android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip(); if (c != null && c.getItemCount()>0) return c.getItemAt(0).coerceToText(this).toString(); return ""; )
@@ -2193,10 +2184,7 @@ android_src += r"""
     @Override protected void onDestroy() { if(isFinishing() && Integer.valueOf(Build.VERSION.SDK)<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
     WebView browser;"""
 if epub: android_src += " boolean loadingEpub = false;"
-android_src += r"""
-    boolean wentBack = false;
-}
-"""
+android_src += "}\n"
 android_bringToFront=r"""package %%JPACKAGE%%;
 import android.annotation.TargetApi;
 import android.content.Intent;
