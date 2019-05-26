@@ -2143,7 +2143,7 @@ android_src += r"""
     @TargetApi(19)
     void runTimerLoop() {
         if(Integer.valueOf(Build.VERSION.SDK) >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
-           theTimer = new android.os.Handler();
+            theTimer = new android.os.Handler();
             theTimer.postDelayed(new Runnable() {
                 @Override
                 public void run() {
@@ -2151,7 +2151,7 @@ android_src += r"""
                     browser.evaluateJavascript(((needJsCommon>0)?js_common:"")+"AnnotIfLenChanged()",new android.webkit.ValueCallback<String>() {
                         @Override
                         public void onReceiveValue(String s) {
-                            theTimer.postDelayed(r,(s!=null && s.equals("sameLen"))?5000:1000);
+                            theTimer.postDelayed(r,(s!=null && s.contains("sameLen"))?5000:1000); // s.equals("\"sameLen\"", is this true in all versions of the API?)
                         }
                     });
                     if(needJsCommon>0) --needJsCommon;
@@ -2166,7 +2166,7 @@ android_src += r"""
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
-            if (browser.canGoBack()) { browser.goBack(); needJsCommon=3; new android.os.Handler().postDelayed(new Runnable() { @Override public void run() { browser.evaluateJavascript("var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'",null); } },900); return true; }
+            if (browser.canGoBack()) { browser.goBack(); needJsCommon=3; new android.os.Handler().postDelayed(new Runnable() { @Override public void run() { browser.evaluateJavascript("function annogenMakeFwd(){var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'; else window.setTimeout(annogenMakeFwd,1000)}annogenMakeFwd()",null); } },900); return true; }
         } return super.onKeyDown(keyCode, event);
     }
     @SuppressWarnings("deprecation") // using getText so works on API 1 (TODO consider adding a version check and the more-modern alternative android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip(); if (c != null && c.getItemCount()>0) return c.getItemAt(0).coerceToText(this).toString(); return ""; )
