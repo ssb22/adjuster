@@ -1711,6 +1711,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.view.KeyEvent;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;"""
@@ -2138,12 +2139,11 @@ if pleco_hanping: android_src += r"""
     int[] hanpingVersion = new int[]{0,0,0};"""
 android_src += r"""
     static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };",textWalkInit="",annotScan=jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+r""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
-    android.os.Handler theTimer;
     @SuppressWarnings("deprecation")
     @TargetApi(19)
     void runTimerLoop() {
         if(Integer.valueOf(Build.VERSION.SDK) >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
-            theTimer = new android.os.Handler();
+            final Handler theTimer = new Handler();
             theTimer.postDelayed(new Runnable() {
                 @Override
                 public void run() {
@@ -2166,7 +2166,7 @@ android_src += r"""
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
-            if (browser.canGoBack()) { browser.goBack(); needJsCommon=3; new android.os.Handler().postDelayed(new Runnable() { @Override public void run() { browser.evaluateJavascript("function annogenMakeFwd(){var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'; else window.setTimeout(annogenMakeFwd,1000)}annogenMakeFwd()",null); } },900); return true; }
+            if (browser.canGoBack()) { final String fwdUrl=browser.getUrl(); browser.goBack(); needJsCommon=3; final Handler theTimer=new Handler(); theTimer.postDelayed(new Runnable() { int tried=0; @Override public void run() { if(++tried==9) return; else if(browser.getUrl().equals(fwdUrl)) theTimer.postDelayed(this,500); else browser.evaluateJavascript("function annogenMakeFwd(){var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'; else window.setTimeout(annogenMakeFwd,1000)}annogenMakeFwd()",null); } },500); return true; }
         } return super.onKeyDown(keyCode, event);
     }
     @SuppressWarnings("deprecation") // using getText so works on API 1 (TODO consider adding a version check and the more-modern alternative android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip(); if (c != null && c.getItemCount()>0) return c.getItemAt(0).coerceToText(this).toString(); return ""; )
@@ -4789,8 +4789,14 @@ before the Annogen run (change the examples obviously) :
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
 
 You may also wish to create some icons in res/drawable*
-   (using Android Studio or the earlier ADT tools)
-""")
+   (using Android Studio or the earlier ADT tools).
+
+On Google Play you may wish to set Release management
+   - Pre-launch report - Settings - Enable pre-launch
+   reports to OFF, or it'll report issues on the websites
+   you link to (and maybe crashes due to Firebase issues),
+   which (if you don't want them) is wasting resources.
+""") # TODO: try if("true".equals(android.provider.Settings.System.getString(getContentResolver(),"firebase.test.lab"))) browser.loadUrl("about:blank"); (but turning off unwanted reports is better)
  elif c_filename and c_compiler:
     cmd = c_compiler # should include any -o option
     if zlib: cmd += " -lz" # TODO: is this always correct on all platforms? (although user can always simply redirect the C to a file and compile separately)
