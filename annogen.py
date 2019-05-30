@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6594 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.66 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -362,6 +362,8 @@ parser.add_option("-q","--diagnose-quick",
                   action="store_true",default=False,
                   help="Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics WITHOUT these disadvantages by loading a --rulesFile instead.")
 cancelOpt("diagnose-quick")
+
+parser.add_option("--priority-list",help="Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2 or .xz file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.")
 
 parser.add_option("-t","--time-estimate",
                   action="store_true",default=False,
@@ -3506,7 +3508,8 @@ def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,la
   sys.stderr.write(progress+clear_eol)
 
 def normalise():
-    if capitalisation and annot_whitespace: return
+    global capitalisation # might want to temp change it
+    if (capitalisation or priority_list) and annot_whitespace: return
     global corpus_unistr
     if checkpoint:
       try:
@@ -3519,6 +3522,8 @@ def normalise():
         rm_f(checkpoint+os.sep+'checkpoint')
     else: assert main, "normalise called in non-main module and checkpoint isn't even set"
     sys.stderr.write("Normalising...")
+    old_caps = capitalisation
+    if priority_list: capitalisation = True # no point keeping it at False
     allWords = getAllWords()
     if removeSpace:
      corpus_unistr = re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),corpus_unistr) # so getOkStarts works consistently if corpus has some space-separated and some not
@@ -3612,7 +3617,8 @@ def normalise():
       if not w==w2: rpl.add(w,w2)
     rpl.flush()
     sys.stderr.write(" done\n")
-    if checkpoint: open_try_bz2(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8'))
+    if checkpoint and capitalisation==old_caps: open_try_bz2(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8'))
+    capitalisation = old_caps
     checkpoint_exit()
 def getAllWords():
   allWords = set()
@@ -3627,6 +3633,58 @@ def orRegexes(escaped_keys):
     for r in orRegexes(ek): yield r
     ek = escaped_keys[len(ek):]
     for r in orRegexes(ek): yield r
+
+def PairPriorities(markedDown_Phrases,existingFreqs={}):
+    markedDown_Phrases = list(markedDown_Phrases)
+    assert all(type(p)==list for p in markedDown_Phrases)
+    markedDown_Words = reduce(lambda x,y:x+[0]+y,markedDown_Phrases) ; del markedDown_Phrases
+    assert all((w==0 or type(w)==unicode) for w in markedDown_Words)
+    mdwSet = set(markedDown_Words + existingFreqs.keys())
+    try: mdwSet.remove(0)
+    except: pass # only one phrase
+    votes = {}
+    for x in xrange(len(markedDown_Words)-1):
+        a,b = markedDown_Words[x:x+2]
+        if 0 in [a,b]: continue
+        combined = a+b
+        for i in xrange(1,len(combined)):
+            if not i==len(a):
+                if i<len(a): prefer,over = a,combined[i:]
+                else: prefer,over = b,combined[:i]
+                if not over in mdwSet: continue
+                k = tuple(sorted([prefer,over]))
+                if k[0]==prefer: direction = 1
+                else: direction = -1
+                votes[k]=votes.get(k,0)+direction
+    del markedDown_Words
+    closure = set()
+    def addToClosure(a,b):
+        candidate = set([(a,b)]+[(a,c) for x,c in closure if x==b]+[(c,b) for c,x in closure if c==a])
+        if not any((y,x) in closure for (x,y) in candidate):
+            closure.update(candidate)
+        # else contradiction: leave the higher abs(votes)
+    for _,direction,a,b in reversed(sorted([(1+abs(v),v,a,b) for (a,b),v in votes.items()])):
+        if direction < 0: a,b = b,a
+        addToClosure(a,b)
+    trueClosure=closure.copy()
+    fallback_order = [w for _,w in reversed(sorted((f,w) for w,f in existingFreqs.items()))]
+    for i in xrange(len(fallback_order)-1):
+        a,b = fallback_order[i:i+2]
+        if not existingFreqs[a]==existingFreqs[b]:
+            addToClosure(a,b)
+    for a in mdwSet: # so we end up with a transitive cmpFunc
+        for b in mdwSet:
+            if not a==b: addToClosure(a,b)
+    def cmpFunc(x,y): # lower priorities first (so the resulting list-index can proxy for priority)
+        if (x,y) in closure: return 1
+        elif (y,x) in closure: return -1
+        else:
+            assert x==y,x+u"/"+y
+            return 0
+    r = []
+    for w in sorted(mdwSet,cmpFunc):
+        r.append((w,1+max([existingFreqs.get(w,1)-1]+[r[i][1] for i in xrange(len(r)) if (w,r[i][0]) in trueClosure])))
+    return sorted(r)
 
 if mreverse: mdStart,mdEnd,aoStart,aoEnd = markupMid,markupEnd,markupStart,markupMid
 else: mdStart,mdEnd,aoStart,aoEnd = markupStart,markupMid,markupMid,markupEnd
@@ -4709,6 +4767,26 @@ if main and not compile_only:
   else: suppress = False
   normalise()
   if diagnose and not suppress and not diagnose in corpus_unistr: diagnose_write(diagnose+" was in the corpus before normalisation, but not after") # (if running from a checkpoint, might want to rm normalised and redo the diagnose)
+  if priority_list:
+    if os.path.exists(priority_list):
+      sys.stderr.write("Reading "+priority_list+"\n")
+      def getFreq(line):
+        word,freq = line.rstrip().rsplit(None,1)
+        try: return word,int(freq)
+        except: return word,float(freq)
+      existingFreqs={getFreq(l) for l in openfile(priority_list)}
+    else: existingFreqs = {}
+    sys.stderr.write("Parsing...")
+    i=[[markDown(w) for w in splitWords(phrase)] for phrase in splitWords(corpus_unistr,phrases=True)]
+    del corpus_unistr
+    sys.stderr.write(" getting word priorities...")
+    out="".join(w+"\t"+str(f)+"\n" for w,f in PairPriorities(i,existingFreqs))
+    # (don't open the output before here, in case exception)
+    if existingFreqs: sys.stderr.write(" updating "+priority_list+"...")
+    else: sys.stderr.write(" writing "+priority_list+"...")
+    openfile(priority_list,'w').write(out)
+    sys.stderr.write(" done\n")
+    sys.exit()
   generate_map() ; setup_other_globals()
   if not no_input:
     executor = setup_parallelism()
