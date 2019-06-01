@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.66 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6601 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1820,8 +1820,8 @@ if pleco_hanping: android_src += r"""
                             d.setItems(items,new android.content.DialogInterface.OnClickListener() {
                                 @TargetApi(11) public void onClick(android.content.DialogInterface dialog,int id) {
                                     int test=0,i;
-                                    if(gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt); startActivity(p); }
                                     for(i=0; i<3; i++) if(hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt.split(" ",2)[0]).build()); h.setPackage(hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(h); }
+                                    if(gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt); startActivity(p); }
                         } });
                         } else"""
 android_src += r"""
