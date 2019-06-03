@@ -3637,15 +3637,17 @@ def orRegexes(escaped_keys):
 def PairPriorities(markedDown_Phrases,existingFreqs={}):
     markedDown_Phrases = list(markedDown_Phrases)
     assert all(type(p)==list for p in markedDown_Phrases)
-    markedDown_Words = reduce(lambda x,y:x+[0]+y,markedDown_Phrases) ; del markedDown_Phrases
-    assert all((w==0 or type(w)==unicode) for w in markedDown_Words)
-    mdwSet = set(markedDown_Words + existingFreqs.keys())
-    try: mdwSet.remove(0)
-    except: pass # only one phrase
-    votes = {}
-    for x in xrange(len(markedDown_Words)-1):
-        a,b = markedDown_Words[x:x+2]
-        if 0 in [a,b]: continue
+    mdwSet = set(existingFreqs.keys())
+    for p in markedDown_Phrases: mdwSet.update(p)
+    assert all(type(w)==unicode for w in mdwSet)
+    votes = {} ; lastT = time.time()
+    for pi in xrange(len(markedDown_Phrases)):
+      P=p[pi]
+      if time.time() > lastT+2:
+        sys.stderr.write("PairPriorities: %d/%d%s",pi,len(markedDown_Phrases),clear_eol)
+        lastT = time.time()
+      for x in xrange(len(P)-1):
+        a,b = P[x:x+2]
         combined = a+b
         for i in xrange(1,len(combined)):
             if not i==len(a):
@@ -3656,7 +3658,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
                 if k[0]==prefer: direction = 1
                 else: direction = -1
                 votes[k]=votes.get(k,0)+direction
-    del markedDown_Words
+    del markedDown_Phrases
     closure = set()
     def addToClosure(a,b):
         candidate = set([(a,b)]+[(a,c) for x,c in closure if x==b]+[(c,b) for c,x in closure if c==a])
@@ -4779,11 +4781,11 @@ if main and not compile_only:
     sys.stderr.write("Parsing...")
     i=[[markDown(w) for w in splitWords(phrase)] for phrase in splitWords(corpus_unistr,phrases=True)]
     del corpus_unistr
-    sys.stderr.write(" getting word priorities...")
+    sys.stderr.write(" calling PairPriorities...\n")
     out="".join(w+"\t"+str(f)+"\n" for w,f in PairPriorities(i,existingFreqs))
     # (don't open the output before here, in case exception)
-    if existingFreqs: sys.stderr.write(" updating "+priority_list+"...")
-    else: sys.stderr.write(" writing "+priority_list+"...")
+    if existingFreqs: sys.stderr.write("Updating "+priority_list+"...")
+    else: sys.stderr.write("Writing "+priority_list+"...")
     openfile(priority_list,'w').write(out)
     sys.stderr.write(" done\n")
     sys.exit()
