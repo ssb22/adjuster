@@ -363,7 +363,7 @@ parser.add_option("-q","--diagnose-quick",
                   help="Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics WITHOUT these disadvantages by loading a --rulesFile instead.")
 cancelOpt("diagnose-quick")
 
-parser.add_option("--priority-list",help="Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2 or .xz file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.")
+parser.add_option("--priority-list",help="(Experimental) Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2 or .xz file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.")
 
 parser.add_option("-t","--time-estimate",
                   action="store_true",default=False,
@@ -3642,12 +3642,12 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
     assert all(type(w)==unicode for w in mdwSet)
     votes = {} ; lastT = time.time()
     for pi in xrange(len(markedDown_Phrases)):
-      P=p[pi]
       if time.time() > lastT+2:
-        sys.stderr.write("PairPriorities: %d/%d%s",pi,len(markedDown_Phrases),clear_eol)
+        sys.stderr.write("PairPriorities: %d%%%s" % (pi*100/len(markedDown_Phrases),clear_eol))
         lastT = time.time()
-      for x in xrange(len(P)-1):
-        a,b = P[x:x+2]
+      p=markedDown_Phrases[pi]
+      for x in xrange(len(p)-1):
+        a,b = p[x:x+2]
         combined = a+b
         for i in xrange(1,len(combined)):
             if not i==len(a):
@@ -3658,12 +3658,18 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
                 if k[0]==prefer: direction = 1
                 else: direction = -1
                 votes[k]=votes.get(k,0)+direction
+    sys.stderr.write("PairPriorities: done\n")
     del markedDown_Phrases
-    closure = set()
+    closure,lessThan,gtThan = set(),{},{}
     def addToClosure(a,b):
-        candidate = set([(a,b)]+[(a,c) for x,c in closure if x==b]+[(c,b) for c,x in closure if c==a])
+        candidate = set([(a,b)]+[(a,c) for c in lessThan.get(b,[])]+[(c,b) for c in gtThan.get(a,[])])
         if not any((y,x) in closure for (x,y) in candidate):
             closure.update(candidate)
+            for x,y in candidate:
+              if not x in lessThan: lessThan[x] = set()
+              lessThan[x].add(y)
+              if not y in gtThan: gtThan[y] = set()
+              gtThan[y].add(x)
         # else contradiction: leave the higher abs(votes)
     for _,direction,a,b in reversed(sorted([(1+abs(v),v,a,b) for (a,b),v in votes.items()])):
         if direction < 0: a,b = b,a
@@ -3674,18 +3680,27 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
         a,b = fallback_order[i:i+2]
         if not existingFreqs[a]==existingFreqs[b]:
             addToClosure(a,b)
-    for a in mdwSet: # so we end up with a transitive cmpFunc
-        for b in mdwSet:
-            if not a==b: addToClosure(a,b)
+    global _cmp,_cmpN,_cmpT,_cmpW
+    _cmp,_cmpN,_cmpT,_cmpW = 0,0,time.time(),False
     def cmpFunc(x,y): # lower priorities first (so the resulting list-index can proxy for priority)
+        global _cmp ; _cmp += 1
         if (x,y) in closure: return 1
         elif (y,x) in closure: return -1
-        else:
-            assert x==y,x+u"/"+y
-            return 0
-    r = []
+        elif x==y: return 0
+        else: # Make sure we're transitive later:
+            global _cmpN,_cmpT ; _cmpN += 1
+            if time.time() > _cmpT + 2:
+               sys.stderr.write("+%d (cmp=%d)%s" % (_cmpN,_cmp,clear_eol))
+               _cmpT,_cmpW = time.time(),True
+            addToClosure(x,y) # (generates implied reln's)
+            if (x,y) in closure: return 1
+            addToClosure(y,x) # ditto
+            assert (y,x) in closure,("Adding "+repr((x,y))+" contradicts "+repr(set((Y,X) for X,Y in set([(x,y)]+[(x,c) for z,c in closure if z==y]+[(c,y) for c,z in closure if c==x]) if (Y,X) in closure))+" but adding "+repr((y,x))+" contradicts "+repr(set((Y,X) for X,Y in set([(y,x)]+[(y,c) for z,c in closure if z==x]+[(c,x) for c,z in closure if c==y]) if (Y,X) in closure))).decode('unicode_escape').encode(terminal_charset)
+            return -1
+    r = [] ; sys.stderr.write("%d words\n" % len(mdwSet))
     for w in sorted(mdwSet,cmpFunc):
         r.append((w,1+max([existingFreqs.get(w,1)-1]+[r[i][1] for i in xrange(len(r)) if (w,r[i][0]) in trueClosure])))
+    if _cmpW: sys.stderr.write("\n")
     return sorted(r)
 
 if mreverse: mdStart,mdEnd,aoStart,aoEnd = markupMid,markupEnd,markupStart,markupMid
@@ -4701,7 +4716,7 @@ if isatty(sys.stdout):
     if summary_only:
         warn("Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'")
         c_filename = None
-    elif not java and main: sys.stderr.write("Writing to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
+    elif not java and main and not priority_list: sys.stderr.write("Writing to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
 def openfile(fname,mode='r'):
     lzma = bz2 = None
