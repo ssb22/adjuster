@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6601 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6602 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1339,7 +1339,7 @@ c_end += r"""  while(!FINISHED) {
 # jsAddRubyCss will be in a quoted string in ObjC / Java source, so all " and \ must be escaped:
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
 jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari Unicode, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
-if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'li{display:list-item !important}':'')" # needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here)
+if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += "+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
 jsAddRubyCss += "+'</style>'"
 def bookmarkJS():
