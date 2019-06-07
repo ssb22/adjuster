@@ -3662,15 +3662,19 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
     del markedDown_Phrases
     closure,lessThan,gtThan = set(),{},{}
     def addToClosure(a,b):
+        # If a>b, then a>c for any b>c (c<b)
+        # (actually b>=c but we don't have equality),
+        # and c>b for any c>a.
         candidate = set([(a,b)]+[(a,c) for c in lessThan.get(b,[])]+[(c,b) for c in gtThan.get(a,[])])
-        if not any((y,x) in closure for (x,y) in candidate):
-            closure.update(candidate)
-            for x,y in candidate:
-              if not x in lessThan: lessThan[x] = set()
-              lessThan[x].add(y)
-              if not y in gtThan: gtThan[y] = set()
-              gtThan[y].add(x)
-        # else contradiction: leave the higher abs(votes)
+        if any((y,x) in closure for (x,y) in candidate):
+            return # contradiction, use higher abs votes
+        closure.update(candidate)
+        for x,y in candidate:
+            # x>y y<x, so y should be in lessThan[x]
+            if not x in lessThan: lessThan[x] = set()
+            lessThan[x].add(y)
+            if not y in gtThan: gtThan[y] = set()
+            gtThan[y].add(x)
     for _,direction,a,b in reversed(sorted([(1+abs(v),v,a,b) for (a,b),v in votes.items()])):
         if direction < 0: a,b = b,a
         addToClosure(a,b)
@@ -3682,7 +3686,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
             addToClosure(a,b)
     global _cmp,_cmpN,_cmpT,_cmpW
     _cmp,_cmpN,_cmpT,_cmpW = 0,0,time.time(),False
-    def cmpFunc(x,y): # lower priorities first (so the resulting list-index can proxy for priority)
+    def cmpFunc(x,y): # lower priorities first
         global _cmp ; _cmp += 1
         if (x,y) in closure: return 1
         elif (y,x) in closure: return -1
@@ -3695,7 +3699,9 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
             addToClosure(x,y) # (generates implied reln's)
             if (x,y) in closure: return 1
             addToClosure(y,x) # ditto
-            assert (y,x) in closure,("Adding "+repr((x,y))+" contradicts "+repr(set((Y,X) for X,Y in set([(x,y)]+[(x,c) for z,c in closure if z==y]+[(c,y) for c,z in closure if c==x]) if (Y,X) in closure))+" but adding "+repr((y,x))+" contradicts "+repr(set((Y,X) for X,Y in set([(y,x)]+[(y,c) for z,c in closure if z==x]+[(c,x) for c,z in closure if c==y]) if (Y,X) in closure))).decode('unicode_escape').encode(terminal_charset)
+            if not (y,x) in closure:
+              sys.stderr.write("Warning: adding "+repr((x,y))+" contradicts "+repr(set((Y,X) for X,Y in set([(x,y)]+[(x,c) for z,c in closure if z==y]+[(c,y) for c,z in closure if c==x]) if (Y,X) in closure))+" but adding "+repr((y,x))+" contradicts "+repr(set((Y,X) for X,Y in set([(y,x)]+[(y,c) for z,c in closure if z==x]+[(c,x) for c,z in closure if c==y]) if (Y,X) in closure))+" -- adding "+repr((y,x))+" anyway, beware possible problems...\n").decode('unicode_escape').encode(terminal_charset)
+              closure.add((y,x))
             return -1
     r = [] ; sys.stderr.write("%d words\n" % len(mdwSet))
     for w in sorted(mdwSet,cmpFunc):
