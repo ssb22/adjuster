@@ -3700,7 +3700,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
             if (x,y) in closure: return 1
             addToClosure(y,x) # ditto
             if not (y,x) in closure:
-              sys.stderr.write("Warning: adding "+repr((x,y))+" contradicts "+repr(set((Y,X) for X,Y in set([(x,y)]+[(x,c) for z,c in closure if z==y]+[(c,y) for c,z in closure if c==x]) if (Y,X) in closure))+" but adding "+repr((y,x))+" contradicts "+repr(set((Y,X) for X,Y in set([(y,x)]+[(y,c) for z,c in closure if z==x]+[(c,x) for c,z in closure if c==y]) if (Y,X) in closure))+" -- adding "+repr((y,x))+" anyway, beware possible problems...\n").decode('unicode_escape').encode(terminal_charset)
+              sys.stderr.write(("Warning: adding "+repr((x,y))+" contradicts "+repr(set((Y,X) for X,Y in set([(x,y)]+[(x,c) for z,c in closure if z==y]+[(c,y) for c,z in closure if c==x]) if (Y,X) in closure))+" but adding "+repr((y,x))+" contradicts "+repr(set((Y,X) for X,Y in set([(y,x)]+[(y,c) for z,c in closure if z==x]+[(c,x) for c,z in closure if c==y]) if (Y,X) in closure))+" -- adding "+repr((y,x))+" anyway, beware possible problems...\n").decode('unicode_escape').encode(terminal_charset))
               closure.add((y,x))
             return -1
     r = [] ; sys.stderr.write("%d words\n" % len(mdwSet))
