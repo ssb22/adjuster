@@ -3650,14 +3650,15 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
         a,b = p[x:x+2]
         combined = a+b
         for i in xrange(1,len(combined)):
-            if not i==len(a):
-                if i<len(a): prefer,over = a,combined[i:]
-                else: prefer,over = b,combined[:i]
-                if not over in mdwSet: continue
-                k = tuple(sorted([prefer,over]))
-                if k[0]==prefer: direction = 1
-                else: direction = -1
-                votes[k]=votes.get(k,0)+direction
+            if i==len(a): continue
+            elif i<len(a): prefer,over = a,combined[i:]
+            else: prefer,over = b,combined[:i]
+            if not over in mdwSet: continue
+            k = tuple(sorted([prefer,over]))
+            if k[0]==prefer: direction = 1
+            else: direction = -1
+            votes[k]=votes.get(k,0)+direction
+            if diagnose in k: diagnose_write(u"Prefer %s over %s: %d vote from %s | %s" % (prefer,over,direction,a,b))
     sys.stderr.write("PairPriorities: done\n")
     del markedDown_Phrases
     global closure,gtThan,lessThan
@@ -3683,11 +3684,12 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
         if direction < 0: a,b = b,a
         addToClosure(a,b)
     trueClosure,closure = closure,None
-    fallback_order = [w for _,w in reversed(sorted((f,w) for w,f in existingFreqs.items()))]
-    for i in xrange(len(fallback_order)-1):
-        a,b = fallback_order[i:i+2]
-        if not existingFreqs[a]==existingFreqs[b]:
-            addToClosure(a,b)
+    lastW = lastPriorW = None
+    for _,w in reversed(sorted((f,w) for w,f in existingFreqs.items())):
+      if lastW and not existingFreqs[w]==existingFreqs[lastW]:
+        lastPriorW = lastW
+      if lastPriorW: addToClosure(lastPriorW,w)
+      lastW = w
     global _cmp,_cmpN,_cmpT,_cmpW,_cmpP
     _cmp,_cmpN,_cmpT,_cmpW,_cmpP = 0,0,time.time(),False,0
     def cmpFunc(x,y): # lower priorities first
@@ -3710,16 +3712,30 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
               gtThan[y].add(x)
             return -1
     r = [] ; sys.stderr.write("%d words\n" % len(mdwSet))
-    mdwSet = list(mdwSet) ; mdwSet.sort(cmpFunc)
+    mdwList = list(mdwSet) ; del mdwSet
+    mdwList.sort(cmpFunc)
     if _cmpW: sys.stderr.write("\n")
     del gtThan,lessThan
     _cmpW=False
-    for w in mdwSet:
+    tcA = set(w for w,_ in trueClosure)
+    for w in mdwList: # lower priorities first
         if time.time() > _cmpT + 2:
-          sys.stderr.write("Finalising: %d/%d%s" % (len(r),len(mdwSet),clear_eol))
+          sys.stderr.write("Finalising: %d/%d%s" % (len(r),len(mdwList),clear_eol))
           _cmpT=time.time()
           _cmpW=True
-        r.append((w,1+max([existingFreqs.get(w,1)-1]+[r[i][1] for i in xrange(len(r)) if (w,r[i][0]) in trueClosure])))
+        if w in tcA:
+          if w==diagnose:
+            f0 = existingFreqs.get(w,0)
+            for i in xrange(len(r)):
+              if (w,r[i][0]) in trueClosure:
+                f = r[i][1]
+                if 1+f > f0:
+                  diagnose_write(u"Increasing f(%s) from %d to %d to outweigh %s" % (w,f0,1+f,r[i][0]))
+                  f0 = 1+f
+            l = [f0-1]
+          else: l = [r[i][1] for i in xrange(len(r)) if (w,r[i][0]) in trueClosure]
+        else: l = []
+        r.append((w,1+max([existingFreqs.get(w,0)-1]+l)))
     if _cmpW: sys.stderr.write("Finalising: done%s\n" % clear_eol)
     return sorted(r)
 
