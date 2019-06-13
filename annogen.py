@@ -3658,7 +3658,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
             if k[0]==prefer: direction = 1
             else: direction = -1
             votes[k]=votes.get(k,0)+direction
-            if diagnose in k: diagnose_write(u"Prefer %s over %s: %d vote from %s | %s" % (prefer,over,direction,a,b))
+            if diagnose in k: diagnose_write(u"Prefer %s over %s: %d vote from %s | %s" % (k+(direction,a,b)))
     sys.stderr.write("PairPriorities: done\n")
     del markedDown_Phrases
     global closure,gtThan,lessThan
@@ -3680,18 +3680,23 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
             lessThan[x].add(y)
             if not y in gtThan: gtThan[y] = set()
             gtThan[y].add(x)
-    for _,direction,a,b in reversed(sorted([(1+abs(v),v,a,b) for (a,b),v in votes.items()])):
-        if direction < 0: a,b = b,a
-        addToClosure(a,b)
+        return True
+    for _,v,a,b in reversed(sorted([(abs(v),v,a,b) for (a,b),v in votes.items()])):
+        if v < 0: a,b = b,a
+        r=addToClosure(a,b)
+        if diagnose in (a,b):
+          if r==None: r = False
+          diagnose_write(u"addToClosure(%s,%s) [v=%d] returned %s" % (a,b,abs(v),repr(r)))
     trueClosure,closure = closure,None
     lastW = lastPriorW = None
     for _,w in reversed(sorted((f,w) for w,f in existingFreqs.items())):
-      if lastW and not existingFreqs[w]==existingFreqs[lastW]:
+      if lastW and existingFreqs[w] < existingFreqs[lastW]:
         lastPriorW = lastW
       if lastPriorW: addToClosure(lastPriorW,w)
       lastW = w
     global _cmp,_cmpN,_cmpT,_cmpW,_cmpP
     _cmp,_cmpN,_cmpT,_cmpW,_cmpP = 0,0,time.time(),False,0
+    tcA = set(w for w,_ in trueClosure)
     def cmpFunc(x,y): # lower priorities first
         global _cmp,_cmpN,_cmpT,_cmpP
         _cmp += 1
@@ -3703,10 +3708,15 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
         elif x==y: return 0
         else: # Make sure we're transitive later:
             _cmpN += 1
+            if y in tcA and x not in tcA:
+              # y>x less likely to generate problems, so try that first
+              addToClosure(y,x)
+              if y in gtThan.get(x,{}): return -1
             addToClosure(x,y) # (generates implied reln's)
             if x in gtThan.get(y,{}): return 1
             addToClosure(y,x) # ditto
             if not y in gtThan.get(x,{}):
+              if diagnose in (x,y): diagnose_write(u"%s>%s contradicts %s but %s>%s contradicts %s; setting %s>%s anyway" % (x,y,repr(set((Y,X) for X,Y in set([(x,y)]+[(x,c) for z,c in closure if z==y]+[(c,y) for c,z in closure if c==x]) if (Y,X) in closure)),y,x,repr(set((Y,X) for X,Y in set([(y,x)]+[(y,c) for z,c in closure if z==x]+[(c,x) for c,z in closure if c==y]) if (Y,X) in closure)),y,x))
               _cmpP += 1 # problem; try this for now:
               if not y in gtThan: gtThan[y] = set()
               gtThan[y].add(x)
@@ -3717,7 +3727,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
     if _cmpW: sys.stderr.write("\n")
     del gtThan,lessThan
     _cmpW=False
-    tcA = set(w for w,_ in trueClosure)
+    if diagnose: diagnose_write(u"%s in tcA %s" % (diagnose,diagnose in tcA))
     for w in mdwList: # lower priorities first
         if time.time() > _cmpT + 2:
           sys.stderr.write("Finalising: %d/%d%s" % (len(r),len(mdwList),clear_eol))
@@ -3726,12 +3736,19 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
         if w in tcA:
           if w==diagnose:
             f0 = existingFreqs.get(w,0)
+            found = False
             for i in xrange(len(r)):
-              if (w,r[i][0]) in trueClosure:
-                f = r[i][1]
+              W,f = r[i]
+              if (w,W) in trueClosure:
+                found = True
                 if 1+f > f0:
-                  diagnose_write(u"Increasing f(%s) from %d to %d to outweigh %s" % (w,f0,1+f,r[i][0]))
+                  diagnose_write(u"Increasing f(%s) from %d to %d to outweigh %s (f=%d)" % (w,f0,1+f,W,f))
                   f0 = 1+f
+                else: diagnose_write(u"f(%s)=%d already outweighs %d for %s" % (w,f0,f,W))
+              elif (W,w) in trueClosure:
+                found = True
+                diagnose_write(u"Problem? %s (f=%d) before %s (f=%d)" % (W,f,w,f0))
+            if not found: diagnose_write(u"No interactions with %s found among %d lower-priority words" % (w,len(r)))
             l = [f0-1]
           else: l = [r[i][1] for i in xrange(len(r)) if (w,r[i][0]) in trueClosure]
         else: l = []
@@ -4794,7 +4811,7 @@ def set_title(t):
   is_tmux = (term=="screen" and os.environ.get("TMUX",""))
   if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
-def diagnose_write(s): sys.stderr.write(bold_on+"Diagnose: "+bold_off+s.encode(terminal_charset,'replace')+'\n')
+def diagnose_write(s): sys.stderr.write(bold_on+"Diagnose: "+bold_off+s.encode(terminal_charset,'replace')+clear_eol+'\n')
 try: screenWidth = int(os.environ['COLUMNS'])
 except:
   import struct, fcntl, termios
