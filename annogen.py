@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6602 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6603 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -363,7 +363,7 @@ parser.add_option("-q","--diagnose-quick",
                   help="Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics WITHOUT these disadvantages by loading a --rulesFile instead.")
 cancelOpt("diagnose-quick")
 
-parser.add_option("--priority-list",help="(Experimental) Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2 or .xz file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.")
+parser.add_option("--priority-list",help="Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2 or .xz file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.")
 
 parser.add_option("-t","--time-estimate",
                   action="store_true",default=False,
@@ -2069,7 +2069,7 @@ if epub: android_src += r"""
                                     int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
                                     String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
                                     if(mimeType==null || mimeType=="application/xhtml+xml") mimeType="text/html"; // needed for annogen style modifications
-                                    if(mimeType=="text/html") return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\""+epubPrefix+"N="+part+"\">Next page</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                    if(mimeType=="text/html") return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\""+epubPrefix+"N="+part+"\">Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                                     else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
@@ -2081,7 +2081,7 @@ if epub: android_src += r"""
                         return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
                     } finally { try { zin.close(); } catch(IOException e) {} }
                 }"""
-if epub and android_print: android_src = android_src.replace("Next page</a>",r"""Next page</a><script>if(ssb_local_annotator.canPrint())document.write('<a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
+if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next</a><script>if(ssb_local_annotator.canPrint())document.write('<a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
 android_src += r"""
                 float scale = 0; boolean scaling = false;
                 public void onScaleChanged(final WebView view,float from,final float to) {
@@ -3436,9 +3436,9 @@ def splitWords(text,phrases=False):
 
 markupPattern = re.compile(re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),flags=re.DOTALL)
 wordPattern = re.escape(markupStart)+'.*?'+re.escape(markupEnd)
-phrasePattern = re.compile(wordPattern+r'(\s*'+wordPattern+r')*',flags=re.DOTALL)
+phrasePattern = re.compile(wordPattern+r'(\s*'+wordPattern+r')*',flags=re.DOTALL+re.UNICODE)
 wordPattern = re.compile(wordPattern,flags=re.DOTALL)
-wspPattern = re.compile(r"\s+")
+wspPattern = re.compile(r"\s+",flags=re.UNICODE)
 
 def annotationOnly(text):
     ret = []
@@ -3526,8 +3526,8 @@ def normalise():
     if priority_list: capitalisation = True # no point keeping it at False
     allWords = getAllWords()
     if removeSpace:
-     corpus_unistr = re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),corpus_unistr) # so getOkStarts works consistently if corpus has some space-separated and some not
-     corpus_unistr = re.sub(re.escape(markupStart)+'\s+',markupStart.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupMid),markupMid.replace('\\',r'\\'),re.sub(re.escape(markupMid)+'\s+',markupMid.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupEnd),markupEnd.replace('\\',r'\\'),corpus_unistr)))) # so we're tolerant of spurious whitespace between delimeters and markup (TODO: do this even if not removeSpace?)
+     corpus_unistr = re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),corpus_unistr,flags=re.UNICODE) # so getOkStarts works consistently if corpus has some space-separated and some not
+     corpus_unistr = re.sub(re.escape(markupStart)+'\s+',markupStart.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupMid),markupMid.replace('\\',r'\\'),re.sub(re.escape(markupMid)+'\s+',markupMid.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupEnd),markupEnd.replace('\\',r'\\'),corpus_unistr,flags=re.UNICODE),flags=re.UNICODE),flags=re.UNICODE),flags=re.UNICODE) # so we're tolerant of spurious whitespace between delimeters and markup (TODO: do this even if not removeSpace?)
      if not annot_whitespace:
       # normalise trailing hyphens e.g. from OCR'd scans:
       cu0 = corpus_unistr ; ff = 0
@@ -3542,7 +3542,7 @@ def normalise():
             if mreverse: grp,mdG=r"-\1",r"\2"
             else: grp,mdG=r"-\2",r"\1"
             # TODO: batch up the following replacements by using something similar to Replacer but with a common destination regexp that takes groups from the 'w' entries as well.  (Low priority because don't typically get TOO many of these dangling hyphens in most corpuses.)
-            corpus_unistr = re.sub(re.escape(w)+r"\s*"+re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),w.replace('\\',r'\\').replace('-'+aoEnd.replace('\\',r'\\'),grp+aoEnd.replace('\\',r'\\')).replace(mdEnd.replace('\\',r'\\'),mdG+mdEnd.replace('\\',r'\\')),corpus_unistr,flags=re.DOTALL)
+            corpus_unistr = re.sub(re.escape(w)+r"\s*"+re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),w.replace('\\',r'\\').replace('-'+aoEnd.replace('\\',r'\\'),grp+aoEnd.replace('\\',r'\\')).replace(mdEnd.replace('\\',r'\\'),mdG+mdEnd.replace('\\',r'\\')),corpus_unistr,flags=re.DOTALL+re.UNICODE)
             ff = 1
         if ff: allWords = getAllWords() # re-generate
       del cu0
@@ -3653,7 +3653,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
             if i==len(a): continue
             elif i<len(a): prefer,over = a,combined[i:]
             else: prefer,over = b,combined[:i]
-            if not over in mdwSet: continue
+            if not (prefer in mdwSet and over in mdwSet and not prefer==over): continue
             k = tuple(sorted([prefer,over]))
             if k[0]==prefer: direction = 1
             else: direction = -1
@@ -3662,14 +3662,14 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
     sys.stderr.write("PairPriorities: done\n")
     del markedDown_Phrases
     global closure,gtThan,lessThan
-    closure,gtThan, lessThan = set(),{},{} # TODO: bitfield to save RAM on <16G machines?
+    closure,gtThan, lessThan = set(),{},{}
     def addToClosure(a,b):
         # If a>b, then a>c for any b>c (c<b)
         # (actually b>=c but we don't have equality),
         # and c>b for any c>a.
         candidate = set([(a,b)]+[(a,c) for c in lessThan.get(b,[])]+[(c,b) for c in gtThan.get(a,[])])
         if closure==None: # no longer tracking closure
-          if any(y in gtThan.get(x,{}) for (x,y) in candidate): return
+          if any(y in gtThan.get(x,{}) for (x,y) in candidate): return # contradiction
         else:
           if any((y,x) in closure for (x,y) in candidate):
             return # contradiction, use higher abs votes
@@ -3688,46 +3688,30 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
           if r==None: r = False
           diagnose_write(u"addToClosure(%s,%s) [v=%d] returned %s" % (a,b,abs(v),repr(r)))
     trueClosure,closure = closure,None
-    lastW = lastPriorW = None
-    for _,w in reversed(sorted((f,w) for w,f in existingFreqs.items())):
-      if lastW and existingFreqs[w] < existingFreqs[lastW]:
-        lastPriorW = lastW
-      if lastPriorW: addToClosure(lastPriorW,w)
-      lastW = w
-    global _cmp,_cmpN,_cmpT,_cmpW,_cmpP
-    _cmp,_cmpN,_cmpT,_cmpW,_cmpP = 0,0,time.time(),False,0
+    lastW,lastF,lastPriorW = set(),None,set()
+    for _,w in reversed(sorted((f,w) for w,f in existingFreqs.items())): # highest frequency first
+      if lastW and existingFreqs[w] < lastF:
+        lastPriorW,lastW = lastW,set()
+        lastF = existingFreqs[w]
+      for W in lastPriorW: addToClosure(W,w)
+      lastW.add(w)
+    sys.stderr.write("%d words\n" % len(mdwSet))
+    # Kahn 1962 - topological sort:
+    no_incoming = set(w for w in mdwSet if not w in lessThan)
+    del mdwSet ; mdwList = []
+    while no_incoming:
+      n = no_incoming.pop()
+      mdwList.append(n)
+      if not n in gtThan: continue
+      for m in gtThan[n]:
+        lessThan[m].remove(n)
+        if not lessThan[m]:
+          del lessThan[m] ; no_incoming.add(m)
+      del gtThan[n]
+    assert not lessThan and not gtThan, "graph has cycle(s), (%d,%d) edges remain" % (len(lessThan),len(gtThan))
     tcA = set(w for w,_ in trueClosure)
-    def cmpFunc(x,y): # lower priorities first
-        global _cmp,_cmpN,_cmpT,_cmpP
-        _cmp += 1
-        if time.time() > _cmpT + 2:
-          sys.stderr.write("+%d (cmp=%d problems=%d)%s" % (_cmpN,_cmp,_cmpP,clear_eol))
-          _cmpT,_cmpW = time.time(),True
-        if x in gtThan.get(y,{}): return 1
-        elif y in gtThan.get(x,{}): return -1
-        elif x==y: return 0
-        else: # Make sure we're transitive later:
-            _cmpN += 1
-            if y in tcA and x not in tcA:
-              # y>x less likely to generate problems, so try that first
-              addToClosure(y,x)
-              if y in gtThan.get(x,{}): return -1
-            addToClosure(x,y) # (generates implied reln's)
-            if x in gtThan.get(y,{}): return 1
-            addToClosure(y,x) # ditto
-            if not y in gtThan.get(x,{}):
-              if diagnose in (x,y): diagnose_write(u"%s>%s contradicts %s but %s>%s contradicts %s; setting %s>%s anyway" % (x,y,repr(set((Y,X) for X,Y in set([(x,y)]+[(x,c) for z,c in closure if z==y]+[(c,y) for c,z in closure if c==x]) if (Y,X) in closure)),y,x,repr(set((Y,X) for X,Y in set([(y,x)]+[(y,c) for z,c in closure if z==x]+[(c,x) for c,z in closure if c==y]) if (Y,X) in closure)),y,x))
-              _cmpP += 1 # problem; try this for now:
-              if not y in gtThan: gtThan[y] = set()
-              gtThan[y].add(x)
-            return -1
-    r = [] ; sys.stderr.write("%d words\n" % len(mdwSet))
-    mdwList = list(mdwSet) ; del mdwSet
-    mdwList.sort(cmpFunc)
-    if _cmpW: sys.stderr.write("\n")
-    del gtThan,lessThan
-    _cmpW=False
     if diagnose: diagnose_write(u"%s in tcA %s" % (diagnose,diagnose in tcA))
+    r = [] ; _cmpT,_cmpW=time.time(),False
     for w in mdwList: # lower priorities first
         if time.time() > _cmpT + 2:
           sys.stderr.write("Finalising: %d/%d%s" % (len(r),len(mdwList),clear_eol))
@@ -4319,7 +4303,7 @@ def read_manual_rules():
   for l in openfile(manualrules).xreadlines():
     if not l.strip(): continue
     l=l.decode(incode).strip() # TODO: manualrulescode ?
-    if removeSpace: l=re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),l)
+    if removeSpace: l=re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),l,flags=re.UNICODE)
     yield l
 
 def test_manual_rules():
