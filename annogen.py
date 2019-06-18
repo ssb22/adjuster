@@ -4834,7 +4834,7 @@ if main and not compile_only:
     i=[[markDown(w) for w in splitWords(phrase)] for phrase in splitWords(corpus_unistr,phrases=True)]
     del corpus_unistr
     sys.stderr.write(" calling PairPriorities...\n")
-    out="".join(w+"\t"+str(f)+"\n" for w,f in PairPriorities(i,existingFreqs)).encode(outcode)
+    out="".join(w+"\t"+str(f)+"\n" for w,f in PairPriorities(i,existingFreqs) if f).encode(outcode)
     # (don't open the output before here, in case exception)
     if existingFreqs: sys.stderr.write("Updating "+priority_list+"...")
     else: sys.stderr.write("Writing "+priority_list+"...")
