@@ -177,7 +177,7 @@ parser.add_option("-z","--compress",
 cancelOpt("compress")
 
 parser.add_option("--ios",
-                  help="Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app; see the start of the generated C file for instructions. If Xcode runs out of space, try using --data-driven")
+                  help="[DEPRECATED] Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app; see the start of the generated C file for instructions. If Xcode runs out of space, try using --data-driven. The --ios option has been deprecated because it relies on a component called UIWebView which Apple have deprecated. Since I do not have the necessary equipment to test a rewrite with WKWebView, nor am I aware of Apple's App Store having ever accepted an app from an Annogen user, I do not now plan to invest time in migrating the code from UIWebView to WKWebView, and if I ever find out Apple removed UIWebView altogether then I will probably delete the --ios option (unless somebody sends me a patch to fix it).")
 
 parser.add_option("-D","--data-driven",
                   action="store_true",default=False,
@@ -1481,8 +1481,8 @@ if ios:
   c_end += r"""
 /* TODO: iOS 12 deprecated UIWebView (although still supported),
    suggests moving to WKWebView (requires iOS 8+) but delegate
-   needs potentially-major rewrite (recent macOS+Xcode would be
-   needed for iterative testing)
+   needs potentially-major rewrite.  Recent macOS+Xcode would be
+   needed for iterative testing.
   */
 @interface ViewController : UIViewController <UIWebViewDelegate>
 @property (nonatomic,retain) UIWebView *myWebView;
