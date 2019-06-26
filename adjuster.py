@@ -83,16 +83,19 @@ if '--version' in sys.argv:
     # but at least it still won't depend on tornado just
     # to print the version or the options as HTML.)
     print twoline_program_name ; raise SystemExit
-elif '--html-options' in sys.argv:
+elif '--html-options' in sys.argv or '--markdown-options' in sys.argv:
     # for updating the website
-    # (this option is not included in the help text)
-    tornado=inDL=False
-    print "<h3>Options for "+program_name[:program_name.index("(c)")].strip()+"</h3>"
+    # (these options are not included in the help text)
+    tornado=inDL=False ; html = '--html-options' in sys.argv
+    if html: print "<h3>Options for "+program_name[:program_name.index("(c)")].strip()+"</h3>"
+    else: print "Options for "+program_name[:program_name.index("(c)")].strip()+"\n============\n"
     def heading(h):
         global inDL
-        if inDL: print "</dl>"
-        print "<h4>"+h+"</h4>"
-        print "<dl>"
+        if html:
+            if inDL: print "</dl>"
+            print "<h4>"+h+"</h4>"
+            print "<dl>"
+        else: print h+"\n"+'-'*len(h)+'\n'
         inDL = True
     def define(name,default=None,help="",multiple=False):
         if default or default==False:
@@ -100,11 +103,19 @@ elif '--html-options' in sys.argv:
             else: default=repr(default)
             default=" (default "+default+")"
         else: default=""
-        def amp(h): return h.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
+        def amp(h):
+            if html:
+                return h.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
+            else: return h
         help = amp(help)
-        for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]: help=help.replace(ttify,"<nobr><kbd>"+ttify+"</kbd></nobr>")
-        for w in ["lot","not","all","Important","between","any"]: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","<strong>"+w+"</strong>",help)
-        print "<dt><kbd>--"+name+"</kbd>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>"
+        for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]:
+            if html: help=help.replace(ttify,"<nobr><kbd>"+ttify+"</kbd></nobr>")
+            else: help=help.replace(ttify,"`"+ttify+"`")
+        for w in ["lot","not","all","Important","between","any"]:
+            if html: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","<strong>"+w+"</strong>",help)
+            else: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","**"+w+"**",help)
+        if html: print "<dt><kbd>--"+name+"</kbd>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>"
+        else: print "`--"+name+"` "+default+"\n: "+help.replace(" - ","---").replace("---",u'\u2014'.encode('utf-8'))+"\n"
 else: # normal run: go ahead with Tornado import
     import tornado
     from tornado.httpclient import AsyncHTTPClient,HTTPError
@@ -472,9 +483,11 @@ define("errorHTML",default="Adjuster error has been logged",help="What to say wh
 define("logDebug",default=False,help="Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules. On Unix you may also toggle this at runtime by sending SIGUSR1 to the process(es).") # see debuglog()
 # and continuing into the note below:
 if not tornado:
-    print "</dl>"
-    print "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <kbd>python adjuster.py --help</kbd> to see a full list of the ones available on your setup. They typically include <kbd>log_file_max_size</kbd>, <kbd>log_file_num_backups</kbd>, <kbd>log_file_prefix</kbd> and <kbd>log_to_stderr</kbd>."
+    if html: print "</dl>"
+    end = "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <kbd>python adjuster.py --help</kbd> to see a full list of the ones available on your setup. They typically include <kbd>log_file_max_size</kbd>, <kbd>log_file_num_backups</kbd>, <kbd>log_file_prefix</kbd> and <kbd>log_to_stderr</kbd>."
     # and --logging=debug, but that may generate a lot of entries from curl_httpclient
+    if html: print end
+    else: print end.replace("<kbd>","`").replace("</kbd>","`")
     raise SystemExit
 
 #@file: import2-other.py
