@@ -1,53 +1,98 @@
 # adjuster
+
 Web Adjuster + Annotator Generator from http://people.ds.cam.ac.uk/ssb22/adjuster/
+
 (also mirrored at http://ssb22.gitlab.io/adjuster as the Cambridge "DS-Web" server sometimes gets taken down for several days of maintenance)
+
 Web Adjuster
 ============
+
 Web Adjuster is a Tornado-based, domain-rewriting proxy for applying custom processing to Web pages. It is particularly meant for users of smartphones etc as these might not support browser extensions. Web Adjuster can:
+
 * Add a custom stylesheet to change size, layout and colours
+
 * Add custom Javascript to all pages, allowing many desktop browser extensions to work as-is on a smartphone or tablet
+
 * Run a custom program to change the markup, or to change or annotate text for language tools (see for example Annotator Generator)
+
 * Render images for a language or text size not supported by the browser (this function requires the Python Imaging Library and suitable fonts)
+
 * Down-sample MP3 audio to save bandwidth, and add plain text versions of PDF and EPUB files (helper programs are required for these functions)
+
 * Remove problematic markup from pages, etc.
+
 _Domain rewriting_ means you do not need to be able to change the device’s proxy settings—you simply go to a different address. However, _only the domain part is different_, so most in-site scripting should work as-is, without needing delicate alterations to its URI handling. For example, if you have a server called `adjuster.example.org` and you want to see `www.example.com`, simply go to `www.example.com.adjuster.example.org`. Your server ideally needs a wildcard domain, but you can manage without one in some cases, and Web Adjuster can also be a “real” HTTP proxy for local use on a desktop etc.
+
 Because it is based on a single-threaded event-driven Tornado server, Web Adjuster can efficiently handle connections even on a low-power machine like the original Raspberry Pi. (Add-on programs run in other threads, but this is seldom a slow-down in practice.) Tornado also makes Web Adjuster easier to set up: it is a separate, self-contained server that doesn’t need to be worked into the configuration of another one—it can listen on an alternate port (and can be password protected)—but if you prefer you can configure it to share port 80 with another server.
+
 Installation
 ------------
+
 Make sure Tornado is on the system.  If you have root access to a Linux box, try `sudo apt-get install python-tornado` or `sudo pip install tornado` (on a Mac you might need sudo easy_install pip first).  If you don’t have root access, try `pip install tornado --user` and if all else fails you can download the [old version 2.4.1](https://files.pythonhosted.org/packages/2b/29/c8590fd2072afd307412277a4505e282225425d89e556e2cc223eb2ecad7/tornado-2.4.1.tar.gz), unpack it and use its `tornado` subdirectory. On Windows, the easiest way is probably to install Cygwin, install its `python` package, and do something like `wget http://peak.telecommunity.com/dist/ez_setup.py && python ez_setup.py && easy_install pip && pip install tornado`
+
 Then run adjuster.py with the appropriate options (see below), or use it in a WSGI application (see notes at the bottom of Web Adjuster's web page for details).
+
 Web Adjuster is free software licensed under the Apache License, Version 2.0 (this is also the license used by Tornado itself). If you use it in a good project, I’d appreciate hearing about it.
+
 If you need to cite a peer-reviewed paper:
+
 Silas S. Brown.  Web Annotation with Modiﬁed-Yarowsky and Other Algorithms.  Overload 112 (December 2012) pp.4-7.
+
 Annotator Generator
 ===================
+
 Annotator Generator is an examples-driven generator of fast text annotators. “Annotate” in this context means to add pronunciation or other information to each word, and/or to split text into words in a language that does not use spaces.
+
 * You supply a corpus of pre-annotated texts for Annotator Generator to work out the rules and exceptions
+
 * Annotator Generator creates code (in C, C#, Java, Go, Javascript or Python 2) that hard-codes the rules for fast processing
+
 * The resulting program should be able to annotate any text that contains words or phrases similar to those found in the examples
+
 * It can output the annotations alone or it can combine them with the original text using HTML Ruby markup or simple braces
+
 * If anything is unclear (didn’t happen in the examples, or there’s not enough context to ﬁgure out which example should be applied) then the program will leave it unannotated so you can pass it to a backup annotation program if you have one.
+
 * If you have no backup annotator then try setting the `-y` option, which makes Annotator Generator try harder to ﬁnd context-independent rules with context-dependent exceptions, so as to annotate as much text as possible.
+
 * Generated annotators can act as ﬁlters for Web Adjuster; options are also provided for generating client-side annotators for Android and iOS, and a clipboard annotator for Windows and Windows Mobile, or you could format the annotations on a Unix terminal
+
 Legal considerations
 --------------------
+
 Annotator code will contain individual words and some phrases from the original corpus (and these can be read even by people who do not have the unannotated version); with regards to copyright law, I expect the annotator code will count as an “index” to the collection, the copyright of which exists separately to that of the original collection, but laws do vary by country and I am not a solicitor so please act judiciously.
+
 Legally obtaining that original annotated corpus is up to you. _If you are in the UK_ the government says non-commercial text mining is allowed (terms of use prohibiting non-commercial mining are unenforceable), provided you:
+
 1. respect network stability (i.e. wait a long time between each download),
+
 2. connect directly to the publisher (this law bypasses the publisher’s terms of use, not those of third-party search engines like Google),
+
 3. use the result only for mining, not for republishing the original text (so you can’t publish your unprocessed crawl dumps either),
+
 4. and still respect any prohibitions against sharing whatever mining tools you made for the site (as this law is only about text mining, not about the sharing of tools).
+
 Laws outside the UK are different (and I’m not a lawyer) so check carefully. But if the website’s terms don’t actually prohibit writing an unpublished scraper for non-commercial mining purposes, perhaps you won’t need a legal exception—but you should still respect their bandwidth and do it slowly, both for moral reasons (it’s the right thing to do) and pragmatic ones (you won’t want their sysadmins and service providers taking action against you).
+
 TermLayout
 ==========
+
 TermLayout is a text-mode HTML formatter for Unix terminals which supports:
+
 * Ruby markup (multiple rt and rb elements are stacked)
+
 * Tables (including nesting and alignment)
+
 * Wide characters (uses locale settings from LC_CTYPE, LANG etc)
+
 * Smaller terminal sizes. In some cases a table will still end up being wider than the terminal and not easily reﬂowable; if that happens then at least each cell should ﬁt. But in many cases TermLayout can arrange for no horizontal scrolling to be necessary.
+
 Unrecognised markup is left in the output for inspection.
+
 TermLayout is _not_ a Web browser: it has no facilities for navigating links. It is meant only for formatting text on a terminal using HTML markup. I wrote it when I wanted to page through a document with Ruby markup in fbterm but couldn’t ﬁnd a text-mode browser that would format this markup correctly.
+
 If you are using TermLayout with an annotator generated by Annotator Generator, you might also be interested in `tmux-annotator.sh` which sets up tmux with a “hotkey” to annotate the current screen and display the result in TermLayout.
+
 Options for Web Adjuster v0.2793
 ============
 
