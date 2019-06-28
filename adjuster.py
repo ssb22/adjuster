@@ -108,9 +108,9 @@ elif '--html-options' in sys.argv or '--markdown-options' in sys.argv:
                 return h.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
             else: return h
         help = amp(help)
-        for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]:
-            if html: help=help.replace(ttify,"<nobr><kbd>"+ttify+"</kbd></nobr>")
-            else: help=help.replace(ttify,"`"+ttify+"`")
+        if html:
+          for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]:
+            help=help.replace(ttify,"<nobr><kbd>"+ttify+"</kbd></nobr>")
         for w in ["lot","not","all","Important","between","any"]:
             if html: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","<strong>"+w+"</strong>",help)
             else: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","**"+w+"**",help)
