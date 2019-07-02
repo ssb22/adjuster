@@ -906,6 +906,10 @@ Options:
 `--extra-js=EXTRA_JS`
  :  Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js
 
+`--existing-ruby-js-fixes=EXISTING_RUBY_JS_FIXES
+`
+ :                       Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js
+
 `--extra-css=EXTRA_CSS
 `
  :                       Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read --extra-css=@file.css

@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6603 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6604 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -258,6 +258,7 @@ cancelOpt("android-print")
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application")
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js")
+parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read --extra-css=@file.css")
 parser.add_option("--app-name",default="Annotating browser",
                   help="User-visible name of the Android app")
@@ -422,12 +423,14 @@ if ndk and not android: errExit("You must set --android=URL when using --ndk. E.
 if (ndk_pre_2016 or ndk_pre_2017 or ndk_pre_2018) and not ndk: errExit("--ndk-pre-* options don't make sense when not using --ndk")
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
 if android_print and not bookmarks: errExit("The current implementation of --android-print requires --bookmarks to be set as well")
-if (extra_js or extra_css) and not (android or ios): errExit("--extra-js and --extra-css require either --android or --ios")
+if (extra_js or extra_css or existing_ruby_js_fixes) and not (android or ios): errExit("--extra-js, --extra-css and --existing-ruby-js-fixes require either --android or --ios")
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
+if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
 if extra_css.startswith("@") and os.path.exists(extra_css[1:]): extra_css = open(extra_css[1:]).read()
 if extra_js.startswith("@") and os.path.exists(extra_js[1:]): extra_js = open(extra_js[1:]).read()
 if extra_js.rstrip() and not extra_js.rstrip()[-1] in ';}': errExit("--extra-js must end with a semicolon or a closing brace")
+if existing_ruby_js_fixes.startswith("@") and os.path.exists(existing_ruby_js_fixes[1:]): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:]).read()
 jPackage = None
 if nested_switch: nested_switch=int(nested_switch) # TODO: if java, override it?  or just rely on the help text for --nested-switch (TODO cross-reference it from --java?)
 if java:
@@ -1430,10 +1433,15 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
   
   function annotWalk(n,document,inLink,inRuby) {
     /* Our main DOM-walking code */
+
+    var c,nf=false; /* "need to fix" as there was already ruby on the page */
+    if(!inRuby) for(c=n.firstChild; c; c=c.nextSibling) if(c.nodeType==1 && c.nodeName=='RUBY') { nf=true; break; }
+    var nReal = n; if(nf) { n=n.cloneNode(true); /* if messing with existing ruby, first do it offline for speed */"""+existing_ruby_js_fixes.replace('\\',r'\\').replace('"',r'\"')+r"""
+    }
     
     /* 1. check for WBR and mergeTags */
     function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^\\s*$/)};
-    var c=n.firstChild; while(c) {
+    c=n.firstChild; while(c) {
       var ps = c.previousSibling, cNext = c.nextSibling;
       if (c.nodeType==1) { if((c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\\s*$/))))) && isTxt(cNext) && isTxt(ps)) {
         n.removeChild(c);
@@ -1445,9 +1453,6 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
       c=cNext}
     
     /* 2. recurse into nodes, or annotate new text */
-    var nf=false; /* "need to fix" as there was already ruby on the page */
-    if(!inRuby) for(c=n.firstChild; c; c=c.nextSibling) if(c.nodeType==1 && c.nodeName=='RUBY') { nf=true; break; }
-    var nReal = n; if(nf) n=n.cloneNode(true); /* if messing with existing ruby, first do it offline for speed */
     c=n.firstChild; var cP=null; while(c){
       var cNext=c.nextSibling;
       switch(c.nodeType) {
