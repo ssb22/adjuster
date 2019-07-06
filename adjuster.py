@@ -4383,7 +4383,7 @@ def searchHelp():
     else: return " or enter search terms, first word can be "+", ".join([x.split(None,1)[1] for x in options.search_sites])
 def htmlhead(title="Web Adjuster"): return '<html><head><title>%s</title><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head><body>' % title
 def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
-    r = htmlhead('Web Adjuster start page')+'<form action="'+options.urlboxPath+'"><label for="q">'+options.boxPrompt+'</label>: <input type="text" id="q" name="q"'
+    r = htmlhead('Web Adjuster start page')+'<form action="'+options.urlboxPath+'"><label for="q">'+options.boxPrompt+'</label>: <input type="text" id="q" name="q"' # TODO: consider heading tag for boxPrompt if browser is IEMobile 6
     if default_url: r += ' value="'+default_url+'"'
     else: r += ' placeholder="http://"' # HTML5 (Firefox 4, Opera 11, MSIE 10, etc)
     r += '><input type="submit" value="Go">'+searchHelp()+cssOpts_html # 'go' button MUST be first, before cssOpts_html, because it's the button that's hit when Enter is pressed.  (So might as well make the below focus() script unconditional even if there's cssOpts_html.  Minor problem is searchHelp() might get in the way.)
