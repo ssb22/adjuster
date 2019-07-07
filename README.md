@@ -622,425 +622,425 @@ Usage: annogen.py [options]
 Options:
 
 `-h, --help`
- :           show this help message and exit
+ : show this help message and exit
 
 `--infile=INFILE`
- :      Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) to read the input examples from. If this is not specified, standard input is used.
+ : Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) to read the input examples from. If this is not specified, standard input is used.
 
 `--incode=INCODE`
- :      Character encoding of the input file (default utf-8)
+ : Character encoding of the input file (default utf-8)
 
 `--mstart=MARKUPSTART`
  : The string that starts a piece of text with annotation markup in the input examples; default `<ruby><rb>`
 
 `--mmid=MARKUPMID`
- :     The string that occurs in the middle of a piece of markup in the input examples, with the word on its left and the added markup on its right (or the other way around if mreverse is set); default `</rb><rt>`
+ : The string that occurs in the middle of a piece of markup in the input examples, with the word on its left and the added markup on its right (or the other way around if mreverse is set); default `</rb><rt>`
 
 `--mend=MARKUPEND`
- :     The string that ends a piece of annotation markup in the input examples; default `</rt></ruby>`
+ : The string that ends a piece of annotation markup in the input examples; default `</rt></ruby>`
 
 `-r, --mreverse`
- :       Specifies that the annotation markup is reversed, so the text **before** mmid is the annotation and the text **after** it is the base text
+ : Specifies that the annotation markup is reversed, so the text **before** mmid is the annotation and the text **after** it is the base text
 
 `--no-mreverse`
- :        Cancels any earlier --mreverse option in Makefile variables etc
+ : Cancels any earlier --mreverse option in Makefile variables etc
 
 `--reference-sep=REFERENCE_SEP
 `
- :                       Reference separator code used in the example input.  If you want to keep example source references for each rule, you can label the input with 'references' (chapter and section numbers or whatever), and use this option to specify what keyword or other markup the input will use between each 'reference'.  The name of the next reference will be whatever text immediately follows this string.  Note that the reference separator, and the reference name that follows it, should not be part of the text itself and should therefore not be part of any annotation markup.  If this option is not set then references will not be tracked.
+ : Reference separator code used in the example input.  If you want to keep example source references for each rule, you can label the input with 'references' (chapter and section numbers or whatever), and use this option to specify what keyword or other markup the input will use between each 'reference'.  The name of the next reference will be whatever text immediately follows this string.  Note that the reference separator, and the reference name that follows it, should not be part of the text itself and should therefore not be part of any annotation markup.  If this option is not set then references will not be tracked.
 
 `--ref-name-end=REF_NAME_END
 `
- :                       Sets what the input uses to END a reference name.  The default is a single space, so that the first space after the reference-sep string will end the reference name.
+ : Sets what the input uses to END a reference name.  The default is a single space, so that the first space after the reference-sep string will end the reference name.
 
 `--ref-pri=REF_PRI`
- :    Name of a reference to be considered "high priority" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a "default" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high priority reference then the first annotation found in that reference will be considered the ideal "default" even if it's in a minority in the examples; everything else will be considered as an exception.  In languages without spaces, this override should normally be used only for one-character words; if used with longer words it might have unexpected effects on rule-overlap ambiguities.
+ : Name of a reference to be considered "high priority" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a "default" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high priority reference then the first annotation found in that reference will be considered the ideal "default" even if it's in a minority in the examples; everything else will be considered as an exception.  In languages without spaces, this override should normally be used only for one-character words; if used with longer words it might have unexpected effects on rule-overlap ambiguities.
 
 `-s, --spaces`
- :         Set this if you are working with a language that uses whitespace in its non-markedup version (not fully tested).  The default is to assume that there will not be any whitespace in the language, which is correct for Chinese and Japanese.
+ : Set this if you are working with a language that uses whitespace in its non-markedup version (not fully tested).  The default is to assume that there will not be any whitespace in the language, which is correct for Chinese and Japanese.
 
 `--no-spaces`
- :          Cancels any earlier --spaces option in Makefile variables etc
+ : Cancels any earlier --spaces option in Makefile variables etc
 
 `-c, --capitalisation`
  : Don't try to normalise capitalisation in the input.  Normally, to simplify the rules, the analyser will try to remove start-of-sentence capitals in annotations, so that the only remaining words with capital letters are the ones that are **always** capitalised such as names.  (That's not perfect: some words might always be capitalised just because they never occur mid-sentence in the examples.)  If this option is used, the analyser will instead try to "learn" how to predict the capitalisation of **all** words (including start of sentence words) from their contexts.
 
 `--no-capitalisation`
- :  Cancels any earlier --capitalisation option in Makefile variables etc
+ : Cancels any earlier --capitalisation option in Makefile variables etc
 
 `-w, --annot-whitespace
 `
- :                       Don't try to normalise the use of whitespace and hyphenation in the example annotations.  Normally the analyser will try to do this, to reduce the risk of missing possible rules due to minor typographical variations.
+ : Don't try to normalise the use of whitespace and hyphenation in the example annotations.  Normally the analyser will try to do this, to reduce the risk of missing possible rules due to minor typographical variations.
 
 `--no-annot-whitespace
 `
- :                       Cancels any earlier --annot-whitespace option in Makefile variables etc
+ : Cancels any earlier --annot-whitespace option in Makefile variables etc
 
 `--keep-whitespace=KEEP_WHITESPACE
 `
- :                       Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the --annot-whitespace option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).
+ : Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the --annot-whitespace option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).
 
 `--glossfile=GLOSSFILE
 `
- :                       Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary "gloss" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do **not** affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.
+ : Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary "gloss" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do **not** affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.
 
 `-C, --gloss-closure`
- :  If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package.
+ : If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package.
 
 `--no-gloss-closure`
- :   Cancels any earlier --gloss-closure option in Makefile variables etc
+ : Cancels any earlier --gloss-closure option in Makefile variables etc
 
 `--glossmiss=GLOSSMISS
 `
- :                       Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)
+ : Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)
 
 `--glossmiss-hide=GLOSSMISS_HIDE
 `
- :                       Comma-separated list of references to hide from the glossmiss file (does not affect the glossmiss-omit option)
+ : Comma-separated list of references to hide from the glossmiss file (does not affect the glossmiss-omit option)
 
 `--glossmiss-match=GLOSSMISS_MATCH
 `
- :                       If supplied, any references not matching this regular expression will be hidden from the glossmiss file (does not affect the glossmiss-omit option)
+ : If supplied, any references not matching this regular expression will be hidden from the glossmiss file (does not affect the glossmiss-omit option)
 
 `-M, --glossmiss-omit`
  : Omit rules containing any word not mentioned in glossfile.  Might be useful if you want to train on a text that uses proprietary terms and don't want to accidentally 'leak' those terms (assuming they're not accidentally included in glossfile also).  Words may also be listed in glossfile with an empty gloss field to indicate that no gloss is available but rules using this word needn't be omitted.
 
 `--no-glossmiss-omit`
- :  Cancels any earlier --glossmiss-omit option in Makefile variables etc
+ : Cancels any earlier --glossmiss-omit option in Makefile variables etc
 
 `--manualrules=MANUALRULES
 `
- :                       Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.
+ : Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.
 
 `--rulesFile=RULESFILE
 `
- :                       Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will be read from it and incrementally updated. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.
+ : Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will be read from it and incrementally updated. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.
 
 `-n, --no-input`
- :       Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.
+ : Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.
 
 `--no-no-input`
- :        Cancels any earlier --no-input option in Makefile variables etc
+ : Cancels any earlier --no-input option in Makefile variables etc
 
 `--c-filename=C_FILENAME
 `
- :                       Where to write the C, C#, Python, Javascript or Go program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.
+ : Where to write the C, C#, Python, Javascript or Go program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.
 
 `--c-compiler=C_COMPILER
 `
- :                       The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the "cc" command which usually redirects to your "normal" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a **long** time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: cc -o annotator
+ : The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the "cc" command which usually redirects to your "normal" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a **long** time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: cc -o annotator
 
 `--max-or-length=MAX_OR_LENGTH
 `
- :                       The maximum number of items allowed in an OR-expression in non table-driven code (used when ybytes is in effect). When an OR-expression becomes larger than this limit, it will be made into a function. 0 means unlimited, which works for tcc and gcc; many other compilers have limits. Default: 100
+ : The maximum number of items allowed in an OR-expression in non table-driven code (used when ybytes is in effect). When an OR-expression becomes larger than this limit, it will be made into a function. 0 means unlimited, which works for tcc and gcc; many other compilers have limits. Default: 100
 
 `--nested-if`
- :          Allow C/C#/Java/Go if() blocks (but not switch() constructs) to be nested to unlimited depth.  This probably increases the workload of the compiler's optimiser when reducing size, but may help when optimising for speed.
+ : Allow C/C#/Java/Go if() blocks (but not switch() constructs) to be nested to unlimited depth.  This probably increases the workload of the compiler's optimiser when reducing size, but may help when optimising for speed.
 
 `--no-nested-if`
- :       Cancels any earlier --nested-if option in Makefile variables etc
+ : Cancels any earlier --nested-if option in Makefile variables etc
 
 `--nested-switch=NESTED_SWITCH
 `
- :                       Allow C/C#/Java/Go switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for small savings in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.  Setting this to anything other than 0 implies --nested-if also.
+ : Allow C/C#/Java/Go switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for small savings in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.  Setting this to anything other than 0 implies --nested-if also.
 
 `--outcode=OUTCODE`
- :    Character encoding to use in the generated parser and rules summary (default utf-8, must be ASCII-compatible i.e. not utf-16)
+ : Character encoding to use in the generated parser and rules summary (default utf-8, must be ASCII-compatible i.e. not utf-16)
 
 `-S, --summary-only`
- :   Don't generate a parser, just write the rules summary to standard output
+ : Don't generate a parser, just write the rules summary to standard output
 
 `--no-summary-only`
- :    Cancels any earlier --summary-only option in Makefile variables etc
+ : Cancels any earlier --summary-only option in Makefile variables etc
 
 `-N, --no-summary`
- :     Don't add a large rules-summary comment at the end of the parser code
+ : Don't add a large rules-summary comment at the end of the parser code
 
 `--no-no-summary`
- :      Cancels any earlier --no-summary option in Makefile variables etc
+ : Cancels any earlier --no-summary option in Makefile variables etc
 
 `-O SUMMARY_OMIT, --summary-omit=SUMMARY_OMIT
 `
- :                       Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary (but still included in the parser).  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.
+ : Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary (but still included in the parser).  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.
 
 `--maxrefs=MAXREFS`
- :    The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is 3.
+ : The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is 3.
 
 `-R, --norefs`
- :         Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if --no-input is specified.
+ : Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if --no-input is specified.
 
 `--no-norefs`
- :          Cancels any earlier --norefs option in Makefile variables etc
+ : Cancels any earlier --norefs option in Makefile variables etc
 
 `-E, --newlines-reset`
  : Have the annotator reset its state on every newline byte. By default newlines do not affect state such as whether a space is required before the next word, so that if the annotator is used with Web Adjuster's htmlText option (which defaults to using newline separators) the spacing should be handled sensibly when there is HTML markup in mid-sentence.
 
 `--no-newlines-reset`
- :  Cancels any earlier --newlines-reset option in Makefile variables etc
+ : Cancels any earlier --newlines-reset option in Makefile variables etc
 
 `-z, --compress`
- :       Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but might help if RAM is short; see also --data-driven.
+ : Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but might help if RAM is short; see also --data-driven.
 
 `--no-compress`
- :        Cancels any earlier --compress option in Makefile variables etc
+ : Cancels any earlier --compress option in Makefile variables etc
 
 `--ios=IOS`
- :            [**Deprecated**] Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with `<` to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app; see the start of the generated C file for instructions. If Xcode runs out of space, try using --data-driven. The --ios option has been deprecated because it relies on a component called UIWebView which Apple have deprecated. Since I do not have the necessary equipment to test a rewrite with WKWebView, nor am I aware of Apple's App Store having ever accepted an app from an Annogen user, I do not now plan to invest time in migrating the code from UIWebView to WKWebView, and if I ever find out Apple removed UIWebView altogether then I will probably delete the --ios option (unless somebody sends me a patch to fix it).
+ : [**Deprecated**] Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with `<` to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app; see the start of the generated C file for instructions. If Xcode runs out of space, try using --data-driven. The --ios option has been deprecated because it relies on a component called UIWebView which Apple have deprecated. Since I do not have the necessary equipment to test a rewrite with WKWebView, nor am I aware of Apple's App Store having ever accepted an app from an Annogen user, I do not now plan to invest time in migrating the code from UIWebView to WKWebView, and if I ever find out Apple removed UIWebView altogether then I will probably delete the --ios option (unless somebody sends me a patch to fix it).
 
 `-D, --data-driven`
- :    Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's "section too large"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript and Python output is always data-driven anyway.
+ : Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's "section too large"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript and Python output is always data-driven anyway.
 
 `--no-data-driven`
- :     Cancels any earlier --data-driven option in Makefile variables etc
+ : Cancels any earlier --data-driven option in Makefile variables etc
 
 `-F, --fast-assemble`
- :  Skip opcode compaction when using data-driven (slightly speeds up compilation, at the expense of larger code size)
+ : Skip opcode compaction when using data-driven (slightly speeds up compilation, at the expense of larger code size)
 
 `--no-fast-assemble`
- :   Cancels any earlier --fast-assemble option in Makefile variables etc
+ : Cancels any earlier --fast-assemble option in Makefile variables etc
 
 `-Z, --zlib`
- :           Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator, the decompression code is inlined so there's no runtime zlib dependency, but startup is ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source.
+ : Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator, the decompression code is inlined so there's no runtime zlib dependency, but startup is ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source.
 
 `--no-zlib`
- :            Cancels any earlier --zlib option in Makefile variables etc
+ : Cancels any earlier --zlib option in Makefile variables etc
 
 `-l, --library`
- :        Instead of generating C code that reads and writes standard input/output, generate a C library suitable for loading into Python via ctypes.  This can be used for example to preload a filter into Web Adjuster to cut process-startup delays.
+ : Instead of generating C code that reads and writes standard input/output, generate a C library suitable for loading into Python via ctypes.  This can be used for example to preload a filter into Web Adjuster to cut process-startup delays.
 
 `--no-library`
- :         Cancels any earlier --library option in Makefile variables etc
+ : Cancels any earlier --library option in Makefile variables etc
 
 `-W, --windows-clipboard
 `
- :                       Include C code to read the clipboard on Windows or Windows Mobile and to write an annotated HTML file and launch a browser, instead of using the default cross-platform command-line C wrapper.  See the start of the generated C file for instructions on how to compile for Windows or Windows Mobile.
+ : Include C code to read the clipboard on Windows or Windows Mobile and to write an annotated HTML file and launch a browser, instead of using the default cross-platform command-line C wrapper.  See the start of the generated C file for instructions on how to compile for Windows or Windows Mobile.
 
 `--no-windows-clipboard
 `
- :                       Cancels any earlier --windows-clipboard option in Makefile variables etc
+ : Cancels any earlier --windows-clipboard option in Makefile variables etc
 
 `-#, --c-sharp`
- :        Instead of generating C code, generate C# (not quite as efficient as the C code but close; might be useful for adding an annotator to a C# project; see comments at the start for usage)
+ : Instead of generating C code, generate C# (not quite as efficient as the C code but close; might be useful for adding an annotator to a C# project; see comments at the start for usage)
 
 `--no-c-sharp`
- :         Cancels any earlier --c-sharp option in Makefile variables etc
+ : Cancels any earlier --c-sharp option in Makefile variables etc
 
 `--java=JAVA`
- :          Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.
+ : Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.
 
 `--android=ANDROID`
- :    URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.  If you load a page containing Javascript that allows the user to navigate to arbitrary URLs, you'll have an annotating Web browser app: as of 2019, this is acceptable on Google Play but **not** Amazon AppStore as they don't want 'competition' to their Silk browser.
+ : URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.  If you load a page containing Javascript that allows the user to navigate to arbitrary URLs, you'll have an annotating Web browser app: as of 2019, this is acceptable on Google Play but **not** Amazon AppStore as they don't want 'competition' to their Silk browser.
 
 `--android-pre-2016`
- :   When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way won't be allowed on "Play Store" in August 2019 (November 2019 for updates) unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.
+ : When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way won't be allowed on "Play Store" in August 2019 (November 2019 for updates) unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.
 
 `--no-android-pre-2016
 `
- :                       Cancels any earlier --android-pre-2016 option in Makefile variables etc
+ : Cancels any earlier --android-pre-2016 option in Makefile variables etc
 
 `--android-https-only`
  : When generating an Android app, let Android 9+ restrict it to HTTPS-only URLs
 
 `--no-android-https-only
 `
- :                       Cancels any earlier --android-https-only option in Makefile variables etc
+ : Cancels any earlier --android-https-only option in Makefile variables etc
 
 `--ndk`
- :                [**Deprecated**] Android NDK: make a C annotator and use ndk-build to compile it into a 32-bit Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, it restricts which Android versions can be supported if you are compiling on newer toolsets (see --ndk-pre-* options), and "Play Store" is set to drop support for 32-bit-only binaries in August 2019. I will probably remove this option at that point, because the speed bonus of NDK is increasingly negligible now that --data-driven and --zlib are also available in the Java version.
+ : [**Deprecated**] Android NDK: make a C annotator and use ndk-build to compile it into a 32-bit Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, it restricts which Android versions can be supported if you are compiling on newer toolsets (see --ndk-pre-* options), and "Play Store" is set to drop support for 32-bit-only binaries in August 2019. I will probably remove this option at that point, because the speed bonus of NDK is increasingly negligible now that --data-driven and --zlib are also available in the Java version.
 
 `--no-ndk`
- :             Cancels any earlier --ndk option in Makefile variables etc
+ : Cancels any earlier --ndk option in Makefile variables etc
 
 `--ndk-pre-2018`
- :       When building with ndk-build, assume it's older than the June 2018 release (r18b) and therefore supports Android versions below 4.1
+ : When building with ndk-build, assume it's older than the June 2018 release (r18b) and therefore supports Android versions below 4.1
 
 `--no-ndk-pre-2018`
- :    Cancels any earlier --ndk-pre-2018 option in Makefile variables etc
+ : Cancels any earlier --ndk-pre-2018 option in Makefile variables etc
 
 `--ndk-pre-2017`
- :       When building with ndk-build, assume it's older than the July 2017 release (r15c) and therefore supports Android versions below 4.0
+ : When building with ndk-build, assume it's older than the July 2017 release (r15c) and therefore supports Android versions below 4.0
 
 `--no-ndk-pre-2017`
- :    Cancels any earlier --ndk-pre-2017 option in Makefile variables etc
+ : Cancels any earlier --ndk-pre-2017 option in Makefile variables etc
 
 `--ndk-pre-2016`
- :       When building with ndk-build, assume it's older than the June 2016 release (r12) and therefore supports Android versions below 2.3
+ : When building with ndk-build, assume it's older than the June 2016 release (r12) and therefore supports Android versions below 2.3
 
 `--no-ndk-pre-2016`
- :    Cancels any earlier --ndk-pre-2016 option in Makefile variables etc
+ : Cancels any earlier --ndk-pre-2016 option in Makefile variables etc
 
 `-L, --pleco-hanping`
- :  In the Android app, make popup definitions link to Pleco or Hanping if installed
+ : In the Android app, make popup definitions link to Pleco or Hanping if installed
 
 `--no-pleco-hanping`
- :   Cancels any earlier --pleco-hanping option in Makefile variables etc
+ : Cancels any earlier --pleco-hanping option in Makefile variables etc
 
 `--bookmarks=BOOKMARKS
 `
- :                       Android bookmarks: comma-separated list of package names that share our bookmarks. If this is not specified, the browser will not be given a bookmarks function. If it is set to the same value as the package specified in --java, bookmarks are kept in just this Android app. If it is set to a comma-separated list of packages that have also been generated by annogen (presumably with different annotation types), and if each one has the same android:sharedUserId attribute in AndroidManifest.xml's 'manifest' tag (you'll need to add this manually), and if the same certificate is used to sign all of them, then bookmarks can be shared across the set of browser apps.  But beware the following two issues: (1) adding an android:sharedUserId attribute to an app that has already been released without one causes some devices to refuse the update with a 'cannot install' message (details via adb logcat; affected users would need to uninstall and reinstall instead of update, and some of them may not notice the instruction to do so); (2) this has not been tested with Google's new "App Bundle" arrangement, and may be broken if the Bundle results in APKs being signed by a different key.  In June 2019 Play Console started issuing warnings if you release an APK instead of a Bundle, even though the "size savings" they mention are under 1% for annogen-generated apps.
+ : Android bookmarks: comma-separated list of package names that share our bookmarks. If this is not specified, the browser will not be given a bookmarks function. If it is set to the same value as the package specified in --java, bookmarks are kept in just this Android app. If it is set to a comma-separated list of packages that have also been generated by annogen (presumably with different annotation types), and if each one has the same android:sharedUserId attribute in AndroidManifest.xml's 'manifest' tag (you'll need to add this manually), and if the same certificate is used to sign all of them, then bookmarks can be shared across the set of browser apps.  But beware the following two issues: (1) adding an android:sharedUserId attribute to an app that has already been released without one causes some devices to refuse the update with a 'cannot install' message (details via adb logcat; affected users would need to uninstall and reinstall instead of update, and some of them may not notice the instruction to do so); (2) this has not been tested with Google's new "App Bundle" arrangement, and may be broken if the Bundle results in APKs being signed by a different key.  In June 2019 Play Console started issuing warnings if you release an APK instead of a Bundle, even though the "size savings" they mention are under 1% for annogen-generated apps.
 
 `-B, --bookmarks-developer
 `
- :                       When Android bookmarks are enabled, include extra code so that, if the device is in 'developer mode' and the Add Bookmark tool is double-tapped, all words lacking glosses are marked with a blue border. This might give you an idea of how good your glossfile coverage is in practice.
+ : When Android bookmarks are enabled, include extra code so that, if the device is in 'developer mode' and the Add Bookmark tool is double-tapped, all words lacking glosses are marked with a blue border. This might give you an idea of how good your glossfile coverage is in practice.
 
 `--no-bookmarks-developer
 `
- :                       Cancels any earlier --bookmarks-developer option in Makefile variables etc
+ : Cancels any earlier --bookmarks-developer option in Makefile variables etc
 
 `-e, --epub`
- :           When generating an Android browser, make it also respond to requests to open EPUB files. This results in an app that requests the 'read external storage' permission on Android versions below 6.
+ : When generating an Android browser, make it also respond to requests to open EPUB files. This results in an app that requests the 'read external storage' permission on Android versions below 6.
 
 `--no-epub`
- :            Cancels any earlier --epub option in Makefile variables etc
+ : Cancels any earlier --epub option in Makefile variables etc
 
 `--android-print`
- :      When generating an Android browser, include code to provide a Print option (usually print to PDF) and a simple highlight-selection option. The Print option will require Android 4.4, but the app should still run without it on earlier versions of Android.
+ : When generating an Android browser, include code to provide a Print option (usually print to PDF) and a simple highlight-selection option. The Print option will require Android 4.4, but the app should still run without it on earlier versions of Android.
 
 `--no-android-print`
- :   Cancels any earlier --android-print option in Makefile variables etc
+ : Cancels any earlier --android-print option in Makefile variables etc
 
 `--android-urls=ANDROID_URLS
 `
- :                       Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application
+ : Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application
 
 `--extra-js=EXTRA_JS`
- :  Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js
+ : Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js
 
 `--existing-ruby-js-fixes=EXISTING_RUBY_JS_FIXES
 `
- :                       Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js
+ : Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js
 
 `--extra-css=EXTRA_CSS
 `
- :                       Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read --extra-css=@file.css
+ : Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read --extra-css=@file.css
 
 `--app-name=APP_NAME`
- :  User-visible name of the Android app
+ : User-visible name of the Android app
 
 `--compile-only`
- :       Assume the code has already been generated by a previous run, and just run the compiler
+ : Assume the code has already been generated by a previous run, and just run the compiler
 
 `--no-compile-only`
- :    Cancels any earlier --compile-only option in Makefile variables etc
+ : Cancels any earlier --compile-only option in Makefile variables etc
 
 `-j, --javascript`
- :     Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.
+ : Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.
 
 `--no-javascript`
- :      Cancels any earlier --javascript option in Makefile variables etc
+ : Cancels any earlier --javascript option in Makefile variables etc
 
 `-6, --js-6bit`
- :        When generating a Javascript annotator, use a 6-bit format for many addresses to reduce escape codes in the data string by making more of it ASCII. Not relevant if using zlib.
+ : When generating a Javascript annotator, use a 6-bit format for many addresses to reduce escape codes in the data string by making more of it ASCII. Not relevant if using zlib.
 
 `--no-js-6bit`
- :         Cancels any earlier --js-6bit option in Makefile variables etc
+ : Cancels any earlier --js-6bit option in Makefile variables etc
 
 `-8, --js-octal`
- :       When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode. Not relevant if using zlib.
+ : When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode. Not relevant if using zlib.
 
 `--no-js-octal`
- :        Cancels any earlier --js-octal option in Makefile variables etc
+ : Cancels any earlier --js-octal option in Makefile variables etc
 
 `-9, --ignore-ie8`
- :     When generating a Javascript annotator, do not make it backward-compatible with Microsoft Internet Explorer 8 and below. This may save a few bytes. Not relevant if using zlib.
+ : When generating a Javascript annotator, do not make it backward-compatible with Microsoft Internet Explorer 8 and below. This may save a few bytes. Not relevant if using zlib.
 
 `--no-ignore-ie8`
- :      Cancels any earlier --ignore-ie8 option in Makefile variables etc
+ : Cancels any earlier --ignore-ie8 option in Makefile variables etc
 
 `-u, --js-utf8`
- :        When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites.
+ : When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites.
 
 `--no-js-utf8`
- :         Cancels any earlier --js-utf8 option in Makefile variables etc
+ : Cancels any earlier --js-utf8 option in Makefile variables etc
 
 `-Y, --python`
- :         Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.
+ : Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.
 
 `--no-python`
- :          Cancels any earlier --python option in Makefile variables etc
+ : Cancels any earlier --python option in Makefile variables etc
 
 `--golang=GOLANG`
- :      Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on AppEngine.
+ : Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on AppEngine.
 
 `--reannotator=REANNOTATOR
 `
- :                       Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text, and if prefixed by ## it will be given text#annotation.  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.
+ : Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text, and if prefixed by ## it will be given text#annotation.  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.
 
 `--sharp-multi`
- :        Assume annotation (or reannotator output) contains multiple alternatives separated by # (e.g. pinyin#Yale) and include code to select one by number at runtime (starting from 0). This is to save on total space when shipping multiple annotators that share the same word grouping and gloss data, differing only in the transcription of each word.
+ : Assume annotation (or reannotator output) contains multiple alternatives separated by # (e.g. pinyin#Yale) and include code to select one by number at runtime (starting from 0). This is to save on total space when shipping multiple annotators that share the same word grouping and gloss data, differing only in the transcription of each word.
 
 `--no-sharp-multi`
- :     Cancels any earlier --sharp-multi option in Makefile variables etc
+ : Cancels any earlier --sharp-multi option in Makefile variables etc
 
 `-o, --allow-overlaps`
  : Normally, the analyser avoids generating rules that could overlap with each other in a way that would leave the program not knowing which one to apply.  If a short rule would cause overlaps, the analyser will prefer to generate a longer rule that uses more context, and if even the entire phrase cannot be made into a rule without causing overlaps then the analyser will give up on trying to cover that phrase.  This option allows the analyser to generate rules that could overlap, as long as none of the overlaps would cause actual problems in the example phrases. Thus more of the examples can be covered, at the expense of a higher risk of ambiguity problems when applying the rules to other texts.  See also the -y option.
 
 `--no-allow-overlaps`
- :  Cancels any earlier --allow-overlaps option in Makefile variables etc
+ : Cancels any earlier --allow-overlaps option in Makefile variables etc
 
 `-P, --primitive`
- :      Don't bother with any overlap or conflict checks at all, just make a rule for each word. The resulting parser is not likely to be useful, but the summary might be.
+ : Don't bother with any overlap or conflict checks at all, just make a rule for each word. The resulting parser is not likely to be useful, but the summary might be.
 
 `--no-primitive`
- :       Cancels any earlier --primitive option in Makefile variables etc
+ : Cancels any earlier --primitive option in Makefile variables etc
 
 `-y YBYTES, --ybytes=YBYTES
 `
- :                       Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed when seed collocations can be used to distinguish between them, and the analysis is likely to be faster.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of (non-whitespace) bytes between them.
+ : Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed when seed collocations can be used to distinguish between them, and the analysis is likely to be faster.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of (non-whitespace) bytes between them.
 
 `--ybytes-max=YBYTES_MAX
 `
- :                       Extend the Yarowsky seed-collocation search to check over larger ranges up to this maximum.  If this is set then several ranges will be checked in an attempt to determine the best one for each word, but see also ymax-threshold.
+ : Extend the Yarowsky seed-collocation search to check over larger ranges up to this maximum.  If this is set then several ranges will be checked in an attempt to determine the best one for each word, but see also ymax-threshold.
 
 `--ymax-threshold=YMAX_THRESHOLD
 `
- :                       Limits the length of word that receives the narrower-range Yarowsky search when ybytes-max is in use. For words longer than this, the search will go directly to ybytes-max. This is for languages where the likelihood of a word's annotation being influenced by its immediate neighbours more than its distant collocations increases for shorter words, and less is to be gained by comparing different ranges when processing longer words. Setting this to 0 means no limit, i.e. the full range will be explored on **all** Yarowsky checks.
+ : Limits the length of word that receives the narrower-range Yarowsky search when ybytes-max is in use. For words longer than this, the search will go directly to ybytes-max. This is for languages where the likelihood of a word's annotation being influenced by its immediate neighbours more than its distant collocations increases for shorter words, and less is to be gained by comparing different ranges when processing longer words. Setting this to 0 means no limit, i.e. the full range will be explored on **all** Yarowsky checks.
 
 `--ybytes-step=YBYTES_STEP
 `
- :                       The increment value for the loop between ybytes and ybytes-max
+ : The increment value for the loop between ybytes and ybytes-max
 
 `-k, --warn-yarowsky`
- :  Warn when absolutely no distinguishing Yarowsky seed collocations can be found for a word in the examples
+ : Warn when absolutely no distinguishing Yarowsky seed collocations can be found for a word in the examples
 
 `--no-warn-yarowsky`
- :   Cancels any earlier --warn-yarowsky option in Makefile variables etc
+ : Cancels any earlier --warn-yarowsky option in Makefile variables etc
 
 `-K, --yarowsky-all`
- :   Accept Yarowsky seed collocations even from input characters that never occur in annotated words (this might include punctuation and example-separation markup)
+ : Accept Yarowsky seed collocations even from input characters that never occur in annotated words (this might include punctuation and example-separation markup)
 
 `--no-yarowsky-all`
- :    Cancels any earlier --yarowsky-all option in Makefile variables etc
+ : Cancels any earlier --yarowsky-all option in Makefile variables etc
 
 `--yarowsky-debug=YAROWSKY_DEBUG
 `
- :                       Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default 1). Occasionally these might be due to typos in the corpus, so it might be worth a check.
+ : Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default 1). Occasionally these might be due to typos in the corpus, so it might be worth a check.
 
 `-1, --single-words`
- :   Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.
+ : Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.
 
 `--no-single-words`
- :    Cancels any earlier --single-words option in Makefile variables etc
+ : Cancels any earlier --single-words option in Makefile variables etc
 
 `--max-words=MAX_WORDS
 `
- :                       Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one.
+ : Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one.
 
 `--checkpoint=CHECKPOINT
 `
- :                       Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.
+ : Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.
 
 `-d DIAGNOSE, --diagnose=DIAGNOSE
 `
- :                       Output some diagnostics for the specified word. Use this option to help answer "why doesn't it have a rule for...?" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).
+ : Output some diagnostics for the specified word. Use this option to help answer "why doesn't it have a rule for...?" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).
 
 `--diagnose-limit=DIAGNOSE_LIMIT
 `
- :                       Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: 10
+ : Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: 10
 
 `-m, --diagnose-manual
 `
- :                       Check and diagnose potential failures of --manualrules
+ : Check and diagnose potential failures of --manualrules
 
 `--no-diagnose-manual`
  : Cancels any earlier --diagnose-manual option in Makefile variables etc
@@ -1049,24 +1049,24 @@ Options:
  : Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics **without** these disadvantages by loading a --rulesFile instead.
 
 `--no-diagnose-quick`
- :  Cancels any earlier --diagnose-quick option in Makefile variables etc
+ : Cancels any earlier --diagnose-quick option in Makefile variables etc
 
 `--priority-list=PRIORITY_LIST
 `
- :                       Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2 or .xz file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.
+ : Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2 or .xz file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.
 
 `-t, --time-estimate`
- :  Estimate time to completion.  The code to do this is unreliable and is prone to underestimate.  If you turn it on, its estimate is displayed at the end of the status line as days, hours or minutes.
+ : Estimate time to completion.  The code to do this is unreliable and is prone to underestimate.  If you turn it on, its estimate is displayed at the end of the status line as days, hours or minutes.
 
 `--no-time-estimate`
- :   Cancels any earlier --time-estimate option in Makefile variables etc
+ : Cancels any earlier --time-estimate option in Makefile variables etc
 
 `-0, --single-core`
- :    Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is currently used only for large collocation checks in limited circumstances.
+ : Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is currently used only for large collocation checks in limited circumstances. Single-core saves on CPU power consumption, but if the computer is set to switch itself off at the end of the run then **total** energy used is generally less if you allow it to run multicore and reach that switchoff sooner.
 
 `--no-single-core`
- :     Cancels any earlier --single-core option in Makefile variables etc
+ : Cancels any earlier --single-core option in Makefile variables etc
 
 `-p STATUS_PREFIX, --status-prefix=STATUS_PREFIX
 `
- :                       Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running
+ : Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running
