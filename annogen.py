@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6604 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6605 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -4717,7 +4717,7 @@ else:
     else: return "\t"+"; ".join(r for r in ret if not r in glossmiss_hide and (not glossmiss_match or re.match(glossmiss_match,r))) # (if all in omit, still return the \t to indicate we did find some)
 
 def outputRulesSummary(rulesAndConds):
-    # (summary because we don't here specify which part
+    # (called "summary" because we don't here specify which part
     # of the annotation goes with which part of the text, plus
     # we remove /* and */ so it can be placed into a C comment)
     sys.stderr.write("Writing rules summary...\n")
@@ -4728,8 +4728,9 @@ def outputRulesSummary(rulesAndConds):
     d = {}
     for r,c in rulesAndConds:
       d[(markDown(r),repr(c))] = (r,c)
-    # Now sort so diff is possible between 2 summaries:
-    d = sorted((annotationOnly(r),markDown(r),r,c) for r,c in d.values())
+    # Now sort so diff is possible between 2 summaries
+    # (case-insensitive because capitalisation may change)
+    d = sorted(((annotationOnly(r),markDown(r),r,c) for r,c in d.values()),lambda x,y:cmp((x[0].lower(),)+x[1:],(y[0].lower(),)+y[1:]))
     # Can now do the summary:
     for annot,orig,rule,conditions in d:
         if time.time() >= t + 2:
