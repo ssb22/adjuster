@@ -680,6 +680,16 @@ Options:
 `
  : Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the --annot-whitespace option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).
 
+`--normalised-file=NORMALISED_FILE
+`
+ : Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to write a copy of the normalised input for diagnostic purposes.  If this is set to the same as --infile then it will be assumed the input file has already been normalised (use with care).
+
+`--normalise-only`
+ : Exit after normalising the input
+
+`--no-normalise-only`
+ : Cancels any earlier --normalise-only option in Makefile variables etc
+
 `--glossfile=GLOSSFILE
 `
  : Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary "gloss" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do **not** affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.

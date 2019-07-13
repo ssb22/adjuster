@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6605 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6606 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -90,6 +90,14 @@ parser.add_option("-w", "--annot-whitespace",
 cancelOpt("annot-whitespace")
 parser.add_option("--keep-whitespace",
                   help="Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the --annot-whitespace option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).")
+
+parser.add_option("--normalised-file",
+                  help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to write a copy of the normalised input for diagnostic purposes.  If this is set to the same as --infile then it will be assumed the input file has already been normalised (use with care).")
+parser.add_option("--normalise-only",
+                  action="store_true",
+                  default=False,
+                  help="Exit after normalising the input")
+cancelOpt("normalise-only")
 
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
@@ -526,7 +534,7 @@ max_words = int(max_words)
 if single_words: max_words = 1
 read_input = not no_input
 if not reference_sep: norefs=True
-if diagnose_manual or (not norefs and (not no_summary or glossmiss)): read_input = True
+if diagnose_manual or normalise_only or (not norefs and (not no_summary or glossmiss)): read_input = True
 
 def nearCall(negate,conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
@@ -3514,6 +3522,7 @@ def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,la
   sys.stderr.write(progress+clear_eol)
 
 def normalise():
+    if normalised_file == infile: return
     global capitalisation # might want to temp change it
     if (capitalisation or priority_list) and annot_whitespace: return
     global corpus_unistr
@@ -3623,6 +3632,7 @@ def normalise():
       if not w==w2: rpl.add(w,w2)
     rpl.flush()
     sys.stderr.write(" done\n")
+    if normalised_file: openfile(normalised_file,'wb').write(corpus_unistr.encode(incode))
     if checkpoint and capitalisation==old_caps: open_try_bz2(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8'))
     capitalisation = old_caps
     checkpoint_exit()
@@ -4685,6 +4695,12 @@ if norefs:
   def refs(*args): return ""
 else:
   def refs(rule,omit=False):
+    try: okStarts = getOkStarts(rule)
+    except: return "" # KeyError can happen in some incremental-run glossMiss situations: just omit that reference in the debug file
+    return starts2refs(okStarts,omit)
+
+def starts2refs(startSet,omit=False):
+    # assumes generate_map() has been called
     global refMap
     try: refMap
     except:
@@ -4695,12 +4711,10 @@ else:
         if refMap[i][1] == refMap[i+1][1]: del refMap[i+1]
         else: i += 1
     rmPos = 0 ; ret = []
-    try: okStarts = getOkStarts(rule)
-    except: return "" # KeyError can happen in some incremental-run glossMiss situations: just omit that reference in the debug file
     while len(ret) < maxrefs and rmPos < len(refMap):
       s = refMap[rmPos][0] ; i = -1
-      while i < s and okStarts:
-        i = min(okStarts) ; okStarts.remove(i)
+      while i < s and startSet:
+        i = min(startSet) ; startSet.remove(i)
         i = m2c_map[i]
       if i < s: break
       rmE = len(refMap)-1
@@ -4760,7 +4774,7 @@ if isatty(sys.stdout):
     if summary_only:
         warn("Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'")
         c_filename = None
-    elif not java and main and not priority_list: sys.stderr.write("Writing to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
+    elif not java and main and not priority_list and not normalise_only: sys.stderr.write("Writing to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
 def openfile(fname,mode='r'):
     lzma = bz2 = None
@@ -4828,6 +4842,7 @@ if main and not compile_only:
   else: suppress = False
   normalise()
   if diagnose and not suppress and not diagnose in corpus_unistr: diagnose_write(diagnose+" was in the corpus before normalisation, but not after") # (if running from a checkpoint, might want to rm normalised and redo the diagnose)
+  if normalise_only: sys.exit()
   if priority_list:
     if os.path.exists(priority_list):
       sys.stderr.write("Reading "+priority_list+"\n")
