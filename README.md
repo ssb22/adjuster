@@ -898,7 +898,7 @@ Options:
  : Cancels any earlier --bookmarks-developer option in Makefile variables etc
 
 `-e, --epub`
- : When generating an Android browser, make it also respond to requests to open EPUB files. This results in an app that requests the 'read external storage' permission on Android versions below 6.
+ : When generating an Android browser, make it also respond to requests to open EPUB files. This results in an app that requests the 'read external storage' permission on Android versions below 6, so if you have already released a version without EPUB support then devices running Android 5.x or below will not auto-update past this change until the user notices the update notification and approves the extra permission.
 
 `--no-epub`
  : Cancels any earlier --epub option in Makefile variables etc
