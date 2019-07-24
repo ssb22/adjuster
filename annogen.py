@@ -1483,7 +1483,7 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
        Also ensure all ruby is space-separated like ours,
        so our padding CSS overrides don't give inconsistent results */
     if(nf) {
-        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
+        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
         if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')"""+postFixCond+r"""n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}
     }
   }"""
@@ -1875,7 +1875,7 @@ if glossfile: android_src += r"""
                         d.setPositiveButton("3 line", new android.content.DialogInterface.OnClickListener() {
                                 public void onClick(android.content.DialogInterface dialog,int id) {
 class InjectorTask implements Runnable { InjectorTask() {} public void run() { browser.loadUrl(
-"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"/(;]*)([^\"]*)\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>');var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)} ad0=document.body.innerHTML;ssb_local_annotator.alert('','3-line definitions tend to be incomplete!')"
+"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"/(;]*)([/(;][^\"]*)?\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>');var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)} ad0=document.body.innerHTML;ssb_local_annotator.alert('','3-line definitions tend to be incomplete!')"
 /* Above rp elements are to make firstChild etc work in
    dialogue.  Don't do whole document.body.innerHTML, or
    scripts like document.write may execute a second time,
@@ -2136,7 +2136,8 @@ android_src += r"""
 if epub: android_src += r"""
             if(Integer.valueOf(Build.VERSION.SDK)<11 && url.endsWith(".epub")) { browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>This app'+\"'s EPUB handling requires Android 3 or above :-(</body>\")"); return true; } // (Support for Android 2 would require using data URIs for images etc, and using shouldOverrideUrlLoading on all links)
             if ((url.startsWith("file:") && url.endsWith(".epub")) || "application/epub+zip".equals(intent.getType())) {
-                // Android 8, and probably 6+, will send a content:// URI (not ending with .epub) and shouldInterceptRequest does NOT get content:// URIs, so do the URL substitution *here* (which is better anyway because we can check the type).  Android 4 will just send a file:// URL and is OK either way.
+                // Android 8, and probably 5+, will send a content:// URI (not ending with .epub) and shouldInterceptRequest does NOT get content:// URIs, so do the URL substitution *here* (which is better anyway because we can check the type).  Android 4 will just send a file:// URL and is OK either way.
+                // Android 5+ content:// URIs expire when the receiving Activity finishes, so we won't be able to add them to bookmarks (unless copy the entire epub, which is not good on a space-limited device).  TODO: could scan Downloads etc for epub files though
                 android.content.SharedPreferences sp=getPreferences(0);
                 android.content.SharedPreferences.Editor e; do { e=sp.edit(); e.putString("epub",url); } while(!e.commit());
                 url = "http://epub/"; // links will be absolute; browser doesn't have to change
