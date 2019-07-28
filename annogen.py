@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6607 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.67 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -220,6 +220,8 @@ parser.add_option("--java",
                   help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
 parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.  If you load a page containing Javascript that allows the user to navigate to arbitrary URLs, you'll have an annotating Web browser app: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  Huawei devices sold after c.2019-05-20 won't have Play Store access, and Huawei's "AppGallery" was accepting only registered companies not individual developers, so 'side-loading' will be needed there too (unless you're a registered company).
+parser.add_option("--android-template",
+                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page.")
 parser.add_option("--android-pre-2016",
                   action="store_true",default=False,
                   help="When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way won't be allowed on \"Play Store\" in August 2019 (November 2019 for updates) unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.")
@@ -427,6 +429,8 @@ def errExit(msg):
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
+if android_template:
+  android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
 if ndk and not android: errExit("You must set --android=URL when using --ndk. E.g. --android=file:///android_asset/index.html")
 if (ndk_pre_2016 or ndk_pre_2017 or ndk_pre_2018) and not ndk: errExit("--ndk-pre-* options don't make sense when not using --ndk")
@@ -436,10 +440,10 @@ if (extra_js or extra_css or existing_ruby_js_fixes) and not (android or ios): e
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
-if extra_css.startswith("@") and os.path.exists(extra_css[1:]): extra_css = open(extra_css[1:]).read()
-if extra_js.startswith("@") and os.path.exists(extra_js[1:]): extra_js = open(extra_js[1:]).read()
+if extra_css.startswith("@"): extra_css = open(extra_css[1:]).read()
+if extra_js.startswith("@"): extra_js = open(extra_js[1:]).read()
 if extra_js.rstrip() and not extra_js.rstrip()[-1] in ';}': errExit("--extra-js must end with a semicolon or a closing brace")
-if existing_ruby_js_fixes.startswith("@") and os.path.exists(existing_ruby_js_fixes[1:]): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:]).read()
+if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:]).read()
 jPackage = None
 if nested_switch: nested_switch=int(nested_switch) # TODO: if java, override it?  or just rely on the help text for --nested-switch (TODO cross-reference it from --java?)
 if java:
@@ -1351,7 +1355,7 @@ c_end += r"""  while(!FINISHED) {
 # jsAddRubyCss will be in a quoted string in ObjC / Java source, so all " and \ must be escaped:
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
 jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari Unicode, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
-if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
+if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += "+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
 jsAddRubyCss += "+'</style>'"
 def bookmarkJS():
@@ -1709,7 +1713,7 @@ android_manifest += r"""" />
 if not android_https_only and not android_pre_2016: android_manifest += 'android:networkSecurityConfig="@xml/network_security_config" '
 android_manifest += r""">
 <service android:name=".BringToFront" android:exported="false"/>
-<activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleInstance" >
+<activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleTask" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
 <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>"""
 if epub: android_manifest += r"""
@@ -1719,6 +1723,24 @@ android_layout = r"""<?xml version="1.0" encoding="utf-8"?>
   <WebView android:id="@+id/browser" android:layout_height="match_parent" android:layout_width="match_parent" />
 </LinearLayout>
 """
+if android_template == "blank": android_template = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body><h3>"""+app_name+r"</h3>URL_BOX_GOES_HERE</body></html>"
+elif android_template:
+  android_template = open(android_template).read()
+android_url_box = r"""
+<div style="border: thin dotted grey">"""
+if epub: android_url_box += r"""
+<a style="float: left; border: thin grey dotted; padding: 0px 0.4em 0px 0.4em" href="javascript:ssb_local_annotator.getEPUB()">Offline EPUB file</a>
+<a style="float: right; padding: 0px 0.4em 0px 0.4em; border: thin grey dotted" href="clipboard.html">Clipboard</a>
+"""
+else: android_url_box += r"""
+<a href="clipboard.html">Offline&nbsp;clipboard</a>
+"""
+android_url_box += r"""
+<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)alert('The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%"></td></tr></table></form>
+<script>var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server.")</script>
+</div>"""
+if android_https_only: android_url_box=android_url_box.replace("http://","https://")
+if android_template: android_template = android_template.replace("URL_BOX_GOES_HERE",android_url_box)
 android_src = r"""package %%JPACKAGE%%;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
@@ -1972,6 +1994,8 @@ android_src += r"""
                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
                 if(toast) Toast.makeText(act, "Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
             }"""
+if epub: android_src += r"""
+            @JavascriptInterface public void getEPUB() { Intent i = new Intent(Intent.ACTION_GET_CONTENT); i.setType("*/*"); /* application/epub+zip leaves all files unselectable on Android 4.4 */ try { startActivityForResult(i, 8778); } catch (android.content.ActivityNotFoundException e) { Toast.makeText(act,"Please install a file manager",Toast.LENGTH_LONG).show(); } }"""
 if bookmarks: android_src += r"""
             @SuppressLint("DefaultLocale")
             @JavascriptInterface public void addBM(String p) {
@@ -2060,8 +2084,7 @@ if epub: android_src += r"""
                         if(part==null) {
                             f=new ByteArrayOutputStream();
                             String fName=epubUrl;
-                            int slash=fName.lastIndexOf("/");
-                            if(slash>-1) fName=fName.substring(slash+1);
+                            int slash=fName.lastIndexOf("/"),slash2=fName.lastIndexOf("%2F"); if(slash2>slash) slash=slash2+2; if(slash>-1) fName=fName.substring(slash+1);
                             f.write(("<h2>"+fName+"</h2>Until I write a <em>real</em> table-of-contents handler, you have to make do with <em>this</em>:").getBytes());
                         }
                         boolean foundHTML = false; // doubles as 'foundPart' if getNextPage
@@ -2134,21 +2157,25 @@ android_src += r"""
         else if (Intent.ACTION_VIEW.equals(intent.getAction())) {
             String url=intent.getData().toString();"""
 if epub: android_src += r"""
-            if(Integer.valueOf(Build.VERSION.SDK)<11 && url.endsWith(".epub")) { browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>This app'+\"'s EPUB handling requires Android 3 or above :-(</body>\")"); return true; } // (Support for Android 2 would require using data URIs for images etc, and using shouldOverrideUrlLoading on all links)
-            if ((url.startsWith("file:") && url.endsWith(".epub")) || "application/epub+zip".equals(intent.getType())) {
-                // Android 8, and probably 5+, will send a content:// URI (not ending with .epub) and shouldInterceptRequest does NOT get content:// URIs, so do the URL substitution *here* (which is better anyway because we can check the type).  Android 4 will just send a file:// URL and is OK either way.
-                // Android 5+ content:// URIs expire when the receiving Activity finishes, so we won't be able to add them to bookmarks (unless copy the entire epub, which is not good on a space-limited device).  TODO: could scan Downloads etc for epub files though
-                android.content.SharedPreferences sp=getPreferences(0);
-                android.content.SharedPreferences.Editor e; do { e=sp.edit(); e.putString("epub",url); } while(!e.commit());
-                url = "http://epub/"; // links will be absolute; browser doesn't have to change
-            }"""
-android_src += r"""
-            browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>Loading, please wait...</body>')");
-            browser.loadUrl(url);
+            if (((url.startsWith("file:") || url.startsWith("content:")) && url.endsWith(".epub")) || "application/epub+zip".equals(intent.getType())) openEpub(url); else"""
+android_src += r""" loadingWait(url);
         }
         else return false; return true;
     }
+    void loadingWait(String url) {
+        browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>Loading, please wait...</body>')");
+        browser.loadUrl(url);
+    }
     String sentText = null;"""
+if epub: android_src += r"""
+    void openEpub(String url) {
+        if(Integer.valueOf(Build.VERSION.SDK)<11 && url.endsWith(".epub")) { browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>This app'+\"'s EPUB handling requires Android 3 or above :-(</body>\")"); return; } // (Support for Android 2 would require using data URIs for images etc, and using shouldOverrideUrlLoading on all links)
+        // Android 5+ content:// URIs expire when the receiving Activity finishes, so we won't be able to add them to bookmarks (unless copy the entire epub, which is not good on a space-limited device)
+        android.content.SharedPreferences sp=getPreferences(0);
+        android.content.SharedPreferences.Editor e; do { e=sp.edit(); e.putString("epub",url); } while(!e.commit());
+        loadingWait("http://epub/"); // links will be absolute; browser doesn't have to change
+    }
+    @Override protected void onActivityResult(int request, int result, Intent intent) { if(request!=8778 || intent==null || result!=-1) return; boolean isEpub=false; try{byte[] buf=new byte[58]; getContentResolver().openInputStream(Uri.parse(intent.getData().toString())).read(buf,0,58); isEpub=buf[0]=='P' && buf[1]=='K' && buf[2]==3 && buf[3]==4 && new String(buf,30,28).equals("mimetypeapplication/epub+zip"); }catch(Exception e){} if(isEpub) openEpub(intent.getData().toString()); else {Toast.makeText(this, "That wasn't an EPUB file :-(",Toast.LENGTH_LONG).show();} }"""
 if pleco_hanping: android_src += r"""
     int dictionaries = 0;
     boolean gotPleco = false;
@@ -4622,6 +4649,7 @@ def outputParser(rulesAndConds):
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace('%%ANDROID-URL%%',android))
       open(java+os.sep+"BringToFront.java","w").write(android_bringToFront.replace("%%JPACKAGE%%",jPackage))
       open(jSrc+"/../assets/clipboard.html",'w').write(android_clipboard)
+      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template)
       update_android_manifest()
       if ndk:
         outfile.write(c_end)
