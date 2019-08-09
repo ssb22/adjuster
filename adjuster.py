@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.2793 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.2794 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -3335,7 +3335,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 elif txt[0]=='j': return self.serve_bookmarklet_json(filterNo)
                 elif txt[0]=='u': return self.serve_backend_post(filterNo)
                 elif txt[0] in 'iap':
-                    return self.doResponse2(htmlhead(title)+android_ios_instructions(self.request.host,self.request.headers.get("User-Agent","")),"noFilterOptions",False)
+                    return self.doResponse2(htmlhead()+android_ios_instructions(self.request.host,self.request.headers.get("User-Agent","")),"noFilterOptions",False)
             txt = zlib.decompressobj().decompress(base64.b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
             self.request.uri = "%s (input not logged, len=%d)" % (options.submitPath,len(txt))
         else: txt = self.request.arguments.get("i",None)
