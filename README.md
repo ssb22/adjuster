@@ -859,30 +859,6 @@ Options:
 `
  : Cancels any earlier --android-https-only option in Makefile variables etc
 
-`--ndk`
- : [**Deprecated**] Android NDK: make a C annotator and use ndk-build to compile it into a 32-bit Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, it restricts which Android versions can be supported if you are compiling on newer toolsets (see --ndk-pre-* options), and "Play Store" is set to drop support for 32-bit-only binaries in August 2019. I will probably remove this option at that point, because the speed bonus of NDK is increasingly negligible now that --data-driven and --zlib are also available in the Java version.
-
-`--no-ndk`
- : Cancels any earlier --ndk option in Makefile variables etc
-
-`--ndk-pre-2018`
- : When building with ndk-build, assume it's older than the June 2018 release (r18b) and therefore supports Android versions below 4.1
-
-`--no-ndk-pre-2018`
- : Cancels any earlier --ndk-pre-2018 option in Makefile variables etc
-
-`--ndk-pre-2017`
- : When building with ndk-build, assume it's older than the July 2017 release (r15c) and therefore supports Android versions below 4.0
-
-`--no-ndk-pre-2017`
- : Cancels any earlier --ndk-pre-2017 option in Makefile variables etc
-
-`--ndk-pre-2016`
- : When building with ndk-build, assume it's older than the June 2016 release (r12) and therefore supports Android versions below 2.3
-
-`--no-ndk-pre-2016`
- : Cancels any earlier --ndk-pre-2016 option in Makefile variables etc
-
 `-L, --pleco-hanping`
  : In the Android app, make popup definitions link to Pleco or Hanping if installed
 

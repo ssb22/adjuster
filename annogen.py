@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.67 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.671 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -230,22 +230,6 @@ parser.add_option("--android-https-only",
                   action="store_true",default=False,
                   help="When generating an Android app, let Android 9+ restrict it to HTTPS-only URLs")
 cancelOpt("android-https-only")
-parser.add_option("--ndk",
-                  action="store_true",default=False,
-                  help="[DEPRECATED] Android NDK: make a C annotator and use ndk-build to compile it into a 32-bit Android JNI library.  This is no longer recommended: it's a more complex setup than a Java-based annotator, it restricts which Android versions can be supported if you are compiling on newer toolsets (see --ndk-pre-* options), and \"Play Store\" is set to drop support for 32-bit-only binaries in August 2019. I will probably remove this option at that point, because the speed bonus of NDK is increasingly negligible now that --data-driven and --zlib are also available in the Java version.") # 'increasingly' due to Android's own improvements to JIT etc.  Could add support for dual 32/64-bit, but that would double the binary size (unless shared data is passed in from the Java and/or some trick is done to ship separate 32/64-bit APKs, but if the JIT works well anyway then what's the point of setting up new equipment to test the necessary NDK tweaks)
-cancelOpt("ndk")
-parser.add_option("--ndk-pre-2018",
-                  action="store_true",default=False,
-                  help="When building with ndk-build, assume it's older than the June 2018 release (r18b) and therefore supports Android versions below 4.1")
-cancelOpt("ndk-pre-2018")
-parser.add_option("--ndk-pre-2017",
-                  action="store_true",default=False,
-                  help="When building with ndk-build, assume it's older than the July 2017 release (r15c) and therefore supports Android versions below 4.0")
-cancelOpt("ndk-pre-2017")
-parser.add_option("--ndk-pre-2016",
-                  action="store_true",default=False,
-                  help="When building with ndk-build, assume it's older than the June 2016 release (r12) and therefore supports Android versions below 2.3") # NOT tested with the r11 (March 2016) release of the NDK, which changed the default target of the toolchain to arm7 and required -targetoption armv5te-linux-androideabi somewhere to support very old devices
-cancelOpt("ndk-pre-2016")
 parser.add_option("-L","--pleco-hanping",
                   action="store_true",default=False,
                   help="In the Android app, make popup definitions link to Pleco or Hanping if installed")
@@ -432,8 +416,6 @@ if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option req
 if android_template:
   android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
-if ndk and not android: errExit("You must set --android=URL when using --ndk. E.g. --android=file:///android_asset/index.html")
-if (ndk_pre_2016 or ndk_pre_2017 or ndk_pre_2018) and not ndk: errExit("--ndk-pre-* options don't make sense when not using --ndk")
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
 if android_print and not bookmarks: errExit("The current implementation of --android-print requires --bookmarks to be set as well")
 if (extra_js or extra_css or existing_ruby_js_fixes) and not (android or ios): errExit("--extra-js, --extra-css and --existing-ruby-js-fixes require either --android or --ios")
@@ -466,19 +448,16 @@ if java or javascript or python or c_sharp or golang:
     if sum(1 for x in [java,javascript,python,c_sharp,golang] if x) > 1:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
     if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript, Python, C# or Go")
-    if compress and not ndk:
-      if android: errExit("--compress without --ndk not yet implemented for Android, but --zlib typically gives results within 1% of --zlib --compress")
+    if compress:
+      if android: errExit("--compress not yet implemented for Android, but --zlib typically gives results within 1% of --zlib --compress")
       else: errExit("--compress not yet implemented for the Java, Javascript, Python, C# or Go versions") # (and it would probably slow down JS/Python too much if it were implemented in that)
     if java:
       if android and not "/src//" in java: errExit("When using --android, the last thing before the // in --java must be 'src' e.g. --java=/workspace/MyProject/src//org/example/package")
       if main and not compile_only: # (delete previous files, only if we're not an MPI-etc subprocess)
        os.system("mkdir -p "+shell_escape(java))
        for f in os.listdir(java):
-        if f.endswith(".java") and (f.startswith("z") or f in ["topLevelMatch.java","Annotator.java"]): os.remove(java+os.sep+f) # (may want to remove topLevelMatch & Annotator if moving from non-ndk to ndk)
-      if ndk:
-        c_filename = jSrc+"/../jni/annotator.c"
-        if main: os.system("mkdir -p "+shell_escape(c_filename[:c_filename.rindex('/')]))
-      else: c_filename = java+os.sep+"Annotator.java"
+        if f.endswith(".java") and f.startswith("z"): os.remove(java+os.sep+f)
+      c_filename = java+os.sep+"Annotator.java"
       if main and android:
         os.system("rm -rf "+shell_escape(jSrc+"/../bin")) # needed to get rid of old *.class files that might be no longer used
         for d in ["assets","bin","gen","res/layout","res/menu","res/values"]: os.system("mkdir -p "+shell_escape(jSrc+"/../"+d))
@@ -491,15 +470,12 @@ if java or javascript or python or c_sharp or golang:
 elif windows_clipboard:
   if ios: errExit("Support for having both --ios and --windows-clipboard at the same time is not yet implemented") # (I suppose you could make a single output file that will compile as either C+MS-stuff or Objective-C depending on preprocessor tests)
   if library: errExit("Support for having both --windows-clipboard and --library at the same time is not yet implemented") # ditto
-  if ndk: errExit("Support for having both --ndk and --windows-clipboard at the same time is not yet implemented")
   if c_compiler=="cc -o annotator": c_compiler="i386-mingw32-gcc -o annoclip.exe"
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --windows-clipboard")
 elif library:
   if ios: errExit("Support for having both --ios and --library at the same time is not yet implemented") # (I suppose you could make a single output file that will compile as either C+MS-stuff or Objective-C depending on preprocessor tests)
-  if ndk: errExit("Support for having both --ndk and --library at the same time is not yet implemented")
   if c_compiler=="cc -o annotator": c_compiler="gcc -shared -fPIC -Wl,-soname,annotator.so.1 -o libannotator.so.1 -lc"
 elif ios:
-  if ndk: errExit("Support for having both --ios and --ndk at the same time is not yet implemented")
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ios")
   if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
 if js_6bit:
@@ -515,7 +491,7 @@ if data_driven:
   elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java? (in which case also update the 'compress' errExit above so it doesn't check for android before suggesting zlib)
 elif javascript or python: data_driven = True
 compact_opcodes = data_driven and not fast_assemble and not python # currently implemented only in the C, Java and Javascript versions of the data-driven runtime
-if java or javascript or python or c_sharp or ios or ndk or golang:
+if java or javascript or python or c_sharp or ios or golang:
   c_compiler = None
 try:
   import locale
@@ -543,14 +519,14 @@ if diagnose_manual or normalise_only or (not norefs and (not no_summary or gloss
 def nearCall(negate,conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
   if not max_or_length or len(conds) <= max_or_length:
-    if java and not ndk: f="a.n"
+    if java: f="a.n"
     else: f="near"
     ret = " || ".join(f+"(\""+outLang_escape(c)+"\")" for c in conds)
     if negate:
       if " || " in ret: ret = " ! ("+ret+")"
       else: ret = "!"+ret
     return ret
-  if java and not ndk: fStart,fEnd = "package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {","} }" # put functions in separate classes to try to save the constants table of the main class
+  if java: fStart,fEnd = "package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {","} }" # put functions in separate classes to try to save the constants table of the main class
   elif golang: fStart,fEnd = "func NewFunc() bool {","}"
   else: fStart,fEnd = outLang_bool+" NewFunc() {","}"
   if negate: rTrue,rFalse = outLang_false,outLang_true
@@ -566,13 +542,13 @@ def subFuncCall(newFunc,subFuncs,subFuncL):
     # we generated an identical one before
     subFuncName=subFuncs[newFunc]
   else:
-    if java and not ndk: subFuncName="z%X" % len(subFuncs) # (try to save as many bytes as possible because it won't be compiled out and we also have to watch the compiler's footprint; start with z so MainActivity.java etc appear before rather than among this lot in IDE listings)
+    if java: subFuncName="z%X" % len(subFuncs) # (try to save as many bytes as possible because it won't be compiled out and we also have to watch the compiler's footprint; start with z so MainActivity.java etc appear before rather than among this lot in IDE listings)
     else: subFuncName="match%d" % len(subFuncs)
     subFuncs[newFunc]=subFuncName
     if java or c_sharp or golang: static=""
     else: static="static "
     subFuncL.append(static+newFunc.replace("NewFunc",subFuncName,1))
-  if java and not ndk: return jPackage+"."+subFuncName+".f(a)"
+  if java: return jPackage+"."+subFuncName+".f(a)"
   return subFuncName+"()" # the call (without a semicolon)
 
 def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFuncs={},java_localvar_counter=None,nestingsLeft=None): # ("topLevelMatch" is also mentioned in the C code)
@@ -582,7 +558,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
     # can also be byte seq to [(action,(OR-list,nbytes))] but only if OR-list is not empty, so value[1] will always be false if OR-list is empty
     if nestingsLeft==None: nestingsLeft=nested_switch
     canNestNow = not nestingsLeft==0 # (-1 = unlimited)
-    if java and not ndk: adot = "a."
+    if java: adot = "a."
     else: adot = ""
     if java or c_sharp or golang: NEXTBYTE = adot + 'nB()'
     else: NEXTBYTE = 'NEXTBYTE'
@@ -592,7 +568,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
       java_localvar_counter=[0]
     olvc = "%X" % java_localvar_counter[0] # old localvar counter
     if funcName:
-        if java and not ndk: ret.append("package "+jPackage+";\npublic class "+funcName+" { public static void f("+jPackage+".Annotator a) {")
+        if java: ret.append("package "+jPackage+";\npublic class "+funcName+" { public static void f("+jPackage+".Annotator a) {")
         else:
           if funcName=="topLevelMatch" and not c_sharp: stat="static " # because we won't call subFuncCall on our result
           else: stat=""
@@ -622,7 +598,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
             # there's more than 1.  We use max rule len
             # as an upper bound for that instead.)
             del ret[savePos]
-            if java and not ndk: ret.append("a.inPtr--;")
+            if java: ret.append("a.inPtr--;")
             elif c_sharp or golang: ret.append("inPtr--;")
             else: ret.append("PREVBYTE;")
         elif java or c_sharp:
@@ -663,7 +639,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
         elif ios and ord(case)>127: cstr=str(ord(case)-256)
         else:
           cstr=str(ord(case))
-          if java and not ndk: cstr = "(byte)"+cstr
+          if java: cstr = "(byte)"+cstr
         if use_if: ret.append("if("+NEXTBYTE+"=="+cstr+") {")
         else: ret.append("case %s:" % cstr)
         subDict = dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case])
@@ -674,7 +650,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
           # which returns 1 if we should return.
           # (TODO: this won't catch cases where there's a savePos before the inner switch; will still nest in that case.  But it shouldn't lead to big nesting in practice.)
           if nested_switch: inner = stringSwitch(subDict,subFuncL,None,subFuncs,None,None) # re-do it with full nesting counter
-          if java and not ndk: myFunc,funcEnd = ["package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {"], "}}"
+          if java: myFunc,funcEnd = ["package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {"], "}}"
           elif golang: myFunc,funcEnd=["func NewFunc() bool {"],"}"
           else: myFunc,funcEnd=[outLang_bool+" NewFunc() {"],"}"
           for x in inner:
@@ -686,7 +662,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
       ret.append("}") # end of switch or if
     restorePos()
     if funcName:
-      if java and not ndk: ret.append("} }")
+      if java: ret.append("} }")
       else: ret.append("}")
     elif "" in byteSeq_to_action_dict:
         # if the C code gets to this point, no return; happened - no suffices
@@ -698,7 +674,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
                 assert action, "conds without action in "+repr(byteSeq_to_action_dict[""])
                 if type(conds)==tuple:
                     negate,conds,nbytes = conds
-                    if java and not ndk: ret.append("a.sn(%d);" % nbytes)
+                    if java: ret.append("a.sn(%d);" % nbytes)
                     elif c_sharp or golang: ret.append("nearbytes=%d;" % nbytes)
                     else: ret.append("setnear(%d);" % nbytes)
                 else: negate = False
@@ -848,9 +824,8 @@ static int near(char* string) {
 }
 """ # (strnstr is BSD-specific, but that's OK on iOS.  TODO: might be nice if all loops over outWriteByte could be reduced to direct calls of appendBytes with appropriate lengths, but it wouldn't be a major speedup)
   have_annotModes = False # only ruby is needed by the iOS code
-elif ndk or library:
-  if library:
-    c_preamble = r"""
+elif library:
+  c_preamble = r"""
   /*
      This library is NOT thread safe.  But you can use it
      with single-threaded or multiprocess code like Web Adjuster
@@ -863,61 +838,59 @@ alib = CDLL("./libannotator.so.1")
 _annotate,_afree = alib.annotate,alib.afree
 _annotate.restype = c_char_p
 _annotate.argtypes = [c_char_p"""
-    if sharp_multi: c_preamble += ",c_int"
-    c_preamble += r",c_int]"
-    if outcode=="utf-8":
-      c_preamble += r"""
+  if sharp_multi: c_preamble += ",c_int"
+  c_preamble += r",c_int]"
+  if outcode=="utf-8":
+    c_preamble += r"""
 _annotateRL = alib.annotateRawLatinize
 _annotateRL.restype = c_char_p
 _annotateRL.argtypes = [c_char_p"""
-      if sharp_multi: c_preamble += ",c_int"
-      c_preamble += "]\ndef annotR(txt"
-      if sharp_multi: c_preamble += ",aType=0"
-      c_preamble += r"""):
+    if sharp_multi: c_preamble += ",c_int"
+    c_preamble += "]\ndef annotR(txt"
+    if sharp_multi: c_preamble += ",aType=0"
+    c_preamble += r"""):
     if type(txt)==unicode: txt = txt.encode('utf-8')
     r = _annotateRL(txt"""
-      if sharp_multi: c_preamble += ",aType"
-      c_preamble += r""")
+    if sharp_multi: c_preamble += ",aType"
+    c_preamble += r""")
     _afree() ; return r"""
-    c_preamble += "\ndef annotate(txt"
-    if sharp_multi: c_preamble += ",aType=0"
-    c_preamble += r""",aMode=1):
+  c_preamble += "\ndef annotate(txt"
+  if sharp_multi: c_preamble += ",aType=0"
+  c_preamble += r""",aMode=1):
     "aMode: 0 = raw, 1 = ruby (default), 2 = braces"
     if type(txt)==unicode: txt = txt.encode('"""+outcode+r"""')
     r = _annotate(txt"""
-    if sharp_multi: c_preamble += ",aType"
-    c_preamble += r""",aMode)
+  if sharp_multi: c_preamble += ",aType"
+  c_preamble += r""",aMode)
     _afree() ; return r
 # then for Web Adjuster you can do, for example,
 # adjuster.annotFunc1 = lambda t:annotate(t"""
-    if sharp_multi: c_preamble += ",1"
-    c_preamble += ",1)\n"
-    if outcode=="utf-8":
-      if sharp_multi: c_preamble += "# adjuster.annotFunc1R = lambda t:annotR(t,1)"
-      else: c_preamble += "# adjuster.annotFunc1R = annotR"
-      c_preamble += r"""
+  if sharp_multi: c_preamble += ",1"
+  c_preamble += ",1)\n"
+  if outcode=="utf-8":
+    if sharp_multi: c_preamble += "# adjuster.annotFunc1R = lambda t:annotR(t,1)"
+    else: c_preamble += "# adjuster.annotFunc1R = annotR"
+    c_preamble += r"""
 # adjuster.options.htmlFilter = "*annotFunc1#*annotFunc1R"
 # adjuster.options.htmlFilterName = "ruby#annot-only"
 """
-    else: c_preamble += r"""
+  else: c_preamble += r"""
 # adjuster.options.htmlFilter = "*annotFunc1"
 """
-    if not outcode=="utf-8": c_preamble += r"""
+  if not outcode=="utf-8": c_preamble += r"""
 # but BEWARE Web Adjuster assumes UTF-8; you'd better write a wrapper to re-code it
 """ # (TODO: automate this?)
-    c_preamble += r"""
+  c_preamble += r"""
     Compile with:
     gcc -shared -fPIC -Wl,-soname,annotator.so.1 -o libannotator.so.1 annotator.c -lc
 
   */
   """
-    if cfn: c_preamble=c_preamble.replace("annotator.c",cfn)
-  else: c_preamble = ""
+  if cfn: c_preamble=c_preamble.replace("annotator.c",cfn)
   c_preamble += r"""
 #include <stdlib.h>
 #include <string.h>
 """
-  if ndk: c_preamble += "#include <jni.h>\n"
   c_defs = r"""static const unsigned char *readPtr, *writePtr, *startPtr;
 static char *outBytes;
 static size_t outWriteLen,outWritePtr;
@@ -966,53 +939,33 @@ int near(char* string) {
     return 0;
 }
 void matchAll();"""
-  if ndk:
-    c_defs += r"""
-JNIEXPORT jstring JNICALL Java_"""+jPackage.replace('.','_')+r"""_MainActivity_jniAnnotate(JNIEnv *env, jclass theClass, jstring jIn"""
-    if sharp_multi: c_defs += ", jint jAnnotNo"
-    c_defs += r""") {
-  startPtr=(char*)(*env)->GetStringUTFChars(env,jIn,NULL);
-  readPtr = startPtr; writePtr = startPtr;
-  outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
-  outBytes = malloc(outWriteLen);"""
-    if sharp_multi: c_defs += " numSharps=jAnnotNo;"
-    c_defs += r"""
-  if(outBytes) { outWritePtr = 0; matchAll(); }
-  (*env)->ReleaseStringUTFChars(env,jIn,startPtr);
-  if(outBytes) OutWriteByte(0);
-  else return (*env)->NewStringUTF(env,"out of memory"); /* which it might or might not be able to do.  This check is meaningless if the kernel overcommits, but I don't know if that's true on (all versions of) Android. */
-  jstring ret=(*env)->NewStringUTF(env,outBytes);
-  free(outBytes); return ret;
-}
-"""
-  else:
-    c_defs += r"""
+  c_defs += r"""
 void afree() { if(outBytes) free(outBytes); outBytes=NULL; }
 char *annotate(const char *input"""
-    if sharp_multi: c_defs += ", int annotNo"
-    c_defs += r""",int aMode) {
+  if sharp_multi: c_defs += ", int annotNo"
+  c_defs += r""",int aMode) {
   readPtr=writePtr=startPtr=(char*)input;
   outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
   afree(); outBytes = malloc(outWriteLen);"""
-    if sharp_multi: c_defs += " numSharps=annotNo;"
-    c_defs += r""" annotation_mode = aMode;
+  if sharp_multi: c_defs += " numSharps=annotNo;"
+  c_defs += r""" annotation_mode = aMode;
   if(outBytes) { outWritePtr = 0; matchAll(); }
   if(outBytes) OutWriteByte(0);
   return outBytes;
 }
 """
-    if outcode=="utf-8": # (TODO: document this feature?  non-utf8 versions ??)
-      c_defs += r"""
+  if outcode=="utf-8": # (TODO: document this feature?  non-utf8 versions ??)
+    c_defs += r"""
 static void latinizeMatch(); static int latCap,latSpace;
 char *annotateRawLatinize(const char *input"""
-      if sharp_multi: c_defs += ", int annotNo"
-      c_defs += r""") {
+    if sharp_multi: c_defs += ", int annotNo"
+    c_defs += r""") {
     // "Bonus" library function, works only if annotation is Latin-like,
     // tries to improve the capitalisation when in 'raw' mode
     // (TODO: make this available in other annogen output formats?  work into ruby mode??)
     char *tmp=annotate(input"""
-      if sharp_multi: c_defs += ",annotNo"
-      c_defs += r""",annotations_only);
+    if sharp_multi: c_defs += ",annotNo"
+    c_defs += r""",annotations_only);
     if(tmp) { tmp=strdup(tmp); if(tmp) {
       readPtr=writePtr=startPtr=tmp;
       afree(); outBytes=malloc(outWriteLen);
@@ -1303,7 +1256,7 @@ enum {
   c_switch4 = "} else o(numBytes,annot);"
 else: c_switch1=c_switch2=c_switch3=c_switch4=""
 
-if (data_driven or sharp_multi) and not ndk: c_preamble += '#include <stdlib.h>\n' # for malloc or atoi (ndk includes it anyway, above)
+if data_driven or sharp_multi: c_preamble += '#include <stdlib.h>\n' # for malloc or atoi
 if sharp_multi: c_preamble += '#include <ctype.h>\n'
 if zlib: c_preamble += '#include "zlib.h"\n'
 if sharp_multi: c_preamble += "static int numSharps=0;\n"
@@ -1649,7 +1602,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
   DestroyWindow(win); // TODO: needed?
 }
 """
-elif not ndk and not library:
+elif not library:
   c_end += r"""
 #ifndef Omit_main
 int main(int argc,char*argv[]) {
@@ -1683,10 +1636,6 @@ int main(int argc,char*argv[]) {
 
 # ANDROID: setDefaultTextEncodingName("utf-8") is included as it might be needed if you include file:///android_asset/ URLs in your app (files put into assets/) as well as remote URLs.  (If including ONLY file URLs then you don't need to set the INTERNET permission in Manifest, but then you might as well pre-annotate the files and use a straightforward static HTML app like http://people.ds.cam.ac.uk/ssb22/gradint/html2apk.html )
 # Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list) (TODO: API 1's shouldOverrideUrlLoading was deprecated in API 24; if they remove it, we may have to provide both to remain compatible?)
-if ndk_pre_2016 or not ndk: android_minSdkVersion,armabi = "1","armeabi"
-elif ndk_pre_2017: android_minSdkVersion,armabi = "9","armeabi" # Android 2.3
-elif ndk_pre_2018: android_minSdkVersion,armabi = "14","armeabi-v7a" # Android 4.0
-else: android_minSdkVersion,armabi = "16","armeabi-v7a" # Android 4.1
 android_upload = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"])
 android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:sharedUserId="" android:installLocation="preferExternal" >
@@ -1704,7 +1653,7 @@ if epub: android_manifest += r"""<uses-permission android:name="android.permissi
 # so I would imagine the permission doesn't need activating on Android 8, but
 # for completeness we need to test Android 6 and Android 7 somehow (TODO)
 android_manifest += r"""
-<uses-sdk android:minSdkVersion="""+'"'+android_minSdkVersion+'" android:targetSdkVersion="'
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="""+'"'
 if android_pre_2016 and not android_https_only: android_manifest += '26' # stuck on API 26 in these circumstances, won't be able to upload updates to Play Store after November 2019 unless you upgrade your SDK or accept https-only
 else: android_manifest += '28'
 android_manifest += r"""" />
@@ -1773,16 +1722,8 @@ import android.widget.Toast;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.zip.ZipInputStream;
-public class MainActivity extends Activity {"""
-if ndk:
-  android_src += r"""
-    static { System.loadLibrary("Annotator"); }"""
-  if sharp_multi: android_src += r"""
-    static synchronized native String jniAnnotate(String in,int annotNo);"""
-  else: android_src += r"""
-    static synchronized native String jniAnnotate(String in);"""
-else: android_src += "%%JPACKAGE%%.Annotator annotator;"
-android_src += r"""
+public class MainActivity extends Activity {
+    %%JPACKAGE%%.Annotator annotator;
     @SuppressLint("SetJavaScriptEnabled")
     @TargetApi(19) // 19 for setWebContentsDebuggingEnabled; 7 for setAppCachePath; 3 for setBuiltInZoomControls (but only API 1 is required)
     @SuppressWarnings("deprecation") // for conditional SDK below
@@ -1826,18 +1767,15 @@ android_src += r"""
             MainActivity act; String copiedText="";
             @JavascriptInterface public String annotate(String t) """
 if data_driven: android_src += "throws java.util.zip.DataFormatException "
-android_src += '{ String r='
-if ndk and sharp_multi: android_src += 'jniAnnotate(t,annotNo)'
-elif ndk: android_src += 'jniAnnotate(t)'
-else: android_src += 'annotator.annotate(t)'
-if sharp_multi and not ndk: android_src += r""";
+android_src += '{ String r=annotator.annotate(t);'
+if sharp_multi: android_src += r"""
                 java.util.regex.Pattern p=java.util.regex.Pattern.compile("<rt>([^#]*)#(.*?)</rt>");
                 java.util.regex.Matcher m = p.matcher(r);
                 StringBuffer sb=new StringBuffer();
                 while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(annotNo+1)+"</rt>");
-                m.appendTail(sb); r=sb.toString()"""
-if epub: android_src += """; if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"&lrm;"+r""" # needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair
-android_src += r"""; return r; }
+                m.appendTail(sb); r=sb.toString();"""
+if epub: android_src += """if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"&lrm;"+r;""" # needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair
+android_src += r"""return r; }
             @JavascriptInterface public void alert(String t,String a) {
                 class DialogTask implements Runnable {
                     String tt,aa;
@@ -2042,9 +1980,8 @@ if bookmarks: android_src += r"""
                 return s+getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
             }""" # and even if not bookmarks:
 android_src += "\n}\n"
-if not ndk:
-  if data_driven: android_src += "try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this, \"Cannot load annotator data!\", Toast.LENGTH_LONG).show(); }" # TODO: should we keep one of these static and synchronized, in case some version of Android gives us multiple instances and we start taking up more RAM than necessary?
-  else: android_src += "annotator=new %%JPACKAGE%%.Annotator();"
+if data_driven: android_src += "try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this, \"Cannot load annotator data!\", Toast.LENGTH_LONG).show(); }" # TODO: should we keep one of these static and synchronized, in case some version of Android gives us multiple instances and we start taking up more RAM than necessary?
+else: android_src += "annotator=new %%JPACKAGE%%.Annotator();"
 android_src += r"""
         browser.addJavascriptInterface(new A(this"""
 if sharp_multi: android_src += ',Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("annotNo", "0"))'
@@ -4401,7 +4338,7 @@ def js_escapeRawBytes(s):
 
 def c_length(unistr): return len(unistr.encode(outcode))
 
-if (java and not ndk) or c_sharp or golang:
+if java or c_sharp or golang:
   if golang: outLang_escape = golang_escape
   else: outLang_escape = java_escape
   if java: outLang_bool = "boolean"
@@ -4533,7 +4470,7 @@ def outputParser(rulesAndConds):
     byteSeq_to_action_dict = {}
     if ignoreNewlines:
         if data_driven: newline_action = [(1,)]
-        elif java and not ndk: newline_action = r"a.o((byte)'\n'); /* needSpace unchanged */ a.writePtr++;"
+        elif java: newline_action = r"a.o((byte)'\n'); /* needSpace unchanged */ a.writePtr++;"
         elif c_sharp: newline_action = r"o((byte)'\n'); writePtr++;"
         elif golang: newline_action = r"oB('\n'); writePtr++;"
         else: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;"
@@ -4615,7 +4552,7 @@ def outputParser(rulesAndConds):
       outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
       if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
       return outfile.write(py_end+"\n")
-    elif java and not ndk:
+    elif java:
       start = java_src.replace("%%JPACKAGE%%",jPackage)
       if data_driven:
         a = android_loadData.replace("%%DLEN%%",str(len(ddrivn)))
@@ -4639,7 +4576,7 @@ def outputParser(rulesAndConds):
     else: # not data_driven
       subFuncL = []
       ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
-      if java and not ndk:
+      if java:
         for f in subFuncL: open(java+os.sep+f[f.index("class ")+6:].split(None,1)[0]+".java","w").write(f)
         open(java+os.sep+"topLevelMatch.java","w").write("\n".join(ret))
       elif golang: outfile.write("\n".join(subFuncL + ret).replace(';\n','\n')+"\n") # (this 'elif' line is not really necessary but it might save someone getting worried about too many semicolons)
@@ -4651,18 +4588,6 @@ def outputParser(rulesAndConds):
       open(jSrc+"/../assets/clipboard.html",'w').write(android_clipboard)
       if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template)
       update_android_manifest()
-      if ndk:
-        outfile.write(c_end)
-        o=open(jSrc+"/../jni/Android.mk",'w')
-        if zlib: o.write("LOCAL_LDLIBS := -lz\n")
-        o.write("""LOCAL_PATH:= $(call my-dir)
-LOCAL_SRC_FILES := annotator.c
-LOCAL_MODULE := Annotator
-LOCAL_MODULE_FILENAME := Annotator
-include $(BUILD_SHARED_LIBRARY)
-""")
-        o.close()
-        open(jSrc+"/../jni/Application.mk",'w').write("APP_PLATFORM := android-"+android_minSdkVersion+"\nAPP_ABI := "+armabi+"\n")
       open(jSrc+"/../res/layout/activity_main.xml","w").write(android_layout)
       open(jSrc+"/../res/menu/main.xml","w").write('<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
       open(jSrc+"/../res/values/dimens.xml","w").write('<resources><dimen name="activity_horizontal_margin">16dp</dimen><dimen name="activity_vertical_margin">16dp</dimen></resources>\n')
@@ -4920,25 +4845,16 @@ if main:
      if compile_only: # AndroidManifest.xml will not have been updated
        if android_upload: update_android_manifest() # so we'd better do it now
      os.chdir(jSrc+"/..")
-     if ndk:
-       if "NDK" in os.environ:
-         cmd_or_exit("$NDK/ndk-build")
-       elif os.path.exists(os.environ["SDK"]+"ndk-bundle"): cmd_or_exit("$SDK/ndk-bundle/ndk-build")
-       else: cmd_or_exit("ndk-build") # need it on PATH
-       os.system("mv -f libs/"+armabi+"/Annotator.so libs/"+armabi+"/libAnnotator.so >/dev/null 2>/dev/null")
      cmd_or_exit("$BUILD_TOOLS/aapt package -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_")
-     if ndk: cmd_or_exit("javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin src/"+jRest+"/*.java gen/"+jRest+"/R.java")
-     else: cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
-     if "min-sdk-version" in commands.getoutput("$BUILD_TOOLS/dx --help"): a=" --min-sdk-version=1"
-     else: a = "" # older versions of dx don't have that flag
-     if not ndk: a = " -JXmx4g --force-jumbo" + a # -J option must go first
+     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
+     a = " -JXmx4g --force-jumbo" # -J option must go first
+     if "min-sdk-version" in commands.getoutput("$BUILD_TOOLS/dx --help"):
+       a += " --min-sdk-version=1" # older versions of dx don't have that flag
      cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
      dirName0 = commands.getoutput("pwd|sed -e s,.*./,,")
      dirName = shell_escape(dirName0)
      cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
-     if ndk: a,b = "rsync -trv ../libs/"+armabi+" lib/ && "," lib/"+armabi+"/*.so"
-     else: a,b = "",""
-     cmd_or_exit("cd bin && "+a+"$BUILD_TOOLS/aapt add "+dirName+".ap_ classes.dex"+b)
+     cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add "+dirName+".ap_ classes.dex")
      if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore \"$KEYSTORE_FILE\" -storepass \"$KEYSTORE_PASS\" -keypass \"$KEYSTORE_PASS\" -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ \"$KEYSTORE_USER\" -tsa http://timestamp.digicert.com") # TODO: -tsa option requires an Internet connection; option to omit it if the key expiry date is far enough in the future?
      else: cmd_or_exit("mv bin/"+dirName+".ap_ bin/"+dirName+".apk") # just use the .ap_ if debug build
      rm_f("../"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
@@ -4961,7 +4877,6 @@ if main:
 To have Annogen build it for you, set these environment variables
 before the Annogen run (change the examples obviously) :
    export SDK=/home/example/Android/Sdk
-   export NDK=/usr/local/android-ndk-r10c # if using --ndk and it's not in $SDK/ndk-bundle or on PATH
    export PLATFORM=$SDK/platforms/android-19
    export BUILD_TOOLS=$SDK/build-tools/21.0.2
    # To get a release build, additionally set:
