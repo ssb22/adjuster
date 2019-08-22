@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.671 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.672 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -4586,7 +4586,7 @@ def outputParser(rulesAndConds):
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace('%%ANDROID-URL%%',android))
       open(java+os.sep+"BringToFront.java","w").write(android_bringToFront.replace("%%JPACKAGE%%",jPackage))
       open(jSrc+"/../assets/clipboard.html",'w').write(android_clipboard)
-      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template)
+      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template.replace("</body","<address>%d-%02d-%02d version</address></body" % time.localtime()[:3])) # ensure date itself is on LHS as zoom control can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line. TODO: document that --android-template does this as well
       update_android_manifest()
       open(jSrc+"/../res/layout/activity_main.xml","w").write(android_layout)
       open(jSrc+"/../res/menu/main.xml","w").write('<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
