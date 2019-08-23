@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.672 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.673 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -2061,7 +2061,7 @@ android_src += r"""
                 public void onScaleChanged(final WebView view,float from,final float to) {
                     if (Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.KITKAT || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
                     scaling=view.postDelayed(new Runnable() { public void run() {
-                        view.evaluateJavascript("javascript:document.body.style.width=(window.innerWidth-getComputedStyle(document.body).marginLeft.replace(/px/,'')*1-getComputedStyle(document.body).marginRight.replace(/px/,'')*1)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null); // window.outerWidth will still be excessive on 4.4; not sure there's much we can do about that
+                        view.evaluateJavascript("document.body.style.width=((window.visualViewport!=undefined?window.visualViewport.width:window.innerWidth)-getComputedStyle(document.body).marginLeft.replace(/px/,'')*1-getComputedStyle(document.body).marginRight.replace(/px/,'')*1)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null); // window.outerWidth will still be excessive on 4.4; not sure there's much we can do about that
                         scale=to; scaling=false;
                     } }, 100);
                 }
