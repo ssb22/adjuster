@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.673 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.674 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1636,7 +1636,7 @@ int main(int argc,char*argv[]) {
 
 # ANDROID: setDefaultTextEncodingName("utf-8") is included as it might be needed if you include file:///android_asset/ URLs in your app (files put into assets/) as well as remote URLs.  (If including ONLY file URLs then you don't need to set the INTERNET permission in Manifest, but then you might as well pre-annotate the files and use a straightforward static HTML app like http://people.ds.cam.ac.uk/ssb22/gradint/html2apk.html )
 # Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list) (TODO: API 1's shouldOverrideUrlLoading was deprecated in API 24; if they remove it, we may have to provide both to remain compatible?)
-android_upload = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"])
+android_upload = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"]) and not os.environ.get("ANDROID_NO_UPLOAD","") # TODO: document ANDROID_NO_UPLOAD
 android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:sharedUserId="" android:installLocation="preferExternal" >
 <uses-permission android:name="android.permission.INTERNET" />"""
@@ -1686,7 +1686,21 @@ else: android_url_box += r"""
 """
 android_url_box += r"""
 <form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)alert('The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%"></td></tr></table></form>
-<script>var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server.")</script>
+<script>
+function zoomOut() {
+   var l=ssb_local_annotator.getZoomLevel();
+   if (l > 0) ssb_local_annotator.setZoomLevel(--l);
+   if (!l) document.getElementById("zO").disabled=true;
+   else document.getElementById("zI").disabled=false;
+}
+function zoomIn() {
+   var l=ssb_local_annotator.getZoomLevel(),m=ssb_local_annotator.getMaxZoomLevel();
+   if (l < m) ssb_local_annotator.setZoomLevel(++l);
+   if (l==m) document.getElementById("zI").disabled=true;
+   else document.getElementById("zO").disabled=false;
+}
+if(ssb_local_annotator.canCustomZoom()) document.write('<div>Text size: <button id=zO onclick="zoomOut()">-</button> <button id=zI onclick="zoomIn()">+</button></div>');
+var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server.")</script>
 </div>"""
 if android_https_only: android_url_box=android_url_box.replace("http://","https://")
 if android_template: android_template = android_template.replace("URL_BOX_GOES_HERE",android_url_box)
@@ -1750,10 +1764,16 @@ android_src += r"""
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
         @TargetApi(1)
-        class A {"""
+        class A {
+            public A(MainActivity act) {
+                this.act = act;"""
 if sharp_multi: android_src += r"""
-            public A(MainActivity act,int no) { this.act = act; this.annotNo = no; }
-            int annotNo;
+                annotNo = Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("annotNo", "0"));"""
+android_src += r"""
+                if(canCustomZoom()) setZoomLevel(Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("zoom", "4")));
+            }
+            MainActivity act; String copiedText=""; int zoomLevel;"""
+if sharp_multi: android_src += r""" int annotNo;
             @JavascriptInterface public void setAnnotNo(int no) { annotNo = no;
                 android.content.SharedPreferences.Editor e;
                 do {
@@ -1761,10 +1781,22 @@ if sharp_multi: android_src += r"""
                 e.putString("annotNo",String.valueOf(annotNo));
                 } while(!e.commit()); }
             @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
-else: android_src += r"""
-            public A(MainActivity act) { this.act = act; }"""
 android_src += r"""
-            MainActivity act; String copiedText="";
+            @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
+            final int[] zoomPercents = new int[] {"""+','.join(str(x) for x in (list(reversed([int((0.9**x)*100) for x in range(5)][1:]))+[int((1.1**x)*100) for x in range(15)]))+r"""};
+            @JavascriptInterface public int getMaxZoomLevel() { return zoomPercents.length-1; }
+            @JavascriptInterface @TargetApi(14) public void setZoomLevel(final int level) {
+                act.runOnUiThread(new Runnable(){
+                    @Override public void run() {
+                        browser.getSettings().setTextZoom(zoomPercents[level]);
+                    }
+                });
+                android.content.SharedPreferences.Editor e;
+                do { e = getSharedPreferences("ssb_local_annotator",0).edit();
+                     e.putString("zoom",String.valueOf(level));
+                } while(!e.commit());
+                zoomLevel = level;
+            }
             @JavascriptInterface public String annotate(String t) """
 if data_driven: android_src += "throws java.util.zip.DataFormatException "
 android_src += '{ String r=annotator.annotate(t);'
@@ -1780,7 +1812,7 @@ android_src += r"""return r; }
                 class DialogTask implements Runnable {
                     String tt,aa;
                     DialogTask(String t,String a) { tt=t; aa=a; }
-                    public void run() {
+                    @Override public void run() {
                         android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
                         if(tt.length()>0) d.setTitle(tt);"""
 if pleco_hanping: android_src += r"""
@@ -1834,7 +1866,7 @@ if glossfile: android_src += r"""
                         // TODO: if already pressed, call it 2-line and reverse the substitution?
                         d.setPositiveButton("3 line", new android.content.DialogInterface.OnClickListener() {
                                 public void onClick(android.content.DialogInterface dialog,int id) {
-class InjectorTask implements Runnable { InjectorTask() {} public void run() { browser.loadUrl(
+class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { browser.loadUrl(
 "javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"/(;]*)([/(;][^\"]*)?\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>');var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)} ad0=document.body.innerHTML;ssb_local_annotator.alert('','3-line definitions tend to be incomplete!')"
 /* Above rp elements are to make firstChild etc work in
    dialogue.  Don't do whole document.body.innerHTML, or
@@ -1858,6 +1890,9 @@ android_src += r"""
             }
             @JavascriptInterface public String getClip() {
                 String r=readClipboard(); if(r.equals(copiedText)) return ""; else return r;
+            }
+            @JavascriptInterface public boolean canCustomZoom() {
+                return Integer.valueOf(Build.VERSION.SDK) >= 14;
             }"""
 if android_print: android_src += r"""
             @JavascriptInterface public String canPrint() {
@@ -1983,9 +2018,7 @@ android_src += "\n}\n"
 if data_driven: android_src += "try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this, \"Cannot load annotator data!\", Toast.LENGTH_LONG).show(); }" # TODO: should we keep one of these static and synchronized, in case some version of Android gives us multiple instances and we start taking up more RAM than necessary?
 else: android_src += "annotator=new %%JPACKAGE%%.Annotator();"
 android_src += r"""
-        browser.addJavascriptInterface(new A(this"""
-if sharp_multi: android_src += ',Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("annotNo", "0"))'
-android_src += r"""),"ssb_local_annotator"); // hope no conflict with web JS
+        browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         final MainActivity act = this;
         browser.setWebViewClient(new WebViewClient() {
                 @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); if(Integer.valueOf(Build.VERSION.SDK)<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
@@ -2057,20 +2090,12 @@ if epub: android_src += r"""
                 }"""
 if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next</a><script>if(ssb_local_annotator.canPrint())document.write('<a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
 android_src += r"""
-                float scale = 0; boolean scaling = false;
-                public void onScaleChanged(final WebView view,float from,final float to) {
-                    if (Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.KITKAT || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
-                    scaling=view.postDelayed(new Runnable() { public void run() {
-                        view.evaluateJavascript("document.body.style.width=((window.visualViewport!=undefined?window.visualViewport.width:window.innerWidth)-getComputedStyle(document.body).marginLeft.replace(/px/,'')*1-getComputedStyle(document.body).marginRight.replace(/px/,'')*1)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null); // window.outerWidth will still be excessive on 4.4; not sure there's much we can do about that
-                        scale=to; scaling=false;
-                    } }, 100);
-                }
                 public void onPageFinished(WebView view,String url) {
                     if(Integer.valueOf(Build.VERSION.SDK) < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
                     browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
                     else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})");
                 } });
-        if(Integer.valueOf(Build.VERSION.SDK) >= 3) {
+        if(Integer.valueOf(Build.VERSION.SDK) >= 3 && Integer.valueOf(Build.VERSION.SDK) < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
             browser.getSettings().setBuiltInZoomControls(true);
         }
         int size=Math.round(16*getResources().getConfiguration().fontScale); // from device accessibility settings
@@ -2126,8 +2151,7 @@ android_src += r"""
         if(Integer.valueOf(Build.VERSION.SDK) >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
             final Handler theTimer = new Handler();
             theTimer.postDelayed(new Runnable() {
-                @Override
-                public void run() {
+                @Override public void run() {
                     final Runnable r = this;
                     browser.evaluateJavascript(((needJsCommon>0)?js_common:"")+"AnnotIfLenChanged()",new android.webkit.ValueCallback<String>() {
                         @Override
@@ -4586,7 +4610,7 @@ def outputParser(rulesAndConds):
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace('%%ANDROID-URL%%',android))
       open(java+os.sep+"BringToFront.java","w").write(android_bringToFront.replace("%%JPACKAGE%%",jPackage))
       open(jSrc+"/../assets/clipboard.html",'w').write(android_clipboard)
-      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template.replace("</body","<address>%d-%02d-%02d version</address></body" % time.localtime()[:3])) # ensure date itself is on LHS as zoom control can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line. TODO: document that --android-template does this as well
+      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template.replace("</body","<address>%d-%02d-%02d version</address></body" % time.localtime()[:3])) # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line. TODO: document that --android-template does this as well
       update_android_manifest()
       open(jSrc+"/../res/layout/activity_main.xml","w").write(android_layout)
       open(jSrc+"/../res/menu/main.xml","w").write('<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
