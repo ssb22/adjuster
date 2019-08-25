@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.674 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.675 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1689,17 +1689,17 @@ android_url_box += r"""
 <script>
 function zoomOut() {
    var l=ssb_local_annotator.getZoomLevel();
-   if (l > 0) ssb_local_annotator.setZoomLevel(--l);
+   if (l > 0) { ssb_local_annotator.setZoomLevel(--l); document.getElementById("zL").innerHTML=""+ssb_local_annotator.getZoomPercent()+"%" }
    if (!l) document.getElementById("zO").disabled=true;
    else document.getElementById("zI").disabled=false;
 }
 function zoomIn() {
    var l=ssb_local_annotator.getZoomLevel(),m=ssb_local_annotator.getMaxZoomLevel();
-   if (l < m) ssb_local_annotator.setZoomLevel(++l);
+   if (l < m) { ssb_local_annotator.setZoomLevel(++l); document.getElementById("zL").innerHTML=""+ssb_local_annotator.getZoomPercent()+"%" }
    if (l==m) document.getElementById("zI").disabled=true;
    else document.getElementById("zO").disabled=false;
 }
-if(ssb_local_annotator.canCustomZoom()) document.write('<div>Text size: <button id=zO onclick="zoomOut()">-</button> <button id=zI onclick="zoomIn()">+</button></div>');
+if(ssb_local_annotator.canCustomZoom()) document.write('<div>Text size: <button id=zO onclick="zoomOut()">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()">+</button></div>');
 var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server.")</script>
 </div>"""
 if android_https_only: android_url_box=android_url_box.replace("http://","https://")
@@ -1784,6 +1784,7 @@ if sharp_multi: android_src += r""" int annotNo;
 android_src += r"""
             @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
             final int[] zoomPercents = new int[] {"""+','.join(str(x) for x in (list(reversed([int((0.9**x)*100) for x in range(5)][1:]))+[int((1.1**x)*100) for x in range(15)]))+r"""};
+            @JavascriptInterface public int getZoomPercent() { return zoomPercents[zoomLevel]; }
             @JavascriptInterface public int getMaxZoomLevel() { return zoomPercents.length-1; }
             @JavascriptInterface @TargetApi(14) public void setZoomLevel(final int level) {
                 act.runOnUiThread(new Runnable(){
