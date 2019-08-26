@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.675 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.676 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1685,7 +1685,7 @@ else: android_url_box += r"""
 <a href="clipboard.html">Offline&nbsp;clipboard</a>
 """
 android_url_box += r"""
-<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)alert('The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%"></td></tr></table></form>
+<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%"></td></tr></table></form>
 <script>
 function zoomOut() {
    var l=ssb_local_annotator.getZoomLevel();
@@ -1763,6 +1763,8 @@ android_src += r"""
         if(Integer.valueOf(Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. swipe-closed in Activity Manager)
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());
+        float fs = getResources().getConfiguration().fontScale; // from device accessibility settings
+        final float fontScale=fs*fs; // for backward compatibility with older annogen (and pre-Android 4 version that still sets setDefaultFontSize) : unconfirmed reports say the OS scales the size units anyway, so we've been squaring fontScale all along, which is probably just as well because old Android versions don't offer much range in their settings
         @TargetApi(1)
         class A {
             public A(MainActivity act) {
@@ -1789,7 +1791,7 @@ android_src += r"""
             @JavascriptInterface @TargetApi(14) public void setZoomLevel(final int level) {
                 act.runOnUiThread(new Runnable(){
                     @Override public void run() {
-                        browser.getSettings().setTextZoom(zoomPercents[level]);
+                        browser.getSettings().setTextZoom(Math.round(zoomPercents[level]*fontScale));
                     }
                 });
                 android.content.SharedPreferences.Editor e;
@@ -2098,10 +2100,10 @@ android_src += r"""
                 } });
         if(Integer.valueOf(Build.VERSION.SDK) >= 3 && Integer.valueOf(Build.VERSION.SDK) < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
             browser.getSettings().setBuiltInZoomControls(true);
+            final int size=Math.round(16*fontScale);
+            browser.getSettings().setDefaultFontSize(size);
+            browser.getSettings().setDefaultFixedFontSize(size);
         }
-        int size=Math.round(16*getResources().getConfiguration().fontScale); // from device accessibility settings
-        browser.getSettings().setDefaultFontSize(size);
-        browser.getSettings().setDefaultFixedFontSize(size);
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         runTimerLoop();
         if (savedInstanceState!=null) browser.restoreState(savedInstanceState); else
