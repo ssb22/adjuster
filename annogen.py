@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.676 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.677 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1687,20 +1687,29 @@ else: android_url_box += r"""
 android_url_box += r"""
 <form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%"></td></tr></table></form>
 <script>
+function viewZoomCtrls() {
+   window.setTimeout(function(){
+   var t=document.getElementById("zI");
+   var r=t.getBoundingClientRect();
+   if (r.bottom > window.innerHeight) t.scrollIntoView(false); else if (r.top < 0) t.scrollIntoView();
+   },200);
+}
 function zoomOut() {
    var l=ssb_local_annotator.getZoomLevel();
    if (l > 0) { ssb_local_annotator.setZoomLevel(--l); document.getElementById("zL").innerHTML=""+ssb_local_annotator.getZoomPercent()+"%" }
    if (!l) document.getElementById("zO").disabled=true;
    else document.getElementById("zI").disabled=false;
+   viewZoomCtrls();
 }
 function zoomIn() {
    var l=ssb_local_annotator.getZoomLevel(),m=ssb_local_annotator.getMaxZoomLevel();
    if (l < m) { ssb_local_annotator.setZoomLevel(++l); document.getElementById("zL").innerHTML=""+ssb_local_annotator.getZoomPercent()+"%" }
    if (l==m) document.getElementById("zI").disabled=true;
    else document.getElementById("zO").disabled=false;
+   viewZoomCtrls();
 }
 if(ssb_local_annotator.canCustomZoom()) document.write('<div>Text size: <button id=zO onclick="zoomOut()">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()">+</button></div>');
-var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server.")</script>
+var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<span id=insecure><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></span>")</script>
 </div>"""
 if android_https_only: android_url_box=android_url_box.replace("http://","https://")
 if android_template: android_template = android_template.replace("URL_BOX_GOES_HERE",android_url_box)
