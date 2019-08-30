@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.677 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.678 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -2109,7 +2109,7 @@ android_src += r"""
                 } });
         if(Integer.valueOf(Build.VERSION.SDK) >= 3 && Integer.valueOf(Build.VERSION.SDK) < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
             browser.getSettings().setBuiltInZoomControls(true);
-            final int size=Math.round(16*fontScale);
+            final int size=Math.round(16*fs);
             browser.getSettings().setDefaultFontSize(size);
             browser.getSettings().setDefaultFixedFontSize(size);
         }
