@@ -843,7 +843,7 @@ Options:
 
 `--android-template=ANDROID_TEMPLATE
 `
- : File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page.
+ : File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page. This version also enables better zoom controls on Android 4+ and a visible version stamp.
 
 `--android-pre-2016`
  : When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way won't be allowed on "Play Store" in August 2019 (November 2019 for updates) unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.

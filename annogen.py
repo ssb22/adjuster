@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.678 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.679 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -221,7 +221,7 @@ parser.add_option("--java",
 parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.  If you load a page containing Javascript that allows the user to navigate to arbitrary URLs, you'll have an annotating Web browser app: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  Huawei devices sold after c.2019-05-20 won't have Play Store access, and Huawei's "AppGallery" was accepting only registered companies not individual developers, so 'side-loading' will be needed there too (unless you're a registered company).
 parser.add_option("--android-template",
-                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page.")
+                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page. This version also enables better zoom controls on Android 4+ and a visible version stamp.") # (version stamp: as long as the template uses </body>)
 parser.add_option("--android-pre-2016",
                   action="store_true",default=False,
                   help="When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way won't be allowed on \"Play Store\" in August 2019 (November 2019 for updates) unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.")
@@ -1771,17 +1771,20 @@ android_src += r"""
         if(Integer.valueOf(Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheEnabled(true); } // not to be confused with the normal browser cache
         if(Integer.valueOf(Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. swipe-closed in Activity Manager)
         browser.getSettings().setJavaScriptEnabled(true);
-        browser.setWebChromeClient(new WebChromeClient());
+        browser.setWebChromeClient(new WebChromeClient());"""
+if android_template: android_src += r"""
         float fs = getResources().getConfiguration().fontScale; // from device accessibility settings
-        final float fontScale=fs*fs; // for backward compatibility with older annogen (and pre-Android 4 version that still sets setDefaultFontSize) : unconfirmed reports say the OS scales the size units anyway, so we've been squaring fontScale all along, which is probably just as well because old Android versions don't offer much range in their settings
+        final float fontScale=fs*fs; // for backward compatibility with older annogen (and pre-Android 4 version that still sets setDefaultFontSize) : unconfirmed reports say the OS scales the size units anyway, so we've been squaring fontScale all along, which is probably just as well because old Android versions don't offer much range in their settings"""
+android_src += r"""
         @TargetApi(1)
         class A {
             public A(MainActivity act) {
                 this.act = act;"""
 if sharp_multi: android_src += r"""
                 annotNo = Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("annotNo", "0"));"""
+if android_template: android_src += r"""
+                if(canCustomZoom()) setZoomLevel(Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("zoom", "4")));"""
 android_src += r"""
-                if(canCustomZoom()) setZoomLevel(Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("zoom", "4")));
             }
             MainActivity act; String copiedText=""; int zoomLevel;"""
 if sharp_multi: android_src += r""" int annotNo;
@@ -1792,7 +1795,7 @@ if sharp_multi: android_src += r""" int annotNo;
                 e.putString("annotNo",String.valueOf(annotNo));
                 } while(!e.commit()); }
             @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
-android_src += r"""
+if android_template: android_src += r"""
             @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
             final int[] zoomPercents = new int[] {"""+','.join(str(x) for x in (list(reversed([int((0.9**x)*100) for x in range(5)][1:]))+[int((1.1**x)*100) for x in range(15)]))+r"""};
             @JavascriptInterface public int getZoomPercent() { return zoomPercents[zoomLevel]; }
@@ -1808,7 +1811,8 @@ android_src += r"""
                      e.putString("zoom",String.valueOf(level));
                 } while(!e.commit());
                 zoomLevel = level;
-            }
+            }"""
+android_src += r"""
             @JavascriptInterface public String annotate(String t) """
 if data_driven: android_src += "throws java.util.zip.DataFormatException "
 android_src += '{ String r=annotator.annotate(t);'
@@ -1902,7 +1906,8 @@ android_src += r"""
             }
             @JavascriptInterface public String getClip() {
                 String r=readClipboard(); if(r.equals(copiedText)) return ""; else return r;
-            }
+            }"""
+if android_template: android_src += r"""
             @JavascriptInterface public boolean canCustomZoom() {
                 return Integer.valueOf(Build.VERSION.SDK) >= 14;
             }"""
@@ -2101,18 +2106,35 @@ if epub: android_src += r"""
                     } finally { try { zin.close(); } catch(IOException e) {} }
                 }"""
 if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next</a><script>if(ssb_local_annotator.canPrint())document.write('<a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
+if not android_template: android_src += r"""
+                float scale = 0; boolean scaling = false;
+                public void onScaleChanged(final WebView view,float from,final float to) {
+                    if (Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.KITKAT || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
+                    scaling=view.postDelayed(new Runnable() { public void run() {
+                        view.evaluateJavascript("document.body.style.width=((window.visualViewport!=undefined?window.visualViewport.width:window.innerWidth)-getComputedStyle(document.body).marginLeft.replace(/px/,'')*1-getComputedStyle(document.body).marginRight.replace(/px/,'')*1)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null); // window.outerWidth will still be excessive on 4.4; not sure there's much we can do about that
+                        scale=to; scaling=false;
+                    } }, 100);
+                }"""
 android_src += r"""
                 public void onPageFinished(WebView view,String url) {
                     if(Integer.valueOf(Build.VERSION.SDK) < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
                     browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
                     else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})");
-                } });
+                } });"""
+if android_template: android_src += r"""
         if(Integer.valueOf(Build.VERSION.SDK) >= 3 && Integer.valueOf(Build.VERSION.SDK) < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
             browser.getSettings().setBuiltInZoomControls(true);
+        } if (Integer.valueOf(Build.VERSION.SDK) < 14) {
             final int size=Math.round(16*fs);
             browser.getSettings().setDefaultFontSize(size);
             browser.getSettings().setDefaultFixedFontSize(size);
-        }
+        }"""
+else: android_src += r"""
+        if(Integer.valueOf(Build.VERSION.SDK) >= 3) browser.getSettings().setBuiltInZoomControls(true);
+        final int size=Math.round(16*getResources().getConfiguration().fontScale); // from device accessibility settings (might be squared if OS does it too, but that's OK because the settings don't give enough of a range)
+        browser.getSettings().setDefaultFontSize(size);
+        browser.getSettings().setDefaultFixedFontSize(size);"""
+android_src += r"""
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         runTimerLoop();
         if (savedInstanceState!=null) browser.restoreState(savedInstanceState); else
@@ -4622,7 +4644,7 @@ def outputParser(rulesAndConds):
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace('%%ANDROID-URL%%',android))
       open(java+os.sep+"BringToFront.java","w").write(android_bringToFront.replace("%%JPACKAGE%%",jPackage))
       open(jSrc+"/../assets/clipboard.html",'w').write(android_clipboard)
-      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template.replace("</body","<address>%d-%02d-%02d version</address></body" % time.localtime()[:3])) # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line. TODO: document that --android-template does this as well
+      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template.replace("</body","<address>%d-%02d-%02d version</address></body" % time.localtime()[:3])) # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line
       update_android_manifest()
       open(jSrc+"/../res/layout/activity_main.xml","w").write(android_layout)
       open(jSrc+"/../res/menu/main.xml","w").write('<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
