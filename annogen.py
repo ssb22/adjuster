@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.679 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.68 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -700,7 +700,7 @@ if compress:
     totSaved = 0
     tokens = [chr(t) for t in range(1,256) if not chr(t) in tokens] ; orig_tokens = set(tokens)
     pairs = [chr(0)] * 512
-    while tokens:
+    while tokens and squashStrings:
       t = tokens.pop()
       counts = {}
       for s in squashStrings:
@@ -1311,6 +1311,10 @@ jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) 
 if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += "+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
 jsAddRubyCss += "+'</style>'"
+def sort20px(singleQuotedStr): # 20px is relative to zoom
+  assert singleQuotedStr.startswith("'") and singleQuotedStr.endswith("'")
+  if not android_template: return singleQuotedStr
+  return singleQuotedStr.replace("20px","'+Math.round(20/Math.pow((ssb_local_annotator.canCustomZoom()?ssb_local_annotator.getRealZoomPercent():100)/100,0.6))+'px") # (do allow some scaling, but not by the whole zoom factor)
 def bookmarkJS():
   "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks, and event-setup code to be added after (to work around onclick= restrictions on some sites, i.e. ones that set the HTTP header Content-Security-Policy: unsafe-inline)"
   assert not '"' in android, "bookmarkJS needs re-implementing if --android URL contains quotes: please %-escape it"
@@ -1325,7 +1329,7 @@ def bookmarkJS():
   ]
   if epub: should_suppress_toolset.append("location.href.slice(0,12)=='http://epub/'")
   should_suppress_toolset = "("+"||".join(should_suppress_toolset)+")"
-  toolset_openTag = r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: red solid !important; background: black !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'"""
+  toolset_openTag = sort20px(r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: red solid !important; background: black !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""")
   toolset_closeTag = "'</span></span>'"
   bookmarkLink0 = "ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))"
   bookmarkLink = r'\"'+"javascript:"+bookmarkLink0+r'\"' # not ' as bookmarkLink0 contains '
@@ -1356,7 +1360,7 @@ def bookmarkJS():
   
   unconditional_inject = "ssb_local_annotator_toolE="+emoji_supported
   # Highlighting function, currently depending on android_print (calls canPrint, and currently no other way to save highlights, TODO: figure out how we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions)
-  if android_print: unconditional_inject += r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return '<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; overflow: auto !important;\">'+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
+  if android_print: unconditional_inject += r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(r"""'<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; overflow: auto !important;\">'""")+r"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
   unconditional_inject = "(function(){"+unconditional_inject+"})()"
   return unconditional_inject+"+("+should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+"))", "var a=e.getElementsByTagName('*'),i;for(i=0;i < a.length; i++){var c=a[i].getAttribute('onclick');if(c){a[i].removeAttribute('onclick');a[i].addEventListener('click',Function('ev',c+';ev.preventDefault()'))}else{c=a[i].getAttribute('href');if(c&&c.slice(0,11)=='javascript:'){a[i].addEventListener('click',Function('ev',c.slice(11)+';ev.preventDefault()'))}}}"
 if bookmarks: jsAddRubyCss += "+("+bookmarkJS()[0]+")"
@@ -1445,7 +1449,7 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
     }
   }"""
   r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
-  assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param'
+  assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param '
   return r
 
 if ios:
@@ -1709,7 +1713,7 @@ function zoomIn() {
    viewZoomCtrls();
 }
 if(ssb_local_annotator.canCustomZoom()) document.write('<div>Text size: <button id=zO onclick="zoomOut()">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()">+</button></div>');
-var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<span id=insecure><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></span>")</script>
+var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<span id=insecure style=\"background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></span>")</script>
 </div>"""
 if android_https_only: android_url_box=android_url_box.replace("http://","https://")
 if android_template: android_template = android_template.replace("URL_BOX_GOES_HERE",android_url_box)
@@ -1799,6 +1803,7 @@ if android_template: android_src += r"""
             @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
             final int[] zoomPercents = new int[] {"""+','.join(str(x) for x in (list(reversed([int((0.9**x)*100) for x in range(5)][1:]))+[int((1.1**x)*100) for x in range(15)]))+r"""};
             @JavascriptInterface public int getZoomPercent() { return zoomPercents[zoomLevel]; }
+            @JavascriptInterface public int getRealZoomPercent() { return Math.round(zoomPercents[zoomLevel]*fontScale); }
             @JavascriptInterface public int getMaxZoomLevel() { return zoomPercents.length-1; }
             @JavascriptInterface @TargetApi(14) public void setZoomLevel(final int level) {
                 act.runOnUiThread(new Runnable(){
@@ -2093,7 +2098,7 @@ if epub: android_src += r"""
                                     int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
                                     String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
                                     if(mimeType==null || mimeType=="application/xhtml+xml") mimeType="text/html"; // needed for annogen style modifications
-                                    if(mimeType=="text/html") return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\""+epubPrefix+"N="+part+"\">Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                    if(mimeType=="text/html") return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+r""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                                     else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
@@ -2105,7 +2110,7 @@ if epub: android_src += r"""
                         return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
                     } finally { try { zin.close(); } catch(IOException e) {} }
                 }"""
-if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next</a><script>if(ssb_local_annotator.canPrint())document.write('<a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
+if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next</a><script>if(ssb_local_annotator.canPrint())document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+r"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
 if not android_template: android_src += r"""
                 float scale = 0; boolean scaling = false;
                 public void onScaleChanged(final WebView view,float from,final float to) {
