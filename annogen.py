@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.68 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.681 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1778,6 +1778,7 @@ android_src += r"""
         browser.setWebChromeClient(new WebChromeClient());"""
 if android_template: android_src += r"""
         float fs = getResources().getConfiguration().fontScale; // from device accessibility settings
+        if (fs < 1.0f) fs = 1.0f; // bug in at least some versions of Android 8 returns 0 for fontScale
         final float fontScale=fs*fs; // for backward compatibility with older annogen (and pre-Android 4 version that still sets setDefaultFontSize) : unconfirmed reports say the OS scales the size units anyway, so we've been squaring fontScale all along, which is probably just as well because old Android versions don't offer much range in their settings"""
 android_src += r"""
         @TargetApi(1)
@@ -2136,7 +2137,9 @@ if android_template: android_src += r"""
         }"""
 else: android_src += r"""
         if(Integer.valueOf(Build.VERSION.SDK) >= 3) browser.getSettings().setBuiltInZoomControls(true);
-        final int size=Math.round(16*getResources().getConfiguration().fontScale); // from device accessibility settings (might be squared if OS does it too, but that's OK because the settings don't give enough of a range)
+        float fs = getResources().getConfiguration().fontScale; // from device accessibility settings
+        if (fs < 1.0f) fs = 1.0f; // bug in at least some versions of Android 8 returns 0 for fontScale
+        final int size=Math.round(16*fs); // from device accessibility settings (might be squared if OS does it too, but that's OK because the settings don't give enough of a range)
         browser.getSettings().setDefaultFontSize(size);
         browser.getSettings().setDefaultFixedFontSize(size);"""
 android_src += r"""
