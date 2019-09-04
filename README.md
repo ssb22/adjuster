@@ -956,6 +956,13 @@ Options:
 `
  : Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text, and if prefixed by ## it will be given text#annotation.  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.
 
+`-A, --reannotate-caps
+`
+ : When using --reannotator, make sure to capitalise any word it returns that began with a capital on input
+
+`--no-reannotate-caps`
+ : Cancels any earlier --reannotate-caps option in Makefile variables etc
+
 `--sharp-multi`
  : Assume annotation (or reannotator output) contains multiple alternatives separated by # (e.g. pinyin#Yale) and include code to select one by number at runtime (starting from 0). This is to save on total space when shipping multiple annotators that share the same word grouping and gloss data, differing only in the transcription of each word.
 

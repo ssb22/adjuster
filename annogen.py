@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.681 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.682 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -298,6 +298,11 @@ parser.add_option("--golang",
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text, and if prefixed by ## it will be given text#annotation.  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
 # (Could just get the reannotator to post-process the 1st annotator's output, but that might be slower than generating an altered annotator with it)
+
+parser.add_option("-A","--reannotate-caps",
+                  action="store_true",default=False,
+                  help="When using --reannotator, make sure to capitalise any word it returns that began with a capital on input")
+cancelOpt("reannotate-caps")
 
 parser.add_option("--sharp-multi",
                   action="store_true",default=False,
@@ -4481,7 +4486,12 @@ def matchingAction(rule,glossDic,glossMiss,whitelist):
       if reannotator.startswith('##'): toAdd = text_unistr + '#' + annotation_unistr
       elif reannotator[0]=='#': toAdd=annotation_unistr
       else: toAdd = text_unistr
-      if toAdd in reannotateDict: annotation_unistr = reannotateDict[toAdd]
+      if toAdd in reannotateDict:
+        au = reannotateDict[toAdd]
+        if au and reannotate_caps and annotation_unistr and not annotation_unistr[0]==annotation_unistr[0].lower():
+          if sharp_multi: au='#'.join((w[0].upper()+w[1:]) for w in au.split('#'))
+          else: au=au[0].upper()+au[1:]
+        annotation_unistr = au
       else: toReannotateSet.add(toAdd)
     if compress:
       annotation_bytes0=annotation_unistr.encode(outcode)
