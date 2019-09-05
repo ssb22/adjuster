@@ -519,7 +519,17 @@ max_words = int(max_words)
 if single_words: max_words = 1
 read_input = not no_input
 if not reference_sep: norefs=True
-if diagnose_manual or normalise_only or (not norefs and (not no_summary or glossmiss)): read_input = True
+if not read_input:
+  def f():
+    if diagnose_manual: return "--diagnose-manual is set"
+    if normalise_only: return "--normalise-only is set"
+    if not norefs:
+      if not no_summary: return "summary is required (and without norefs)"
+      if glossmiss: return "--glossmiss is set (and without norefs)"
+  msg=f()
+  if msg:
+    warn("Reading input despite --no-input because "+msg)
+    read_input = True
 
 def nearCall(negate,conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
