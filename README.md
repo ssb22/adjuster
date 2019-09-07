@@ -894,7 +894,7 @@ Options:
  : Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application
 
 `--extra-js=EXTRA_JS`
- : Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js
+ : Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)
 
 `--existing-ruby-js-fixes=EXISTING_RUBY_JS_FIXES
 `

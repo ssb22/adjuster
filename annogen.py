@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.682 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.683 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -251,7 +251,7 @@ parser.add_option("--android-print",
 cancelOpt("android-print")
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application")
-parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js")
+parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read --extra-css=@file.css")
 parser.add_option("--app-name",default="Annotating browser",
@@ -428,7 +428,13 @@ if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
 if extra_css.startswith("@"): extra_css = open(extra_css[1:]).read()
-if extra_js.startswith("@"): extra_js = open(extra_js[1:]).read()
+if extra_js.startswith("@"):
+  extra_js = extra_js[1:]
+  if not os.system("which node 2>/dev/null >/dev/null"):
+    # we can check the syntax
+    import pipes
+    if os.system("node -c "+pipes.quote(extra_js)): errExit("Syntax check failed for extra-js file "+extra_js)
+  extra_js = open(extra_js).read()
 if extra_js.rstrip() and not extra_js.rstrip()[-1] in ';}': errExit("--extra-js must end with a semicolon or a closing brace")
 if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:]).read()
 jPackage = None
