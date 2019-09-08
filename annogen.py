@@ -185,7 +185,7 @@ parser.add_option("-z","--compress",
 cancelOpt("compress")
 
 parser.add_option("--ios", # when removing this, remove "ios" from annogen.html also
-                  help="[DEPRECATED] Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app; see the start of the generated C file for instructions. If Xcode runs out of space, try using --data-driven. The --ios option has been deprecated because it relies on a component called UIWebView which Apple have deprecated. Since I do not have the necessary equipment to test a rewrite with WKWebView, nor am I aware of Apple's App Store having ever accepted an app from an Annogen user, I do not now plan to invest time in migrating the code from UIWebView to WKWebView, and if I ever find out Apple removed UIWebView altogether then I will probably delete the --ios option (unless somebody sends me a patch to fix it).")
+                  help="[DEPRECATED] Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app; see the start of the generated C file for instructions. If Xcode runs out of space, try using --data-driven. The --ios option has been deprecated because it relies on a component called UIWebView which Apple have deprecated (ITMS-90809). Since I do not have the necessary equipment to test a rewrite with WKWebView, nor am I aware of Apple's App Store having ever accepted an app from an Annogen user, I do not now plan to invest time in migrating the code from UIWebView to WKWebView, and if I ever find out Apple removed UIWebView altogether then I will probably delete the --ios option (unless somebody sends me a patch to fix it).")
 
 parser.add_option("-D","--data-driven",
                   action="store_true",default=False,
@@ -221,10 +221,10 @@ parser.add_option("--java",
 parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.  If you load a page containing Javascript that allows the user to navigate to arbitrary URLs, you'll have an annotating Web browser app: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  Huawei devices sold after c.2019-05-20 won't have Play Store access, and Huawei's "AppGallery" was accepting only registered companies not individual developers, so 'side-loading' will be needed there too (unless you're a registered company).
 parser.add_option("--android-template",
-                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page. This version also enables better zoom controls on Android 4+ and a visible version stamp.") # (version stamp: as long as the template uses </body>)
+                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page. This version also enables better zoom controls on Android 4+ and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses).")
 parser.add_option("--android-pre-2016",
                   action="store_true",default=False,
-                  help="When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way won't be allowed on \"Play Store\" in August 2019 (November 2019 for updates) unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.")
+                  help="When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  New apps compiled in this way are no longer allowed on \"Play Store\" (and updates won't be allowed from November 2019) unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.")
 cancelOpt("android-pre-2016")
 parser.add_option("--android-https-only",
                   action="store_true",default=False,
@@ -237,10 +237,6 @@ cancelOpt("pleco-hanping")
 
 parser.add_option("--bookmarks",
                   help="Android bookmarks: comma-separated list of package names that share our bookmarks. If this is not specified, the browser will not be given a bookmarks function. If it is set to the same value as the package specified in --java, bookmarks are kept in just this Android app. If it is set to a comma-separated list of packages that have also been generated by annogen (presumably with different annotation types), and if each one has the same android:sharedUserId attribute in AndroidManifest.xml's 'manifest' tag (you'll need to add this manually), and if the same certificate is used to sign all of them, then bookmarks can be shared across the set of browser apps.  But beware the following two issues: (1) adding an android:sharedUserId attribute to an app that has already been released without one causes some devices to refuse the update with a 'cannot install' message (details via adb logcat; affected users would need to uninstall and reinstall instead of update, and some of them may not notice the instruction to do so); (2) this has not been tested with Google's new \"App Bundle\" arrangement, and may be broken if the Bundle results in APKs being signed by a different key.  In June 2019 Play Console started issuing warnings if you release an APK instead of a Bundle, even though the \"size savings\" they mention are under 1% for annogen-generated apps.") # (the only resource that might vary by device is the launcher icon)
-parser.add_option("-B","--bookmarks-developer",
-                  action="store_true",default=False,
-                  help="When Android bookmarks are enabled, include extra code so that, if the device is in 'developer mode' and the Add Bookmark tool is double-tapped, all words lacking glosses are marked with a blue border. This might give you an idea of how good your glossfile coverage is in practice.")
-cancelOpt("bookmarks-developer")
 parser.add_option("-e","--epub",
                   action="store_true",default=False,
                   help="When generating an Android browser, make it also respond to requests to open EPUB files. This results in an app that requests the 'read external storage' permission on Android versions below 6, so if you have already released a version without EPUB support then devices running Android 5.x or below will not auto-update past this change until the user notices the update notification and approves the extra permission.") # see comments around READ_EXTERNAL_STORAGE below
@@ -1328,9 +1324,10 @@ c_end += r"""  while(!FINISHED) {
 
 # jsAddRubyCss will be in a quoted string in ObjC / Java source, so all " and \ must be escaped:
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
-jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style id=\\\"ssb_local_annotator_css\\\">ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari Unicode, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
+jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari Unicode, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
 if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += "+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
+if android_template: jsAddRubyCss += "+(ssb_local_annotator.getDevCSS()?'ruby:not([title]){border:thin blue solid}':'')"
 jsAddRubyCss += "+'</style>'"
 def sort20px(singleQuotedStr): # 20px is relative to zoom
   assert singleQuotedStr.startswith("'") and singleQuotedStr.endswith("'")
@@ -1358,24 +1355,12 @@ def bookmarkJS():
   copyLink = "'javascript:"+copyLink0+"'" # ' is OK here
   forwardLink = "'javascript:history.go(1)'"
   closeLink = r'\"'+"javascript:var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)"+r'\"'
-  if bookmarks_developer:
-    # If phone is in "Developer mode":
-    # Double-tap 'bookmark' to see words lacking gloss;
-    # Double-tap 'copy' to see the DOM (only very basic syntax highlighting though)
-    # Currently works only if emoji supported (i.e. 4.4+)
-    # but older-Android support can be added by making
-    # toolset_string more complete below.
-    # (ondblclick won't work on phones, so we have to do it
-    # ourselves by setting timers etc.)
-    bookmarkOnclick = r"'+(ssb_local_annotator.isDevMode()?'onclick=\"if(((typeof ssb_local_annotator_dblTap==\\'undefined\\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){if(window.ssb_local_annotator_dblTap){"+bookmarkLink0.replace("'",r"\\'")+r";window.ssb_local_annotator_dblTap=null}},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;document.getElementById(\\'ssb_local_annotator_css\\').innerHTML+=\\'ruby:not([title]){border:thin blue solid}\\';ssb_local_annotator.alert(\\'\\',\\'Developer mode: words without glosses boxed in blue\\')}\" ':'')+'"
-    copyOnclick = r"'+(ssb_local_annotator.isDevMode()?'onclick=\"if(((typeof ssb_local_annotator_dblTap2==\\'undefined\\')?null:ssb_local_annotator_dblTap2)==null) window.ssb_local_annotator_dblTap2=setTimeout(function(){if(ssb_local_annotator_dblTap2){"+copyLink0+r";window.ssb_local_annotator_dblTap2=null}},500); else { clearTimeout(ssb_local_annotator_dblTap2);window.ssb_local_annotator_dblTap2=null;document.body.innerHTML=document.body.parentElement.outerHTML.replace(/&/g,\\'&\\'+\\'amp;\\').replace(/</g,\\'&\\'+\\'lt;\\').replace(/\\\\n/g,\\'<br>\\').replace(/([&]lt;!--.*?-->)/g,\\'<font color=purple>$1</font>\\').replace(/([&]lt;[A-Za-z/].*?>)/g,\\'<font color=green>$1</font>\\');ssb_local_annotator.alert(\\'\\',\\'Developer mode: show DOM\\')}\" ':'')+'" # Note: outerHTML requires Chrome 33 (which Android 4.4 has, but may be a bit buggy)
-  else: bookmarkOnclick = copyOnclick = ""
   emoji_supported = "(function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
-  bookmarks_emoji = r"""'>\ud83d\udd16</a> &nbsp; <a """+copyOnclick+r"""href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; """
+  bookmarks_emoji = r"""'>\ud83d\udd16</a> &nbsp; <a href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; """
   if android_print: bookmarks_emoji += r"""'+(ssb_local_annotator.canPrint()?('<a href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint()+'</a> &nbsp; '):'')+'""" # don't need bookmarks_noEmoji equivalent, because pre-4.4 devices can't print anyway
   bookmarks_emoji += r"""<span id=annogenFwdBtn style=\"display: none\"><a href=\"'+forwardLink+'\">\u27a1\ufe0f</a> &nbsp;</span> <a href=\"'+closeLink+'\">\u274c'"""
   bookmarks_noEmoji = r"""' style=\"color: white !important\">Bookmark</a> <a href=\"'+copyLink+'\" style=\"color: white !important\">Copy</a> <a id=annogenFwdBtn style=\"display: none\" href=\"'+forwardLink+'\" style=\"color: white !important\">Fwd</a> <a href=\"'+closeLink+'\" style=\"color: white !important\">X'"""
-  toolset_string = "(function(bookmarkLink,copyLink,forwardLink,closeLink){return "+toolset_openTag+"+'<a "+bookmarkOnclick+r"""href=\"'+bookmarkLink+'\"'+(ssb_local_annotator_toolE?("""+bookmarks_emoji+"):("+bookmarks_noEmoji+r"""))+'</a>'+"""+toolset_closeTag+"})("+bookmarkLink+","+copyLink+","+forwardLink+","+closeLink+")" # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
+  toolset_string = "(function(bookmarkLink,copyLink,forwardLink,closeLink){return "+toolset_openTag+r"""+'<a href=\"'+bookmarkLink+'\"'+(ssb_local_annotator_toolE?("""+bookmarks_emoji+"):("+bookmarks_noEmoji+r"""))+'</a>'+"""+toolset_closeTag+"})("+bookmarkLink+","+copyLink+","+forwardLink+","+closeLink+")" # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
   # TODO: (don't know how much more room there is on smaller devices, but) U+1F504 Reload (just do window.location.reload)
   toolset_string = should_suppress_toolset+"?'':("+toolset_string+")"
   
@@ -1700,6 +1685,7 @@ android_layout = r"""<?xml version="1.0" encoding="utf-8"?>
 if android_template == "blank": android_template = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body><h3>"""+app_name+r"</h3>URL_BOX_GOES_HERE</body></html>"
 elif android_template:
   android_template = open(android_template).read()
+  if not "</body" in android_template: warn("--android-template has no \"</body\" so won't have a version stamp")
 android_url_box = r"""
 <div style="border: thin dotted grey">"""
 if epub: android_url_box += r"""
@@ -1738,6 +1724,7 @@ var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) d
 </div>"""
 if android_https_only: android_url_box=android_url_box.replace("http://","https://")
 if android_template: android_template = android_template.replace("URL_BOX_GOES_HERE",android_url_box)
+android_version_stamp = r"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'Developer mode: words without glosses will be boxed in blue\')}" ':'')+'>%%DATE%% version</address>')</script>"""
 android_src = r"""package %%JPACKAGE%%;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
@@ -1963,21 +1950,21 @@ if android_print: android_src += r"""
                     }
                 });
             }"""
-if bookmarks_developer: android_src += r"""
-            // isDevMode for --bookmarks-developer: (I shared this bit with StackOverflow by the way)
+if android_template: android_src += r"""
             @TargetApi(17)
             @JavascriptInterface public boolean isDevMode() {
-                if(Integer.valueOf(Build.VERSION.SDK) == 16) {
-                    return android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),
-                            android.provider.Settings.Secure.DEVELOPMENT_SETTINGS_ENABLED , 0) != 0;
-                } else if (Integer.valueOf(Build.VERSION.SDK) >= 17) {
-                    return android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),
-                            android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0;
-                } else return false;
+                return ((Integer.valueOf(Build.VERSION.SDK)==16)?android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),android.provider.Settings.Secure.DEVELOPMENT_SETTINGS_ENABLED,0):((Integer.valueOf(Build.VERSION.SDK)>=17)?android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,0):0)) != 0;
+            }
+            boolean devCSS = false;
+            @JavascriptInterface public void setDevCSS() {
+                devCSS = true;
+            }
+            @JavascriptInterface public boolean getDevCSS() {
+                return devCSS;
             }"""
 android_src += r"""
             @JavascriptInterface public void bringToFront() {
-                if(Integer.valueOf(Build.VERSION.SDK) >= Build.VERSION_CODES.CUPCAKE) {
+                if(Integer.valueOf(Build.VERSION.SDK) >= 3) {
                     startService(new Intent(MainActivity.this, BringToFront.class));
                     nextBackHides = true;
                 }
@@ -2257,7 +2244,7 @@ android_bringToFront=r"""package %%JPACKAGE%%;
 import android.annotation.TargetApi;
 import android.content.Intent;
 import android.os.Build;
-@TargetApi(Build.VERSION_CODES.CUPCAKE)
+@TargetApi(3)
 public class BringToFront extends android.app.IntentService {
     public BringToFront() { super(""); }
     public BringToFront(String name) { super(name); }
@@ -4678,7 +4665,7 @@ def outputParser(rulesAndConds):
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace('%%ANDROID-URL%%',android))
       open(java+os.sep+"BringToFront.java","w").write(android_bringToFront.replace("%%JPACKAGE%%",jPackage))
       open(jSrc+"/../assets/clipboard.html",'w').write(android_clipboard)
-      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template.replace("</body","<address>%d-%02d-%02d version</address></body" % time.localtime()[:3])) # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line
+      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template.replace("</body",android_version_stamp.replace("%%DATE%%","%d-%02d-%02d" % time.localtime()[:3])+"</body")) # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line
       update_android_manifest()
       open(jSrc+"/../res/layout/activity_main.xml","w").write(android_layout)
       open(jSrc+"/../res/menu/main.xml","w").write('<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
