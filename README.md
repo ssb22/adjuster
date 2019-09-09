@@ -881,6 +881,10 @@ Options:
 `--no-android-print`
  : Cancels any earlier --android-print option in Makefile variables etc
 
+`--android-audio=ANDROID_AUDIO
+`
+ : When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. http://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself)
+
 `--android-urls=ANDROID_URLS
 `
  : Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application
