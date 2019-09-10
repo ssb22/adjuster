@@ -883,7 +883,7 @@ Options:
 
 `--android-audio=ANDROID_AUDIO
 `
- : When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. http://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself)
+ : When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself)
 
 `--android-urls=ANDROID_URLS
 `
