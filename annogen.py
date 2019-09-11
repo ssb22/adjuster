@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6832 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6833 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1371,8 +1371,8 @@ def bookmarkJS():
   unconditional_inject = "ssb_local_annotator_toolE="+emoji_supported
   # Highlighting function, currently depending on android_print (calls canPrint, and currently no other way to save highlights, TODO: figure out how we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions)
   if android_print:
-    p = r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(r"""'<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; overflow: auto !important;\">'""")+r"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
-    if android_audio: p=p.replace("ssb_local_annotator_highlightSel=",r"""ssb_local_annotator_playSel=function(){if(!window.doneWarnAudio && !confirm('Send selected words to third-party server for audio?')) return;window.doneWarnAudio=true;var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);var t=new Array();for(;i < s.length && r.intersectsNode(s[i]); i++) t.push(s[i].getElementsByTagName('rb')[0].innerText); var ae=document.createElement('audio');ae.setAttribute('src','"""+android_audio+r"""'+t.join(''));ae.play();};ssb_local_annotator_highlightSel=""").replace("+'</button>'",r"""+'<span onclick=\"ssb_local_annotator_playSel()\">'+(ssb_local_annotator_toolE?'\ud83d\udd0a':'S')+'</span></button>'""")
+    p = r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(r"""'<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; overflow: auto !important;\">'""")+r"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
+    if android_audio: p=p.replace("ssb_local_annotator_highlightSel=",r"""ssb_local_annotator_playSel=function(){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);var t=new Array();for(;i < s.length && r.intersectsNode(s[i]); i++) t.push(s[i].getElementsByTagName('rb')[0].innerText); ssb_local_annotator.sendToAudio(t.join(''))};ssb_local_annotator_highlightSel=""").replace("+'</button>'",r"""+'<span onclick=\"ssb_local_annotator_playSel()\">'+(ssb_local_annotator_toolE?'\ud83d\udd0a':'S')+'</span></button>'""")
     unconditional_inject += p
   unconditional_inject = "(function(){"+unconditional_inject+"})()"
   return unconditional_inject+"+("+should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+"))", "var a=e.getElementsByTagName('*'),i;for(i=0;i < a.length; i++){var c=a[i].getAttribute('onclick');if(c){a[i].removeAttribute('onclick');a[i].addEventListener('click',Function('ev',c+';ev.preventDefault()'))}else{c=a[i].getAttribute('href');if(c&&c.slice(0,11)=='javascript:'){a[i].addEventListener('click',Function('ev',c.slice(11)+';ev.preventDefault()'))}}}"
@@ -1704,7 +1704,7 @@ else: android_url_box += r"""
 <a href="clipboard.html">Offline&nbsp;clipboard</a>
 """
 android_url_box += r"""
-<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%"></td></tr></table></form>
+<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%"></td></tr></table></form>
 <script>
 function viewZoomCtrls() {
    window.setTimeout(function(){
@@ -1732,7 +1732,7 @@ var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) d
 </div>"""
 if android_https_only: android_url_box=android_url_box.replace("http://","https://")
 if android_template: android_template = android_template.replace("URL_BOX_GOES_HERE",android_url_box)
-android_version_stamp = r"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'Developer mode: words without glosses will be boxed in blue\')}" ':'')+'>%%DATE%% version</address>')</script>"""
+android_version_stamp = r"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue\')}" ':'')+'>%%DATE%% version</address>')</script>"""
 android_src = r"""package %%JPACKAGE%%;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
@@ -1846,34 +1846,47 @@ if sharp_multi: android_src += r"""
                 m.appendTail(sb); r=sb.toString();"""
 if epub: android_src += """if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"&lrm;"+r;""" # needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair
 android_src += r"""return r; }
-            @JavascriptInterface public void alert(String t,String a) {
+            @JavascriptInterface public void alert(String text,String annot,String gloss) {
                 class DialogTask implements Runnable {
-                    String tt,aa;
-                    DialogTask(String t,String a) { tt=t; aa=a; }
+                    String tt,aa,gg;
+                    DialogTask(String t,String a,String g) { tt=t; aa=a; gg=g; }
                     @Override public void run() {
                         android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
-                        if(tt.length()>0) d.setTitle(tt);"""
-if pleco_hanping: android_src += r"""
-                        if(tt.length()>0 && dictionaries>1) {
-                            String[] items=new String[dictionaries+1]; items[0]=aa; int i=1;
+                        if(tt.length()>0) d.setTitle(tt+aa);"""
+if pleco_hanping:
+  if android_audio: maxDicts,xtraItems=0,2
+  else: maxDicts,xtraItems=1,1
+  android_src += r"""
+                        if(tt.length()>0 && dictionaries>%d) {
+                            String[] items=new String[dictionaries+%d]; items[0]=gg; int i=1;
                             if(hanpingVersion[0]!=0) items[i++]="\u25b6CantoDict";
                             if(hanpingVersion[1]!=0) items[i++]="\u25b6Hanping Pro";
                             if(hanpingVersion[2]!=0) items[i++]="\u25b6Hanping Lite";
-                            if(gotPleco) items[i++]="\u25b6Pleco";
+                            if(gotPleco) items[i++]="\u25b6Pleco";""" % (maxDicts,xtraItems)
+  if android_audio: android_src += r"""
+                            items[i++]="\ud83d\udd0aAudio";
+  """
+  android_src += r"""
                             // TODO: to prevent popup disappearing if items[0] is tapped, use d.setAdapter instead of d.setItems?  items must then implement android.widget.ListAdapter with: boolean isEnabled(int position) { return position!=0; } boolean areAllItemsEnabled() { return false; } int getCount(); Object getItem(int position); long getItemId(int position) { return position; } int getItemViewType(int position) { return -1; } boolean hasStableIds() { return true; } boolean isEmpty() { return false; } void registerDataSetObserver(android.database.DataSetObserver observer) {} void unregisterDataSetObserver(android.database.DataSetObserver observer) {}  but still need to implement android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) (init convertView or get a new one) and int getViewTypeCount()
                             d.setItems(items,new android.content.DialogInterface.OnClickListener() {
                                 @TargetApi(11) public void onClick(android.content.DialogInterface dialog,int id) {
                                     int test=0,i;
-                                    for(i=0; i<3; i++) if(hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt.split(" ",2)[0]).build()); h.setPackage(hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(h); }
-                                    if(gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt); startActivity(p); }
+                                    for(i=0; i<3; i++) if(hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build()); h.setPackage(hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(h); }
+                                    if(gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt+aa); startActivity(p); }"""
+  if android_audio: android_src += r"""
+                                    if(++test==id) { sendToAudio(tt); act.runOnUiThread(new DialogTask(tt,aa,gg)); }"""
+  android_src += r"""
                         } });
                         } else"""
 android_src += r"""
-                        d.setMessage(aa);
+                        d.setMessage(gg);
                         d.setNegativeButton("Copy",new android.content.DialogInterface.OnClickListener() {
-                                public void onClick(android.content.DialogInterface dialog,int id) { copy(tt+" "+aa,false); }
+                                public void onClick(android.content.DialogInterface dialog,int id) { copy(tt+aa+" "+gg,false); }
                         });"""
-if pleco_hanping: android_src += r"""
+if pleco_hanping:
+  if android_audio: android_src += r"""
+                        if(dictionaries==0 && tt.length()>0) d.setNeutralButton("Audio", new android.content.DialogInterface.OnClickListener() {public void onClick(android.content.DialogInterface dialog,int id) {sendToAudio(tt); act.runOnUiThread(new DialogTask(tt,aa,gg));}});"""
+  else: android_src += r"""
                         if(dictionaries==1) { /* for consistency with old versions, have a 'middle button' if there's only one recognised dictionary app installed */
                         if(tt.length()==0) { /* Pleco or Hanping button not added if empty title i.e. error/info box */ }
                         else if(gotPleco) d.setNeutralButton("Pleco", new android.content.DialogInterface.OnClickListener() {
@@ -1883,7 +1896,7 @@ if pleco_hanping: android_src += r"""
                                 i.addCategory(Intent.CATEGORY_LAUNCHER);
                                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                                 i.putExtra("launch_section", "dictSearch");
-                                i.putExtra("replacesearchtext", tt);
+                                i.putExtra("replacesearchtext", tt+aa);
                                 startActivity(i);
                             }
                         }); else d.setNeutralButton("Hanping", new android.content.DialogInterface.OnClickListener() {
@@ -1891,7 +1904,7 @@ if pleco_hanping: android_src += r"""
                             public void onClick(android.content.DialogInterface dialog,int id) {
                                 int v; for(v=0; hanpingVersion[v]==0; v++);
                                 Intent i = new Intent(Intent.ACTION_VIEW);
-                                i.setData(new android.net.Uri.Builder().scheme(hanpingVersion[v]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[v].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt.split(" ",2)[0]).build());
+                                i.setData(new android.net.Uri.Builder().scheme(hanpingVersion[v]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[v].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build());
                                 i.setPackage(hanpingPackage[v]);
                                 i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
                                 startActivity(i);
@@ -1905,7 +1918,7 @@ if glossfile: android_src += r"""
                         d.setPositiveButton("3 line", new android.content.DialogInterface.OnClickListener() {
                                 public void onClick(android.content.DialogInterface dialog,int id) {
 class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { browser.loadUrl(
-"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"/(;]*)([/(;][^\"]*)?\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>');var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)} ad0=document.body.innerHTML;ssb_local_annotator.alert('','3-line definitions tend to be incomplete!')"
+"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"/(;]*)([/(;][^\"]*)?\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>');var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
 /* Above rp elements are to make firstChild etc work in
    dialogue.  Don't do whole document.body.innerHTML, or
    scripts like document.write may execute a second time,
@@ -1924,7 +1937,7 @@ android_src += r"""
                         d.create().show();
                     }
                 }
-                act.runOnUiThread(new DialogTask(t,a));
+                act.runOnUiThread(new DialogTask(text,annot,gloss));
             }
             @JavascriptInterface public String getClip() {
                 String r=readClipboard(); if(r.equals(copiedText)) return ""; else return r;
@@ -2001,10 +2014,15 @@ android_src += r"""
             }
             @JavascriptInterface @TargetApi(11) public void copy(String copiedText,boolean toast) {
                 this.copiedText = copiedText;
-                if(Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
+                if(AndroidSDK < Build.VERSION_CODES.HONEYCOMB)
                     ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
                 if(toast) Toast.makeText(act, "Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
+            }"""
+if android_audio: android_src += r"""
+            @JavascriptInterface public void sendToAudio(final String s) {
+                class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { try { browser.loadUrl("javascript:var src='"""+android_audio+r""""+java.net.URLEncoder.encode(s,"utf-8")+"';if(!window.audioElement || window.audioElement.getAttribute('src')!=src){window.audioElement=document.createElement('audio');window.audioElement.setAttribute('src',src)}window.audioElement.play()"); } catch(java.io.UnsupportedEncodingException e) {} Toast.makeText(act, "Sent \""+s+"\" to audio server",Toast.LENGTH_LONG).show(); } };
+                act.runOnUiThread(new InjectorTask());
             }"""
 if epub: android_src += r"""
             @JavascriptInterface public void getEPUB() { Intent i = new Intent(Intent.ACTION_GET_CONTENT); i.setType("*/*"); /* application/epub+zip leaves all files unselectable on Android 4.4 */ try { startActivityForResult(i, 8778); } catch (android.content.ActivityNotFoundException e) { Toast.makeText(act,"Please install a file manager",Toast.LENGTH_LONG).show(); } }"""
@@ -2060,7 +2078,7 @@ android_src += r"""
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         final MainActivity act = this;
         browser.setWebViewClient(new WebViewClient() {
-                @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); if(Integer.valueOf(Build.VERSION.SDK)<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
+                @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); if(AndroidSDK<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else { needJsCommon=3; return false; } }"""
 if epub: android_src += r"""
                 @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
@@ -2131,7 +2149,7 @@ if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next
 if not android_template: android_src += r"""
                 float scale = 0; boolean scaling = false;
                 public void onScaleChanged(final WebView view,float from,final float to) {
-                    if (Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.KITKAT || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
+                    if (AndroidSDK < Build.VERSION_CODES.KITKAT || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
                     scaling=view.postDelayed(new Runnable() { public void run() {
                         view.evaluateJavascript("document.body.style.width=((window.visualViewport!=undefined?window.visualViewport.width:window.innerWidth)-getComputedStyle(document.body).marginLeft.replace(/px/,'')*1-getComputedStyle(document.body).marginRight.replace(/px/,'')*1)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null); // window.outerWidth will still be excessive on 4.4; not sure there's much we can do about that
                         scale=to; scaling=false;
@@ -2139,20 +2157,20 @@ if not android_template: android_src += r"""
                 }"""
 android_src += r"""
                 public void onPageFinished(WebView view,String url) {
-                    if(Integer.valueOf(Build.VERSION.SDK) < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
+                    if(AndroidSDK < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
                     browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
                     else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})");
                 } });"""
 if android_template: android_src += r"""
-        if(Integer.valueOf(Build.VERSION.SDK) >= 3 && Integer.valueOf(Build.VERSION.SDK) < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
+        if(AndroidSDK >= 3 && AndroidSDK < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
             browser.getSettings().setBuiltInZoomControls(true);
-        } if (Integer.valueOf(Build.VERSION.SDK) < 14) {
+        } if (AndroidSDK < 14) {
             final int size=Math.round(16*fs);
             browser.getSettings().setDefaultFontSize(size);
             browser.getSettings().setDefaultFixedFontSize(size);
         }"""
 else: android_src += r"""
-        if(Integer.valueOf(Build.VERSION.SDK) >= 3) browser.getSettings().setBuiltInZoomControls(true);
+        if(AndroidSDK >= 3) browser.getSettings().setBuiltInZoomControls(true);
         float fs = getResources().getConfiguration().fontScale; // from device accessibility settings
         if (fs < 1.0f) fs = 1.0f; // bug in at least some versions of Android 8 returns 0 for fontScale
         final int size=Math.round(16*fs); // from device accessibility settings (might be squared if OS does it too, but that's OK because the settings don't give enough of a range)
@@ -2189,7 +2207,7 @@ android_src += r""" loadingWait(url);
     String sentText = null;"""
 if epub: android_src += r"""
     void openEpub(String url) {
-        if(Integer.valueOf(Build.VERSION.SDK)<11 && url.endsWith(".epub")) { browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>This app'+\"'s EPUB handling requires Android 3 or above :-(</body>\")"); return; } // (Support for Android 2 would require using data URIs for images etc, and using shouldOverrideUrlLoading on all links)
+        if(AndroidSDK<11 && url.endsWith(".epub")) { browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>This app'+\"'s EPUB handling requires Android 3 or above :-(</body>\")"); return; } // (Support for Android 2 would require using data URIs for images etc, and using shouldOverrideUrlLoading on all links)
         // Android 5+ content:// URIs expire when the receiving Activity finishes, so we won't be able to add them to bookmarks (unless copy the entire epub, which is not good on a space-limited device)
         android.content.SharedPreferences sp=getPreferences(0);
         android.content.SharedPreferences.Editor e; do { e=sp.edit(); e.putString("epub",url); } while(!e.commit());
@@ -2202,11 +2220,11 @@ if pleco_hanping: android_src += r"""
     String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
     int[] hanpingVersion = new int[]{0,0,0};"""
 android_src += r"""
-    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild)+' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };",textWalkInit="",annotScan=jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+r""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
+    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild),' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };",textWalkInit="",annotScan=jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+r""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
     @SuppressWarnings("deprecation")
     @TargetApi(19)
     void runTimerLoop() {
-        if(Integer.valueOf(Build.VERSION.SDK) >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
+        if(AndroidSDK >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
             final Handler theTimer = new Handler();
             theTimer.postDelayed(new Runnable() {
                 @Override public void run() {
@@ -2224,8 +2242,8 @@ android_src += r"""
     }
     boolean nextBackHides = false; int needJsCommon=3;
     @Override public void onPause() { super.onPause(); nextBackHides = false; } // but may still be visible on Android 7+, so don't pause the browser yet
-    @TargetApi(11) @Override public void onStop() { super.onStop(); if(browser!=null && Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onPause(); } // NOW pause the browser (screen off or app not visible)
-    @TargetApi(11) @Override public void onStart() { super.onStart(); if(browser!=null && Integer.valueOf(Build.VERSION.SDK) >= 11) browser.onResume(); }
+    @TargetApi(11) @Override public void onStop() { super.onStop(); if(browser!=null && AndroidSDK >= 11) browser.onPause(); } // NOW pause the browser (screen off or app not visible)
+    @TargetApi(11) @Override public void onStart() { super.onStart(); if(browser!=null && AndroidSDK >= 11) browser.onResume(); }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
@@ -2235,7 +2253,7 @@ android_src += r"""
     @SuppressWarnings("deprecation") // using getText so works on API 1 (TODO consider adding a version check and the more-modern alternative android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip(); if (c != null && c.getItemCount()>0) return c.getItemAt(0).coerceToText(this).toString(); return ""; )
     @TargetApi(11)
     public String readClipboard() {
-        if(Integer.valueOf(Build.VERSION.SDK) < Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
+        if(AndroidSDK < Build.VERSION_CODES.HONEYCOMB) // SDK_INT requires API 4 but this works on API 1
             return ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getText().toString();
         android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip();
         if (c != null && c.getItemCount()>0) {
@@ -2244,7 +2262,8 @@ android_src += r"""
         return "";
     }
     @Override protected void onSaveInstanceState(Bundle outState) { browser.saveState(outState); }
-    @Override protected void onDestroy() { if(isFinishing() && Integer.valueOf(Build.VERSION.SDK)<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
+    @Override protected void onDestroy() { if(isFinishing() && AndroidSDK<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
+    int AndroidSDK = (android.os.Build.VERSION.RELEASE.startsWith("1.") ? Integer.valueOf(Build.VERSION.SDK) : Build.VERSION.SDK_INT);
     WebView browser;"""
 if epub: android_src += " boolean loadingEpub = false;"
 android_src += "}\n"
@@ -2265,7 +2284,7 @@ public class BringToFront extends android.app.IntentService {
 }
 """
 android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
-<script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('',''+msg+' line '+line); return true}</script>
+<script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('','',''+msg+' line '+line); return true}</script>
     <h3>Clipboard</h3>
     <div id="clip">waiting for clipboard contents</div>
     <script>
