@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6834 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6835 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -1808,7 +1808,7 @@ android_src += r"""
             public A(MainActivity act) {
                 this.act = act;"""
 if sharp_multi: android_src += r"""
-                annotNo = Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("annotNo", "0"));"""
+                annotNo = Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("annotNo", "0")); setPattern();"""
 if android_template: android_src += r"""
                 if(canCustomZoom()) setZoomLevel(Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("zoom", "4")));"""
 android_src += r"""
@@ -1820,7 +1820,12 @@ if sharp_multi: android_src += r""" int annotNo;
                 do {
                 e = getSharedPreferences("ssb_local_annotator",0).edit();
                 e.putString("annotNo",String.valueOf(annotNo));
-                } while(!e.commit()); }
+                } while(!e.commit()); setPattern();
+            }
+            void setPattern() {
+                smPat=java.util.regex.Pattern.compile("<rt>"+new String(new char[annotNo]).replace("\0","[^#]*#")+"([^#]*?)(#.*?)?</rt>");
+            }
+            java.util.regex.Pattern smPat=java.util.regex.Pattern.compile("<rt>([^#]*?)(#.*?)?</rt>");
             @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
 if android_template: android_src += r"""
             @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
@@ -1845,10 +1850,9 @@ android_src += r"""
 if data_driven: android_src += "throws java.util.zip.DataFormatException "
 android_src += '{ String r=annotator.annotate(t);'
 if sharp_multi: android_src += r"""
-                java.util.regex.Pattern p=java.util.regex.Pattern.compile("<rt>([^#]*)#(.*?)</rt>");
-                java.util.regex.Matcher m = p.matcher(r);
+                java.util.regex.Matcher m = smPat.matcher(r);
                 StringBuffer sb=new StringBuffer();
-                while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(annotNo+1)+"</rt>");
+                while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(1)+"</rt>");
                 m.appendTail(sb); r=sb.toString();"""
 if epub: android_src += """if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"&lrm;"+r;""" # needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair
 android_src += r"""return r; }
