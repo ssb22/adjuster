@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6835 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.684 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -130,7 +130,7 @@ parser.add_option("-n","--no-input",
                   help="Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.")
 cancelOpt("no-input")
 
-parser.add_option("--c-filename",default="",help="Where to write the C, C#, Python, Javascript or Go program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
+parser.add_option("--c-filename",default="",help="Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
 
 parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
 # If compiling an experimental annotator quickly, you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc.
@@ -189,7 +189,7 @@ parser.add_option("--ios", # when removing this, remove "ios" from annogen.html 
 
 parser.add_option("-D","--data-driven",
                   action="store_true",default=False,
-                  help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's \"section too large\"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript and Python output is always data-driven anyway.") # If the resulting binary is compressed (e.g. in an APK), its compressed size will likely not change much (same information content), so I'm specifically saying "RAM size" i.e. when decompressed
+                  help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's \"section too large\"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript, Python and Dart output is always data-driven anyway.") # If the resulting binary is compressed (e.g. in an APK), its compressed size will likely not change much (same information content), so I'm specifically saying "RAM size" i.e. when decompressed
 cancelOpt("data-driven")
 parser.add_option("-F","--fast-assemble",
                   action="store_true",default=False,
@@ -283,6 +283,11 @@ parser.add_option("-u","--js-utf8",
                   action="store_true",default=False,
                   help="When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites.")
 cancelOpt("js-utf8")
+
+parser.add_option("--dart",
+                  action="store_true",default=False,
+                  help="Instead of generating C code, generate Dart.  This might be useful if you want to run an annotator in a Flutter application.")
+cancelOpt("dart")
 
 parser.add_option("-Y","--python",
                   action="store_true",default=False,
@@ -457,15 +462,15 @@ def shell_escape(arg):
 if sharp_multi:
   if c_sharp or python or golang: errExit("sharp-multi not yet implemented in C#, Python or Go")
   elif ios or windows_clipboard: errExit("sharp-multi not yet implemented for ios or windows-clipboard") # would need a way to select the annotator, probably necessitating a GUI on Windows (and extra callbacks on iOS)
-if java or javascript or python or c_sharp or golang:
-    if ios: errExit("--ios not yet implemented in C#, Java, JS, Python or Go; please use C (it becomes Objective-C)")
-    if windows_clipboard: errExit("--windows-clipboard not yet implemented in C#, Java, JS, Python or Go; please use C")
-    if sum(1 for x in [java,javascript,python,c_sharp,golang] if x) > 1:
+if java or javascript or python or c_sharp or golang or dart:
+    def cOnly(param,lang="C"): errExit(param+" not yet implemented in any language other than "+lang+", so cannot be used with --java, --javascript, --python, --c-sharp, --golang or --dart")
+    if ios: cOnly("--ios","Objective-C")
+    if windows_clipboard: cOnly("--windows-clipboard")
+    if library: cOnly("--library")
+    if not outcode=="utf-8": cOnly("Non utf-8 outcode")
+    if compress: cOnly("--compress")
+    if sum(1 for x in [java,javascript,python,c_sharp,golang,dart] if x) > 1:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
-    if not outcode=="utf-8": errExit("outcode must be utf-8 when using Java, Javascript, Python, C# or Go")
-    if compress:
-      if android: errExit("--compress not yet implemented for Android, but --zlib typically gives results within 1% of --zlib --compress")
-      else: errExit("--compress not yet implemented for the Java, Javascript, Python, C# or Go versions") # (and it would probably slow down JS/Python too much if it were implemented in that)
     if java:
       if android and not "/src//" in java: errExit("When using --android, the last thing before the // in --java must be 'src' e.g. --java=/workspace/MyProject/src//org/example/package")
       if main and not compile_only: # (delete previous files, only if we're not an MPI-etc subprocess)
@@ -479,6 +484,7 @@ if java or javascript or python or c_sharp or golang:
         if not android_https_only and not android_pre_2016: os.system("mkdir -p "+shell_escape(jSrc+"/../res/xml"))
     elif c_filename.endswith(".c"):
       if javascript: c_filename = c_filename[:-2]+".js"
+      elif dart: c_filename = c_filename[:-2]+".dart"
       elif c_sharp: c_filename = c_filename[:-2]+".cs"
       elif golang: c_filename = c_filename[:-2]+".go"
       else: c_filename = c_filename[:-2]+".py"
@@ -496,7 +502,9 @@ elif ios:
 if js_6bit:
   if not javascript: errExit("--js-6bit requires --javascript") # or just set js_6bit=False in these circumstances?
   import urllib
+if dart: js_utf8 = True
 if zlib:
+  if dart: errExit("--zlib not yet implemented in Dart") # TODO: use ZLibCodec, and set js_utf8 only in dart_escapeRawBytes.  This might mean the resulting Dart cannot be compiled to JS but used only from Flutter or CLI.
   js_6bit = js_utf8 = False
   del zlib ; import zlib ; data_driven = True
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
@@ -504,10 +512,9 @@ if zlib:
 if data_driven:
   if c_sharp or golang: errExit("--data-driven and --zlib are not yet implemented in C# or Go")
   elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java? (in which case also update the 'compress' errExit above so it doesn't check for android before suggesting zlib)
-elif javascript or python: data_driven = True
+elif javascript or python or dart: data_driven = True
 compact_opcodes = data_driven and not fast_assemble and not python # currently implemented only in the C, Java and Javascript versions of the data-driven runtime
-if java or javascript or python or c_sharp or ios or golang:
-  c_compiler = None
+if java or javascript or python or c_sharp or ios or golang or dart: c_compiler = None
 try:
   import locale
   terminal_charset = locale.getdefaultlocale()[1]
@@ -2768,7 +2775,7 @@ class BytecodeAssembler:
   # Bytecode for a virtual machine run by the Javascript version etc
   opcodes = {
     # 0-19    RESERVED for short switchbyte (C,Java,Py)
-    # 108-127 RESERVED for short switchbyte (JS, more in the printable range to reduce escaping a bit)
+    # 108-127 RESERVED for short switchbyte (JS,Dart, more in the printable range to reduce escaping a bit)
     # 91-107 RESERVED for short switchbyte (JS, UTF-8 printability optimisation for 6bit)
     # 128-255 RESERVED for short jumps
     'jump': 50, # '2' params: address
@@ -2896,7 +2903,7 @@ class BytecodeAssembler:
       self.l.append(-labelNo)
   def addRefToString(self,string):
     assert type(string)==str
-    if python or java or javascript:
+    if python or java or javascript or dart:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
       if js_6bit and not js_utf8: string = re.sub("%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape'
@@ -2904,11 +2911,13 @@ class BytecodeAssembler:
       if js_6bit:
         if 1 <= len(string) <= 91:
           string = chr(len(string)+31)+string # 32-122 inc
-        else:
+        else: # try to avoid using \x00 for termination
           for termChar in '{|}~\x00': # 123-126 + nul
             if not termChar in string:
               string = termChar + string + termChar
               break
+      elif js_utf8 and 1 <= len(string) < 0x02B0: # avoid combining and modifier marks just in case; also avoid 0xD800+ surrogates
+        string = unichr(len(string)) + string
       elif 1 <= len(string) < 256:
         string = chr(len(string))+string
       else: string = chr(0)+string+chr(0)
@@ -3002,15 +3011,15 @@ class BytecodeAssembler:
                        numLabels = numItems+1 # there's an extra default label at the end
                        origOperandsLen = 1+numItems+numLabels*addrSize # number + N bytes + the labels
                        if LGet(src[count+3],origOperandsLen)==0 and all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF-js_6bit_offset for N in xrange(4,3+numLabels)): # 1st label is immediately after the switchbyte, and all others are in range
-                        if javascript: # use printable range
+                        if javascript or dart: # use printable range
                           if js_6bit and numItems<=17 and all(0x80<=ord(x)<=0xBF or 0xD4<=ord(x)<=0xEF for x in src[count+2]): # move UTF-8 representations of U+0500 through U+FFFF to printable range (in one test this saved 780k for the continuation bytes and another 200k for the rest)
                             def mv(x):
                               if x>=0xD4: x -= 20 # or, equivalently, if (x-93)>118, which is done to the input byte in JS before searching on these
                               return chr(x-93)
                             src[count+2]=''.join(mv(ord(x)) for x in src[count+2])
                             i = chr(ord(src[count+1])+91) # and a printable opcode
-                          else: i = chr(ord(src[count+1])+108) # can't make the match bytes printable, but at least we can have a printable opcode
-                        else: i = src[count+1]
+                          else: i = chr(ord(src[count+1])+108) # can't make the match bytes printable, but at least we can have a printable opcode 108-127 for short switchbyte in Javascript or Dart
+                        else: i = src[count+1] # 0-19 for short switchbyte in C,Java,Python
                         src[count] = i = i+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)+js_6bit_offset) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
                         for ctd in xrange(count+1,count+3+numLabels): counts_to_del.add(ctd)
                         newOperandsLen = numItems*2 # for each byte, the byte itself and an offset, + 1 more offset as default, - 1 because first is not given
@@ -3266,7 +3275,7 @@ js_end += r"""
                 while (dPtr < tPtr && dPtr < fPtr) if (tStr.indexOf(readRefStr()) != -1) { found = 1; break; }
                 dPtr = found ? tPtr : fPtr; break;
                 }
-        default: throw("corrupt data table at "+(dPtr-1)+"/"+data.length+" ("+data.charCodeAt(dPtr-1)+")");
+        default: throw("corrupt data table at "+(dPtr-1)+"/"+data.length+" ("+c+")");
             }
         }
     }
@@ -3303,6 +3312,127 @@ if (typeof require != "undefined" && typeof module != "undefined" && require.mai
   module.exports = Annotator;
 }
 """
+
+dart_start = r"""
+
+/* Usage
+   -----
+   If this file is saved as annotator.dart,
+   you can import 'annotator.dart';
+   and then call the annotate() function.
+*/
+
+import 'dart:convert';
+class _Annotator {
+  static const version="""+'"'+version_stamp+r"""";
+  static final String """
+dart_end = r""";
+  int addrLen=data.codeUnitAt(0),dPtr;
+  bool needSpace; StringBuffer output;
+  int p, copyP; List<int> inBytes; int inputLength;
+  String annotate(String input"""
+if sharp_multi: dart_end += r""",[int aType=0]"""
+dart_end += r""") {
+    inBytes=utf8.encode(input); dPtr=0;
+    inputLength=input.length;
+    p=0; copyP=0;
+    output = StringBuffer(); needSpace = false;
+    while(p < inputLength) {
+      int oldPos=p;
+      dPtr=1;_readData();
+      if (oldPos==p) { needSpace=false; output.write(String.fromCharCode(inBytes[p++])); copyP++; }
+    }
+    return Utf8Decoder().convert(output.toString().codeUnits)"""
+if sharp_multi: dart_end += r""".replaceAllMapped(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#"*aType+"(.*?)(#.*?)?</r"),(Match m)=>"${m[1]}${m[2]}</r")"""
+dart_end += r""";
+  }
+  int _readAddr() { int addr=0; for (int i=addrLen; i>0; i--) addr=(addr << 8) | data.codeUnitAt(dPtr++); return addr; }
+  String _readRefStr() {
+    int a=_readAddr();
+    int l=data.codeUnitAt(a);
+    String r;
+    if (l != 0) r=data.substring(a+1,a+l+1);
+    else r=data.substring(a+1,data.indexOf("\u0000",a+1));
+    return String.fromCharCodes(Utf8Encoder().convert(r)); // (TODO: unless data is all UTF-8 bytes rather than some w.Unicode)
+  }
+  void _s() {
+    if(needSpace) output.write(" ");
+    else needSpace=true; // for after the word we're about to write (if no intervening bytes cause needSpace=false)
+  }
+  void _readData() {
+    List<int> sPos=List<int>();
+    while(true) {
+      int c=data.codeUnitAt(dPtr++);
+      if ((c & 0x80)!=0) dPtr += (c&0x7F); // short jump
+      else if (c > 107) { // short switchbyte
+        c-=107;
+        var i = ((p>=inputLength)?-1:data.substring(dPtr,dPtr+c).indexOf(String.fromCharCode(inBytes[p++])));
+        if (i==-1) i = c;
+        if(i>0) dPtr += data.codeUnitAt(dPtr+c+i-1);
+        dPtr += c+c;
+      } else switch(c) {
+        case 50: dPtr = _readAddr(); break;
+        case 51: {
+          int f = _readAddr(); int dO=dPtr;
+          dPtr = f; _readData() ; dPtr = dO;
+          break; }
+        case 52: return;
+        case 60: {
+          int nBytes = data.codeUnitAt(dPtr++)+1;
+          int i = ((p>=inputLength)?-1:data.substring(dPtr,dPtr+nBytes).indexOf(String.fromCharCode(inBytes[p++])));
+          if (i==-1) i = nBytes;
+          dPtr += (nBytes + i * addrLen);
+          dPtr = _readAddr(); break; }
+        case 71: case 74: {
+          int numBytes = data.codeUnitAt(dPtr++);
+  output.write(String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)));
+  copyP += numBytes; if(c==74) return; break; }
+        case 72: case 75: {
+          int numBytes = data.codeUnitAt(dPtr++);
+          String annot = _readRefStr();
+  _s();
+  output.write("<ruby><rb>");
+  output.write(String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)));
+  copyP += numBytes;
+  output.write("</rb><rt>"); output.write(annot);
+  output.write("</rt></ruby>"); if(c==75) return; break; }
+        case 73: case 76: {
+          int numBytes = data.codeUnitAt(dPtr++);
+          String annot = _readRefStr();
+          String title = _readRefStr();
+  _s();
+  output.write("<ruby title=\""); output.write(title);
+  output.write("\"><rb>");
+  output.write(String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)));
+  copyP += numBytes;
+  output.write("</rb><rt>"); output.write(annot);
+  output.write("</rt></ruby>"); if(c==76) return; break; }
+        case 80: sPos.add(p); break;
+        case 81: p=sPos.removeLast(); break;
+        case 90: {
+          int tPtr = _readAddr();
+          int fPtr = _readAddr();
+          int nearbytes = data.codeUnitAt(dPtr++);
+  int o=p;
+  if (o > nearbytes) o -= nearbytes; else o = 0;
+  var max = p + nearbytes;
+  if (max > inputLength) max = inputLength;
+  String tStr = String.fromCharCodes(inBytes.sublist(o,max));
+                bool found = false;
+                while (dPtr < tPtr && dPtr < fPtr) if (tStr.indexOf(_readRefStr()) != -1) { found = true; break; }
+                dPtr = found ? tPtr : fPtr; break;
+                }
+        default: throw("corrupt data table at ${dPtr-1}/${data.length} (${c})");
+      }
+    }
+  }
+}
+
+String annotate(String s"""
+if sharp_multi: dart_end += r""",[int aType=0]"""
+dart_end += r""") { return _Annotator().annotate(s"""
+if sharp_multi: dart_end += ",aType"
+dart_end += "); }\n"
 
 py_start = '# Python '+version_stamp+r"""
 
@@ -4447,6 +4577,8 @@ def js_escapeRawBytes(s):
   if js_utf8: return re.sub("[\x00-\x1f\x7f]",lambda m:r"\x%02x"%ord(m.group()),s.encode('utf-8'))
   else: return re.sub("[\x00-\x1f\x7f-\xff]",lambda m:r"\x%02x"%ord(m.group()),s)
 
+def dart_escapeRawBytes(s): return re.sub("[\x00-\x1f\"\\\\$\x7f]",lambda m:r"\u{%x}"%ord(m.group()),s.encode('utf-8'))
+
 def c_length(unistr): return len(unistr.encode(outcode))
 
 if java or c_sharp or golang:
@@ -4566,8 +4698,7 @@ def matchingAction(rule,glossDic,glossMiss,whitelist):
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
-def outputParser(rulesAndConds):
-    sys.stderr.write("Generating byte cases...\n")
+def readGlossfile():
     glossDic = {} ; glossMiss = set() ; whitelist = set()
     if glossfile:
         for l in openfile(glossfile).xreadlines():
@@ -4583,6 +4714,11 @@ def outputParser(rulesAndConds):
             if not word or not gloss: continue
             if annot: glossDic[(word,annot)] = gloss
             else: glossDic[word] = gloss
+    return glossDic,glossMiss,whitelist
+
+def outputParser(rulesAndConds):
+    glossDic, glossMiss, whitelist = readGlossfile()
+    sys.stderr.write("Generating byte cases...\n")
     byteSeq_to_action_dict = {}
     if ignoreNewlines:
         if data_driven: newline_action = [(1,)]
@@ -4664,6 +4800,7 @@ def outputParser(rulesAndConds):
         import base64
         return outfile.write(js_start+"data: inflate(\""+base64.b64encode(ddrivn)+"\","+str(origLen)+"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace("indexOf(input.charAt","indexOf(input.charCodeAt")+"\n")
       else: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n") # not Uint8Array (even if browser compatibility is known): besides taking more source space, it's typically ~25% slower to load than string, even from RAM
+    elif dart: return outfile.write(dart_start+"data=\""+dart_escapeRawBytes(ddrivn)+"\""+dart_end+"\n")
     elif python:
       outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
       if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")

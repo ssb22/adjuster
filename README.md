@@ -734,7 +734,7 @@ Options:
 
 `--c-filename=C_FILENAME
 `
- : Where to write the C, C#, Python, Javascript or Go program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.
+ : Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.
 
 `--c-compiler=C_COMPILER
 `
@@ -798,7 +798,7 @@ Options:
  : [**Deprecated**] Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with `<` to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app; see the start of the generated C file for instructions. If Xcode runs out of space, try using --data-driven. The --ios option has been deprecated because it relies on a component called UIWebView which Apple have deprecated (ITMS-90809). Since I do not have the necessary equipment to test a rewrite with WKWebView, nor am I aware of Apple's App Store having ever accepted an app from an Annogen user, I do not now plan to invest time in migrating the code from UIWebView to WKWebView, and if I ever find out Apple removed UIWebView altogether then I will probably delete the --ios option (unless somebody sends me a patch to fix it).
 
 `-D, --data-driven`
- : Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's "section too large"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript and Python output is always data-driven anyway.
+ : Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's "section too large"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript, Python and Dart output is always data-driven anyway.
 
 `--no-data-driven`
  : Cancels any earlier --data-driven option in Makefile variables etc
@@ -938,6 +938,12 @@ Options:
 
 `--no-js-utf8`
  : Cancels any earlier --js-utf8 option in Makefile variables etc
+
+`--dart`
+ : Instead of generating C code, generate Dart.  This might be useful if you want to run an annotator in a Flutter application.
+
+`--no-dart`
+ : Cancels any earlier --dart option in Makefile variables etc
 
 `-Y, --python`
  : Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.
