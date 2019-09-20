@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.2794 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.2795 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1144,14 +1144,13 @@ def getWhois(ip):
         if field in checkList or (field=="country:" and ret) and not value in ret: ret.append(value) # omit 1st country: from RIPE/APNIC/&c, and de-dup
     return ", ".join(ret)
 def whois_thread(ip,logger):
-    global helper_thread_count
-    helper_thread_count += 1
+    helper_threads.append('whois')
     address = getWhois(ip)
     logger.thread_running = False
     if address: logging.info("whois "+ip+": "+address)
-    helper_thread_count -= 1
+    helper_threads.remove('whois')
 
-helper_thread_count = 0
+helper_threads = []
 
 class NullLogger:
   def __call__(self,req): pass
@@ -1747,16 +1746,33 @@ def plural(number):
     if number == 1: return ""
     else: return "s"
 def stop_threads():
+    if quitFuncToCall: quitFuncToCall()
     if not sslfork_monitor_pid == None:
         try: os.kill(sslfork_monitor_pid,signal.SIGTERM) # this should cause it to propagate that signal to the monitored PIDs
         except OSError: pass # somebody might have killall'd it
     CrossProcessLogging.shutdown()
-    if not helper_thread_count: return
-    msg = "Terminating %d helper thread%s" % (helper_thread_count,plural(helper_thread_count))
+    writeMsg = not options.background and not coreNo
+    for t in range(10): # wait for helper_threads first (especially if quitFuncToCall above, as if the terminate routine is too forceful it might prevent the EOF from being sent over the pipe (multiprocessing.Pipe has no flush method after we send the EOF, so quitFuncToCall's returning does NOT mean the eof has actually been sent) and we could get a stuck adjusterWDhelp process)
+      if t: time.sleep(0.2)
+      if not helper_threads:
+        if t: sys.stderr.write("Helper threads have stopped\n")
+        return
+      if not t and writeMsg: sys.stderr.write("Waiting 2secs for helper threads to stop...\n")
+    ht = [(i,1) for i in sorted(helper_threads)]
+    i = 0
+    while i < len(ht)-1:
+        if ht[i][0] == ht[i+1][0]:
+            ht[i] = (ht[i][0], ht[i][1]+1)
+            del ht[i+1]
+        else: i += 1
+    for i in xrange(len(ht)):
+        if ht[i][1]==1: ht[i] = ht[i][0]
+        else: ht[i] = ht[i][0]+"*"+str(ht[i][1])
+    msg = "Terminating %d helper thread%s (%s)" % (len(ht),plural(len(ht)),", ".join(ht))
     # in case someone needs our port quickly.
     # Most likely "runaway" thread is ip_change_command if you did a --restart shortly after the server started.
     # TODO it would be nice if the port can be released at the IOLoop.instance.stop, and make sure os.system doesn't dup any /dev/watchdog handle we might need to release, so that it's not necessary to stop the threads
-    if not options.background and not coreNo: sys.stderr.write(msg+"\n")
+    if writeMsg: sys.stderr.write(msg+"\n")
     stop_threads0()
 def stop_threads0():
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
@@ -2239,19 +2255,22 @@ class WebdriverWrapperController:
         self.process.start()
     def send(self,cmd,args=()):
         "Send a command to a WebdriverWrapper over IPC, and either return its result or raise its exception in this process.  Also handle the raising of SeriousTimeoutException if needed, in which case the WebdriverWrapper should be stopped."
-        if self.timeoutLock and not self.timeoutLock.acquire(timeout=0):
+        try:
+          if not self.timeoutLock.acquire(timeout=0):
             logging.error("REALLY serious SeriousTimeout (should never happen). Lock unavailable before sending command.")
             raise SeriousTimeoutException()
+        except AttributeError: pass # self.timeoutLock==None because quit(final=True) called from another thread
         try: self.pipe.send((cmd,args))
         except IOError: return # already closed
         if cmd=="EOF":
             return self.pipe.close() # no return code
-        if self.timeoutLock:
+        try:
             if not self.timeoutLock.acquire(timeout=options.js_timeout2): # fallback in case Selenium timeout doesn't catch it (signal.alarm in the child process isn't guaranteed to help, so catch it here)
                 try: logging.error("SeriousTimeout: WebdriverWrapper process took over "+str(options.js_timeout2)+"s to respond to "+repr((cmd,args))+". Emergency restarting this process.")
                 except: pass # absolutely do not throw anything except SeriousTimeoutException from this branch
                 raise SeriousTimeoutException()
             self.timeoutLock.release()
+        except AttributeError: return # self.timeoutLock==None because quit(final=True) called from another thread
         ret,exc = self.pipe.recv()
         if ret==exc=="INT": return self.pipe.close()
         if exc: raise exc
@@ -2323,8 +2342,7 @@ def find_adjuster_in_traceback():
         if __file__ in l[i][0]: return ", adjuster line "+str(l[i][1])
     return ""
 def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,manager,tooLate):
-    global helper_thread_count
-    helper_thread_count += 1
+    helper_threads.append('wd_fetch')
     need_restart = False
     def errHandle(error,extraMsg,prefetched):
         if not options.js_fallback: prefetched=None
@@ -2376,7 +2394,7 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
     else: manager.finishTime = time.time()
     manager.wd_threadStart = manager.maybe_stuck = False
     IOLoop.instance().add_callback(webdriver_checkServe)
-    helper_thread_count -= 1
+    helper_threads.remove('wd_fetch')
 def exc_logStr():
     toLog = sys.exc_info()[:2]
     if hasattr(toLog[1],"msg") and toLog[1].msg: toLog=(toLog[0],toLog[1].msg) # for WebDriverException
@@ -2611,6 +2629,7 @@ def test_init_webdriver():
     sys.stderr.write("Checking webdriver configuration... ")
     get_new_webdriver(0).quit()
     sys.stderr.write("OK\n")
+quitFuncToCall = None
 def init_webdrivers(start,N):
     informing = not options.background and not start and not (options.multicore and options.ssl_fork) # (if ssl_fork, we don't want the background 'starting N processes' messages to be interleaved with this)
     if informing:
@@ -2628,7 +2647,7 @@ def init_webdrivers(start,N):
             except: pass
       except: pass
       if informing: sys.stderr.write("done\n")
-    import atexit ; atexit.register(quit_wd_atexit)
+    global quitFuncToCall ; quitFuncToCall = quit_wd_atexit # don't use the real atexit, as we have our own thread-stop logic which might kick in first, leaving a stuck adjusterWDhelp process if js_multiprocess==True, and additionally holding up calling process if --stdio is in use (fixed in v0.2795)
     if options.js_restartMins and not options.js_restartAfter==1: IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
     if informing: sys.stderr.write("done\n")
 webdriver_maxBusy = 0
@@ -3503,9 +3522,9 @@ document.forms[0].i.focus()
             self.request.path = self.request.uri
         else:
             # HTTP/1.x headers are officially Latin-1 (but usually ASCII), and Tornado (at least versions 2 through 4) decodes the Latin-1 and re-encodes it as UTF-8.  This can cause confusion, so let's emulate modern browsers and %-encode any non-ASCII URIs:
-            try: uri2 = self.request.uri.decode('utf-8').encode('latin1')
-            except: uri2 = self.request.uri
-            if not self.request.uri == uri2: self.request.uri = urllib.quote(uri2)
+            try: self.request.uri = self.request.uri.decode('utf-8').encode('latin1')
+            except: pass
+        self.request.uri=re.sub("[^!-~]+",lambda m:urllib.quote(m.group()),self.request.uri)
         if self.request.method=="HEAD": self.set_header("Content-Length","-1") # we don't yet the content length, so Tornado please don't add it!  (NB this is for HEAD only, not OPTIONS, which should have Content-Length 0 or some browsers time out) (TODO: in non-WSGI mode could call .flush() after writing headers (with callback param), then Content-Length won't be added on .finish())
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
@@ -4623,14 +4642,13 @@ def runFilter(cmd,text,callback,textmode=True):
     elif cmd.startswith("http://") or cmd.startswith("https://"):
         return httpfetch(cmd,method="POST",body=text,callback=lambda r:(curlFinished(),callback(r.body,"")))
     def subprocess_thread():
-        global helper_thread_count
-        helper_thread_count += 1
+        helper_threads.append('filter-subprocess')
         sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=textmode) # TODO: check shell=True won't throw error on Windows
         out,err = sp.communicate(text)
         if not out: out=""
         if not err: err="" # TODO: else logging.debug ? (some stderr might be harmless; don't want to fill normal logs)
         IOLoop.instance().add_callback(lambda *args:callback(out,err))
-        helper_thread_count -= 1
+        helper_threads.remove('filter-subprocess')
     threading.Thread(target=subprocess_thread,args=()).start()
 
 def sync_runFilter(cmd,text,callback,textmode=True):
@@ -4882,10 +4900,9 @@ def get_and_remove_httpequiv_charset(body):
 def runBrowser(*args):
     mainPid = os.getpid()
     def browser_thread():
-        global helper_thread_count
-        helper_thread_count += 1
+        helper_threads.append('runBrowser')
         os.system(options.browser)
-        helper_thread_count -= 1
+        helper_threads.remove('runBrowser')
         if options.multicore: # main thread will still be in start_multicore, not IOLoop
             global interruptReason
             interruptReason = "Browser command finished"
@@ -4894,8 +4911,7 @@ def runBrowser(*args):
     threading.Thread(target=browser_thread,args=()).start()
 def runRun(*args):
     def runner_thread():
-        global helper_thread_count
-        helper_thread_count += 1
+        helper_threads.append('runRun')
         global exitting ; exitting = 0
         while True:
             startTime = time.time()
@@ -4912,7 +4928,7 @@ def runRun(*args):
             time.sleep(options.runWait)
             if exitting: break
             logging.info("Restarting run command after %dsec (last exit = %d)" % (options.runWait,ret))
-        helper_thread_count -= 1
+        helper_threads.remove('runRun')
     threading.Thread(target=runner_thread,args=()).start()
 def setupRunAndBrowser():
     if options.browser: IOLoop.instance().add_callback(runBrowser)
@@ -5817,11 +5833,11 @@ class WatchdogPings:
         self.ping()
     def stop(self):
         if not self.wFile: return # no watchdog
-        options.watchdog = 0 # tell any separate_thread() to stop (that thread is not counted in helper_thread_count)
+        options.watchdog = 0 # tell any separate_thread() to stop (that thread is not counted in helper_threads)
         self.wFile.write('V') # this MIGHT be clean exit, IF the watchdog supports it (not all of them do, so it might not be advisable to use the watchdog option if you plan to stop the server without restarting it)
         self.wFile.close()
     def separate_thread(self): # version for watchdogWait
-        # (does not adjust helper_thread_count / can't be "runaway")
+        # (does not adjust helper_threads / can't be "runaway")
         global watchdog_mainServerResponded # a flag.  Do NOT timestamp with time.time() - it can go wrong if NTP comes along and re-syncs the clock by a large amount
         def respond(*args):
             global watchdog_mainServerResponded
