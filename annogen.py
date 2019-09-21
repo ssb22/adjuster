@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.684 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6841 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -504,11 +504,11 @@ if js_6bit:
   import urllib
 if dart: js_utf8 = True
 if zlib:
-  if dart: errExit("--zlib not yet implemented in Dart") # TODO: use ZLibCodec, and set js_utf8 only in dart_escapeRawBytes.  This might mean the resulting Dart cannot be compiled to JS but used only from Flutter or CLI.
   js_6bit = js_utf8 = False
   del zlib ; import zlib ; data_driven = True
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
+  if dart: warn("--zlib prevents the resulting Dart code from being compiled to a \"Web app\"") # as it requires dart:io
 if data_driven:
   if c_sharp or golang: errExit("--data-driven and --zlib are not yet implemented in C# or Go")
   elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java? (in which case also update the 'compress' errExit above so it doesn't check for android before suggesting zlib)
@@ -2907,7 +2907,7 @@ class BytecodeAssembler:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
       if js_6bit and not js_utf8: string = re.sub("%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape'
-      elif js_utf8: string = unicode(string,'utf-8')
+      elif js_utf8: string = string.decode('utf-8')
       if js_6bit:
         if 1 <= len(string) <= 91:
           string = chr(len(string)+31)+string # 32-122 inc
@@ -3322,7 +3322,9 @@ dart_start = r"""
    and then call the annotate() function.
 */
 
-import 'dart:convert';
+import 'dart:convert';"""
+if zlib: dart_start += "import 'dart:io';"
+dart_start += r"""
 class _Annotator {
   static const version="""+'"'+version_stamp+r"""";
   static final String """
@@ -3352,8 +3354,11 @@ dart_end += r""";
     int l=data.codeUnitAt(a);
     String r;
     if (l != 0) r=data.substring(a+1,a+l+1);
-    else r=data.substring(a+1,data.indexOf("\u0000",a+1));
-    return String.fromCharCodes(Utf8Encoder().convert(r)); // (TODO: unless data is all UTF-8 bytes rather than some w.Unicode)
+    else r=data.substring(a+1,data.indexOf("\u0000",a+1));"""
+if js_utf8: dart_end += r"""
+    return String.fromCharCodes(Utf8Encoder().convert(r));"""
+else: dart_end += "return r;"
+dart_end += r"""
   }
   void _s() {
     if(needSpace) output.write(" ");
@@ -4577,7 +4582,9 @@ def js_escapeRawBytes(s):
   if js_utf8: return re.sub("[\x00-\x1f\x7f]",lambda m:r"\x%02x"%ord(m.group()),s.encode('utf-8'))
   else: return re.sub("[\x00-\x1f\x7f-\xff]",lambda m:r"\x%02x"%ord(m.group()),s)
 
-def dart_escapeRawBytes(s): return re.sub("[\x00-\x1f\"\\\\$\x7f]",lambda m:r"\u{%x}"%ord(m.group()),s.encode('utf-8'))
+def dart_escapeRawBytes(s):
+  if js_utf8: return re.sub("[\x00-\x1f\"\\\\$\x7f]",lambda m:r"\u{%x}"%ord(m.group()),s.encode('utf-8'))
+  else: return re.sub("[\x00-\x1f\"\\\\$\x7f-\xff]",lambda m:r"\u{%x}"%ord(m.group()),s)
 
 def c_length(unistr): return len(unistr.encode(outcode))
 
@@ -4800,7 +4807,9 @@ def outputParser(rulesAndConds):
         import base64
         return outfile.write(js_start+"data: inflate(\""+base64.b64encode(ddrivn)+"\","+str(origLen)+"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace("indexOf(input.charAt","indexOf(input.charCodeAt")+"\n")
       else: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n") # not Uint8Array (even if browser compatibility is known): besides taking more source space, it's typically ~25% slower to load than string, even from RAM
-    elif dart: return outfile.write(dart_start+"data=\""+dart_escapeRawBytes(ddrivn)+"\""+dart_end+"\n")
+    elif dart:
+      if zlib: return outfile.write(dart_start+"data=String.fromCharCodes(zlib.decoder.convert(\""+dart_escapeRawBytes(ddrivn)+"\".codeUnits))"+dart_end+"\n")
+      else: return outfile.write(dart_start+"data=\""+dart_escapeRawBytes(ddrivn)+"\""+dart_end+"\n")
     elif python:
       outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
       if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
