@@ -945,6 +945,10 @@ Options:
 `--no-dart`
  : Cancels any earlier --dart option in Makefile variables etc
 
+`--dart-datafile=DART_DATAFILE
+`
+ : When generating Dart code, put all annotator data in a separate file, and open it using this pathname. This requires dart:cli which is not supported by Flutter.
+
 `-Y, --python`
  : Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.
 

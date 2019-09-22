@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6841 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6842 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -289,6 +289,9 @@ parser.add_option("--dart",
                   help="Instead of generating C code, generate Dart.  This might be useful if you want to run an annotator in a Flutter application.")
 cancelOpt("dart")
 
+parser.add_option("--dart-datafile",
+                  help="When generating Dart code, put all annotator data in a separate file, and open it using this pathname. This requires dart:cli which is not supported by Flutter.") # (for waitFor, required to read a file when initialising a static final, TODO: this is experimental anyway; can we have an async annotate that can 'await' if it's not initialised?)
+
 parser.add_option("-Y","--python",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.")
@@ -502,13 +505,16 @@ elif ios:
 if js_6bit:
   if not javascript: errExit("--js-6bit requires --javascript") # or just set js_6bit=False in these circumstances?
   import urllib
-if dart: js_utf8 = True
+if dart:
+  js_utf8 = not dart_datafile
+  if dart_datafile and any(x in dart_datafile for x in "'\\$"): errExit("Current implementation cannot cope with ' or \\ or $ in dart_datafile")
+elif dart_datafile: errExit("--dart-datafile requires --dart")
 if zlib:
   js_6bit = js_utf8 = False
   del zlib ; import zlib ; data_driven = True
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
-  if dart: warn("--zlib prevents the resulting Dart code from being compiled to a \"Web app\"") # as it requires dart:io
+  if dart and not dart_datafile: warn("--zlib without --dart-datafile might not be as efficient as you'd hope (and --zlib prevents the resulting Dart code from being compiled to a \"Web app\" anyway)") # as it requires dart:io
 if data_driven:
   if c_sharp or golang: errExit("--data-driven and --zlib are not yet implemented in C# or Go")
   elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java? (in which case also update the 'compress' errExit above so it doesn't check for android before suggesting zlib)
@@ -3324,6 +3330,7 @@ dart_start = r"""
 
 import 'dart:convert';"""
 if zlib: dart_start += "import 'dart:io';"
+if dart_datafile: dart_start += "import 'dart:cli';"
 dart_start += r"""
 class _Annotator {
   static const version="""+'"'+version_stamp+r"""";
@@ -4808,7 +4815,16 @@ def outputParser(rulesAndConds):
         return outfile.write(js_start+"data: inflate(\""+base64.b64encode(ddrivn)+"\","+str(origLen)+"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace("indexOf(input.charAt","indexOf(input.charCodeAt")+"\n")
       else: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n") # not Uint8Array (even if browser compatibility is known): besides taking more source space, it's typically ~25% slower to load than string, even from RAM
     elif dart:
-      if zlib: return outfile.write(dart_start+"data=String.fromCharCodes(zlib.decoder.convert(\""+dart_escapeRawBytes(ddrivn)+"\".codeUnits))"+dart_end+"\n")
+      if dart_datafile:
+        if os.sep in c_filename: d=c_filename[:c_filename.rindex(os.sep)]+os.sep
+        else: d = ""
+        if os.sep in dart_datafile: d += dart_datafile[dart_datafile.rindex(os.sep)+1:]
+        else: d += dart_datafile
+        open(d,'wb').write(ddrivn)
+        sys.stderr.write("Wrote "+d+" (ensure this ships as "+dart_datafile+")\n")
+      if dart_datafile and zlib: return outfile.write(dart_start+"data=String.fromCharCodes(zlib.decoder.convert(waitFor(File('"+dart_datafile+"').readAsBytes())))"+dart_end+"\n")
+      elif zlib: return outfile.write(dart_start+"data=String.fromCharCodes(zlib.decoder.convert(\""+dart_escapeRawBytes(ddrivn)+"\".codeUnits))"+dart_end+"\n")
+      elif dart_datafile: return outfile.write(dart_start+"data=String.fromCharCodes(waitFor(File('"+dart_datafile+"').readAsBytes()))"+dart_end+"\n")
       else: return outfile.write(dart_start+"data=\""+dart_escapeRawBytes(ddrivn)+"\""+dart_end+"\n")
     elif python:
       outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
