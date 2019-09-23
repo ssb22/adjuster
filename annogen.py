@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6842 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6843 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -290,7 +290,7 @@ parser.add_option("--dart",
 cancelOpt("dart")
 
 parser.add_option("--dart-datafile",
-                  help="When generating Dart code, put all annotator data in a separate file, and open it using this pathname. This requires dart:cli which is not supported by Flutter.") # (for waitFor, required to read a file when initialising a static final, TODO: this is experimental anyway; can we have an async annotate that can 'await' if it's not initialised?)
+                  help="When generating Dart code, put annotator data into a separate file and open it using this pathname. Not compatible with Dart's \"Web app\" option, but might save space in a Flutter app (especially along with --zlib)")
 
 parser.add_option("-Y","--python",
                   action="store_true",default=False,
@@ -3319,29 +3319,33 @@ if (typeof require != "undefined" && typeof module != "undefined" && require.mai
 }
 """
 
-dart_start = r"""
+dart_src = r"""
 
 /* Usage
    -----
    If this file is saved as annotator.dart,
    you can import 'annotator.dart';
-   and then call the annotate() function.
+   and then call the annotate() function."""
+if dart_datafile: dart_src += r"""
+   E.g. String result = await annotate();
+   (make your function async.)  Will read """+dart_datafile
+dart_src += r"""
 */
 
 import 'dart:convert';"""
-if zlib: dart_start += "import 'dart:io';"
-if dart_datafile: dart_start += "import 'dart:cli';"
-dart_start += r"""
+if zlib: dart_src += "import 'dart:io';"
+dart_src += r"""
 class _Annotator {
-  static const version="""+'"'+version_stamp+r"""";
-  static final String """
-dart_end = r""";
+  static const version="""+'"'+version_stamp+r"""";"""
+if dart_datafile: dart_src+="\n  static String data=null;"
+else: dart_src+="\n  static final String data=%%DATA_INIT%%;"
+dart_src += r"""
   int addrLen=data.codeUnitAt(0),dPtr;
   bool needSpace; StringBuffer output;
   int p, copyP; List<int> inBytes; int inputLength;
   String annotate(String input"""
-if sharp_multi: dart_end += r""",[int aType=0]"""
-dart_end += r""") {
+if sharp_multi: dart_src += r""",[int aType=0]"""
+dart_src += r""") {
     inBytes=utf8.encode(input); dPtr=0;
     inputLength=input.length;
     p=0; copyP=0;
@@ -3352,8 +3356,8 @@ dart_end += r""") {
       if (oldPos==p) { needSpace=false; output.write(String.fromCharCode(inBytes[p++])); copyP++; }
     }
     return Utf8Decoder().convert(output.toString().codeUnits)"""
-if sharp_multi: dart_end += r""".replaceAllMapped(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#"*aType+"(.*?)(#.*?)?</r"),(Match m)=>"${m[1]}${m[2]}</r")"""
-dart_end += r""";
+if sharp_multi: dart_src += r""".replaceAllMapped(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#"*aType+"(.*?)(#.*?)?</r"),(Match m)=>"${m[1]}${m[2]}</r")"""
+dart_src += r""";
   }
   int _readAddr() { int addr=0; for (int i=addrLen; i>0; i--) addr=(addr << 8) | data.codeUnitAt(dPtr++); return addr; }
   String _readRefStr() {
@@ -3362,10 +3366,10 @@ dart_end += r""";
     String r;
     if (l != 0) r=data.substring(a+1,a+l+1);
     else r=data.substring(a+1,data.indexOf("\u0000",a+1));"""
-if js_utf8: dart_end += r"""
+if js_utf8: dart_src += r"""
     return String.fromCharCodes(Utf8Encoder().convert(r));"""
-else: dart_end += "return r;"
-dart_end += r"""
+else: dart_src += "return r;"
+dart_src += r"""
   }
   void _s() {
     if(needSpace) output.write(" ");
@@ -3440,11 +3444,18 @@ dart_end += r"""
   }
 }
 
-String annotate(String s"""
-if sharp_multi: dart_end += r""",[int aType=0]"""
-dart_end += r""") { return _Annotator().annotate(s"""
-if sharp_multi: dart_end += ",aType"
-dart_end += "); }\n"
+"""
+if dart_datafile: dart_src += "Future<String> annotate(String s"
+else: dart_src += "String annotate(String s"
+if sharp_multi: dart_src += r""",[int aType=0]"""
+dart_src += ") "
+if dart_datafile: dart_src += "async "
+dart_src += "{ "
+if dart_datafile: dart_src += "if(_Annotator.data==null) _Annotator.data=await %%DATA_INIT%%;"
+dart_src += "return _Annotator().annotate(s"
+if sharp_multi: dart_src += ",aType"
+dart_src += "); }\n"
+if zlib: dart_src = dart_src.replace("%%DATA_INIT%%","String.fromCharCodes(zlib.decoder.convert(%%DATA_INIT%%))")
 
 py_start = '# Python '+version_stamp+r"""
 
@@ -4822,10 +4833,10 @@ def outputParser(rulesAndConds):
         else: d += dart_datafile
         open(d,'wb').write(ddrivn)
         sys.stderr.write("Wrote "+d+" (ensure this ships as "+dart_datafile+")\n")
-      if dart_datafile and zlib: return outfile.write(dart_start+"data=String.fromCharCodes(zlib.decoder.convert(waitFor(File('"+dart_datafile+"').readAsBytes())))"+dart_end+"\n")
-      elif zlib: return outfile.write(dart_start+"data=String.fromCharCodes(zlib.decoder.convert(\""+dart_escapeRawBytes(ddrivn)+"\".codeUnits))"+dart_end+"\n")
-      elif dart_datafile: return outfile.write(dart_start+"data=String.fromCharCodes(waitFor(File('"+dart_datafile+"').readAsBytes()))"+dart_end+"\n")
-      else: return outfile.write(dart_start+"data=\""+dart_escapeRawBytes(ddrivn)+"\""+dart_end+"\n")
+      if dart_datafile and zlib: return outfile.write(dart_src.replace("%%DATA_INIT%%","await(File('"+dart_datafile+"').readAsBytes())"))
+      elif zlib: return outfile.write(dart_src.replace("%%DATA_INIT%%","\""+dart_escapeRawBytes(ddrivn)+"\".codeUnits"))
+      elif dart_datafile: return outfile.write(dart_src.replace("%%DATA_INIT%%","String.fromCharCodes(await(File('"+dart_datafile+"').readAsBytes()))"))
+      else: return outfile.write(dart_src.replace("%%DATA_INIT%%","\""+dart_escapeRawBytes(ddrivn)+"\""))
     elif python:
       outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
       if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
