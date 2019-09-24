@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6843 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6844 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -3163,7 +3163,7 @@ else: js_start += "*/"
 js_start += r"""
 
 var Annotator={
-version: '"""+version_stamp+"',\n"
+version: '"""+version_stamp+"',\nnumLines: 2 /* override to 1 or 3 if you must, but not recommended for learning */,\n"
 if sharp_multi: js_end = "annotate: function(input,aType) { if(aType==undefined) aType=0;"
 else: js_end = "annotate: function(input) {"
 js_end += r"""
@@ -3243,29 +3243,71 @@ js_end += r"""
               dPtr += (nBytes + i * addrLen);
               dPtr = readAddr(); break; }
             case 71: case 74: {
-              var numBytes = data.charCodeAt(dPtr++);
-  output.push(input.slice(copyP,copyP+numBytes));
-  copyP += numBytes; if(c==74) return; break; }
+              var numBytes = (data.charCodeAt(dPtr++)-34)&0xFF;
+              var base = input.slice(copyP, copyP + numBytes);
+              output.push(base);
+              copyP += numBytes;
+              if(c==74) return; break; }
             case 72: case 75: {
-              var numBytes = data.charCodeAt(dPtr++);
+              var numBytes = (data.charCodeAt(dPtr++)-34)&0xFF;
               var annot = readRefStr();
-  s();
-  output.push("<ruby><rb>");
-  output.push(input.slice(copyP,copyP+numBytes));
-  copyP += numBytes;
-  output.push("</rb><rt>"); output.push(annot);
-  output.push("</rt></ruby>"); if(c==75) return; break; }
+              var base = input.slice(copyP, copyP + numBytes); copyP += numBytes;
+              s();
+              switch (numLines) {
+                case 1:
+                  output.push("<ruby><rb>");
+                  output.push(base);
+                  output.push("</rb></ruby>");
+                  break;
+                case 3:
+                  output.push("<ruby><rt>&nbsp;</rt><rb>");
+                  output.push(annot); output.push("</rb><rb>");
+                  output.push(base);
+                  output.push("</rb></ruby>");
+                  break;
+                default:
+                  output.push("<ruby><rb>");
+                  output.push(base);
+                  output.push("</rb><rt>");
+                  output.push(annot);
+                  output.push("</rt></ruby>");
+              } if(c==75) return; break; }
             case 73: case 76: {
-              var numBytes = data.charCodeAt(dPtr++);
+              var numBytes = (data.charCodeAt(dPtr++)-34)&0xFF;
               var annot = readRefStr();
               var title = readRefStr();
-  s();
-  output.push("<ruby title=\""); output.push(title);
-  output.push("\"><rb>");
-  output.push(input.slice(copyP,copyP+numBytes));
-  copyP += numBytes;
-  output.push("</rb><rt>"); output.push(annot);
-  output.push("</rt></ruby>"); if(c==76) return; break; }
+              var base = input.slice(copyP, copyP + numBytes); copyP += numBytes;
+              s();
+              switch (numLines) {
+                case 1:
+                  output.push("<ruby title=\"");
+                  output.push(title);
+                  output.push("\"><rb>");
+                  output.push(base);
+                  output.push("</rb>");
+                  output.push("</ruby>");
+                  break;
+                case 3:
+                  output.push("<ruby title=\"");
+                  output.push(title);
+                  output.push("\"><rt>");
+                  output.push(title.match(/[^/(;]*/)[0]);
+                  output.push("</rt><rb>");
+                  output.push(annot);
+                  output.push("</rb><rb>");
+                  output.push(base);
+                  output.push("</rb></ruby>");
+                  break;
+                default:
+                  output.push("<ruby title=\"");
+                  output.push(title);
+                  output.push("\"><rb>");
+                  output.push(base);
+                  output.push("</rb><rt>");
+                  output.push(annot);
+                  output.push("</rt></ruby>");
+              }
+              if(c==76) return; break; }
             case 80: sPos.push(p); break;
             case 81: p=sPos.pop(); break;
             case 90: {
@@ -3298,8 +3340,8 @@ js_end += r"""; // from UTF-8 back to Unicode
 } // end of annotate function
 };
 """
-if sharp_multi: js_end += "function annotate(input,aType) { return Annotator.annotate(input,aType) }"
-else: js_end += "function annotate(input) { return Annotator.annotate(input) }"
+if sharp_multi: js_end += "function annotate(input,aType,numLines) { if(numLines==undefined) numLines=2; Annotator.numLines=numLines; return Annotator.annotate(input,aType) }"
+else: js_end += "function annotate(input,numLines) { if(numLines==undefined) numLines=2; Annotator.numLines=numLines; return Annotator.annotate(input) }"
 js_end += r"""
 
 if (typeof Backbone != "undefined" && Backbone.Model) {
@@ -3327,7 +3369,7 @@ dart_src = r"""
    you can import 'annotator.dart';
    and then call the annotate() function."""
 if dart_datafile: dart_src += r"""
-   E.g. String result = await annotate();
+   E.g. String result = await annotate(...);
    (make your function async.)  Will read """+dart_datafile
 dart_src += r"""
 */
@@ -3336,7 +3378,8 @@ import 'dart:convert';"""
 if zlib: dart_src += "import 'dart:io';"
 dart_src += r"""
 class _Annotator {
-  static const version="""+'"'+version_stamp+r"""";"""
+  static const version="""+'"'+version_stamp+r"""";
+  int numLines = 2;  // override to 1 or 3 if you must, but not recommended for learning"""
 if dart_datafile: dart_src+="\n  static String data=null;"
 else: dart_src+="\n  static final String data=%%DATA_INIT%%;"
 dart_src += r"""
@@ -3406,23 +3449,62 @@ dart_src += r"""
         case 72: case 75: {
           int numBytes = data.codeUnitAt(dPtr++);
           String annot = _readRefStr();
-  _s();
-  output.write("<ruby><rb>");
-  output.write(String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)));
-  copyP += numBytes;
-  output.write("</rb><rt>"); output.write(annot);
-  output.write("</rt></ruby>"); if(c==75) return; break; }
+          String base = String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)); copyP += numBytes;
+          _s();
+          switch (numLines) {
+            case 1:
+              output.write("<ruby><rb>");
+              output.write(base);
+              output.write("</rb></ruby>");
+              break;
+            case 3:
+              output.write("<ruby><rt>&nbsp;</rt><rb>");
+              output.write(annot);
+              output.write("</rb><rb>");
+              output.write(base);
+              output.write("</rb></ruby>");
+              break;
+            default:
+              output.write("<ruby><rb>");
+              output.write(base);
+              output.write("</rb><rt>");
+              output.write(annot);
+              output.write("</rt></ruby>");
+            } if(c==75) return; break; }
         case 73: case 76: {
           int numBytes = data.codeUnitAt(dPtr++);
           String annot = _readRefStr();
           String title = _readRefStr();
-  _s();
-  output.write("<ruby title=\""); output.write(title);
-  output.write("\"><rb>");
-  output.write(String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)));
-  copyP += numBytes;
-  output.write("</rb><rt>"); output.write(annot);
-  output.write("</rt></ruby>"); if(c==76) return; break; }
+          String base = String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)); copyP += numBytes;
+          _s();
+          switch (numLines) {
+            case 1:
+              output.write("<ruby title=\"");
+              output.write(title);
+              output.write("\"><rb>");
+              output.write(base);
+              output.write("</rb></ruby>");
+              break;
+            case 3:
+              output.write("<ruby title=\"");
+              output.write(title);
+              output.write("\"><rt>");
+              output.write(RegExp("[^/(;]*").matchAsPrefix(title).group(0));
+              output.write("</rt><rb>");
+              output.write(annot);
+              output.write("</rb><rb>");
+              output.write(base);
+              output.write("</rb></ruby>");
+              break;
+            default:
+              output.write("<ruby title=\"");
+              output.write(title);
+              output.write("\"><rb>");
+              output.write(base);
+              output.write("</rb><rt>");
+              output.write(annot);
+              output.write("</rt></ruby>");
+          } if(c==76) return; break; }
         case 80: sPos.add(p); break;
         case 81: p=sPos.removeLast(); break;
         case 90: {
@@ -3445,14 +3527,14 @@ dart_src += r"""
 }
 
 """
-if dart_datafile: dart_src += "Future<String> annotate(String s"
-else: dart_src += "String annotate(String s"
-if sharp_multi: dart_src += r""",[int aType=0]"""
-dart_src += ") "
+if dart_datafile: dart_src += "Future<String> annotate(String s,["
+else: dart_src += "String annotate(String s,["
+if sharp_multi: dart_src += "int aType=0,"
+dart_src += "int numLines=2]) "
 if dart_datafile: dart_src += "async "
 dart_src += "{ "
 if dart_datafile: dart_src += "if(_Annotator.data==null) _Annotator.data=await %%DATA_INIT%%;"
-dart_src += "return _Annotator().annotate(s"
+dart_src += "var a=_Annotator(); a.numLines=numLines; return a.annotate(s"
 if sharp_multi: dart_src += ",aType"
 dart_src += "); }\n"
 if zlib: dart_src = dart_src.replace("%%DATA_INIT%%","String.fromCharCodes(zlib.decoder.convert(%%DATA_INIT%%))")
