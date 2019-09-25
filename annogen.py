@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6844 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.685 (c) 2012-19 Silas S. Brown"
 
 # See http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.html
 
@@ -68,7 +68,7 @@ parser.add_option("--ref-name-end",default=" ",
                   help="Sets what the input uses to END a reference name.  The default is a single space, so that the first space after the reference-sep string will end the reference name.")
 
 parser.add_option("--ref-pri",
-                  help="Name of a reference to be considered \"high priority\" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a \"default\" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high priority reference then the first annotation found in that reference will be considered the ideal \"default\" even if it's in a minority in the examples; everything else will be considered as an exception.  In languages without spaces, this override should normally be used only for one-character words; if used with longer words it might have unexpected effects on rule-overlap ambiguities.")
+                  help="Name of a reference to be considered \"high priority\" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a \"default\" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high priority reference then the first annotation found in that reference will be considered the ideal \"default\" even if it's in a minority in the examples; everything else will be considered as an exception.")
 
 parser.add_option("-s", "--spaces",
                   action="store_false",
@@ -4085,13 +4085,36 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     # (If too few indicators can be found, will list the ones it can, or empty if no clearly-distinguishable indicators can be found within ybytes of end of match.)
     # yield "backgrounded" = task has been backgrounded; .next() collects result
     nonAnnot=markDown(withAnnot_unistr)
+    def ok_to_default(xplan="majority-case"):
+        # could we have this as a "default" rule, with the other cases as exceptions that will be found first?
+        if len(nonAnnot)==1:
+          if nonAnnot==diagnose: diagnose_write("%s is default by %s len=1 rule after removing irrelevant badStarts" % (xplan,withAnnot_unistr,))
+          return True # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
+        # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default unless can be sure about it
+        # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without positive indicators it should do so
+        # Check for no "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
+        # (The below might under-match if there's the appearance of a split rule but it actually has extra non-marked-up text in between, but it shouldn't over-match.)
+        # TODO: if we can find the actual "A BC" sequences (instead of simply checking for their possibility as here), and if we can guarantee to make 'phrase'-length rules for all of them, then AB can still be the default.  This might be useful if okStarts is very much greater than badStarts.
+        # (TODO: until the above is implemented, consider recommending --ymax-threshold=0, because, now that Yarowsky-like collocations can be negative, the 'following word' could just go in as a collocation with low ybytes)
+        # TODO: also, if the exceptions to rule AB are always of the form "Z A B", and we can guarantee to generate a phrase rule for "Z A B", then AB can still be default.  (We should already catch this when the exceptions are "ZA B", but not when they are "Z A B", and --ymax-threshold=0 probably won't always help here, especially if Z==B; Mandarin "mei2you3" / "you3 mei2 you3" comes to mind)
+        llen = len(mdStart)+len(nonAnnot)
+        if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+("(?:"+re.escape(mdEnd)+"(?:(?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?").join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
+          if nonAnnot==diagnose: diagnose_write("%s is default by %s rule after checking for dangerous overlaps etc" % (xplan,withAnnot_unistr,))
+          return True
     if nonAnnot in yPriorityDic: # TODO: enforce len==1 ?
         if yPriorityDic[nonAnnot] == withAnnot_unistr:
-            # we want this case to be the default (TODO: can't we just put it straight into the rules when making yPriorityDic, and skip this?  although I'm not sure if that would give much of a speedup, as the phrase/sec count tends to go into the thousands anyway when it's processing a yPriorityDic section)
-            if nonAnnot==diagnose: diagnose_write("yPriorityDic forces %s" % (withAnnot_unistr,))
-            yield True ; return
+            # we want this case to be the default
+            if len(withAnnot_unistr)==1:
+                if nonAnnot==diagnose: diagnose_write("ref-pri forces %s" % (withAnnot_unistr,))
+                yield True ; return
+            else:
+                if nonAnnot==diagnose: diagnose_write("ref-pri wants %s by default: finding negative indicators only" % (withAnnot_unistr,))
+                can_be_default = "must"
+                # might not even need to get okStarts, etc
+                if ok_to_default("ref-pri"):
+                  yield True ; return
         else:
-          if nonAnnot==diagnose: diagnose_write("yPriorityDic forbids default %s" % (withAnnot_unistr,))
+          if nonAnnot==diagnose: diagnose_write("ref-pri forbids default %s" % (withAnnot_unistr,))
           can_be_default = False # another is default, don't make this one default even if it occurs more
     else: can_be_default = True
     # First, find positions in corpus_markedDown which match withAnnot_unistr in corpus_unistr
@@ -4109,22 +4132,8 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
       if nonAnnot==diagnose: diagnose_write("%s has only probably-irrelevant badStarts" % (withAnnot_unistr,))
       yield True ; return
     # Now, if it's right more often than not:
-    if can_be_default and len(okStarts) > len(badStarts):
-        # could we have this as a "default" rule, with the other cases as exceptions that will be found first?
-        if len(nonAnnot)==1:
-          if nonAnnot==diagnose: diagnose_write("%s is default by majority-case len=1 rule after removing irrelevant badStarts" % (withAnnot_unistr,))
-          yield True ; return # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
-        # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default unless can be sure about it
-        # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without positive indicators it should do so
-        # Check for no "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
-        # (The below might under-match if there's the appearance of a split rule but it actually has extra non-marked-up text in between, but it shouldn't over-match.)
-        # TODO: if we can find the actual "A BC" sequences (instead of simply checking for their possibility as here), and if we can guarantee to make 'phrase'-length rules for all of them, then AB can still be the default.  This might be useful if okStarts is very much greater than badStarts.
-        # (TODO: until the above is implemented, consider recommending --ymax-threshold=0, because, now that Yarowsky-like collocations can be negative, the 'following word' could just go in as a collocation with low ybytes)
-        # TODO: also, if the exceptions to rule AB are always of the form "Z A B", and we can guarantee to generate a phrase rule for "Z A B", then AB can still be default.  (We should already catch this when the exceptions are "ZA B", but not when they are "Z A B", and --ymax-threshold=0 probably won't always help here, especially if Z==B; Mandarin "mei2you3" / "you3 mei2 you3" comes to mind)
-        llen = len(mdStart)+len(nonAnnot)
-        if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+("(?:"+re.escape(mdEnd)+"(?:(?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?").join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
-          if nonAnnot==diagnose: diagnose_write("%s is default by majority-case rule after checking for dangerous overlaps etc" % (withAnnot_unistr,))
-          yield True ; return
+    if can_be_default==True and len(okStarts) > len(badStarts) and ok_to_default(): # (if can_be_default=="must", we have already checked for ok_to_default() above before computing okStarts and badStarts)
+        yield True ; return
     run_in_background = canBackground and len(okStarts) > 500 and executor # In a test with 300, 500, 700 and 900, the 500 threshold was fastest on concurrent.futures, but by just a few seconds.  TODO: does mpi4py.futures have a different 'sweet spot' here? (low priority unless we can get MPI to outdo concurrent.futures in this application)
     may_take_time = canBackground and len(okStarts) > 1000
     if may_take_time: sys.stderr.write("\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),len(okStarts),badInfo(badStarts,nonAnnot),cond(run_in_background,"backgrounding","could take some time")))
@@ -4134,7 +4143,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     if ybytes_max > ybytes and (not ymax_threshold or len(nonAnnot) <= ymax_threshold):
       retList = [] ; append=retList.append
       for nbytes in range(ybytes,ybytes_max+1,ybytes_step):
-        negate,ret,covered,toCover = tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr)
+        negate,ret,covered,toCover = tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,can_be_default=="must")
         if covered==toCover and len(ret)==1:
           if may_take_time: sys.stderr.write(" - using 1 indicator, negate=%s\n" % repr(negate))
           yield (negate,ret,nbytes) ; return # a single indicator that covers everything will be better than anything else we'll find
@@ -4145,7 +4154,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
       negate,ret = retList[0][-3],retList[0][-1]
       distance = retList[0][2]
     else:
-      negate,ret = tryNBytes(ybytes_max,nonAnnot,badStarts,okStarts,withAnnot_unistr)[:2]
+      negate,ret = tryNBytes(ybytes_max,nonAnnot,badStarts,okStarts,withAnnot_unistr,can_be_default=="must")[:2]
       if ybytes < ybytes_max: distance = ybytes_max
       else: distance = None # all the same anyway
     if not ret and warn_yarowsky: sys.stderr.write("Couldn't find ANY Yarowsky-like indicators for %s   \n" % (withAnnot_unistr.encode(terminal_charset,'replace'))) # (if nonAnnot==diagnose, this'll be reported by tryNBytes below)
@@ -4179,9 +4188,8 @@ def getReallyBadStarts(badStarts,nonAnnot):
       if e-s > nonAnnotLen: continue # this word is too long, should be matched by a longer rule 1st
       append(b) # to reallyBadStarts
     return reallyBadStarts
-def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr):
-    # try to find either positive or negative Yarowsky-like indicators, whichever gives a smaller set.  Negative indicators might be useful if there are many matches and only a few special exceptions (TODO: but put in an option to avoid checking for them as per v0.57 and below? although I'm not sure what application would have to be that careful but still use Yarowsky-like indicators)
-    # (Negative indicators are used only if they cover 100% of the exceptions - see below re negate==None)
+def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate):
+    # try to find either positive or negative Yarowsky-like indicators, whichever gives a smaller set (or only negative ones if force_negate, used by ref_pri).  Negative indicators might be useful if there are many matches and only a few special exceptions.  (If not force_negate, then negative indicators are used only if they cover 100% of the exceptions; see below re negate==None)
     def bytesAround(start): return within_Nbytes(start+len(nonAnnot),nbytes)
     okStrs=list(set(bytesAround(s) for s in okStarts))
     badStrs=list(set(bytesAround(s) for s in badStarts))
@@ -4192,8 +4200,9 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr):
     pRet = [] ; pAppend=pRet.append
     nRet = [] ; nAppend=nRet.append
     negate = None # not yet set
-    stuffToCheck = [(okStrs,pAppend,pCovered,unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))] # a generator and associated parameters for positive indicators
-    if len(okStrs) > len(badStrs) or not okStrs: stuffToCheck.append((badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s)))) # and for negative indicators, if it seems badStrs are in the minority (or if not okStrs, which is for test_manual_rules) (TODO: smaller minority?  we'll try a string from each generator in turn, stopping if we find one that covers everything; that way we're hopefully more likely to finish early if one of the two is going to quickly give a string that matches everything, but TODO is this always so optimal in other cases?  especially if there are far more negative indicators than positive ones, in which case it's unlikely to end up being a "many matches and only a few special exceptions" situation, and checking through ALL the negative indicators is a lot of work for comparatively little benefit; TODO: also have 'if len(nAppend) > SOME_THRESHOLD and len(stuffToCheck)==2: del stuffToCheck[1] # give up on negative indicators if too many' ? )
+    stuffToCheck = []
+    if not force_negate: stuffToCheck.append((okStrs,pAppend,pCovered,unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))) # a generator and associated parameters for positive indicators
+    if force_negate or len(okStrs) > len(badStrs) or not okStrs: stuffToCheck.append((badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s)))) # and for negative indicators, if appropriate
     while stuffToCheck and negate==None:
       for i in range(len(stuffToCheck)):
         strs,append,covered,generator = stuffToCheck[i]
@@ -4209,7 +4218,8 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr):
           if append==pAppend: negate=False
           else: negate=True
           break
-    # and if negate==None AFTER this loop, didn't get all(pCovered) OR all(nCovered), in which case we fall back to negate=False.  In other words, negative indicators have to cover ALL non-occurrences to be passed, wheras positive indicators just have to cover SOME.  This is in keeping with the idea of 'under-match is better than over-match' (because an under-matching negative indicator is like an over-matching positive one)
+    # and if negate==None AFTER this loop, didn't get all(pCovered) OR all(nCovered), in which case we fall back to negate=False (unless force_negate).  In other words, negative indicators normally have to cover ALL non-occurrences to be passed, wheras positive indicators just have to cover SOME.  This is in keeping with the idea of 'under-match is better than over-match' (because an under-matching negative indicator is like an over-matching positive one)
+    if force_negate: negate = True
     if negate: ret,covered = nRet,nCovered
     else: ret,covered = pRet,pCovered
     if nonAnnot==diagnose:

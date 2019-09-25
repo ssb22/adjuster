@@ -654,7 +654,7 @@ Options:
  : Sets what the input uses to END a reference name.  The default is a single space, so that the first space after the reference-sep string will end the reference name.
 
 `--ref-pri=REF_PRI`
- : Name of a reference to be considered "high priority" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a "default" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high priority reference then the first annotation found in that reference will be considered the ideal "default" even if it's in a minority in the examples; everything else will be considered as an exception.  In languages without spaces, this override should normally be used only for one-character words; if used with longer words it might have unexpected effects on rule-overlap ambiguities.
+ : Name of a reference to be considered "high priority" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a "default" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high priority reference then the first annotation found in that reference will be considered the ideal "default" even if it's in a minority in the examples; everything else will be considered as an exception.
 
 `-s, --spaces`
  : Set this if you are working with a language that uses whitespace in its non-markedup version (not fully tested).  The default is to assume that there will not be any whitespace in the language, which is correct for Chinese and Japanese.
