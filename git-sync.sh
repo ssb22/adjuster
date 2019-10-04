@@ -1,9 +1,9 @@
 #!/bin/bash
 git pull --no-edit
-wget -N http://people.ds.cam.ac.uk/ssb22/adjuster/adjuster.py
-wget -N http://people.ds.cam.ac.uk/ssb22/adjuster/annogen.py
-wget -N http://people.ds.cam.ac.uk/ssb22/adjuster/termlayout.py
-wget -N http://people.ds.cam.ac.uk/ssb22/adjuster/tmux-annotator.sh
+wget -N http://ssb22.user.srcf.net/adjuster/adjuster.py
+wget -N http://ssb22.user.srcf.net/adjuster/annogen.py
+wget -N http://ssb22.user.srcf.net/adjuster/termlayout.py
+wget -N http://ssb22.user.srcf.net/adjuster/tmux-annotator.sh
 
 (
     awk -- 'BEGIN {p=1} /Options for Web Adjuster/ {p=0} // {if(p) print}' < README.md

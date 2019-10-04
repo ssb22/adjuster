@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.2795 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.2796 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -3354,7 +3354,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 elif txt[0]=='j': return self.serve_bookmarklet_json(filterNo)
                 elif txt[0]=='u': return self.serve_backend_post(filterNo)
                 elif txt[0] in 'iap':
-                    return self.doResponse2(htmlhead()+android_ios_instructions(self.request.host,self.request.headers.get("User-Agent","")),"noFilterOptions",False)
+                    return self.doResponse2(htmlhead()+android_ios_instructions(txt[0],self.request.host,self.request.headers.get("User-Agent","")),"noFilterOptions",False)
             txt = zlib.decompressobj().decompress(base64.b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
             self.request.uri = "%s (input not logged, len=%d)" % (options.submitPath,len(txt))
         else: txt = self.request.arguments.get("i",None)
@@ -5760,9 +5760,7 @@ class Dynamic_DNS_updater:
                 miniupnpc.selectigd()
                 addr = miniupnpc.externalipaddress()
               except: addr = ""
-              if addr == self.currentIP:
-                  IOLoop.instance().add_callback(lambda *args:self.newIP(addr)) # in case forceTime is up
-                  IOLoop.instance().add_timeout(time.time()+options.ip_check_interval2,lambda *args:self.queryLocalIP())
+              if addr == self.currentIP: IOLoop.instance().add_callback(lambda *args:(self.newIP(addr),IOLoop.instance().add_timeout(time.time()+options.ip_check_interval2,lambda *args:self.queryLocalIP()))) # (add_timeout doesn't always work when not from the IOLoop thread ??)
               else: IOLoop.instance().add_callback(self.queryIP)
             threading.Thread(target=run,args=()).start()
             return
