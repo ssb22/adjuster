@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.686 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.687 (c) 2012-19 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1312,8 +1312,15 @@ static int nearbytes = ybytes;
 static void s() {
   if (needSpace) OutWriteByte(' ');
   else needSpace=1; /* for after the word we're about to write (if no intervening bytes cause needSpace=0) */
+} static void s0() {
+  if (needSpace) { OutWriteByte(' '); needSpace=0; }
 }""" + decompress_func + r"""
 
+static void c(int numBytes) {
+  /* copyBytes, needSpace unchanged */
+  for(;numBytes;numBytes--)
+    OutWriteByte(NEXT_COPY_BYTE);
+}
 static void o(int numBytes,const char *annot) {
   s();""" + c_switch1 + r"""
     OutWriteStr("<ruby><rb>");
@@ -2358,6 +2365,13 @@ public void s() {
   if (needSpace) o((byte)' ');
   else needSpace=true;
 }
+public void s0() {
+  if (needSpace) { o((byte)' '); needSpace=false; }
+}
+public void c(int numBytes) { /* copyBytes */
+  for(;numBytes>0;numBytes--)
+    o(inBytes[writePtr++]); /* needSpace unchanged */
+}
 public void o(int numBytes,String annot) {
   s();
   o("<ruby><rb>");
@@ -2431,6 +2445,7 @@ if data_driven: java_src += r"""
                     int i = switchByte_inner(nBytes);
                     dPtr += (nBytes + i * addrLen);
                     dPtr = readAddr(); break; }
+                case 70: s0(); break;
                 case 71: case 74: {
                     int numBytes = data[dPtr++] & 0xFF;
                     while((numBytes--)!=0) o(inBytes[writePtr++]);
@@ -2543,6 +2558,13 @@ void o(string s) { byte[] b=System.Text.Encoding.UTF8.GetBytes(s); outBuf.Write(
 void s() {
   if (needSpace) o((byte)' ');
   else needSpace=true;
+}
+void s0() {
+  if (needSpace) { o((byte)' '); needSpace=false; }
+}
+void c(int numBytes) {
+  outBuf.Write(inBytes,writePtr,numBytes);
+  writePtr += numBytes;
 }
 void o(int numBytes,string annot) {
   s();
@@ -2720,6 +2742,20 @@ func s() {
       needSpace = true
    }
 }
+func s0() {
+   if(needSpace) {
+      oB(' ')
+      needSpace = false
+   }
+}
+func c(numBytes int) {
+  for (numBytes > 0) {
+    // TODO: does Go have a way to do this in 1 operation?
+    oB(inBytes[writePtr])
+    numBytes--
+    writePtr++
+  }
+}
 func o(numBytes int,annot string) {
   s()
   oS("<ruby><rb>")
@@ -2781,18 +2817,19 @@ class BytecodeAssembler:
   # Bytecode for a virtual machine run by the Javascript version etc
   opcodes = {
     # 0-19    RESERVED for short switchbyte (C,Java,Py)
-    # 108-127 RESERVED for short switchbyte (JS,Dart, more in the printable range to reduce escaping a bit)
-    # 91-107 RESERVED for short switchbyte (JS, UTF-8 printability optimisation for 6bit)
-    # 128-255 RESERVED for short jumps
     'jump': 50, # '2' params: address
     'call': 51, # '3' params: function address
     'return': 52, # '4' (or 'end program' if top level)
     'switchbyte': 60, # '<' switch(NEXTBYTE) (params: numBytes-1, bytes (sorted, TODO take advantage of this), addresses, default address)
+    's0':70, # 'F'
     'copyBytes':71,'o':72,'o2':73, # 'G','H','I' (don't change these numbers, they're hard-coded below)
     # 74-76 ('J','K','L') reserved for 'above + return'
     'savepos':80, # 'P', local to the function
     'restorepos':81, # 'Q'
     'neartest':90, # 'Z' params: true-label, false-label, byte nbytes, addresses of conds strings until first of the 2 labels is reached (normally true-label, unless the whole neartest is negated)
+    # 91-107 RESERVED for short switchbyte (JS, UTF-8 printability optimisation for 6bit)
+    # 108-127 RESERVED for short switchbyte (JS,Dart, more in the printable range to reduce escaping a bit)
+    # 128-255 RESERVED for short jumps
   }
   def __init__(self):
     self.l = []
@@ -2827,12 +2864,14 @@ class BytecodeAssembler:
   def addActions(self,actionList):
     # assert type(actionList) in [list,tuple], repr(actionList)
     for a in actionList:
+      if a=='s0':
+        self.addOpcode('s0') ; continue
       assert 1 <= len(a) <= 3 and type(a[0])==int, repr(a)
       assert 1 <= a[0] <= 255, "bytecode currently supports markup or copy between 1 and 255 bytes only, not %d (but 0 is reserved for expansion)" % a[0]
       self.addBytes(70+len(a)) # 71=copyBytes 72=o() 73=o2
       if js_6bit:
         self.addBytes((a[0]+(js_6bit_offset-1))&0xFF)
-      else: self.addBytes(a[0])
+      else: self.addBytes(a[0]) # num i/p bytes to copy
       for i in a[1:]: self.addRefToString(i)
   def addActionDictSwitch(self,byteSeq_to_action_dict,isFunc=True,labelToJump=None):
     # a modified stringSwitch for the bytecode
@@ -3242,6 +3281,7 @@ js_end += r"""
               if (i==-1) i = nBytes;
               dPtr += (nBytes + i * addrLen);
               dPtr = readAddr(); break; }
+            case 70: if(needSpace) { output.push(' '); needSpace=0; } break;
             case 71: case 74: {
               var numBytes = (data.charCodeAt(dPtr++)-34)&0xFF;
               var base = input.slice(copyP, copyP + numBytes);
@@ -3442,6 +3482,7 @@ dart_src += r"""
           if (i==-1) i = nBytes;
           dPtr += (nBytes + i * addrLen);
           dPtr = _readAddr(); break; }
+        case 70: if(needSpace) { output.write(" "); needSpace=false; } break;
         case 71: case 74: {
           int numBytes = data.codeUnitAt(dPtr++);
   output.write(String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)));
@@ -3602,6 +3643,9 @@ class Annotator:
       if i==-1: i = nBytes
       self.dPtr += (nBytes + i * self.addrLen)
       self.dPtr = self.readAddr()
+    elif d==70:
+      if self.needSpace:
+        out.append(' ') ; self.needSpace=0
     elif d==71 or d==74:
       numBytes = ord(data[self.dPtr]) ; self.dPtr += 1
       out.append(self.inStr[self.copyP:self.copyP+numBytes])
@@ -3708,6 +3752,7 @@ static void readData() {
       for (i=0; i<nBytes; i++) if(byte==dPtr[i]) break;
       dPtr += (nBytes + i * addrLen);
       dPtr = readAddr(); break; }
+    case 70: s0(); break;
     case 71: case 74: /* copyBytes */ {
       int numBytes=*dPtr++;
       for(;numBytes;numBytes--)
@@ -4833,17 +4878,31 @@ def readGlossfile():
             else: glossDic[word] = gloss
     return glossDic,glossMiss,whitelist
 
+def copyBytes(n,checkNeedspace=False): # needSpace unchanged for ignoreNewlines etc; checkNeedspace for open quotes
+    if checkNeedspace:
+      if data_driven: return ['s0',(n,)] # copyBytes(n)
+      elif java: return r"a.s0(); a.c(%d);" % n
+      else: return r"s0(); c(%d);" % n
+    if data_driven: return [(n,)] # copyBytes(n)
+    elif java: return r"a.c(%d);" % n
+    else: return r"c(%d);" % n
+
 def outputParser(rulesAndConds):
     glossDic, glossMiss, whitelist = readGlossfile()
     sys.stderr.write("Generating byte cases...\n")
     byteSeq_to_action_dict = {}
-    if ignoreNewlines:
-        if data_driven: newline_action = [(1,)]
-        elif java: newline_action = r"a.o((byte)'\n'); /* needSpace unchanged */ a.writePtr++;"
-        elif c_sharp: newline_action = r"o((byte)'\n'); writePtr++;"
-        elif golang: newline_action = r"oB('\n'); writePtr++;"
-        else: newline_action = r"OutWriteByte('\n'); /* needSpace unchanged */ COPY_BYTE_SKIP;"
-        byteSeq_to_action_dict['\n'] = [(newline_action,[])]
+    if ignoreNewlines: # \n shouldn't affect needSpace
+        byteSeq_to_action_dict['\n'] = [(copyBytes(1),[])]
+    for closeQuote in u'\u2019\u201d\u300b\u300d)\u3015\uff09\u3017\u3011]\uff3d':
+      # close quotes should not affect needSpace
+      try: closeQuote = closeQuote.encode(outcode)
+      except: continue # can't do this one
+      byteSeq_to_action_dict[closeQuote] = [(copyBytes(len(closeQuote)),[])]
+    for openQuote in u'\u2018\u201c\u300a\u300c(\u3014\uff08\u3016\u3010[\uff3b':
+      # open quotes should activate needSpace first
+      try: openQuote = openQuote.encode(outcode)
+      except: continue # can't do this one
+      byteSeq_to_action_dict[openQuote] = [(copyBytes(len(openQuote),checkNeedspace=True),[])]
     def addRule(rule,conds,byteSeq_to_action_dict,manualOverride=False):
         byteSeq = markDown(rule).encode(outcode)
         action,gotAnnot = matchingAction(rule,glossDic,glossMiss,whitelist)
