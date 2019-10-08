@@ -41,7 +41,7 @@ Annotator Generator is an examples-driven generator of fast text annotators. “
 
 * You supply a corpus of pre-annotated texts for Annotator Generator to work out the rules and exceptions
 
-* Annotator Generator creates code (in C, C#, Java, Go, Javascript or Python 2) that hard-codes the rules for fast processing
+* Annotator Generator creates code (in C, C#, Java, Go, Javascript, Dart or Python 2) that hard-codes the rules for fast processing
 
 * The resulting program should be able to annotate any text that contains words or phrases similar to those found in the examples
 
@@ -1073,3 +1073,46 @@ Options:
 `-p STATUS_PREFIX, --status-prefix=STATUS_PREFIX
 `
  : Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running
+
+Copyright and Trademarks
+========================
+
+(c) Silas S. Brown, licensed under Apache 2
+
+* Android is a trademark of Google LLC.
+
+* Apache is a registered trademark of The Apache Software Foundation.
+
+* AppEngine is possibly a trademark of Google LLC.
+
+* Apple is a trademark of Apple Inc.
+
+* Firefox is a registered trademark of The Mozilla Foundation.
+
+* Google Play is a trademark of Google LLC.
+
+* Google is a trademark of Google LLC.
+
+* Java is a registered trademark of Oracle Corporation in the US and possibly other countries.
+
+* Javascript is a trademark of Oracle Corporation in the US.
+
+* Linux is the registered trademark of Linus Torvalds in the U.S. and other countries.
+
+* MP3 is a trademark that was registered in Europe to Hypermedia GmbH Webcasting but I was unable to confirm its current holder.
+
+* Mac is a trademark of Apple Inc.
+
+* Microsoft is a registered trademark of Microsoft Corp.
+
+* Python is a trademark of the Python Software Foundation.
+
+* Raspberry Pi is a trademark of the Raspberry Pi Foundation.
+
+* Unicode is a registered trademark of Unicode, Inc. in the United States and other countries.
+
+* Windows is a registered trademark of Microsoft Corp.
+
+* iPhone is a trademark of Apple in some countries.
+
+* Any other trademarks I mentioned without realising are trademarks of their respective holders.
