@@ -224,11 +224,11 @@ parser.add_option("--android-template",
                   help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page. This version also enables better zoom controls on Android 4+ and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses).")
 parser.add_option("--android-pre-2016",
                   action="store_true",default=False,
-                  help="When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  New apps compiled in this way are no longer allowed on \"Play Store\" (and updates won't be allowed from November 2019) unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.")
+                  help="[DEPRECATED] When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  New apps compiled in this way are no longer allowed on \"Play Store\" (and updates won't be allowed from November 2019) unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.  This option is deprecated because you should be able to install a newer SDK on a virtual machine if your main OS cannot be upgraded (e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019).")
 cancelOpt("android-pre-2016")
 parser.add_option("--android-https-only",
                   action="store_true",default=False,
-                  help="When generating an Android app, let Android 9+ restrict it to HTTPS-only URLs")
+                  help="[DEPRECATED] When generating an Android app, let Android 9+ restrict it to HTTPS-only URLs. This allows the app to be compiled in build environments older than the mid-2016 release (SDK 24) while still being allowed on the Play Store, but it restricts functionality.  Deprecated because it's possible to install a newer build environment on a virtual machine (see comments on --android-pre-2016)")
 cancelOpt("android-https-only")
 parser.add_option("-L","--pleco-hanping",
                   action="store_true",default=False,
