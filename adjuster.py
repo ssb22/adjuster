@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.2797 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.2796 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1800,7 +1800,6 @@ def static_handler():
 theServers = {}
 port_randomise = {} # port -> _ or port -> mappedPort
 def listen_on_port(application,port,address,browser,core="all",**kwargs):
-    if not core in theServers: theServers[core] = []
     h = HTTPServer(application,**kwargs)
     # Don't set backlog=0: it's advisory only and is often rounded up to 8; we use CrossProcess429 instead
     if port in port_randomise:
@@ -1808,7 +1807,7 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
         # should get len(s)==1 if address=="127.0.0.1" (may get more than one socket, with different ports, if address maps to some mixed IPv4/IPv6 configuration)
         port_randomise[port] = s[0].getsockname()[1]
         h.add_sockets(s)
-    theServers[core].append((port,h))
+    theServers.setdefault(core,[]).append((port,h))
     global mainServer
     if port==options.port: mainServer = h
     if port in port_randomise: return
@@ -3354,7 +3353,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 elif txt[0]=='j': return self.serve_bookmarklet_json(filterNo)
                 elif txt[0]=='u': return self.serve_backend_post(filterNo)
                 elif txt[0] in 'iap':
-                    return self.doResponse2(htmlhead()+android_ios_instructions(txt[0],self.request.host,self.request.headers.get("User-Agent",""),filterNo),"noFilterOptions",False)
+                    return self.doResponse2(htmlhead()+android_ios_instructions(txt[0],self.request.host,self.request.headers.get("User-Agent","")),"noFilterOptions",False)
             txt = zlib.decompressobj().decompress(base64.b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
             self.request.uri = "%s (input not logged, len=%d)" % (options.submitPath,len(txt))
         else: txt = self.request.arguments.get("i",None)
@@ -4575,16 +4574,16 @@ def addRubyScript():
     return r"""all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML="%s"; d.body.insertBefore(e,d.body.firstChild);
     e=d.createElement('span'); e.innerHTML="%s"; d.body.appendChild(e); d.rubyScriptAdded=1 });""" % (quote_for_JS_doublequotes(rScript),quote_for_JS_doublequotes(rubyEndScript))
 
-def android_ios_instructions(pType,reqHost,ua,filterNo):
+def android_ios_instructions(pType,reqHost,ua):
     # Android or iOS instructions for adding bookmarklet
     # (pType: a=Android i=iPhone p=iPad)
     # (Similar technique does NOT work in Opera Mini 5.1.21594 or Opera Mobile 10.00 (both 2010) on Windows Mobile 6.1: can end up with a javascript: bookmark but it has no effect when selected)
     theSys = {"i":"iPhone","p":"iPad","a":"Android"}[pType]
     title = None
     if '#' in options.htmlFilter:
-        fNames=options.htmlFilterName.split('#')
-        if filterNo+1 < len(fNames):
-            title=fNames[filterNo+1]
+                        fNames=options.htmlFilterName.split('#')
+                        if filterNo+1 < len(fNames):
+                            title=fNames[filterNo+1]
     elif options.htmlFilterName:
         title=options.htmlFilterName
     if title: title += " on current page" # because page won't be visible while choosing bookmarks, unlike on desktops
