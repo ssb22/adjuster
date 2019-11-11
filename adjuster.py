@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.2796 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.2797 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
