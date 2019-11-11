@@ -3352,8 +3352,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 if txt[0] in 'bB': return self.serve_bookmarklet_code(txt[1],txt[0]=='B')
                 elif txt[0]=='j': return self.serve_bookmarklet_json(filterNo)
                 elif txt[0]=='u': return self.serve_backend_post(filterNo)
-                elif txt[0] in 'iap':
-                    return self.doResponse2(htmlhead()+android_ios_instructions(txt[0],self.request.host,self.request.headers.get("User-Agent","")),"noFilterOptions",False)
+                elif txt[0] in 'iap': return self.doResponse2(htmlhead()+android_ios_instructions(txt[0],self.request.host,self.request.headers.get("User-Agent",""),filterNo),"noFilterOptions",False)
             txt = zlib.decompressobj().decompress(base64.b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
             self.request.uri = "%s (input not logged, len=%d)" % (options.submitPath,len(txt))
         else: txt = self.request.arguments.get("i",None)
@@ -4574,16 +4573,16 @@ def addRubyScript():
     return r"""all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML="%s"; d.body.insertBefore(e,d.body.firstChild);
     e=d.createElement('span'); e.innerHTML="%s"; d.body.appendChild(e); d.rubyScriptAdded=1 });""" % (quote_for_JS_doublequotes(rScript),quote_for_JS_doublequotes(rubyEndScript))
 
-def android_ios_instructions(pType,reqHost,ua):
+def android_ios_instructions(pType,reqHost,ua,filterNo):
     # Android or iOS instructions for adding bookmarklet
     # (pType: a=Android i=iPhone p=iPad)
     # (Similar technique does NOT work in Opera Mini 5.1.21594 or Opera Mobile 10.00 (both 2010) on Windows Mobile 6.1: can end up with a javascript: bookmark but it has no effect when selected)
     theSys = {"i":"iPhone","p":"iPad","a":"Android"}[pType]
     title = None
     if '#' in options.htmlFilter:
-                        fNames=options.htmlFilterName.split('#')
-                        if filterNo+1 < len(fNames):
-                            title=fNames[filterNo+1]
+        fNames=options.htmlFilterName.split('#')
+        if filterNo+1 < len(fNames):
+            title=fNames[filterNo+1]
     elif options.htmlFilterName:
         title=options.htmlFilterName
     if title: title += " on current page" # because page won't be visible while choosing bookmarks, unlike on desktops
