@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.687 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.688 (c) 2012-19 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -198,7 +198,7 @@ cancelOpt("fast-assemble")
 
 parser.add_option("-Z","--zlib",
                   action="store_true",default=False,
-                  help="Enable --data-driven and compress the embedded data table using zlib, and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator, the decompression code is inlined so there's no runtime zlib dependency, but startup can be ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source (unless you're running on Node.js in which case loading is faster due to the use of Node's \"Buffer\" class).") # compact_opcodes typically still helps no matter what the other options are
+                  help="Enable --data-driven and compress the embedded data table using zlib (or pyzopfli if available), and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator, the decompression code is inlined so there's no runtime zlib dependency, but startup can be ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source (unless you're running on Node.js in which case loading is faster due to the use of Node's \"Buffer\" class).") # compact_opcodes typically still helps no matter what the other options are
 cancelOpt("zlib")
 
 parser.add_option("-l","--library",
@@ -511,7 +511,16 @@ if dart:
 elif dart_datafile: errExit("--dart-datafile requires --dart")
 if zlib:
   js_6bit = js_utf8 = False
-  del zlib ; import zlib ; data_driven = True
+  del zlib
+  try:
+    from zopfli import zlib # pip install zopfli
+    zlib._orig_compress = zlib.compress
+    zlib.compress = lambda s,level: zlib._orig_compress(s) # delete level
+    zlib_name = "zopfli"
+  except:
+    import zlib
+    zlib_name = "zlib"
+  data_driven = True
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
   if dart and not dart_datafile: warn("--zlib without --dart-datafile might not be as efficient as you'd hope (and --zlib prevents the resulting Dart code from being compiled to a \"Web app\" anyway)") # as it requires dart:io
@@ -3126,8 +3135,8 @@ class BytecodeAssembler:
           if zlib:
             self.origLen = ll # needed for efficient malloc in the C code later
             oR,r = r,zlib.compress(r,9)
-            if compact_opcodes: sys.stderr.write("%d bytes (zlib compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),ll,compacted,','.join(sorted(list(compaction_types)))))
-            else: sys.stderr.write("%d bytes (zlib compressed from %d)\n" % (len(r),ll))
+            if compact_opcodes: sys.stderr.write("%d bytes (%s compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),zlib_name,ll,compacted,','.join(sorted(list(compaction_types)))))
+            else: sys.stderr.write("%d bytes (%s compressed from %d)\n" % (len(r),zlib_name,ll))
           elif compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(sorted(list(compaction_types)))))
           else: sys.stderr.write("%d bytes\n" % ll)
           return r
@@ -5302,13 +5311,11 @@ if main:
      if android_upload:
        import httplib2,googleapiclient.discovery,oauth2client.service_account # pip install google-api-python-client (or pip install --upgrade google-api-python-client if yours is too old).  Might need pip install oauth2client also.
        sys.stderr.write("Logging in... ")
-       service = googleapiclient.discovery.build('androidpublisher', 'v2', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
+       service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
        sys.stderr.write("uploading... ")
        v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
-       service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'versionCodes':[v]}).execute()
-       # There doesn't seem to be a way to add "what's new" release notes automatically (e.g. to "updated annotator"); it's not in listings() or details().  You should do it manually when the beta is released to production.
-       # Google Play's behaviour as of 2019-05: beta releases without "what's new" will show the "what's new" of the last production release; production releases without "what's new" MAY show the "what's new" of the last production release, or MAY show "Information not provided by developer" (it's unclear what determines which message is shown).
+       service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":u"Auto-uploaded beta"}],u'status':u'completed'}]}).execute()
        sys.stderr.write("Committing... ")
        sys.stderr.write("\rCommitted edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
      else: cmd_or_exit("du -h ../"+dirName+".apk")
