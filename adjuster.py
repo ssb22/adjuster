@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Web Adjuster v0.2797 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.2798 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -169,7 +169,7 @@ define("via",default=True,help="Whether or not to update the Via: and X-Forwarde
 define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP header when forwarding requests, as a courtesy to site administrators who wonder what's happening in their logs (and don't log Via: etc)")
 define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.")
 # TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, see comments in request_no_external_referer)
-define("just_me",default=False,help="Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.")
+define("just_me",default=False,help="Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.  If an ident server is not available, an attempt is made to authenticate the 'remote' user with Linux netstat and /proc.")
 define("one_request_only",default=False,help="Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy): run with --one_request_only and forward the request to its port.  You may also wish to set --seconds if using this.")
 define("seconds",default=0,help="The maximum number of seconds for which to run the server (0 for unlimited).  If a time limit is set, the server will shut itself down after the specified length of time.")
 define("stdio",default=False,help="Forward standard input and output to our open port, in addition to being open to normal TCP connections.  This might be useful in conjuction with --one-request-only and --port=-1.")
@@ -935,7 +935,8 @@ def preprocessOptions():
     if options.just_me:
         options.address = "localhost"
         try: socket.socket().connect(('localhost',113))
-        except: errExit("--just_me requires an ident server to be running on port 113")
+        except:
+            if not 'linux' in sys.platform or not commands.getoutput("which netstat 2>/dev/null"): errExit("--just_me requires either an ident server to be running on port 113, or the system to be Linux with a netstat command available")
         import getpass ; global myUsername ; myUsername = getpass.getuser()
     elif not options.password and not options.open_proxy and not options.submitPath=='/' and not options.stop: errExit("Please set a password (or --just_me), or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
     if options.submitBookmarkletDomain and not options.publicPort==80: warn("You will need to run another copy on "+options.submitBookmarkletDomain+" ports 80/443 for bookmarklets to work (submitBookmarkletDomain without publicPort=80)")
@@ -2308,7 +2309,9 @@ class WebdriverRunner:
               break
           except SeriousTimeoutException: # already logged
               self.renew_controller()
-          except: logging.error("Exception "+exc_logStr()+" while renewing webdriver, retrying")
+          except:
+              logging.error("Exception "+exc_logStr()+" while renewing webdriver, retrying")
+              time.sleep(1) # just in case
         self.usageCount = 0 ; self.maybe_stuck = False
     def renew_webdriver_newThread(self,firstTime=False):
         self.wd_threadStart = time.time() # cleared in _renew_wd after renew_webdriver_sameThread returns (it loops on exception)
@@ -2337,6 +2340,8 @@ def find_adjuster_in_traceback():
     try: p = sys.exc_info()[1].args[-1]
     except: p = ""
     if "adjuster line" in p: return p # for webdriverWrapper_receiver
+    try: __file__
+    except: return "" # sometimes not defined ??
     for i in xrange(len(l)-1,-1,-1):
         if __file__ in l[i][0]: return ", adjuster line "+str(l[i][1])
     return ""
@@ -2566,7 +2571,8 @@ def wd_instantiateLoop(wdClass,index,renewing,**kw):
     if not renewing: time.sleep(min(2*(index % js_per_core),options.js_timeout2 / 2)) # try not to start them all at once at the beginning (may reduce chance of failure)
     while True:
         try:
-            p = wdClass(**kw)
+            if wdClass==webdriver.Chrome: p = wdClass(commands.getoutput("which chromedriver 2>/dev/null"),**kw) # some versions need to be told explicitly where chromedriver is, rather than looking in PATH themselves, in order to get "wrong version" errors etc (otherwise errors ignored, Selenium looks for a different chromedriver and gives a slightly confusing error about 'none found' rather than the error you should have seen about 'wrong version')
+            else: p = wdClass(**kw)
             if not p.capabilities: raise Exception("Didn't seem to get a p.capabilities")
             elif 'browserVersion' in p.capabilities:
                 # Selenium 2.x calls it version, but Selenium
@@ -3484,7 +3490,14 @@ document.forms[0].i.focus()
         usr = None
         try:
             s = socket.socket()
-            s.connect(('localhost',113))
+            try: s.connect(('localhost',113))
+            except:
+                import pwd
+                for l in commands.getoutput("netstat -tpn").split("\n"):
+                    l = l.split()
+                    if len(l)>6 and l[3].endswith(":"+str(self.request.connection.stream.socket.getpeername()[1])) and l[5]=="ESTABLISHED" and "/" in l[6] and pwd.getpwuid(os.stat("/proc/"+l[6].split("/",1)[0]).st_uid).pw_name==myUsername: return True
+                logging.error("no ident server and couldn't confirm username with netstat: rejecting this connection")
+                return
             s.send("%d, %d\r\n" % (self.request.connection.stream.socket.getpeername()[1], port_randomise.get(self.WA_port,self.WA_port)))
             usr = s.recv(1024).strip()
             if usr.split(':')[-1]==myUsername: return True
