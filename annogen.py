@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.688 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.689 (c) 2012-19 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -247,7 +247,7 @@ parser.add_option("--android-print",
 cancelOpt("android-print")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
 parser.add_option("--android-urls",
-                  help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application")
+                  help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).")
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read --extra-css=@file.css")
@@ -5070,9 +5070,11 @@ def update_android_manifest():
     versionCode = str(int(versionCode)+1)
   def pathQ(x):
     x = urlparse.urlparse(x)
-    if x.query: return x.path+"?"+x.query
-    else: return x.path
-  manifest = android_manifest.replace('%%JPACKAGE%%',jPackage).replace('android:versionCode="1"','android:versionCode="'+versionCode+'"').replace('android:versionName="1.0"','android:versionName="'+versionName+'"').replace('android:sharedUserId=""','android:sharedUserId="'+sharedUID+'"').replace('android:sharedUserId="" ','') + ''.join(('\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" android:pathPrefix="%s" /></intent-filter>'%(urlparse.urlparse(x).scheme,urlparse.urlparse(x).netloc,pathQ(x))) for x in android_urls.split()) + "\n</activity></application></manifest>\n"
+    if x.query: x=x.path+"?"+x.query
+    else: x=x.path
+    if ".*" in x: return 'android:pathPattern="%s"' % (x,)
+    else: return 'android:pathPrefix="%s"' % (x,)
+  manifest = android_manifest.replace('%%JPACKAGE%%',jPackage).replace('android:versionCode="1"','android:versionCode="'+versionCode+'"').replace('android:versionName="1.0"','android:versionName="'+versionName+'"').replace('android:sharedUserId=""','android:sharedUserId="'+sharedUID+'"').replace('android:sharedUserId="" ','') + ''.join(('\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" %s /></intent-filter>'%(urlparse.urlparse(x).scheme,urlparse.urlparse(x).netloc,pathQ(x))) for x in android_urls.split()) + "\n</activity></application></manifest>\n"
   if not manifest==old_manifest:
     open(jSrc+"/../AndroidManifest.xml","w").write(manifest)
   else: assert not android_upload, "Couldn't bump version code in "+repr(manifest)
@@ -5315,7 +5317,7 @@ if main:
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
        sys.stderr.write("uploading... ")
        v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
-       service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":u"Auto-uploaded beta"}],u'status':u'completed'}]}).execute()
+       service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":os.environ.get("GOOGLE_PLAY_CHANGELOG","Auto-uploaded beta").decode(terminal_charset)}],u'status':u'completed'}]}).execute()
        sys.stderr.write("Committing... ")
        sys.stderr.write("\rCommitted edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
      else: cmd_or_exit("du -h ../"+dirName+".apk")
@@ -5331,6 +5333,8 @@ before the Annogen run (change the examples obviously) :
    export KEYSTORE_PASS='your password'
    # To upload the release to Google Play, additionally set:
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
+   # and optionally:
+   export GOOGLE_PLAY_CHANGELOG="Updated annotator"
 
 You may also wish to create some icons in res/drawable*
    (using Android Studio or the earlier ADT tools).

@@ -887,7 +887,7 @@ Options:
 
 `--android-urls=ANDROID_URLS
 `
- : Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application
+ : Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).
 
 `--extra-js=EXTRA_JS`
  : Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)
