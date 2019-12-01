@@ -5317,7 +5317,8 @@ if main:
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
        sys.stderr.write("uploading... ")
        v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
-       service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":os.environ.get("GOOGLE_PLAY_CHANGELOG","Auto-uploaded beta").decode(terminal_charset)}],u'status':u'completed'}]}).execute()
+       if "GOOGLE_PLAY_CHANGELOG" in os.environ: service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":os.environ["GOOGLE_PLAY_CHANGELOG"].decode(terminal_charset)}],u'status':u'completed'}]}).execute()
+       else: service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}]}).execute()
        sys.stderr.write("Committing... ")
        sys.stderr.write("\rCommitted edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
      else: cmd_or_exit("du -h ../"+dirName+".apk")
