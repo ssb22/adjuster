@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.689 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6891 (c) 2012-19 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1375,7 +1375,7 @@ def bookmarkJS():
   assert not '"' in android, "bookmarkJS needs re-implementing if --android URL contains quotes: please %-escape it"
   should_show_bookmarks = "(location.href=='"+android.replace("'",r"\\'")+"'&&!document.noBookmarks)" # noBookmarks is used for handling ACTION_SEND, since it has the same href (TODO @lower-priority: use different href instead?)
   are_there_bookmarks = "ssb_local_annotator.getBMs().replace(/,/g,'')"
-  show_bookmarks_string = r"""'<div style=\"border: red solid; background: black; color: white;\">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style=\"color:#ff0000;text-decoration:none\" href=\"javascript:if(confirm(\\'Delete '+title.replace(/\\'/g,\"&apos;\").replace(/\"/g,\"&quot;\")+\"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')[\"+i+']);location.reload()}\">Delete</a>] <a style=\"color:#00ff00;text-decoration:none\" href=\"'+url+'\">'+title+'</a>'}return c+'</ul>'})()+'</div>'""" # TODO: use of confirm() will include the line "the page at file:// says", could do without that (but reimplementing will need complex callbacks rather than a simple 'if')
+  show_bookmarks_string = r"""'<div style=\"border: green solid\">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style=\"color:red;text-decoration:none\" href=\"javascript:if(confirm(\\'Delete '+title.replace(/\\'/g,\"&apos;\").replace(/\"/g,\"&quot;\")+\"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')[\"+i+']);location.reload()}\">Delete</a>] <a style=\"color:blue;text-decoration:none\" href=\"'+url+'\">'+title+'</a>'}return c+'</ul>'})()+'</div>'""" # TODO: use of confirm() will include the line "the page at file:// says", could do without that (but reimplementing will need complex callbacks rather than a simple 'if')
   show_bookmarks_string = are_there_bookmarks+"?("+show_bookmarks_string+"):''"
   should_suppress_toolset=[
     "location.href.slice(0,7)=='file://'", # e.g. assets URLs
@@ -1384,7 +1384,7 @@ def bookmarkJS():
   ]
   if epub: should_suppress_toolset.append("location.href.slice(0,12)=='http://epub/'")
   should_suppress_toolset = "("+"||".join(should_suppress_toolset)+")"
-  toolset_openTag = sort20px(r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: red solid !important; background: black !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""")
+  toolset_openTag = sort20px(r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: #4040BF solid !important; background: #4040BF !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""") # need to select a background that doesn't 'invert' too much by whatever algorithm forceDarkAllowed uses
   toolset_closeTag = "'</span></span>'"
   bookmarkLink0 = "ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))"
   bookmarkLink = r'\"'+"javascript:"+bookmarkLink0+r'\"' # not ' as bookmarkLink0 contains '
@@ -1738,8 +1738,9 @@ if epub: android_url_box += r"""
 else: android_url_box += r"""
 <a href="clipboard.html">Offline&nbsp;clipboard</a>
 """
+# In the URL-box below: as we're using forceDarkAllowed to allow 'force dark mode' on Android 10, we MUST specify background and color.  Left unspecified results in input elements that always have white backgrounds even in dark mode, in which case you get white on white = invisible text.  "inherit" works; background #ededed looks more shaded and does get inverted; background-image linear-gradient does NOT get inverted (so don't use it).
 android_url_box += r"""
-<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%"></td></tr></table></form>
+<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%;background:inherit;color:inherit" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%;background:#ededed;color:inherit"></td></tr></table></form>
 <script>
 function viewZoomCtrls() {
    window.setTimeout(function(){
@@ -1762,7 +1763,7 @@ function zoomIn() {
    else document.getElementById("zO").disabled=false;
    viewZoomCtrls();
 }
-if(ssb_local_annotator.canCustomZoom()) document.write('<div>Text size: <button id=zO onclick="zoomOut()">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()">+</button></div>');
+if(ssb_local_annotator.canCustomZoom()) document.write('<div>Text size: <button id=zO onclick="zoomOut()" style="background:#ededed;color:inherit">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()" style="background:#ededed;color:inherit">+</button></div>');
 var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<span id=insecure style=\"background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></span>");
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)) document.forms[document.forms.length-1].url.value=c</script>
 </div>"""
@@ -2173,7 +2174,7 @@ if epub: android_src += r"""
                                     int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
                                     String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
                                     if(mimeType==null || mimeType=="application/xhtml+xml") mimeType="text/html"; // needed for annogen style modifications
-                                    if(mimeType=="text/html") return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+r""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                    if(mimeType=="text/html") return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: #4040BF solid !important; background: #4040BF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+r""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                                     else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
@@ -2185,7 +2186,7 @@ if epub: android_src += r"""
                         return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
                     } finally { try { zin.close(); } catch(IOException e) {} }
                 }"""
-if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next</a><script>if(ssb_local_annotator.canPrint())document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: red solid !important; background: black !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+r"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
+if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next</a><script>if(ssb_local_annotator.canPrint())document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: #4040BF solid !important; background: #4040BF !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+r"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
 if not android_template: android_src += r"""
                 float scale = 0; boolean scaling = false;
                 public void onScaleChanged(final WebView view,float from,final float to) {
@@ -5039,7 +5040,7 @@ def outputParser(rulesAndConds):
       open(jSrc+"/../res/layout/activity_main.xml","w").write(android_layout)
       open(jSrc+"/../res/menu/main.xml","w").write('<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
       open(jSrc+"/../res/values/dimens.xml","w").write('<resources><dimen name="activity_horizontal_margin">16dp</dimen><dimen name="activity_vertical_margin">16dp</dimen></resources>\n')
-      open(jSrc+"/../res/values/styles.xml","w").write('<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"></style></resources>\n')
+      open(jSrc+"/../res/values/styles.xml","w").write('<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"><item name="android:forceDarkAllowed">true</item></style></resources>\n')
       open(jSrc+"/../res/values/strings.xml","w").write('<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="app_name">'+app_name.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')+'</string></resources>\n')
       if not android_https_only and not android_pre_2016: open(jSrc+"/../res/xml/network_security_config.xml","w").write('<?xml version="1.0" encoding="utf-8"?>\n<network-security-config><base-config cleartextTrafficPermitted="true" /></network-security-config>\n')
     elif c_sharp: outfile.write(cSharp_end)
@@ -5317,7 +5318,7 @@ if main:
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
        sys.stderr.write("uploading... ")
        v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
-       if "GOOGLE_PLAY_CHANGELOG" in os.environ: service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":os.environ["GOOGLE_PLAY_CHANGELOG"].decode(terminal_charset)}],u'status':u'completed'}]}).execute()
+       if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":os.environ["GOOGLE_PLAY_CHANGELOG"].decode(terminal_charset)}],u'status':u'completed'}]}).execute()
        else: service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}]}).execute()
        sys.stderr.write("Committing... ")
        sys.stderr.write("\rCommitted edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
