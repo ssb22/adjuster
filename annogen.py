@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6891 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6892 (c) 2012-19 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3897,7 +3897,8 @@ def normalise():
       try:
         f=open_try_bz2(checkpoint+os.sep+'normalised','rb')
         corpus_unistr = f.read().decode('utf-8')
-        return sys.stderr.write("Normalised copy loaded\n")
+        sys.stderr.write("Normalised copy loaded\n")
+        return True # loaded from checkpoint
       except: # if re-generating 'normalised', will also need to regenerate 'map' and 'checkpoint' if present
         assert main, "normalise checkpoint not readable in non-main module"
         rm_f(checkpoint+os.sep+'map.bz2') ; rm_f(checkpoint+os.sep+'map')
@@ -4256,7 +4257,7 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate):
     negate = None # not yet set
     stuffToCheck = []
     if not force_negate: stuffToCheck.append((okStrs,pAppend,pCovered,unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))) # a generator and associated parameters for positive indicators
-    if force_negate or len(okStrs) > len(badStrs) or not okStrs: stuffToCheck.append((badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s)))) # and for negative indicators, if appropriate
+    if force_negate or 5*len(okStrs) > len(badStrs) or not okStrs: stuffToCheck.append((badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s)))) # and for negative indicators, if appropriate (changed in v0.6892: still check for negative indicators if len(okStrs) is similar to len(badStrs) even if not strictly greater, but don't bother if len(okStrs) is MUCH less)
     while stuffToCheck and negate==None:
       for i in range(len(stuffToCheck)):
         strs,append,covered,generator = stuffToCheck[i]
@@ -5245,8 +5246,10 @@ if main and not compile_only:
     diagnose_write(diagnose+" is not present in the corpus, even before normalisation")
     suppress = True
   else: suppress = False
-  normalise()
-  if diagnose and not suppress and not diagnose in corpus_unistr: diagnose_write(diagnose+" was in the corpus before normalisation, but not after") # (if running from a checkpoint, might want to rm normalised and redo the diagnose)
+  loaded_from_checkpoint = normalise()
+  if diagnose and not suppress and not diagnose in corpus_unistr:
+    diagnose_write(diagnose+" was in the corpus before normalisation, but not after")
+    if loaded_from_checkpoint: diagnose_write("You might want to remove "+checkpoint+os.sep+'normalised* and redo the diagnose')
   if normalise_only: sys.exit()
   if priority_list:
     if os.path.exists(priority_list):
