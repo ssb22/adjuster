@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6892 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6893 (c) 2012-19 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -117,6 +117,9 @@ parser.add_option("-M","--glossmiss-omit",
                   default=False,
                   help="Omit rules containing any word not mentioned in glossfile.  Might be useful if you want to train on a text that uses proprietary terms and don't want to accidentally 'leak' those terms (assuming they're not accidentally included in glossfile also).  Words may also be listed in glossfile with an empty gloss field to indicate that no gloss is available but rules using this word needn't be omitted.")
 cancelOpt("glossmiss-omit")
+
+parser.add_option("--words-omit",
+                  help="File (or compressed .gz, .bz2 or .xz file or URL) containing words (one per line, without markup) to omit from the annotator.  Use this to make an annotator smaller if for example if you're working from a rules file that contains long lists of place names you don't need this particular annotator to recognise but you still want to keep them as rules for other annotators.")
 
 parser.add_option("--manualrules",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
@@ -1769,7 +1772,7 @@ var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;
 </div>"""
 if android_https_only: android_url_box=android_url_box.replace("http://","https://") # for the defaults, but not .replace("https?","https") because it can still get http on Android 8 and below
 if android_template: android_template = android_template.replace("URL_BOX_GOES_HERE",android_url_box)
-android_version_stamp = r"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue\')}" ':'')+'>%%DATE%% version</address>')</script>"""
+android_version_stamp = r"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue. Compile time %%TIME%%\')}" ':'')+'>%%DATE%% version</address>')</script>"""
 android_src = r"""package %%JPACKAGE%%;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
@@ -4806,8 +4809,8 @@ def allVarsW(unistr):
         for vr in allVarsW(unistr[i+1:]):
           yield unistr[:i]+v+vr ; vRest.append(vr)
 
-def matchingAction(rule,glossDic,glossMiss,whitelist):
-  # called by addRule, returns (actionList, did-we-actually-annotate).  Also applies reannotator and compression (both of which will require 2 passes if present)
+def matchingAction(rule,glossDic,glossMiss,whitelist,blacklist):
+  # called by addRule in outputParser, returns (actionList, did-we-actually-annotate).  Also applies reannotator and compression (both of which will require 2 passes if present).  whitelist and blacklist are words, from glossmiss-omit and words-omit.
   action = []
   gotAnnot = False
   for w in splitWords(rule):
@@ -4819,6 +4822,8 @@ def matchingAction(rule,glossDic,glossMiss,whitelist):
     if mreverse: text_unistr,annotation_unistr = annotation_unistr,text_unistr
     if whitelist and not text_unistr in whitelist:
       return text_unistr+" not whitelisted",None
+    elif text_unistr in blacklist:
+      return text_unistr+" blacklisted",None
     gloss = glossDic.get((text_unistr,annotation_unistr),glossDic.get(text_unistr,None))
     if gloss_closure and not gloss and not w in glossMiss:
       for t2 in allVarsW(text_unistr):
@@ -4899,6 +4904,8 @@ def copyBytes(n,checkNeedspace=False): # needSpace unchanged for ignoreNewlines 
 
 def outputParser(rulesAndConds):
     glossDic, glossMiss, whitelist = readGlossfile()
+    if words_omit: blacklist=set(w.strip() for w in openfile(words_omit).read().decode(incode).split('\n')) # TODO: glosscode?
+    else: blacklist = []
     sys.stderr.write("Generating byte cases...\n")
     byteSeq_to_action_dict = {}
     if ignoreNewlines: # \n shouldn't affect needSpace
@@ -4915,7 +4922,7 @@ def outputParser(rulesAndConds):
       byteSeq_to_action_dict[openQuote] = [(copyBytes(len(openQuote),checkNeedspace=True),[])]
     def addRule(rule,conds,byteSeq_to_action_dict,manualOverride=False):
         byteSeq = markDown(rule).encode(outcode)
-        action,gotAnnot = matchingAction(rule,glossDic,glossMiss,whitelist)
+        action,gotAnnot = matchingAction(rule,glossDic,glossMiss,whitelist,blacklist)
         if not gotAnnot: return # not whitelisted, or some spurious o("{","") rule that got in due to markup corruption
         if manualOverride or not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
         if not data_driven: action = ' '.join(action)
@@ -5036,7 +5043,7 @@ def outputParser(rulesAndConds):
       open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace('%%ANDROID-URL%%',android))
       open(java+os.sep+"BringToFront.java","w").write(android_bringToFront.replace("%%JPACKAGE%%",jPackage))
       open(jSrc+"/../assets/clipboard.html",'w').write(android_clipboard)
-      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template.replace("</body",android_version_stamp.replace("%%DATE%%","%d-%02d-%02d" % time.localtime()[:3])+"</body")) # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line
+      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template.replace("</body",android_version_stamp.replace("%%DATE%%","%d-%02d-%02d" % time.localtime()[:3]).replace("%%TIME%%","%d:%02d" % time.localtime()[3:5])+"</body")) # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line.  Time available in developer mode as might have more than one alpha release per day and want to check got latest.
       update_android_manifest()
       open(jSrc+"/../res/layout/activity_main.xml","w").write(android_layout)
       open(jSrc+"/../res/menu/main.xml","w").write('<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
@@ -5316,15 +5323,16 @@ if main:
      rm_f("bin/"+dirName0+".apk")
      if android_upload:
        import httplib2,googleapiclient.discovery,oauth2client.service_account # pip install google-api-python-client (or pip install --upgrade google-api-python-client if yours is too old).  Might need pip install oauth2client also.
+       trackToUse = os.environ.get('GOOGLE_PLAY_TRACK','beta')
        sys.stderr.write("Logging in... ")
        service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
        sys.stderr.write("uploading... ")
        v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
-       if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":os.environ["GOOGLE_PLAY_CHANGELOG"].decode(terminal_charset)}],u'status':u'completed'}]}).execute()
-       else: service.edits().tracks().update(editId=eId,track='beta',packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}]}).execute()
+       if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":os.environ["GOOGLE_PLAY_CHANGELOG"].decode(terminal_charset)}],u'status':u'completed'}]}).execute()
+       else: service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}]}).execute()
        sys.stderr.write("Committing... ")
-       sys.stderr.write("\rCommitted edit %s: %s.apk v%s to beta\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v))
+       sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse))
      else: cmd_or_exit("du -h ../"+dirName+".apk")
    else: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
 To have Annogen build it for you, set these environment variables
@@ -5340,6 +5348,7 @@ before the Annogen run (change the examples obviously) :
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
    # and optionally:
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
+   export GOOGLE_PLAY_TRACK=alpha # default beta, please don't put production
 
 You may also wish to create some icons in res/drawable*
    (using Android Studio or the earlier ADT tools).

@@ -718,6 +718,10 @@ Options:
 `--no-glossmiss-omit`
  : Cancels any earlier --glossmiss-omit option in Makefile variables etc
 
+`--words-omit=WORDS_OMIT
+`
+ : File (or compressed .gz, .bz2 or .xz file or URL) containing words (one per line, without markup) to omit from the annotator.  Use this to make an annotator smaller if for example if you're working from a rules file that contains long lists of place names you don't need this particular annotator to recognise but you still want to keep them as rules for other annotators.
+
 `--manualrules=MANUALRULES
 `
  : Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.
