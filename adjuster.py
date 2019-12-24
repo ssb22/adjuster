@@ -1,6 +1,7 @@
 #!/usr/bin/env python2
+# (only --markdown-options etc can be run in Python 3)
 
-program_name = "Web Adjuster v0.2798 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.2799 (c) 2012-19 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,7 +43,7 @@ twoline_program_name = program_name+"\nLicensed under the Apache License, Versio
 # --------------------------------------------------
 if '--split-files' in sys.argv:
     if '--autopep8' in sys.argv:
-        print "autopep8",__file__
+        print ("autopep8 "+__file__)
         d=os.popen("autopep8 '"+__file__.replace("'","'\"'\"'")+"'").read()
         assert "\n\n" in d, "check you have autopep8 command"
     else: d=open(__file__).read()
@@ -60,14 +61,14 @@ if '--split-files' in sys.argv:
         except: continue # e.g. before top.py
         assert not fname in filesDone,"Duplicate "+fname
         filesDone.add(fname)
-        print "Writing src/"+fname
+        print ("Writing src/"+fname)
         out = open(fname,"w")
         if not fname=="top.py":
             out.write("#@file: "+fname+"\n"+apache)
         out.write(contents)
         if not fname=="end.py": out.write("\n")
         Makefile.write(fname+" ")
-    print "Writing src/Makefile"
+    print ("Writing src/Makefile")
     Makefile.write("\n\n../adjuster.py: $(Files)\n\tcat $(Files) | grep -v '^#[+]# ' > $@\n")
     raise SystemExit
 
@@ -76,26 +77,30 @@ if '--split-files' in sys.argv:
 # Basic Tornado import (or not if generating the website)
 # --------------------------------------------------
 
+def asStr(u):
+    if type("")==bytes: return u.encode('utf-8') # Python 2
+    else: return u # Python 3
+
 if '--version' in sys.argv:
     # no imports needed other than "sys" ("os" for above)
     # (If this code has been run through autopep8, many
     # imports might have been moved to the very top anyway,
     # but at least it still won't depend on tornado just
     # to print the version or the options as HTML.)
-    print twoline_program_name ; raise SystemExit
+    print (twoline_program_name) ; raise SystemExit
 elif '--html-options' in sys.argv or '--markdown-options' in sys.argv:
     # for updating the website
     # (these options are not included in the help text)
     tornado=inDL=False ; html = '--html-options' in sys.argv
-    if html: print "<h3>Options for "+program_name[:program_name.index("(c)")].strip()+"</h3>"
-    else: print "Options for "+program_name[:program_name.index("(c)")].strip()+"\n============\n"
+    if html: print ("<h3>Options for "+program_name[:program_name.index("(c)")].strip()+"</h3>")
+    else: print ("Options for "+program_name[:program_name.index("(c)")].strip()+"\n============\n")
     def heading(h):
         global inDL
         if html:
-            if inDL: print "</dl>"
-            print "<h4>"+h+"</h4>"
-            print "<dl>"
-        else: print h+"\n"+'-'*len(h)+'\n'
+            if inDL: print ("</dl>")
+            print ("<h4>"+h+"</h4>")
+            print ("<dl>")
+        else: print (h+"\n"+'-'*len(h)+'\n')
         inDL = True
     def define(name,default=None,help="",multiple=False):
         if default or default==False:
@@ -114,8 +119,8 @@ elif '--html-options' in sys.argv or '--markdown-options' in sys.argv:
         for w in ["lot","not","all","Important","between","any"]:
             if html: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","<strong>"+w+"</strong>",help)
             else: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","**"+w+"**",help)
-        if html: print "<dt><kbd>--"+name+"</kbd>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>"
-        else: print "`--"+name+"` "+default+"\n: "+help.replace(" - ","---").replace("---",u'\u2014'.encode('utf-8'))+"\n"
+        if html: print ("<dt><kbd>--"+name+"</kbd>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>")
+        else: print ("`--"+name+"` "+default+"\n: "+help.replace(" - ","---").replace("---",asStr(u'\u2014'))+"\n")
 else: # normal run: go ahead with Tornado import
     import tornado
     from tornado.httpclient import AsyncHTTPClient,HTTPError
@@ -483,11 +488,11 @@ define("errorHTML",default="Adjuster error has been logged",help="What to say wh
 define("logDebug",default=False,help="Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules. On Unix you may also toggle this at runtime by sending SIGUSR1 to the process(es).") # see debuglog()
 # and continuing into the note below:
 if not tornado:
-    if html: print "</dl>"
+    if html: print ("</dl>")
     end = "Tornado-provided logging options are not listed above because they might vary across Tornado versions; run <kbd>python adjuster.py --help</kbd> to see a full list of the ones available on your setup. They typically include <kbd>log_file_max_size</kbd>, <kbd>log_file_num_backups</kbd>, <kbd>log_file_prefix</kbd> and <kbd>log_to_stderr</kbd>."
     # and --logging=debug, but that may generate a lot of entries from curl_httpclient
-    if html: print end
-    else: print end.replace("<kbd>","`").replace("</kbd>","`")
+    if html: print (end)
+    else: print (end.replace("<kbd>","`").replace("</kbd>","`"))
     raise SystemExit
 
 #@file: import2-other.py
@@ -744,7 +749,7 @@ def parse_command_line(final):
     else:
         rest=tornado.options.parse_command_line(final=final)
     if rest: errExit("Unrecognised command-line argument '%s'" % rest[0]) # maybe they missed a '--' at the start of an option: don't want result to be ignored without anyone noticing
-  except tornado.options.Error,e: optErr(e.message)
+  except tornado.options.Error as e: optErr(e.message)
 def optErr(m):
     if "PhantomJS" in m: m += " (try --js_interpreter=PhantomJS instead?)" # old option was --PhantomJS
     errExit(m)
@@ -754,7 +759,7 @@ def parse_config_file(cfg):
     if not tornado.options.parse_config_file.func_defaults: # Tornado 2.x
         tornado.options.parse_config_file(cfg)
     else: tornado.options.parse_config_file(cfg,final=False)
-  except tornado.options.Error,e: optErr(e.message)
+  except tornado.options.Error as e: optErr(e.message)
 def check_config_file(cfg):
     # Tornado doesn't catch capitalisation and spelling errors etc by default
     try:
@@ -1814,7 +1819,7 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
     if port in port_randomise: return
     for portTry in [5,4,3,2,1,0]:
       try: return h.bind(port,address)
-      except socket.error, e:
+      except socket.error as e:
         if is_sslHelp:
             # We had better not time.sleep() here trying
             # to open, especially not if multicore: don't
@@ -1893,7 +1898,7 @@ def workaround_raspbian7_IPv6_bug():
     if hasattr(socket, "AI_ADDRCONFIG"): flags |= socket.AI_ADDRCONFIG
     for af,socktype,proto,r1,r2 in socket.getaddrinfo(None,options.port,socket.AF_UNSPEC,socket.SOCK_STREAM,0,flags):
         try: socket.socket(af,socktype,proto)
-        except socket.error, e:
+        except socket.error as e:
             if "family not supported" in e.strerror:
                 options.address = "0.0.0.0" # use IPv4 only
                 return
@@ -2102,14 +2107,14 @@ def wrapped_readUntilClose(s,onLast,onChunk):
 def writeAndClose(stream,data):
     # This helper function is needed for CONNECT and own_server handling because, contrary to Tornado docs, some Tornado versions (e.g. 2.3) send the last data packet in the FIRST callback of IOStream's read_until_close
     if data:
-        if debug_connections: print "Writing",myRepr(data),"to",peerName(stream.socket),"and closing it"
+        if debug_connections: print ("Writing "+myRepr(data)+" to "+peerName(stream.socket)+" and closing it")
         try: stream.write(data,lambda *args:True)
         except: pass # ignore errors like client disconnected
     if not stream.closed():
         try: stream.close()
         except: pass
 def writeOrError(opposite,name,stream,data):
-    if debug_connections: print "Writing",myRepr(data),"to",peerName(stream.socket)
+    if debug_connections: print ("Writing "+myRepr(data)+" to "+peerName(stream.socket))
     try: stream.write(data)
     except:
         if name and not hasattr(stream,"writeOrError_already_complained"): logging.error("Error writing data to "+name)
@@ -2176,8 +2181,8 @@ class WebdriverWrapper:
         if options.logDebug:
           try:
             for e in self.theWebDriver.get_log('browser'):
-                print "webdriver log:",e['message']
-          except: print "webdriver log exception"
+                print ("webdriver log: "+e['message'])
+          except: print ("webdriver log exception")
     def execute_script(self,script): self.theWebDriver.execute_script(script)
     def click_id(self,clickElementID): self.theWebDriver.find_element_by_id(clickElementID).click()
     def click_xpath(self,xpath): self.theWebDriver.find_element_by_xpath(xpath).click()
@@ -2233,7 +2238,7 @@ def webdriverWrapper_receiver(pipe,timeoutLock):
             return pipe.close()
         if cmd=="EOF": return pipe.close()
         try: ret,exc = getattr(w,cmd)(*args), None
-        except Exception, e:
+        except Exception as e:
             p = find_adjuster_in_traceback()
             if p: # see if we can add it to the message (note p will start with ", " so no need to add a space before it)
               try:
@@ -3502,7 +3507,7 @@ document.forms[0].i.focus()
             usr = s.recv(1024).strip()
             if usr.split(':')[-1]==myUsername: return True
             else: logging.error("ident server didn't confirm username: rejecting this connection")
-        except Exception,e: logging.error("Trouble connecting to ident server (%s): rejecting this connection" % repr(e))
+        except Exception as e: logging.error("Trouble connecting to ident server (%s): rejecting this connection" % repr(e))
         self.set_status(401)
         if usr: self.write(usr+": ")
         self.write("Connection from wrong account (ident check failed)\n")
@@ -4328,8 +4333,8 @@ def httpfetch(url,**kwargs):
     if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
     r = None
     try: resp = urllib2.build_opener(DoNotRedirect).open(req,timeout=60)
-    except urllib2.HTTPError, e: resp = e
-    except Exception, e: resp = r = wrapResponse(str(e)) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
+    except urllib2.HTTPError as e: resp = e
+    except Exception as e: resp = r = wrapResponse(str(e)) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
     if r==None: r = wrapResponse(resp.read(),resp.info(),resp.getcode())
     kwargs['callback'](r)
 def wrapResponse(body,info={},code=500):
@@ -4772,11 +4777,11 @@ def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in ut
     err=""
     try:
         parser.feed(htmlStr) ; parser.close()
-    except UnicodeDecodeError, e:
+    except UnicodeDecodeError as e:
         # sometimes happens in parsing the start of a tag in duff HTML (possibly emitted by a duff htmlFilter if we're currently picking out text for the renderer)
         try: err="UnicodeDecodeError at bytes %d-%d: %s" % (e.start,e.end,e.reason)
         except: err = "UnicodeDecodeError"
-    except HTMLParseError, e: # rare?
+    except HTMLParseError as e: # rare?
         try: err="HTMLParseError: "+e.msg+" at "+str(e.lineno)+":"+str(e.offset) # + ' after '+repr(htmlStr[parser.lastCodeStart:])
         except: err = "HTMLParseError"
         logging.info("WARNING: find_text_in_HTML finishing early due to "+err)
@@ -4894,7 +4899,7 @@ def get_httpequiv_charset(htmlStr):
         parser.feed(htmlStr) ; parser.close()
     except UnicodeDecodeError: pass
     except HTMLParseError: pass
-    except Finished,e: return e.charset,e.tagStart,e.tagEnd
+    except Finished as e: return e.charset,e.tagStart,e.tagEnd
     return None,None,None
 
 def get_and_remove_httpequiv_charset(body):
@@ -5330,7 +5335,7 @@ def htmlFind(html,markup):
     def blankOut(m): return " "*(m.end()-m.start())
     return re.sub("<!--.*?-->",blankOut,html,flags=re.DOTALL).lower().find(markup) # TODO: improve efficiency of this? (blankOut doesn't need to go through the entire document)
 
-def html_additions(html,(cssToAdd,attrsToAdd),slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain,IsEdge,addHtmlFilterOptions,htmlFilterOutput):
+def html_additions(html,toAdd,slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain,IsEdge,addHtmlFilterOptions,htmlFilterOutput):
     # Additions to make to HTML only (not on HTML embedded in JSON)
     # called from doResponse2 if do_html_process is set
     if html.startswith("<?xml"): link_close = " /"
@@ -5343,6 +5348,7 @@ def html_additions(html,(cssToAdd,attrsToAdd),slow_CSS_switch,cookieHostToSet,js
     if set_window_onerror: headAppend += r"""<script><!--
 window.onerror=function(msg,url,line){alert(msg); return true}
 --></script>"""
+    cssToAdd,attrsToAdd = toAdd
     if cssToAdd:
         # do this BEFORE options.headAppend, because someone might want to refer to it in a script in options.headAppend (although bodyPrepend is a better place to put 'change the href according to screen size' scripts, as some Webkit-based browsers don't make screen size available when processing the HEAD of the 1st document in the session)
         if options.cssName:
