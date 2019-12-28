@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6893 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6894 (c) 2012-19 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1956,13 +1956,13 @@ if pleco_hanping:
                         }); }"""
 if glossfile: android_src += r"""
                         if (tt.length()>0) {
-                        // TODO: 3-line persist to pop-ups (scan)?
-                        // TODO: 3-line persist to other pages?
-                        // TODO: if already pressed, call it 2-line and reverse the substitution?
+                        // TODO: 3-line persist to pop-ups (re-scan the DOM)?
+                        // TODO: 3-line persist to other pages? (might be counterproductive to encouraging people not to rely on it)
+                        // TODO: if already pressed, call it 2-line and reverse the substitution? (or just reload the page), AFTER scanning the DOM for popups (as currently pressing a second time is the only way to get 3line in popups)
                         d.setPositiveButton("3 line", new android.content.DialogInterface.OnClickListener() {
                                 public void onClick(android.content.DialogInterface dialog,int id) {
 class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { browser.loadUrl(
-"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"/(;]*)([/(;][^\"]*)?\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>');var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
+"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([(]?[^\"/(;]*)([/(;][^\"]*)?\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>');var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
 /* Above rp elements are to make firstChild etc work in
    dialogue.  Don't do whole document.body.innerHTML, or
    scripts like document.write may execute a second time,
@@ -2177,8 +2177,10 @@ if epub: android_src += r"""
                                     int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
                                     String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
                                     if(mimeType==null || mimeType=="application/xhtml+xml") mimeType="text/html"; // needed for annogen style modifications
-                                    if(mimeType=="text/html") return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: #4040BF solid !important; background: #4040BF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+r""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
-                                    else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
+                                    if(mimeType=="text/html") {
+                                        // TODO: if ((epubUrl.startsWith("file:") || epubUrl.contains("com.android.externalstorage")) && part!="toc.xhtml") then getSharedPreferences putString("eR"+epubUrl,part) ?  To avoid unbounded buildup, need to store only the most recent few (use one pref with separators?  or other mechanism e.g. 0=url 1=url ... nxtWrite=2 w. wraparound?)  Then add "jump to last seen page" link from both directory and toc.xhtml (latter will need manipulation as below)
+                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: #4040BF solid !important; background: #4040BF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+r""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                    } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
                         }
