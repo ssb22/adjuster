@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6894 (c) 2012-19 Silas S. Brown"
+program_name = "Annotator Generator v0.6895 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -224,7 +224,7 @@ parser.add_option("--java",
 parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.  If you load a page containing Javascript that allows the user to navigate to arbitrary URLs, you'll have an annotating Web browser app: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  Huawei devices sold after c.2019-05-20 won't have Play Store access, and Huawei's "AppGallery" was accepting only registered companies not individual developers, so 'side-loading' will be needed there too (unless you're a registered company).
 parser.add_option("--android-template",
-                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page. This version also enables better zoom controls on Android 4+ and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses).")
+                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert URLs from shortcuts etc. This version also enables better zoom controls on Android 4+ and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses).")
 parser.add_option("--android-pre-2016",
                   action="store_true",default=False,
                   help="[DEPRECATED] When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way are no longer allowed on \"Play Store\" unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.  This option is deprecated because you should be able to install a newer SDK on a virtual machine if your main OS cannot be upgraded (e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019).")
@@ -881,7 +881,7 @@ elif library:
      with single-threaded or multiprocess code like Web Adjuster
      (not in WSGI mode).
     
-     To wrap this library in Python 2, you can do:
+     To wrap this library in Python (2 or 3), you can do:
 
 from ctypes import CDLL,c_char_p,c_int
 alib = CDLL("./libannotator.so.1")
@@ -899,7 +899,7 @@ _annotateRL.argtypes = [c_char_p"""
     c_preamble += "]\ndef annotR(txt"
     if sharp_multi: c_preamble += ",aType=0"
     c_preamble += r"""):
-    if type(txt)==unicode: txt = txt.encode('utf-8')
+    if type(txt)==type(u''): txt = txt.encode('utf-8')
     r = _annotateRL(txt"""
     if sharp_multi: c_preamble += ",aType"
     c_preamble += r""")
@@ -908,7 +908,7 @@ _annotateRL.argtypes = [c_char_p"""
   if sharp_multi: c_preamble += ",aType=0"
   c_preamble += r""",aMode=1):
     "aMode: 0 = raw, 1 = ruby (default), 2 = braces"
-    if type(txt)==unicode: txt = txt.encode('"""+outcode+r"""')
+    if type(txt)==type(u''): txt = txt.encode('"""+outcode+r"""')
     r = _annotate(txt"""
   if sharp_multi: c_preamble += ",aType"
   c_preamble += r""",aMode)
@@ -1743,7 +1743,7 @@ else: android_url_box += r"""
 """
 # In the URL-box below: as we're using forceDarkAllowed to allow 'force dark mode' on Android 10, we MUST specify background and color.  Left unspecified results in input elements that always have white backgrounds even in dark mode, in which case you get white on white = invisible text.  "inherit" works; background #ededed looks more shaded and does get inverted; background-image linear-gradient does NOT get inverted (so don't use it).
 android_url_box += r"""
-<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%;background:inherit;color:inherit" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%;background:#ededed;color:inherit"></td></tr></table></form>
+<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(typeof annotUrlTrans!='undefined'){var u=annotUrlTrans(v);if(typeof u!='undefined')v=u}if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%;background:inherit;color:inherit" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%;background:#ededed;color:inherit"></td></tr></table></form>
 <script>
 function viewZoomCtrls() {
    window.setTimeout(function(){
@@ -3226,14 +3226,12 @@ js_end += r"""
    (e.g. from annoclip and/or adjuster), and hope there's
    no stuff that's not to be annotated (form fields...) */
 input = unescape(encodeURIComponent(input)); // to UTF-8
-var data = this.data;
+var data = this.data, numLines = this.numLines;
 var addrLen = data.charCodeAt(0);
-var dPtr;
-var inputLength = input.length;
+var dPtr, inputLength = input.length;
 var p = 0; // read-ahead pointer
 var copyP = 0; // copy pointer
-var output = new Array();
-var needSpace = 0;
+var output = new Array(), needSpace = 0;
 
 function readAddr() {
   var i,addr=0;
@@ -3604,6 +3602,8 @@ py_start = '# Python '+version_stamp+r"""
 
 # annotate has an optional second argument, which can be
 # 'ruby' (default), 'raw' (annotation only) or 'braces'.
+
+assert not type("")==type(u""), "Python 3 not supported yet (Python 2 only for now)"
 
 """
 py_end = r"""
