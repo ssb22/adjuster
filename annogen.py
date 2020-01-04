@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6895 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v0.6896 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -224,7 +224,7 @@ parser.add_option("--java",
 parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.  If you load a page containing Javascript that allows the user to navigate to arbitrary URLs, you'll have an annotating Web browser app: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  Huawei devices sold after c.2019-05-20 won't have Play Store access, and Huawei's "AppGallery" was accepting only registered companies not individual developers, so 'side-loading' will be needed there too (unless you're a registered company).
 parser.add_option("--android-template",
-                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert URLs from shortcuts etc. This version also enables better zoom controls on Android 4+ and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses).")
+                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc. This version also enables better zoom controls on Android 4+ and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses).") # annotUrlTrans returns undefined = uses original
 parser.add_option("--android-pre-2016",
                   action="store_true",default=False,
                   help="[DEPRECATED] When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way are no longer allowed on \"Play Store\" unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.  This option is deprecated because you should be able to install a newer SDK on a virtual machine if your main OS cannot be upgraded (e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019).")
@@ -4145,12 +4145,12 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     # (If too few indicators can be found, will list the ones it can, or empty if no clearly-distinguishable indicators can be found within ybytes of end of match.)
     # yield "backgrounded" = task has been backgrounded; .next() collects result
     nonAnnot=markDown(withAnnot_unistr)
-    def ok_to_default(xplan="majority-case"):
-        # could we have this as a "default" rule, with the other cases as exceptions that will be found first?
+    def unconditional_looks_ok(explain):
+        # could we have this as an unconditional rule, with the other cases as exceptions that will be found first?  (NB this is not the same thing as a 'default-yes rule with exceptions', this is a rule with NO qualifying indicators either way)
         if len(nonAnnot)==1:
-          if nonAnnot==diagnose: diagnose_write("%s is default by %s len=1 rule after removing irrelevant badStarts" % (xplan,withAnnot_unistr,))
+          if nonAnnot==diagnose: diagnose_write("%s is default by %s len=1 rule after removing irrelevant badStarts" % (withAnnot_unistr,explain))
           return True # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
-        # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default unless can be sure about it
+        # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default: we'll want positive or negative indicators instead.
         # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without positive indicators it should do so
         # Check for no "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
         # (The below might under-match if there's the appearance of a split rule but it actually has extra non-marked-up text in between, but it shouldn't over-match.)
@@ -4158,9 +4158,11 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
         # (TODO: until the above is implemented, consider recommending --ymax-threshold=0, because, now that Yarowsky-like collocations can be negative, the 'following word' could just go in as a collocation with low ybytes)
         # TODO: also, if the exceptions to rule AB are always of the form "Z A B", and we can guarantee to generate a phrase rule for "Z A B", then AB can still be default.  (We should already catch this when the exceptions are "ZA B", but not when they are "Z A B", and --ymax-threshold=0 probably won't always help here, especially if Z==B; Mandarin "mei2you3" / "you3 mei2 you3" comes to mind)
         llen = len(mdStart)+len(nonAnnot)
-        if all(x.end()-x.start()==llen for x in re.finditer(re.escape(mdStart)+("(?:"+re.escape(mdEnd)+"(?:(?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?").join(re.escape(c) for c in list(nonAnnot)),corpus_unistr)):
-          if nonAnnot==diagnose: diagnose_write("%s is default by %s rule after checking for dangerous overlaps etc" % (xplan,withAnnot_unistr,))
+        regex=re.compile(re.escape(mdStart) + ("(?:"+re.escape(mdEnd)+"(?:(?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?") . join(re.escape(c) for c in list(nonAnnot)))
+        if all(x.end()-x.start()==llen for x in re.finditer(regex,corpus_unistr)):
+          if nonAnnot==diagnose: diagnose_write("%s is default by %s rule after checking for dangerous overlaps etc" % (withAnnot_unistr,explain))
           return True
+        if nonAnnot==diagnose: diagnose_write("%s cannot be default by %s due to %s" % (withAnnot_unistr,explain,', '.join(list(set(["'"+x.group()+"'" for x in re.finditer(regex,corpus_unistr) if not x.end()-x.start()==llen]))[:5])))
     if nonAnnot in yPriorityDic: # TODO: enforce len==1 ?
         if yPriorityDic[nonAnnot] == withAnnot_unistr:
             # we want this case to be the default
@@ -4171,7 +4173,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
                 if nonAnnot==diagnose: diagnose_write("ref-pri wants %s by default: finding negative indicators only" % (withAnnot_unistr,))
                 can_be_default = "must"
                 # might not even need to get okStarts, etc
-                if ok_to_default("ref-pri"):
+                if unconditional_looks_ok("ref-pri"):
                   yield True ; return
         else:
           if nonAnnot==diagnose: diagnose_write("ref-pri forbids default %s" % (withAnnot_unistr,))
@@ -4192,7 +4194,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
       if nonAnnot==diagnose: diagnose_write("%s has only probably-irrelevant badStarts" % (withAnnot_unistr,))
       yield True ; return
     # Now, if it's right more often than not:
-    if can_be_default==True and len(okStarts) > len(badStarts) and ok_to_default(): # (if can_be_default=="must", we have already checked for ok_to_default() above before computing okStarts and badStarts)
+    if can_be_default==True and len(okStarts) > len(badStarts) and unconditional_looks_ok("majority-case"): # (if can_be_default=="must", we have already checked for unconditional_looks_ok() above before computing okStarts and badStarts)
         yield True ; return
     run_in_background = canBackground and len(okStarts) > 500 and executor # In a test with 300, 500, 700 and 900, the 500 threshold was fastest on concurrent.futures, but by just a few seconds.  TODO: does mpi4py.futures have a different 'sweet spot' here? (low priority unless we can get MPI to outdo concurrent.futures in this application)
     may_take_time = canBackground and len(okStarts) > 1000
@@ -4203,7 +4205,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     if ybytes_max > ybytes and (not ymax_threshold or len(nonAnnot) <= ymax_threshold):
       retList = [] ; append=retList.append
       for nbytes in range(ybytes,ybytes_max+1,ybytes_step):
-        negate,ret,covered,toCover = tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,can_be_default=="must")
+        negate,ret,covered,toCover = tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,can_be_default=="must",nbytes==ybytes_max)
         if covered==toCover and len(ret)==1:
           if may_take_time: sys.stderr.write(" - using 1 indicator, negate=%s\n" % repr(negate))
           yield (negate,ret,nbytes) ; return # a single indicator that covers everything will be better than anything else we'll find
@@ -4248,7 +4250,7 @@ def getReallyBadStarts(badStarts,nonAnnot):
       if e-s > nonAnnotLen: continue # this word is too long, should be matched by a longer rule 1st
       append(b) # to reallyBadStarts
     return reallyBadStarts
-def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate):
+def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,try_harder=True):
     # try to find either positive or negative Yarowsky-like indicators, whichever gives a smaller set (or only negative ones if force_negate, used by ref_pri).  Negative indicators might be useful if there are many matches and only a few special exceptions.  (If not force_negate, then negative indicators are used only if they cover 100% of the exceptions; see below re negate==None)
     def bytesAround(start): return within_Nbytes(start+len(nonAnnot),nbytes)
     okStrs=list(set(bytesAround(s) for s in okStarts))
@@ -4257,47 +4259,82 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate):
     nOmit = unichr(1).join(okStrs) # ditto for -ve indicators
     pCovered=[False]*len(okStrs)
     nCovered=[False]*len(badStrs)
+    n2Covered=[False]*len(badStrs)
     pRet = [] ; pAppend=pRet.append
     nRet = [] ; nAppend=nRet.append
+    n2Ret = [] ; nAppend2 = n2Ret.append
     negate = None # not yet set
-    stuffToCheck = []
-    if not force_negate: stuffToCheck.append((okStrs,pAppend,pCovered,unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))) # a generator and associated parameters for positive indicators
-    if force_negate or 5*len(okStrs) > len(badStrs) or not okStrs: stuffToCheck.append((badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s)))) # and for negative indicators, if appropriate (changed in v0.6892: still check for negative indicators if len(okStrs) is similar to len(badStrs) even if not strictly greater, but don't bother if len(okStrs) is MUCH less)
+    stuffToCheck = [] ; stuffChecked = []
+    if not force_negate:
+      l = []
+      stuffChecked.append((l,"",pRet,pCovered))
+      stuffToCheck.append((l,okStrs,pAppend,pCovered,unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))) # a generator and associated parameters for positive indicators
+    diagnose_extra = []
+    if force_negate or 5*len(okStrs) > len(badStrs) or not okStrs: # and for negative indicators, if appropriate: (changed in v0.6892: still check for negative indicators if len(okStrs) is similar to len(badStrs) even if not strictly greater, but don't bother if len(okStrs) is MUCH less)
+      l = []
+      stuffChecked.append((l,"negative",nRet,nCovered))
+      stuffToCheck.append((l,badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s))))
+      if try_harder and okStrs and not force_negate:
+        l = [] ; stuffChecked.append((l,"overmatch-negative",n2Ret,n2Covered))
+        stuffToCheck.append((l,badStrs,nAppend2,n2Covered,unique_substrings(badStrs,markedUp_unichars,lambda txt:False,lambda txt:(sum(1 for s in badStrs if txt in s),-sum(1 for s in okStrs if txt in s))))) # a harder try to find negative indicators (added in v0.6896): allow over-matching (equivalent to under-matching positive indicators) if it's the only way to get all badStrs covered; may be useful if the word can occur in isolation
+    elif nonAnnot==diagnose: diagnose_extra.append("Not checking for negative indicators as 5*%d>%d=%s." % (len(okStrs),len(badStrs),repr(5*len(okStrs)>len(badStrs))))
     while stuffToCheck and negate==None:
       for i in range(len(stuffToCheck)):
-        strs,append,covered,generator = stuffToCheck[i]
+        l,strs,append,covered,generator = stuffToCheck[i]
         try: indicator = generator.next()
         except StopIteration:
           del stuffToCheck[i] ; break
         found = True ; cChanged = False
-        for i in xrange(len(strs)):
-          if not covered[i] and indicator in strs[i]:
-            covered[i]=cChanged=True
-        if cChanged: append(indicator)
-        if all(covered):
+        for j in xrange(len(strs)):
+          if not covered[j] and indicator in strs[j]:
+            covered[j]=cChanged=True
+        if cChanged:
+         append(indicator)
+         if not l: l.append(True)
+         if all(covered):
           if append==pAppend: negate=False
-          else: negate=True
+          elif append==nAppend: negate=True
+          else:
+            # We managed to get all exceptions with overmatch-negative, but did we make it worse than the undermatching positive case would have made it?
+            fxCover = [True]*len(okStrs)
+            for indicator in n2Ret:
+              for i in xrange(len(okStrs)):
+                if fxCover[i] and indicator in okStrs[i]: fxCover[i] = False
+            if sum(1 for x in fxCover if x) >= sum(1 for x in pCovered if x): negate="harder"
+            else: diagnose_extra.append("Overmatch-negate got worse actual coverage than partial-positive.")
           break
     # and if negate==None AFTER this loop, didn't get all(pCovered) OR all(nCovered), in which case we fall back to negate=False (unless force_negate).  In other words, negative indicators normally have to cover ALL non-occurrences to be passed, wheras positive indicators just have to cover SOME.  This is in keeping with the idea of 'under-match is better than over-match' (because an under-matching negative indicator is like an over-matching positive one)
     if force_negate: negate = True
-    if negate: ret,covered = nRet,nCovered
+    if negate==True: ret,covered = nRet,nCovered
+    elif negate=="harder": ret,covered = n2Ret,n2Covered
     else: ret,covered = pRet,pCovered
     if nonAnnot==diagnose:
-      if ret:
-        if negate: indicators = "negative indicators "
+      def report(actuallyChecked,negate,ret,covered):
+        if not actuallyChecked: return ""
+        if negate: indicators = negate+" indicators "
         else: indicators = "indicators "
-        if len(ret) > 30: indicators=str(len(ret))+" "+indicators # +'/'.join(ret[:30]+['...'])
-        else: indicators += '/'.join(ret)
-      else: indicators = "no indicators"
+        if ret:
+          if len(ret) > 30: indicators=str(len(ret))+" "+indicators # +'/'.join(ret[:30]+['...'])
+          else: indicators += '/'.join(ret)
+        else: indicators = "no "+indicators
+        if all(covered): notCovered = ""
+        else:
+          if negate: strs = badStrs
+          else: strs = okStrs
+          notCovered = [strs[i] for i in xrange(len(covered)) if not covered[i]]
+          if len(notCovered) > 10: notCovered = notCovered[:10]+["..."]
+          notCovered = ", not "+'/'.join(notCovered).replace('\n',"\\n")
+        if negate=="overmatch-negative":
+          overmatch=[s for s in okStrs if any(i in s for i in n2Ret)]
+          if len(overmatch) > 10: overmatch = overmatch[:10]+["..."]
+          if overmatch: notCovered += ", overmatch "+"/".join(overmatch).replace('\n',"\\n")
+        return "%s (cover=%d/%d%s)" % (indicators,sum(1 for x in covered if x),len(covered),notCovered)
       if len(pOmit) > 200: pOmit = pOmit[:200]+"..."
-      if all(covered): notCovered = ""
-      else:
-        if negate: strs = badStrs
-        else: strs = okStrs
-        notCovered = [strs[i] for i in xrange(len(covered)) if not covered[i]]
-        if len(notCovered) > 10: notCovered = notCovered[:10]+["..."]
-        notCovered = " (not "+'/'.join(notCovered).replace('\n',"\\n")+")"
-      diagnose_write("tryNBytes(%d) on %s found %s (avoiding '%s'), covers %d/%d contexts%s" % (nbytes,withAnnot_unistr,indicators,pOmit.replace(unichr(1),'/').replace('\n',"\\n"),sum(1 for x in covered if x),len(covered),notCovered))
+      diagnose_extra = " ".join(diagnose_extra)
+      if diagnose_extra: diagnose_extra=" "+diagnose_extra
+      rr = ", ".join(r for r in [report(*i) for i in stuffChecked] if r)
+      if not rr: rr = "nothing"
+      diagnose_write("tryNBytes(%d) on %s (avoiding '%s') found %s%s" % (nbytes,withAnnot_unistr,pOmit.replace(unichr(1),'/').replace('\n',"\\n"),rr,diagnose_extra))
     return negate,ret,sum(1 for x in covered if x),len(covered)
 
 def cond(a,b,c):
