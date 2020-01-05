@@ -1,7 +1,8 @@
-#!/usr/bin/env python2
-# (only --markdown-options etc can be run in Python 3)
+#!/usr/bin/env python
+# (can be run in either Python 2 or Python 3;
+# has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.2799 (c) 2012-19 Silas S. Brown"
+program_name = "Web Adjuster v0.3 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -48,7 +49,7 @@ if '--split-files' in sys.argv:
         assert "\n\n" in d, "check you have autopep8 command"
     else: d=open(__file__).read()
     assert not "\n#+# " in d
-    apache = "#+# \n#+# "+d.split("\n\n")[2].replace("\n","\n#+# ")+"\n#+# \n"
+    apache = "#+# \n#+# "+[x for x in d.split("\n\n") if "Apache" in x][0].replace("\n","\n#+# ")+"\n#+# \n"
     try: os.mkdir("src")
     except: pass
     os.chdir("src")
@@ -77,9 +78,16 @@ if '--split-files' in sys.argv:
 # Basic Tornado import (or not if generating the website)
 # --------------------------------------------------
 
-def asStr(u):
-    if type("")==bytes: return u.encode('utf-8') # Python 2
-    else: return u # Python 3
+def S(u):
+    # unicode to str, Python 2 or 3
+    if type(u)==str: return u # already a str
+    elif str==bytes: return u.encode('utf-8') # Python 2 unicode needs encode to get to str
+    else: return u.decode('utf-8') # Python 3 bytes needs decode to get to str
+def B(s):
+    # bytes in Python 2 or 3
+    if type(s)==bytes: return s # Python 2
+    elif type(s)==str: return s.encode('utf-8') # Python 3
+    else: return s # boolean or whatever (so we can write B(s) around things that might not necessarily be strings)
 
 if '--version' in sys.argv:
     # no imports needed other than "sys" ("os" for above)
@@ -120,15 +128,57 @@ elif '--html-options' in sys.argv or '--markdown-options' in sys.argv:
             if html: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","<strong>"+w+"</strong>",help)
             else: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","**"+w+"**",help)
         if html: print ("<dt><kbd>--"+name+"</kbd>"+amp(default)+"</dt><dd>"+help.replace(" - ","---")+"</dd>")
-        else: print ("`--"+name+"` "+default+"\n: "+help.replace(" - ","---").replace("---",asStr(u'\u2014'))+"\n")
+        else: print ("`--"+name+"` "+default+"\n: "+help.replace(" - ","---").replace("---",S(u'\u2014'))+"\n")
 else: # normal run: go ahead with Tornado import
     import tornado
-    from tornado.httpclient import AsyncHTTPClient,HTTPError
+    try: from tornado.httpclient import HTTPClientError as HTTPError # Tornado 5.1+
+    except ImportError: from tornado.httpclient import HTTPError # older Tornado
+    from tornado.httpclient import AsyncHTTPClient
     try: from tornado.httpserver import HTTPServer
     except: HTTPServer = None # may happen in WSGI mode (e.g. AppEngine can have trouble importing this)
     from tornado.ioloop import IOLoop
-    from tornado.web import Application, RequestHandler, StaticFileHandler, asynchronous
-    import tornado.options, tornado.iostream
+    from tornado.web import Application, RequestHandler, StaticFileHandler
+    try:
+        from tornado.web import asynchronous # decorator removed in Tornado 6, prevents .finish() until we call it explicitly
+        def doCallback(req,func,callback,*args,**kwargs):
+            kwargs['callback'] = callback
+            func(*args,**kwargs)
+        def readUntilClose(s,onLast,onChunk):
+            try: s.read_until_close(onLast,onChunk)
+            except: onLast("")
+    except ImportError: # Tornado 6 requires us to write coroutines instead (finish() always called), so let's emulate the old behaviour
+        def doCallback(req,func,callback,*args,**kwargs):
+            theFuture = func(*args,**kwargs)
+            def getResult(f):
+                try: r = f.result()
+                except Exception as e: r = e
+                try: callback(r)
+                except Exception as e: # exception in callback
+                    if req: req.write_error(None,exc_info=sys.exc_info())
+                    raise # so it's logged
+            theFuture.add_done_callback(getResult)
+        # read_until_close zapped callback and streaming_callback: doCallback can do the last callback but they now also want a loop with read_bytes(maxBytes,partial=true) with a Future
+        def readUntilClose(s,onLast,onChunk):
+            def getResult(f):
+                try: r = f.result()
+                except:
+                    if debug_connections: print ("readUntilClose getResult exception: calling onLast")
+                    onLast("") ; return
+                try: onChunk(r)
+                except: logging.error("readUntilClose onChunk unhandled exception")
+                readUntilClose(s,onLast,onChunk)
+            s.read_bytes(10240,True).add_done_callback(getResult)
+        from tornado import gen
+        def asynchronous(func):
+            @gen.coroutine
+            def newFunc(self,*args,**kwargs):
+                func(self,*args,**kwargs)
+                interval = 0.1
+                while not self._finished:
+                    yield gen.sleep(interval)
+                    if interval < 60: interval *= 2
+            return newFunc
+    import tornado.options, tornado.iostream, tornado.netutil
     from tornado.options import define,options
     def heading(h): pass
     if 'port' in options:
@@ -174,7 +224,7 @@ define("via",default=True,help="Whether or not to update the Via: and X-Forwarde
 define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP header when forwarding requests, as a courtesy to site administrators who wonder what's happening in their logs (and don't log Via: etc)")
 define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.")
 # TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, see comments in request_no_external_referer)
-define("just_me",default=False,help="Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.  If an ident server is not available, an attempt is made to authenticate the 'remote' user with Linux netstat and /proc.")
+define("just_me",default=False,help="Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.  If an ident server is not available, an attempt is made to authenticate connections via Linux netstat and /proc.")
 define("one_request_only",default=False,help="Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy): run with --one_request_only and forward the request to its port.  You may also wish to set --seconds if using this.")
 define("seconds",default=0,help="The maximum number of seconds for which to run the server (0 for unlimited).  If a time limit is set, the server will shut itself down after the specified length of time.")
 define("stdio",default=False,help="Forward standard input and output to our open port, in addition to being open to normal TCP connections.  This might be useful in conjuction with --one-request-only and --port=-1.")
@@ -462,6 +512,7 @@ define("extensions",help="Name of a custom Python module to load to handle certa
 define("loadBalancer",default=False,help="Set this to True if you have a default_site set and you are behind any kind of \"load balancer\" that works by issuing a GET / with no browser string. This option will detect such requests and avoid passing them to the remote site.")
 define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)")
 # --- and --ssl-fork if there's not TOO many instances taking up the RAM; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server)
+define("num_cores",default=0,help="Set the number of CPU cores for the multicore option (0 for auto-detect)")
 define("internalPort",default=0,help="The first port number to use for internal purposes when ssl_fork is in effect.  Internal ports needed by real_proxy (for SSL) and js_reproxy are normally allocated from the ephemeral port range, but if ssl_fork delegates to independent processes then some of them need to be at known numbers. The default of 0 means one higher than 'port'; several unused ports may be needed starting at this number. If your Tornado is modern enough to support reuse_port then you can have multiple Adjuster instances listening on the same port (e.g. for one_request_only) provided they have different internalPort settings when run with ssl_fork.  Note however that the --stop and --restart options will NOT distinguish between different internalPort settings, only 'port'.")
 # Some environments (e.g. old OpenShift 2) can't use real_proxy or js_reproxy because the container won't let us open extra ports even for internal purposes; TODO: find some way to multiplex everything on one port? how to authenticate our JS-interpreter connections if the load-balancer makes remote connections to that port also seem to come from our IP?
 define("fixed_ports",default=False,help="Do not allocate ports (even internal ports) from the ephemeral port range even when this is otherwise possible. This option might help if you are firewalling your loopback interface and want to write specific exceptions (although that still won't work if you're using js_interpreter=HeadlessChrome or similar which opens its own ephemeral ports as well: use containers if you're concerned). Fixed ports may result in failures if internal ports are already taken.")
@@ -500,18 +551,53 @@ if not tornado:
 # Further imports
 # --------------------------------------------------
 
-import time,commands,string,urllib,urllib2,urlparse,socket,logging,subprocess,threading,base64,htmlentitydefs,signal,traceback
+import time,socket,logging,subprocess,threading,base64,signal,traceback
+try: from string import letters,digits # Python 2
+except ImportError:
+    from string import ascii_letters as letters # Python 3
+    from string import digits
+try: import urlparse # Python 2
+except ImportError: import urllib.parse as urlparse # Python 3
+try: from urllib import quote,unquote # Python 2
+except ImportError: from urllib.parse import quote,unquote # Python 3
+try: import htmlentitydefs # Python 2
+except ImportError: import html.entities as htmlentitydefs # Python 3
+try: from urllib2 import build_opener,Request,ProxyHandler,HTTPRedirectHandler,urlopen # Python 2
+except ImportError: from urllib.request import build_opener,Request,ProxyHandler,HTTPRedirectHandler,urlopen # Python 3
+try: from urllib2 import HTTPError as UL_HTTPError # Python 2
+except ImportError: from urllib.error import HTTPError as UL_HTTPError # Python 3
+try: from commands import getoutput # Python 2
+except ImportError: from subprocess import getoutput # Python 3
 try: import simplejson as json # Python 2.5, and faster?
 except ImportError: import json # Python 2.6
-from HTMLParser import HTMLParser,HTMLParseError
+try: from HTMLParser import HTMLParser,HTMLParseError # Python 2
+except ImportError:
+    from html.parser import HTMLParser as _HTMLParser # Python 3
+    class HTMLParser(_HTMLParser):
+        def __init__(self): _HTMLParser.__init__(self,convert_charrefs=False) # please behave as the old one did
+    try: from html.parser import HTMLParseError # removed in Python 3.5
+    except ImportError: # we use it only for recognition anyway
+        class HTMLParseError(Exception): pass
 try: import psutil
 except ImportError: psutil = None
+try: # Python 2
+    from cStringIO import StringIO as BytesIO
+    from StringIO import StringIO # for when need Unicode
+except ImportError: from io import BytesIO,StringIO # Python 3
+try: from inspect import getfullargspec as getargspec # Python 3
+except ImportError:
+    try: from inspect import getargspec # Python 2
+    except ImportError: getargspec = None
+try: xrange # Python 2
+except: xrange,unicode,unichr = range,str,chr # Python 3
+try: bytes
+except: bytes = str
 
 try: # can we page the help text?
     # (Tornado 2 just calls the module-level print_help, but Tornado 3 includes some direct calls to the object's method, so we have to override the latter.  Have to use __dict__ because they override __setattr__.)
-    import pydoc,cStringIO ; pydoc.pager # ensure present
+    import pydoc ; pydoc.pager # ensure present
     def new_top(*args):
-        dat = cStringIO.StringIO()
+        dat = StringIO()
         dat.write(twoline_program_name+"\n")
         tornado.options.options.old_top(dat)
         pydoc.pager(dat.getvalue())
@@ -537,25 +623,26 @@ def convert_to_real_host(requested_host,cookie_host=None):
     # we should display the URL entry box etc.
     # Returns -1 if we should pass to options.own_server.
     if requested_host:
-      port=":"+str(options.publicPort)
+      requested_host = B(requested_host)
+      port=B(":"+str(options.publicPort))
       # port might or might not be present in user's request
       orig_requested_host = requested_host
       if requested_host.endswith(port): requested_host=requested_host[:-len(port)]
       n=0
       for h in options.host_suffix.split("/"):
-        if requested_host.endswith("."+h): return redot(requested_host[:-len(h)-1])
-        if requested_host == h:
+        if requested_host.endswith(B("."+h)): return redot(requested_host[:-len(h)-1])
+        if requested_host == B(h):
             d = defaultSite(n)
-            if d: return d
-            elif cookie_host==h: return 0 # special type of (false) value to tell the code that we're handling this request ourselves but possibly via ownServer_if_not_root
-            else: return cookie_host
+            if d: return B(d)
+            elif B(cookie_host)==B(h): return 0 # special type of (false) value to tell the code that we're handling this request ourselves but possibly via ownServer_if_not_root
+            else: return B(cookie_host)
         n += 1
       if options.real_proxy: return orig_requested_host
     if options.own_server: return -1
-    else: return defaultSite()
+    else: return B(defaultSite())
 def convert_to_via_host(requested_host):
-    if not requested_host: # ??
-        requested_host = ""
+    if not requested_host: requested_host = "" # ??
+    else: requested_host = S(requested_host)
     port=":"+str(options.publicPort) # the port to advertise
     orig_requested_host = requested_host
     if requested_host.endswith(port): requested_host=requested_host[:-len(port)]
@@ -575,10 +662,10 @@ def convert_to_requested_host(real_host,cookie_host=None):
       n=0
       for i in options.default_site.split("/"):
         if not i: i=cookie_host
-        if real_host == i:
+        if B(real_host) == B(i):
             return hostSuffix(n)+port
         n += 1
-    elif not options.wildcard_dns and real_host == cookie_host:
+    elif not options.wildcard_dns and B(real_host) == B(cookie_host):
         return hostSuffix(0)+port # no default_site, cookie_host everywhere
     if not options.wildcard_dns: return real_host # leave the proxy
     else: return dedot(real_host)+"."+hostSuffix()+port
@@ -587,10 +674,11 @@ def convert_to_requested_host(real_host,cookie_host=None):
 # That means (especially if a password is set) we'd better make sure our domain-rewrites don't contain dots.  If requested with dot, relocate to without dot.  (But see below re RFC 1035 limitation.)
 def dedot(domain):
     # - means . but -- is a real - (OK as 2 dots can't come together and a - can't come immediately after a dot in domain names, so --- = -., ---- = --, ----- = --. etc)
+    domain = S(domain)
     d2 = domain.replace("-","--").replace(".","-")
     if len(d2) > 63: return domain # We can't do it because RFC 1035 puts a 63-byte limit on each label (so our cross-domain preferences cookies can't work on very long domains, TODO document this?)
     else: return d2
-def redot(domain): return domain.replace("--","@MINUS@").replace("-",".").replace("@MINUS@","-")
+def redot(domain): return B(domain).replace(B("--"),B("@MINUS@")).replace(B("-"),B(".")).replace(B("@MINUS@"),B("-"))
 
 def protocolAndHost(realHost):
     # HTTPS hack: host ends with .0 = use HTTPS instead of HTTP
@@ -598,12 +686,14 @@ def protocolAndHost(realHost):
     # but some servers e.g. GAE can't cope with any part of the
     # wildcard domain ending with a hyphen, so add the 0;
     # TODO: what about fetching from IP addresses, although it's rare to get a server with IP ending .0 because it used to represent "the network")
-    if realHost.endswith(".0"): return "https://",realHost[:-2]
+    if B(realHost).endswith(B(".0")):
+        return "https://",realHost[:-2]
     else: return "http://",realHost
 def protocolWithHost(realHost):
-    x,y = protocolAndHost(realHost) ; return x+y
+    x,y = protocolAndHost(realHost) ; return B(x)+B(y)
 
 def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyRequest=False,isSslUpstream=False):
+    text = B(text)
     if isProxyRequest:
         # When running as a real proxy, domain_process is
         # still called for Location: headers etc (not for
@@ -612,8 +702,8 @@ def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyReques
         # UPstream proxy says .0 in a Location: URL due to
         # upstream_rewrite_ssl, then take it out.
         if upstream_rewrite_ssl and not isSslUpstream:
-            m = re.match(r"http(://[A-Za-z0-9.-]*)\.0(?![A-Za-z0-9.-])",text)
-            if m: return "https"+m.group(1)
+            m = re.match(B(r"http(://[A-Za-z0-9.-]*)\.0(?![A-Za-z0-9.-])"),text)
+            if m: return B("https")+m.group(1)
         return text
     # Change the domains on appropriate http:// and https:// URLs.
     # Also on // URLs using 'https' as default (if it's not None).
@@ -621,31 +711,33 @@ def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyReques
     # the domain is part of the computation.
     # TODO: what of links to alternate ports or user:password links, currently we leave them unchanged (could use .<portNo> as an extension of the 'HTTPS hack' of .0, but allowing the public to request connects to any port could be a problem, and IP addresses would have to be handled carefully: can no longer rely on ".0 used to mean the network" sort-of saving us)
     # TODO: leave alone URLs in HTML text/comments and JS comments? but script overload can make it hard to judge what is and isn't text. (NB this function is also called for Location headers)
-    if "<!DOCTYPE" in text:
+    if B("<!DOCTYPE") in text:
         # don't touch URLs inside the doctype!
-        dtStart = text.index("<!DOCTYPE")
-        dtEnd = text.find(">",dtStart)
+        dtStart = text.index(B("<!DOCTYPE"))
+        dtEnd = text.find(B(">"),dtStart)
     else: dtStart = dtEnd = -1
     def mFunc(m):
-        if dtStart<m.start()<dtEnd: return m.group() # avoid doctype
+        if dtStart<m.start()<dtEnd: # avoid doctype
+            return m.group()
         i = m.start()
-        if i and text[i-1].split() and text[:i].rsplit(None,1)[-1].startswith("xmlns"): return m.group() # avoid xmlns="... xmlns:elementname='... etc
+        if i and text[i-1:i].split() and text[:i].rsplit(None,1)[-1].startswith(B("xmlns")): return m.group() # avoid xmlns="... xmlns:elementname='... etc
         protocol,oldhost = m.groups()
-        if oldhost[-1] in ".-": return m.group() # omit links ending with . or - because they're likely to be part of a domain computation; such things are tricky but might be more likely to work if we DON'T touch them if it has e.g. "'test.'+domain" where "domain" is a variable that we've previously intercepted
+        if oldhost[-1] in B(".-"): return m.group() # omit links ending with . or - because they're likely to be part of a domain computation; such things are tricky but might be more likely to work if we DON'T touch them if it has e.g. "'test.'+domain" where "domain" is a variable that we've previously intercepted
+        protocol = S(protocol)
         if protocol=="//":
             if https: protocol = "https://"
             else: protocol = "http://"
-        if protocol=="https://": oldhost += ".0" # HTTPS hack (see protocolAndHost)
-        newHP = "http://" + convert_to_requested_host(oldhost,cookieHost)
+        if protocol=="https://": oldhost += B(".0") # HTTPS hack (see protocolAndHost)
+        newHP = B("http://") + B(convert_to_requested_host(oldhost,cookieHost))
         # newHP TODO: unless using https to communicate with the adjuster itself, in which case would either have to run a server with certificates set up or make it a WSGI-etc script running on one, and if that's the case then might wish to check through the rest of the code (search http://) to ensure this would always work well
-        if newHP.endswith(".0"): return m.group() # undo HTTPS hack if we have no wildcard_dns and convert_to_requested_host sent that URL off-site
-        return newHP
+        if newHP.endswith(B(".0")): return m.group() # undo HTTPS hack if we have no wildcard_dns and convert_to_requested_host sent that URL off-site
+        return B(newHP)
     if stopAtOne: count=1
     else: count=0
-    return re.sub(r"((?:https?://)|(?:(?<=['"+'"'+r"])//))([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)",mFunc,text,count) # http:// https:// or "// in scripts (but TODO: it won't pick up things like host="www.example.com"; return "https://"+host, also what about embedded IPv6 addresses i.e. \[[0-9a-fA-F:]*\] in place of hostnames (and what should we rewrite them to?)  Hopefully IPv6-embedding is rare as such sites wouldn't be usable by IPv4-only users (although somebody might have IPv6-specific versions of their pages/servers); if making Web Adjuster IPv6 ready, also need to check all instances of using ':' to split host from port as this won't be the case if host is '[' + IPv6 + ']'.  Splitting off hostname from protocol is more common though, e.g. used in Google advertising iframes 2017-06)
+    return re.sub(B(r"((?:https?://)|(?:(?<=['"+'"'+r"])//))([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)"),mFunc,text,count) # http:// https:// or "// in scripts (but TODO: it won't pick up things like host="www.example.com"; return "https://"+host, also what about embedded IPv6 addresses i.e. \[[0-9a-fA-F:]*\] in place of hostnames (and what should we rewrite them to?)  Hopefully IPv6-embedding is rare as such sites wouldn't be usable by IPv4-only users (although somebody might have IPv6-specific versions of their pages/servers); if making Web Adjuster IPv6 ready, also need to check all instances of using ':' to split host from port as this won't be the case if host is '[' + IPv6 + ']'.  Splitting off hostname from protocol is more common though, e.g. used in Google advertising iframes 2017-06)
 
 def cookie_domain_process(text,cookieHost=None):
-    start=0
+    start=0 ; text=S(text)
     while True:
         i = text.lower().find("; domain=",start)
         if i==-1: break
@@ -653,9 +745,9 @@ def cookie_domain_process(text,cookieHost=None):
         if text[i]=='.': i += 1 # leading . on the cookie (TODO: what if we're not wildcard_dns?)
         j = i
         while j<len(text) and not text[j]==';': j += 1
-        newhost = convert_to_requested_host(text[i:j],cookieHost)
+        newhost = S(convert_to_requested_host(text[i:j],cookieHost))
         if ':' in newhost: newhost=newhost[:newhost.index(':')] # apparently you don't put the port number, see comment in authenticates_ok
-        if newhost==text[i:j] and cookieHost and cookieHost.endswith(text[i:j]): newhost = convert_to_requested_host(cookieHost,cookieHost) # cookie set server.example.org instead of www.server.example.org; we can deal with that
+        if newhost==text[i:j] and cookieHost and S(cookieHost).endswith(text[i:j]): newhost = S(convert_to_requested_host(cookieHost,cookieHost)) # cookie set server.example.org instead of www.server.example.org; we can deal with that
         text = text[:i] + newhost + text[j:]
         j=i+len(newhost)
         start = j
@@ -666,43 +758,44 @@ def can_do_cookie_host():
 
 def url_is_ours(url,cookieHost="cookie-host\n"):
     # check if url has been through domain_process
-    if not url.startswith("http://"): return False
+    url = B(url)
+    if not url.startswith(B("http://")): return False
     url=url[len("http://"):]
-    if '/' in url:
-        url,rest=url.split('/',1)
-        rest = '/'+rest
-    else: rest = ""
-    if '?' in url:
-        url,r2=url.split('?',1)
-        rest = '?'+r2+rest
-    rh = convert_to_real_host(url,cookieHost)
-    if rh and type(rh)==type("") and not rh==url:
+    if B('/') in url:
+        url,rest=url.split(B('/'),1)
+        rest = B('/')+rest
+    else: rest = B("")
+    if B('?') in url:
+        url,r2=url.split(B('?'),1)
+        rest = B('?')+r2+rest
+    rh = B(convert_to_real_host(url,cookieHost))
+    if rh and not type(rh)==int and not rh==url:
         # (exact value is used by RewriteExternalLinks)
-        if rh.endswith(".0"): r="https://"+rh[:-2]
-        else: r="http://"+rh
+        if rh.endswith(B(".0")): r=B("https://")+rh[:-2]
+        else: r=B("http://")+rh
         return r + rest
 
 def fixDNS(val,reqH):
     # undo our domain rewrites (for Referer and for the path part of the URL); change http://X-0 to https://X (HTTPS hack)
-    start = 0
+    start = 0 ; val = S(val)
     for http in ["http://", "http%3A%2F%2F",
                  "https://", "https%3A%2F%2F"]:
         if val.startswith(http):
             start = len(http) ; break
     i = start ; proto = val[:start]
-    while i<len(val) and val[i] in string.letters+string.digits+'.-': i += 1
+    while i<len(val) and val[i] in letters+digits+'.-': i += 1
     if i<len(val) and val[i]==':': # port no.
         i += 1
-        while i<len(val) and val[i] in string.digits: i += 1
+        while i<len(val) and val[i] in digits: i += 1
     if i==start: return val
-    r=convert_to_real_host(val[start:i],reqH.cookie_host())
-    if r in [-1,"error"]: # shouldn't happen
+    r=B(convert_to_real_host(val[start:i],reqH.cookie_host()))
+    if r in [-1,B("error")]: # shouldn't happen
         return val # (leave unchanged if it does)
-    elif not r: r="" # ensure it's a string
-    elif r.endswith(".0"): # undo HTTPS hack
+    elif not r: r=B("") # ensure it's a string
+    elif r.endswith(B(".0")): # undo HTTPS hack
         r = r[:-2]
         if proto and not proto.startswith("https"): proto=proto[:4]+'s'+proto[5:] # (TODO: what if not proto here?)
-    return proto+r+val[i:]
+    return B(proto)+r+B(val[i:])
 
 #@file: config.py
 # --------------------------------------------------
@@ -744,7 +837,7 @@ def warn(msg):
 
 def parse_command_line(final):
   try:
-    if len(tornado.options.parse_command_line.func_defaults)==1: # Tornado 2.x
+    if sys.version_info[0]==2 and len(tornado.options.parse_command_line.func_defaults)==1: # Tornado 2.x (on Python 2.x)
         rest = tornado.options.parse_command_line()
     else:
         rest=tornado.options.parse_command_line(final=final)
@@ -756,7 +849,7 @@ def optErr(m):
 def parse_config_file(cfg):
   try:
     check_config_file(cfg)
-    if not tornado.options.parse_config_file.func_defaults: # Tornado 2.x
+    if sys.version_info[0]==2 and not tornado.options.parse_config_file.func_defaults: # Tornado 2.x (on Python 2.x)
         tornado.options.parse_config_file(cfg)
     else: tornado.options.parse_config_file(cfg,final=False)
   except tornado.options.Error as e: optErr(e.message)
@@ -832,9 +925,7 @@ def preprocessOptions():
       except: errExit("js_interpreter requires selenium")
       if not options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox"]: errExit("js_interpreter (if set) must be PhantomJS, HeadlessChrome or HeadlessFirefox")
       if not multiprocessing: options.js_multiprocess = False
-      if options.js_429 and options.multicore:
-        if int(tornado.version.split('.')[0]) > 4: errExit("js_429 with multicore not yet working on Tornado versions above 4.\nTornado "+tornado.version+" detected.\nPlease downgrade to 4.x, e.g.: pip install tornado==4.5.3 --upgrade")
-        elif not multiprocessing: errExit("js_429 with multicore requires the multiprocessing module to be available (Python 2.6+)")
+      if options.js_429 and options.multicore and not multiprocessing: errExit("js_429 with multicore requires the multiprocessing module to be available (Python 2.6+)")
     elif options.js_upstream: errExit("js_upstream requires a js_interpreter to be set")
     if options.js_timeout2 <= options.js_timeout1: errExit("js_timeout2 must be greater than js_timeout1")
     assert not (options.js_upstream and set_window_onerror), "Must have set_window_onerror==False when using options.js_upstream"
@@ -869,23 +960,25 @@ def preprocessOptions():
         if not 'linux' in sys.platform:
             errExit("multicore option not supported on this platform")
             # --- it does work on BSD/Mac, but some incoming connections get 'lost' so it's not a good idea
-        import tornado.process
-        cores = tornado.process.cpu_count()
+        cores = options.num_cores
+        if not cores:
+            import tornado.process
+            cores = tornado.process.cpu_count()
         if cores==1: options.multicore = False
         elif options.js_interpreter and options.js_instances % cores:
             old = options.js_instances
             options.js_instances += (cores - (options.js_instances % cores))
-            sys.stderr.write("multicore: changing js_instances %d -> %d (%d per core x %d cores)\n" % (old,options.js_instances,options.js_instances/cores,cores))
+            sys.stderr.write("multicore: changing js_instances %d -> %d (%d per core x %d cores)\n" % (old,options.js_instances,int(options.js_instances/cores),cores))
     if options.js_interpreter=="HeadlessChrome":
         try: # check inotify limit (Linux only)
-            maxI=int(open("/proc/sys/fs/inotify/max_user_instances"))
+            maxI=int(open("/proc/sys/fs/inotify/max_user_instances").read())
         except: maxI = -1
         if not maxI==-1 and options.js_instances > maxI*20: warn("This system might run out of inotify instances with that number of Headless Chrome processes.  Try:\nsudo sysctl -n -w fs.inotify.max_user_watches=%d\nsudo sysctl -n -w fs.inotify.max_user_instances=%d" % (options.js_instances*40,options.js_instances*20))
     global js_per_core
-    js_per_core = options.js_instances/cores
+    js_per_core = int(options.js_instances/cores)
     if options.upstream_proxy:
         maxCurls = 30*js_per_core
-        if options.ssl_fork: maxCurls /= 2
+        if options.ssl_fork: maxCurls = int(maxCurls/2)
         if not options.usepycurl: errExit("upstream_proxy is not compatible with --usepycurl=False")
         setupCurl(maxCurls,"upstream_proxy requires pycurl (try sudo pip install pycurl)")
         if not ':' in options.upstream_proxy: options.upstream_proxy += ":80"
@@ -941,12 +1034,12 @@ def preprocessOptions():
         options.address = "localhost"
         try: socket.socket().connect(('localhost',113))
         except:
-            if not 'linux' in sys.platform or not commands.getoutput("which netstat 2>/dev/null"): errExit("--just_me requires either an ident server to be running on port 113, or the system to be Linux with a netstat command available")
-        import getpass ; global myUsername ; myUsername = getpass.getuser()
+            if not 'linux' in sys.platform or not getoutput("which netstat 2>/dev/null"): errExit("--just_me requires either an ident server to be running on port 113, or the system to be Linux with a netstat command available")
+        import getpass ; global myUsername ; myUsername = S(getpass.getuser())
     elif not options.password and not options.open_proxy and not options.submitPath=='/' and not options.stop: errExit("Please set a password (or --just_me), or use --open_proxy.\n(Try --help for help; did you forget a --config=file?)") # (as a special case, if submitPath=/ then we're serving nothing but submit-your-own-text and bookmarklets, which means we won't be proxying anything anyway and don't need this check)
     if options.submitBookmarkletDomain and not options.publicPort==80: warn("You will need to run another copy on "+options.submitBookmarkletDomain+" ports 80/443 for bookmarklets to work (submitBookmarkletDomain without publicPort=80)")
-    if options.pdftotext and not "pdftotext version" in os.popen4("pdftotext -h")[1].read(): errExit("pdftotext command does not seem to be usable\nPlease install it, or unset the pdftotext option")
-    if options.epubtotext and not "calibre" in os.popen4("ebook-convert -h")[1].read(): errExit("ebook-convert command does not seem to be usable\nPlease install calibre, or unset the epubtotext option")
+    if options.pdftotext and not "pdftotext version" in getoutput("pdftotext -h"): errExit("pdftotext command does not seem to be usable\nPlease install it, or unset the pdftotext option")
+    if options.epubtotext and not "calibre" in getoutput("ebook-convert -h"): errExit("ebook-convert command does not seem to be usable\nPlease install calibre, or unset the epubtotext option")
     global extensions
     if options.extensions:
         extensions = __import__(options.extensions)
@@ -970,7 +1063,7 @@ def preprocessOptions():
     submitPathForTest = options.submitPath
     if submitPathForTest and submitPathForTest[-1]=="?": submitPathForTest = submitPathForTest[:-1] # for CGI mode: putting the ? in tells adjuster to ADD a ? before any parameters, but does not require it to be there for the base submit URL (but don't do this if not submitPathForTest because it might not be a string)
     if options.submitPath and not options.htmlText: errExit("submitPath only really makes sense if htmlText is set (or do you want users to submit actual HTML?)") # TODO: allow this? also with submitBookmarklet ??
-    if options.separator and '\xe2\x80\x8b' in options.separator: errExit("U+200B in separator not supported (see code)")
+    if options.separator and unichr(0x200b).encode('utf-8') in B(options.separator): errExit("U+200B in separator not supported (see code)")
     if options.prominentNotice=="htmlFilter":
         if not options.htmlFilter: errExit("prominentNotice=\"htmlFilter\" requires htmlFilter to be set")
         if options.htmlJson or options.htmlText: errExit("prominentNotice=\"htmlFilter\" does not work with the htmlJson or htmlText options")
@@ -1098,12 +1191,13 @@ class CrossProcess429:
             allServersBusy = False
             while True:
                 coreToSet, busyStatus = self.q.get()
+                if coreToSet=="quit": break
                 self.b[coreToSet] = busyStatus
                 newASB = all(self.b)
                 if not newASB == allServersBusy:
                     allServersBusy = newASB
-                    if allServersBusy: IOLoop.instance().add_callback(lambda *args:reallyPauseOrRestartMainServer(True)) # run it just to serve the 429s, but don't set mainServerPaused=False or add an event to the queue
-                    else: IOLoop.instance().add_callback(lambda *args:reallyPauseOrRestartMainServer("IfNotPaused")) # stop it if and only if it hasn't been restarted by the main thread before this callback
+                    if allServersBusy: IOLoopInstance().add_callback(lambda *args:reallyPauseOrRestartMainServer(True)) # run it just to serve the 429s, but don't set mainServerPaused=False or add an event to the queue
+                    else: IOLoopInstance().add_callback(lambda *args:reallyPauseOrRestartMainServer("IfNotPaused")) # stop it if and only if it hasn't been restarted by the main thread before this callback
         threading.Thread(target=listener,args=()).start()
 
 def initLogging(): # MUST be after unixfork() if background
@@ -1115,6 +1209,9 @@ def init429():
     global CrossProcess429
     CrossProcess429 = CrossProcess429()
     if CrossProcess429.needed(): CrossProcess429.init()
+def shutdown429():
+    try: CrossProcess429.q.put(("quit","quit"))
+    except: pass
 
 #@file: log-whois-etc.py
 # --------------------------------------------------
@@ -1135,12 +1232,12 @@ class WhoisLogger:
         self.reCheck(ip)
     def reCheck(self,ip):
         if self.thread_running: # allow only one at once
-            IOLoop.instance().add_timeout(time.time()+1,lambda *args:self.reCheck(ip))
+            IOLoopInstance().add_timeout(time.time()+1,lambda *args:self.reCheck(ip))
             return
         self.thread_running = True
         threading.Thread(target=whois_thread,args=(ip,self)).start()
 def getWhois(ip):
-    lines = commands.getoutput("whois '"+ip.replace("'",'')+"'").split('\n')
+    lines = getoutput("whois '"+S(ip).replace("'",'')+"'").split('\n')
     if any(l and l.lower().split()[0]=="descr:" for l in lines): checkList = ["descr:"] # ,"netname:","address:"
     else: checkList = ["orgname:"]
     ret = []
@@ -1151,7 +1248,8 @@ def getWhois(ip):
     return ", ".join(ret)
 def whois_thread(ip,logger):
     helper_threads.append('whois')
-    address = getWhois(ip)
+    try: address = getWhois(ip)
+    except Exception as e: address = repr(e) # e.g. UnicodeDecodeError on Python 3 if whois returns non-UTF8
     logger.thread_running = False
     if address: logging.info("whois "+ip+": "+address)
     helper_threads.remove('whois')
@@ -1172,21 +1270,21 @@ class BrowserLogger:
     except: ch = None # shouldn't happen
     req=req.request
     if hasattr(req,"suppress_logging"): return
-    if req.method not in the_supported_methods and not options.logUnsupported: return
-    if req.method=="CONNECT" or req.uri.startswith("http://") or req.uri.startswith("https://"): host="" # URI will have everything
+    if S(req.method) not in the_supported_methods and not options.logUnsupported: return
+    if S(req.method)=="CONNECT" or B(req.uri).startswith(B("http://")) or B(req.uri).startswith(B("https://")): host="" # URI will have everything
     elif hasattr(req,"suppress_logger_host_convert"): host = req.host
-    else: host=convert_to_real_host(req.host,ch)
-    if host in [-1,"error"]: host=req.host # -1 for own_server (but this shouldn't happen as it was turned into a CONNECT; we don't mind not logging own_server because it should do so itself)
+    else: host=B(convert_to_real_host(req.host,ch))
+    if host in [-1,B("error")]: host=req.host # -1 for own_server (but this shouldn't happen as it was turned into a CONNECT; we don't mind not logging own_server because it should do so itself)
     elif host: host=protocolWithHost(host)
     # elif host==0: host="http://"+ch # e.g. adjusting one of the ownServer_if_not_root pages (TODO: uncomment this?)
     else: host=""
     browser = req.headers.get("User-Agent",None)
     if browser:
-        browser='"'+browser+'"'
+        browser=B('"')+B(browser)+B('"')
         if options.squashLogs and browser==self.lastBrowser: browser = ""
         else:
             self.lastBrowser = browser
-            browser=" "+browser
+            browser=B(" ")+B(browser)
     else: self.lastBrowser,browser = None," -"
     if options.squashLogs:
         # Date (as YYMMDD) and time are already be included in Tornado logging format, a format we don't want to override, especially as it has 'start of log string syntax highlighting' on some platforms
@@ -1194,16 +1292,16 @@ class BrowserLogger:
             ip=""
         else:
             self.lastIp = req.remote_ip
-            ip=req.remote_ip+" "
+            ip=B(req.remote_ip)+B(" ")
             self.lastMethodStuff = None # always log method/version anew when IP is different
         methodStuff = (req.method, req.version)
         if methodStuff == self.lastMethodStuff:
-            r=host+req.uri
+            r=S(host)+S(req.uri)
         else:
-            r='"%s %s%s %s"' % (req.method, host, req.uri, req.version)
+            r='"%s %s%s %s"' % (S(req.method), S(host), S(req.uri), S(req.version))
             self.lastMethodStuff = methodStuff
-        msg = ip+r+browser
-    else: msg = '%s "%s %s%s %s" %s' % (req.remote_ip, req.method, host, req.uri, req.version, browser) # could add "- - [%s]" with time.strftime("%d/%b/%Y:%X") if don't like Tornado-logs date-time format (and - - - before the browser %s)
+        msg = S(ip)+S(r)+S(browser)
+    else: msg = '%s "%s %s%s %s" %s' % (S(req.remote_ip), S(req.method), S(host), S(req.uri), S(req.version), S(browser)) # could add "- - [%s]" with time.strftime("%d/%b/%Y:%X") if don't like Tornado-logs date-time format (and - - - before the browser %s)
     logging.info(msg.replace('\x1b','[ESC]')) # make sure we are terminal safe, in case of malformed URLs
     if options.whois and hasattr(req,"valid_for_whois"): self.whoisLogger(req.remote_ip)
 
@@ -1220,8 +1318,8 @@ def initLogging_preListen():
 profile_forks_too = False # TODO: configurable
 def open_profile():
     if options.profile:
-        global cProfile,pstats,cStringIO,profileIdle
-        import cProfile, pstats, cStringIO
+        global cProfile,pstats,profileIdle
+        import cProfile, pstats
         setProfile() ; profileIdle = False
         global reqsInFlight,origReqInFlight
         reqsInFlight = set() ; origReqInFlight = set()
@@ -1234,10 +1332,10 @@ def open_profile_pjsOnly(): # TODO: combine with above
 def setProfile():
     global theProfiler, profileIdle
     theProfiler = cProfile.Profile()
-    IOLoop.instance().add_timeout(time.time()+options.profile,lambda *args:pollProfile())
+    IOLoopInstance().add_timeout(time.time()+options.profile,lambda *args:pollProfile())
     profileIdle = True ; theProfiler.enable()
 def setProfile_pjsOnly():
-    IOLoop.instance().add_timeout(time.time()+options.profile,lambda *args:pollProfile_pjsOnly())
+    IOLoopInstance().add_timeout(time.time()+options.profile,lambda *args:pollProfile_pjsOnly())
     global profileIdle ; profileIdle = True
 def pollProfile():
     theProfiler.disable()
@@ -1252,7 +1350,7 @@ def showProfile(pjsOnly=False):
     except: _doneShowProfile = False
     if pjsOnly: pr = ""
     else:
-        s = cStringIO.StringIO()
+        s = StringIO()
         pstats.Stats(theProfiler,stream=s).sort_stats('cumulative').print_stats()
         pr = "\n".join([x for x in s.getvalue().split("\n") if x and not "Ordered by" in x][:options.profile_lines])
     if options.js_interpreter and len(webdriver_runner):
@@ -1268,7 +1366,7 @@ def showProfile(pjsOnly=False):
         if pr: pr += "\n"
         elif not options.background: pr += ": "
         pr += "js_interpreter"
-        if options.multicore: pr += "%d" % (webdriver_runner[0].start/js_per_core,)
+        if options.multicore: pr += "%d" % (int(webdriver_runner[0].start/js_per_core),)
         pr += " "
         if not webdriver_maxBusy: pr += "idle"
         else:
@@ -1318,12 +1416,12 @@ def setProcName(name="adjuster"):
         import setproctitle # sudo pip install setproctitle or apt-get install python-setproctitle (requires gcc)
         return setproctitle.setproctitle(name) # TODO: this also stops 'ps axwww' from displaying command-line arguments; make it optional?
     except: pass
-    try: # ditto but non-Mac BSD not checked:
+    try: # ditto but non-Mac BSD not checked (and doesn't always work on Python 3) :
         import procname # sudo pip install procname (requires gcc)
         return procname.setprocname(name)
     except: pass
     try: # this works in GNU/Linux for 'top', 'pstree -p' and 'killall', but not 'ps' or 'pidof' (which need argv[0] to be changed in C) :
-        import ctypes
+        import ctypes ; name = B(name)
         b = ctypes.create_string_buffer(len(name)+1)
         b.value = name
         ctypes.cdll.LoadLibrary('libc.so.6').prctl(15,ctypes.byref(b),0,0,0)
@@ -1336,7 +1434,7 @@ def setProcName(name="adjuster"):
 
 def serverControl():
     if options.install:
-        current_crontab = commands.getoutput("crontab -l 2>/dev/null")
+        current_crontab = getoutput("crontab -l 2>/dev/null")
         def shell_escape(arg):
             if re.match("^[A-Za-z0-9_=/.%+,:@-]*$",arg): return arg # no need to quote if it's entirely safe-characters (including colon: auto-complete escapes : in pathnames but that's probably in case it's used at the START of a command, where it's a built-in alias for 'true')
             return "'"+arg.replace("'",r"'\''")+"'"
@@ -1391,12 +1489,12 @@ def tryStop(pid,alsoRemovePidfile=False):
     except: sys.stderr.write("Failed to stop %s process at PID %d\n" % (other,pid))
 def run_lsof():
     # TODO: check ssl-fork ports as well as main port ? (also in run_netstat)
-    out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # Redirect lsof's stderr to /dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
+    out = getoutput("lsof -iTCP:"+str(options.port)+" -sTCP:LISTEN 2>/dev/null") # Redirect lsof's stderr to /dev/null because it sometimes prints warnings, e.g. if something's wrong with Mac FUSE mounts, that won't affect the output we want. TODO: lsof can hang if ANY programs have files open on stuck remote mounts etc, even if this is nothing to do with TCP connections.  -S 2 might help a BIT but it's not a solution.  Linux's netstat -tlp needs root, and BSD's can't show PIDs.  Might be better to write files or set something in the process name.
     if out.startswith("lsof: unsupported"):
         # lsof 4.81 has -sTCP:LISTEN but lsof 4.78 does not.  However, not including -sTCP:LISTEN can cause lsof to make unnecessary hostname queries for established connections.  So fall back only if have to.
-        out = commands.getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # lsof -Ts ensures will say LISTEN on the pid that's listening
+        out = getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # lsof -Ts ensures will say LISTEN on the pid that's listening
         lines = filter(lambda x:"LISTEN" in x,out.split("\n")[1:])
-    elif not out.strip() and not commands.getoutput("which lsof 2>/dev/null"): return False
+    elif not out.strip() and not getoutput("which lsof 2>/dev/null"): return False
     else: lines = out.split("\n")[1:]
     pids = set()
     for line in lines:
@@ -1408,9 +1506,9 @@ def run_lsof():
             break
     return pids
 def run_netstat():
-    if not 'linux' in sys.platform or not commands.getoutput("which netstat 2>/dev/null"): return False
+    if not 'linux' in sys.platform or not getoutput("which netstat 2>/dev/null"): return False
     pids = set()
-    for l in commands.getoutput("netstat -tnlp").split("\n"):
+    for l in getoutput("netstat -tnlp").split("\n"):
         if ':'+str(options.port)+' ' in l:
             ps = l.split()[-1]
             if '/' in ps:
@@ -1465,10 +1563,10 @@ def maybe_sslfork_monitor():
             sslforks_to_monitor = [sslforks_to_monitor[i]]
             i = 0 # we'll monitor only one in the child
         # don't use IOLoop for this monitoring: too confusing if we have to restart it on fork
-        try: urlopen = urllib2.build_opener(urllib2.ProxyHandler({})).open # don't use the system proxy if set
-        except: urlopen = urllib2.urlopen # wrong version?
+        try: urlopen = build_opener(ProxyHandler({})).open # don't use the system proxy if set
+        except: pass # leave urlopen as default if above not supported
         while True:
-            try: urlopen("http://localhost:%d/" % sslforks_to_monitor[i][3],timeout=sslFork_pingInterval)
+            try: urlopen(("http://localhost:%d/" % sslforks_to_monitor[i][3]),timeout=sslFork_pingInterval)
             except: # URLError etc
               if restart_sslfork(i,oldI): # child
                   return lambda *args:stopServer("SIG*")
@@ -1570,9 +1668,8 @@ def start_multicore(isChild=False):
         if options.run: runRun()
     # Now wait for the browser or the children to exit
     # (and monitor for SIGTERM: we might be an SSLhelp)
-    gotTerm = False
     def handleTerm(*_):
-        global interruptReason, gotTerm
+        global interruptReason
         interruptReason = "SIGTERM received by multicore helper"
         for pid in children: os.kill(pid,signal.SIGTERM)
     signal.signal(signal.SIGTERM,handleTerm)
@@ -1583,16 +1680,16 @@ def start_multicore(isChild=False):
         except: continue # interrupted system call OK
         if pid in children: children.remove(pid)
     except KeyboardInterrupt: pass
-    try: reason = interruptReason
-    except: reason = "keyboard interrupt"
-    if reason and not isChild:
-        reason = "Adjuster multicore handler: "+reason+", stopping child processes"
+    if not isChild:
+        try: reason = interruptReason # from handleTerm
+        except: reason = "keyboard interrupt"
+        reason = "Adjuster multicore handler: "+reason+", stopping "+str(len(children))+" child processes"
         if options.background: logging.info(reason)
-        else: sys.stderr.write(reason+"\n")
+        else: sys.stderr.write("\n"+reason+"\n")
     for pid in children: os.kill(pid,signal.SIGTERM)
     while children:
         try: pid, status = os.wait()
-        except KeyboardInterrupt: raise
+        except KeyboardInterrupt: logging.error("KeyboardInterrupt received while waiting for child-processes to terminate: "+" ".join(str(s) for s in children))
         except: continue
         if pid in children: children.remove(pid)
     if not isChild: announceShutdown0()
@@ -1636,9 +1733,9 @@ def openPortsEtc():
             Dynamic_DNS_updater()
         if options.multicore: stopFunc = lambda *_:stopServer("SIG*")
         else: stopFunc = lambda *_:stopServer("SIGTERM received")
-        if options.seconds: IOLoop.instance().add_timeout(time.time()+options.seconds,lambda *args:stopServer("Uptime limit reached"))
+        if options.seconds: IOLoopInstance().add_timeout(time.time()+options.seconds,lambda *args:stopServer("Uptime limit reached"))
         if options.stdio and not coreNo: setup_stdio()
-      except SystemExit: raise # from the unixfork, OK
+      except SystemExit: raise
       except: # oops, error during startup, stop forks if any
         if not sslfork_monitor_pid == None:
           time.sleep(0.5) # (it may have only just started: give it a chance to install its signal handler)
@@ -1657,7 +1754,7 @@ def setup_stdio():
     def doStdin(fd,events):
         l=os.read(fd,1024) # read 1 line or 1024 bytes (TODO: double-check this can never block)
         if not l: # EOF (but don't close stdout yet)
-            IOLoop.instance().remove_handler(sys.stdin.fileno())
+            IOLoopInstance().remove_handler(sys.stdin.fileno())
             return
         global StdinPass
         if StdinPending: StdinPending.append(l) # connection is still being established
@@ -1667,8 +1764,8 @@ def setup_stdio():
             def ClearPending():
                 global StdinPending ; StdinPending = []
             StdinPass = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
-            StdinPass.connect((options.address, port_randomise.get(options.port,options.port)), lambda *args:(StdinPass.write(''.join(StdinPending)),ClearPending(),StdinPass.read_until_close(lambda last:(sys.stdout.write(last),sys.stdout.close()),lambda chunk:sys.stdout.write(chunk))))
-    IOLoop.instance().add_handler(sys.stdin.fileno(), doStdin, IOLoop.READ)
+            doCallback(None,StdinPass.connect,lambda *args:(StdinPass.write(B('').join(StdinPending)),ClearPending(),readUntilClose(StdinPass,lambda last:(sys.stdout.write(last),sys.stdout.close()),lambda chunk:sys.stdout.write(chunk))),(options.address, port_randomise.get(options.port,options.port)))
+    IOLoopInstance().add_handler(sys.stdin.fileno(), doStdin, IOLoop.READ)
 
 #@file: up-down.py
 # --------------------------------------------------
@@ -1735,9 +1832,8 @@ def announceShutdown0():
 def main():
     check_injected_globals()
     setProcName() ; readOptions() ; preprocessOptions()
-    serverControl() ; openPortsEtc()
-    workaround_tornado_fd_issue() ; startServers()
-    try: IOLoop.instance().start()
+    serverControl() ; openPortsEtc() ; startServers()
+    try: IOLoopInstance().start()
 # "There seemed a strangeness in the air,
 #  Vermilion light on the land's lean face;
 #  I heard a Voice from I knew not where:
@@ -1752,6 +1848,7 @@ def plural(number):
     if number == 1: return ""
     else: return "s"
 def stop_threads():
+    shutdown429()
     if quitFuncToCall: quitFuncToCall()
     if not sslfork_monitor_pid == None:
         try: os.kill(sslfork_monitor_pid,signal.SIGTERM) # this should cause it to propagate that signal to the monitored PIDs
@@ -1806,19 +1903,14 @@ def static_handler():
 theServers = {}
 port_randomise = {} # port -> _ or port -> mappedPort
 def listen_on_port(application,port,address,browser,core="all",**kwargs):
-    h = HTTPServer(application,**kwargs)
     # Don't set backlog=0: it's advisory only and is often rounded up to 8; we use CrossProcess429 instead
     if port in port_randomise:
-        s = tornado.netutil.bind_sockets(0,"127.0.0.1")
+        s = bind_sockets(0,"127.0.0.1")
         # should get len(s)==1 if address=="127.0.0.1" (may get more than one socket, with different ports, if address maps to some mixed IPv4/IPv6 configuration)
         port_randomise[port] = s[0].getsockname()[1]
-        h.add_sockets(s)
-    theServers.setdefault(core,[]).append((port,h))
-    global mainServer
-    if port==options.port: mainServer = h
-    if port in port_randomise: return
-    for portTry in [5,4,3,2,1,0]:
-      try: return h.bind(port,address)
+    else:
+     for portTry in [5,4,3,2,1,0]:
+      try: s = bind_sockets(port,address)
       except socket.error as e:
         if is_sslHelp:
             # We had better not time.sleep() here trying
@@ -1826,7 +1918,7 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
             # want to hold up the OTHER ports being opened
             # and get into an infinite-restart loop when
             # MOST services are already running:
-            f = lambda *_:IOLoop.instance().add_timeout(time.time()+1,lambda *args:listen_on_port(application,port,address,browser,core,schedRetry,**kwargs))
+            f = lambda *_:IOLoopInstance().add_timeout(time.time()+1,lambda *args:listen_on_port(application,port,address,browser,core,schedRetry,**kwargs))
             if is_sslHelp=="started": f()
             else: sslRetries.append(f)
             logging.info("Can't open port "+repr(port)+", retry scheduled")
@@ -1841,6 +1933,15 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
             dropPrivileges()
             runBrowser()
         raise Exception("Can't open port "+repr(port)+" (tried for 3 seconds, "+e.strerror+")")
+    i = len(theServers.setdefault(core,[])) ; c = core
+    class ServerStarter: # don't construct HTTPServer before fork
+        def start(self):
+            h = HTTPServer(application,**kwargs)
+            h.add_sockets(s)
+            if port==options.port:
+                global mainServer ; mainServer = h
+            theServers[c][i]=(port,h) ; h.start()
+    theServers[core].append((port,ServerStarter()))
 is_sslHelp = False ; sslRetries = []
 def schedule_retries():
     global is_sslHelp,sslRetries
@@ -1848,8 +1949,17 @@ def schedule_retries():
     for s in sslRetries: s()
     sslRetries = []
 
+def IOLoopInstance():
+    global ioLoopInstance
+    try: return ioLoopInstance
+    except: # better call this from the main thread first:
+        if hasattr(IOLoop,"current"): ioLoopInstance = IOLoop.current() # for Tornado 5+ to work
+        else: ioLoopInstance = IOLoop.instance() # in Tornado 4 and older, this can be called on-demand from any thread, but we're putting it in a global for forward-compatibility with the above
+        return ioLoopInstance
+
 def startServers():
-    for core,sList in theServers.items():
+    workaround_tornado_fd_issue()
+    for core,sList in list(theServers.items()):
         if core == "all" or core == coreNo:
             for port,s in sList: s.start()
 
@@ -1882,7 +1992,7 @@ def reallyPauseOrRestartMainServer(shouldRun):
             else:
                 for fd, sock in s._sockets.items():
                     if hasattr(s,"io_loop"): s.io_loop.remove_handler(fd) # Tornado 4
-                    else: IOLoop.instance().remove_handler(fd) # Tornado 5, not tested (TODO)
+                    else: IOLoopInstance().remove_handler(fd) # Tornado 5, not tested (TODO)
     mainServerReallyPaused = not mainServerReallyPaused
     debuglog("reallyPaused=%s on core %s" % (repr(mainServerReallyPaused),repr(coreNo)))
 
@@ -1905,29 +2015,26 @@ def workaround_raspbian7_IPv6_bug():
 
 def workaround_timeWait_problem():
     """Work around listen-port failing to bind when there are still TIME_WAIT connections from the previous run.  This at least seems to work around the problem MOST of the time."""
+    global bind_sockets
+    bind_sockets = tornado.netutil.bind_sockets
     if "win" in sys.platform and not sys.platform=="darwin":
         # Don't do this on MS-Windows.  It can result in
         # 'stealing' a port from another server even while
         # that other server is still running.
         return
     if not hasattr(socket, "SO_REUSEPORT"): return
-    try: import tornado.netutil, inspect
-    except ImportError: return
-    if not 'reuse_port' in inspect.getargspec(tornado.netutil.bind_sockets).args: return # Tornado version too old
-    obs = tornado.netutil.bind_sockets
-    def newBind(*args,**kwargs):
-        if len(args) < 6 and args[0]: kwargs['reuse_port'] = True
-        return obs(*args,**kwargs)
-    debuglog("Adding reuse_port to tornado.netutil.bind_sockets")
-    tornado.netutil.bind_sockets = newBind
-    # but tornado.tcpserver may have already imported it:
-    try: import tornado.tcpserver
-    except ImportError: pass # Tornado version too old (TODO: as above)
-    debuglog("Adding reuse_port to tornado.tcpserver.bind_sockets")
-    tornado.tcpserver.bind_sockets = newBind
+    if getargspec==None: return
+    if not 'reuse_port' in getargspec(tornado.netutil.bind_sockets).args: return # Tornado version too old
+    def bind_sockets(*args,**kwargs):
+        if not args[0]: pass # wer're doing port_randomise
+        elif len(args) < 6: kwargs['reuse_port'] = True
+        else: args=tuple(args[:6])+(True,)
+        return tornado.netutil.bind_sockets(*args,**kwargs)
 
-def workaround_tornado_fd_issue():
-    cxFunc = IOLoop.instance().handle_callback_exception
+def workaround_tornado_fd_issue(): # TODO: is this still needed post-v0.3 now we fixed start-order bug?
+    if not hasattr(IOLoopInstance(),'handle_callback_exception'):
+        return # Tornado 6 doesn't have this, let's hope it's not needed
+    cxFunc = IOLoopInstance().handle_callback_exception
     def newCx(callback):
         if callback: return cxFunc(callback)
         # self._handlers[fd] raised KeyError.  This means
@@ -1937,18 +2044,17 @@ def workaround_tornado_fd_issue():
         fd = fr.tb_frame.f_locals.get("fd",None)
         if not fd: return cxFunc("callback="+repr(callback)+" and newCx couldn't get fd from stack")
         logging.info("IOLoop has no handler left for fd "+repr(fd)+" but is still getting events from it.  Attempting low-level close to avoid loop.")
-        try: IOLoop.instance().remove_handler(fd)
+        try: IOLoopInstance().remove_handler(fd)
         except: pass
         try: os.close(fd)
         except: pass
-    IOLoop.instance().handle_callback_exception = newCx
+    IOLoopInstance().handle_callback_exception = newCx
 
 def check_LXML():
     # Might not find ALL problems with lxml installations, but at least we can check some basics
-    global etree, StringIO
+    global etree
     try:
         from lxml import etree
-        from StringIO import StringIO # not cStringIO, need Unicode
         return etree.HTMLParser(target=None) # works on lxml 2.3.2
     except ImportError: sys.stderr.write("LXML library not found - ignoring useLXML option\n")
     except TypeError: sys.stderr.write("LXML library too old - ignoring useLXML option\n") # no target= option in 1.x
@@ -2060,15 +2166,16 @@ try:
     import hashlib # Python 2.5+, platforms?
     hashlib.md5
 except: hashlib = None # (TODO: does this ever happen on a platform that supports Tornado?  Cygwin has hashlib with md5)
-if hashlib: cookieHash = lambda msg: base64.b64encode(hashlib.md5(msg).digest())[:10]
+if hashlib: cookieHash = lambda msg: base64.b64encode(hashlib.md5(B(msg)).digest())[:10]
 else: cookieHash = lambda msg: hex(hash(msg))[2:] # this fallback is not portable across different Python versions etc, so no good if you're running a fasterServer
 
 ipv4_regexp = re.compile(r'^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$')
 def ipv4_to_int(ip):
-    m = re.match(ipv4_regexp,ip)
+    m = re.match(ipv4_regexp,S(ip))
     if m: return (int(m.group(1))<<24) | (int(m.group(2))<<16) | (int(m.group(3))<<8) | int(m.group(4))
     else: return None
 def ipv4range_to_ints(ip):
+    ip = S(ip)
     if '-' in ip: return tuple(ipv4_to_int(i) for i in ip.split('-'))
     elif '/' in ip:
         start,bits = ip.split('/')
@@ -2077,7 +2184,7 @@ def ipv4range_to_ints(ip):
     else: return ipv4_to_int(ip),ipv4_to_int(ip)
 def ipv4ranges_func(ipRanges_and_results):
     isIP = True ; rangeList=None ; fList = []
-    for field in ipRanges_and_results.split('|'):
+    for field in S(ipRanges_and_results).split('|'):
         if isIP: rangeList = [ipv4range_to_ints(i) for i in field.split(',')]
         else: fList.append((rangeList,field))
         isIP = not isIP
@@ -2095,17 +2202,13 @@ def ipv4ranges_func(ipRanges_and_results):
 
 debug_connections = False
 def myRepr(d):
-    if re.search("[\x00-\x09\x0e-\x1f]",d): return "%d bytes" % len(d)
+    if re.search(B("[\x00-\x09\x0e-\x1f]"),B(d)): return "%d bytes" % len(d)
     elif len(d) >= 512: return repr(d[:500]+"...")
     else: return repr(d)
 def peerName(socket):
     try: return socket.getpeername()
     except: return "(no socket??)"
-def wrapped_readUntilClose(s,onLast,onChunk):
-    try: s.read_until_close(onLast,onChunk)
-    except: onLast("") # e.g. SSLError 'shutdown while in init', so tell the other side to writeAndClose or whatever
 def writeAndClose(stream,data):
-    # This helper function is needed for CONNECT and own_server handling because, contrary to Tornado docs, some Tornado versions (e.g. 2.3) send the last data packet in the FIRST callback of IOStream's read_until_close
     if data:
         if debug_connections: print ("Writing "+myRepr(data)+" to "+peerName(stream.socket)+" and closing it")
         try: stream.write(data,lambda *args:True)
@@ -2136,7 +2239,7 @@ set_window_onerror = False # for debugging Javascript on some mobile browsers (T
 # Domain-setting cookie for when we have no wildcard_dns and no default_site:
 adjust_domain_cookieName = "_adjusterDN_"
 
-adjust_domain_none = "0" # not a valid top-level domain (TODO hopefully no user wants this as a local domain...)
+adjust_domain_none = B("0") # not a valid top-level domain (TODO hopefully no user wants this as a local domain...)
 
 enable_adjustDomainCookieName_URL_override = True # TODO: document this!  (Allow &_adjusterDN_=0 or &_adjusterDN_=wherever in bookmark URLs, so it doesn't matter what setting the cookie has when the bookmark is activated)
 
@@ -2177,16 +2280,16 @@ class WebdriverWrapper:
         try: return self.theWebDriver.current_url
         except: return "" # PhantomJS Issue #13114: unconditional reload for now
     def get(self,url):
-        self.theWebDriver.get(url)
+        self.theWebDriver.get(S(url))
         if options.logDebug:
           try:
             for e in self.theWebDriver.get_log('browser'):
                 print ("webdriver log: "+e['message'])
           except: print ("webdriver log exception")
-    def execute_script(self,script): self.theWebDriver.execute_script(script)
-    def click_id(self,clickElementID): self.theWebDriver.find_element_by_id(clickElementID).click()
-    def click_xpath(self,xpath): self.theWebDriver.find_element_by_xpath(xpath).click()
-    def click_linkText(self,clickLinkText): self.theWebDriver.find_element_by_link_text(clickLinkText).click()
+    def execute_script(self,script): self.theWebDriver.execute_script(S(script))
+    def click_id(self,clickElementID): self.theWebDriver.find_element_by_id(S(clickElementID)).click()
+    def click_xpath(self,xpath): self.theWebDriver.find_element_by_xpath(S(xpath)).click()
+    def click_linkText(self,clickLinkText): self.theWebDriver.find_element_by_link_text(S(clickLinkText)).click()
     def getu8(self):
         def f(switchBack):
             src = self.theWebDriver.find_element_by_xpath("//*").get_attribute("outerHTML")
@@ -2198,13 +2301,12 @@ class WebdriverWrapper:
                         self.theWebDriver.switch_to.default_content()
                         for fr in switchBack: self.theWebDriver.switch_to.frame(fr)
             return src
-        return f([]).encode('utf-8')
+        return B(f([]))
     def getpng(self):
         png = self.theWebDriver.get_screenshot_as_png()
         try: # can we optimise the screenshot image size?
             from PIL import Image
-            from cStringIO import StringIO
-            s = StringIO.StringIO() ; Image.open(StringIO.StringIO(png)).save(s,'png',optimize=True)
+            s = BytesIO() ; Image.open(StringIO(png)).save(s,'png',optimize=True)
             png = s.getvalue()
         except: pass # just return non-optimized
         return png
@@ -2338,7 +2440,7 @@ class WebdriverRunner:
 def _renew_wd(wd,firstTime):
     wd.renew_webdriver_sameThread(firstTime)
     wd.wd_threadStart = False
-    IOLoop.instance().add_callback(webdriver_checkServe)
+    IOLoopInstance().add_callback(webdriver_checkServe)
 def find_adjuster_in_traceback():
     l = traceback.extract_tb(sys.exc_info()[2])
     # (must do that BEFORE the following try, which will overwrite sys.exc_info: it doesn't nest)
@@ -2351,6 +2453,7 @@ def find_adjuster_in_traceback():
         if __file__ in l[i][0]: return ", adjuster line "+str(l[i][1])
     return ""
 def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,manager,tooLate):
+    url = S(url)
     helper_threads.append('wd_fetch')
     need_restart = False
     def errHandle(error,extraMsg,prefetched):
@@ -2395,22 +2498,22 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
         else: # no retry
             r = errHandle("error","webdriver error on "+url+", so restarting and",prefetched)
             need_restart = True
-    IOLoop.instance().add_callback(lambda *args:callback(r))
+    IOLoopInstance().add_callback(lambda *args:callback(r))
     manager.usageCount += 1
     if need_restart or (options.js_restartAfter and manager.usageCount >= options.js_restartAfter):
         if need_restart=="serious":manager.renew_controller()
         manager.renew_webdriver_sameThread()
     else: manager.finishTime = time.time()
     manager.wd_threadStart = manager.maybe_stuck = False
-    IOLoop.instance().add_callback(webdriver_checkServe)
+    IOLoopInstance().add_callback(webdriver_checkServe)
     helper_threads.remove('wd_fetch')
 def exc_logStr():
     toLog = sys.exc_info()[:2]
     if hasattr(toLog[1],"msg") and toLog[1].msg: toLog=(toLog[0],toLog[1].msg) # for WebDriverException
     return repr(toLog)+find_adjuster_in_traceback()
 def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
-    import tornado.httputil
-    currentUrl = manager.current_url()
+    import tornado.httputil ; url = S(url)
+    currentUrl = S(manager.current_url())
     if prefetched or not re.sub('#.*','',currentUrl) == url:
         if prefetched:
             debuglog("webdriver %d get about:blank" % manager.index)
@@ -2441,6 +2544,7 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         manager.execute_script("window.open = window.confirm = function(){return true;}") # in case any link has a "Do you really want to follow this link?" confirmation (webdriver default is usually Cancel), or has 'pop-under' window (TODO: switch to pop-up?)
         if clickElementID: manager.click_id(clickElementID)
         if clickLinkText:
+            if not type(clickLinkText)==type(u""): clickLinkText=clickLinkText.decode('utf-8')
             if not '"' in clickLinkText: manager.click_xpath(u'//a[text()="'+clickLinkText+'"]')
             elif not "'" in clickLinkText: manager.click_xpath(u"//a[text()='"+clickLinkText+"']")
             else: manager.click_linkText(clickLinkText) # least reliable
@@ -2450,13 +2554,13 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
     if currentUrl == None: # we need to ask for it again
         currentUrl = manager.current_url()
         if not currentUrl: currentUrl = url # PhantomJS Issue #13114: relative links after a redirect are not likely to work now
-    if currentUrl == "about:blank":
-        debuglog("got about:blank instead of "+url)
+    if S(currentUrl) == "about:blank":
+        debuglog("got about:blank instead of "+S(url))
         return wrapResponse("webdriver failed to load") # don't return an actual redirect to about:blank, which breaks some versions of Lynx
-    debuglog("Getting data from webdriver %d (current_url=%s)" % (manager.index,currentUrl))
+    debuglog("Getting data from webdriver %d (current_url=%s)" % (manager.index,S(currentUrl)))
     if asScreenshot: return wrapResponse(manager.getpng(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
-    elif not re.sub('#.*','',currentUrl) == url: # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
-        return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % manager.current_url().replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+manager.current_url()),302)
+    elif not re.sub(B('#.*'),B(''),B(currentUrl)) == B(url): # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
+        return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % S(manager.current_url()).replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+S(manager.current_url())),302)
     else: return wrapResponse(get_and_remove_httpequiv_charset(manager.getu8())[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
 def get_new_webdriver(index,renewing=False):
     if options.js_interpreter == "HeadlessChrome":
@@ -2477,7 +2581,7 @@ def get_new_HeadlessChrome(index,renewing):
     except NameError:
         try: import getpass
         except ImportError: getpass = None
-        if getpass: myUsername = getpass.getuser()
+        if getpass: myUsername = S(getpass.getuser())
         else: myUsername = ""
     extra = ""
     while True: # might be restarting from a corrupted user-data-dir state; in worst case might not even be able to cleanly remove it (TODO: what if some processes associated with an older instance somehow took a while to go away and still have named referenc to previous path: increment counter unconditionally?  still rm the old one)
@@ -2573,10 +2677,16 @@ def wd_DesiredCapabilities(log_complaints):
         return None
 def wd_instantiateLoop(wdClass,index,renewing,**kw):
     debuglog("Instantiating "+wdClass.__name__+" "+repr(kw))
-    if not renewing: time.sleep(min(2*(index % js_per_core),options.js_timeout2 / 2)) # try not to start them all at once at the beginning (may reduce chance of failure)
+    if 'chrome_options' in kw:
+        try: newChromedriver = 'options' in getargspec(webdriver.chrome.webdriver.WebDriver.__init__).args
+        except: newChromedriver = False
+        if newChromedriver:
+            kw['options'] = kw['chrome_options']
+            del kw['chrome_options']
+    if not renewing: time.sleep(min(2*(index % js_per_core),int(options.js_timeout2 / 2))) # try not to start them all at once at the beginning (may reduce chance of failure)
     while True:
         try:
-            if wdClass==webdriver.Chrome: p = wdClass(commands.getoutput("which chromedriver 2>/dev/null"),**kw) # some versions need to be told explicitly where chromedriver is, rather than looking in PATH themselves, in order to get "wrong version" errors etc (otherwise errors ignored, Selenium looks for a different chromedriver and gives a slightly confusing error about 'none found' rather than the error you should have seen about 'wrong version')
+            if wdClass==webdriver.Chrome: p = wdClass(getoutput("which chromedriver 2>/dev/null"),**kw) # some versions need to be told explicitly where chromedriver is, rather than looking in PATH themselves, in order to get "wrong version" errors etc (otherwise errors ignored, Selenium looks for a different chromedriver and gives a slightly confusing error about 'none found' rather than the error you should have seen about 'wrong version')
             else: p = wdClass(**kw)
             if not p.capabilities: raise Exception("Didn't seem to get a p.capabilities")
             elif 'browserVersion' in p.capabilities:
@@ -2658,7 +2768,7 @@ def init_webdrivers(start,N):
       except: pass
       if informing: sys.stderr.write("done\n")
     global quitFuncToCall ; quitFuncToCall = quit_wd_atexit # don't use the real atexit, as we have our own thread-stop logic which might kick in first, leaving a stuck adjusterWDhelp process if js_multiprocess==True, and additionally holding up calling process if --stdio is in use (fixed in v0.2795)
-    if options.js_restartMins and not options.js_restartAfter==1: IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
+    if options.js_restartMins and not options.js_restartAfter==1: IOLoopInstance().add_timeout(time.time()+60,webdriver_checkRenew)
     if informing: sys.stderr.write("done\n")
 webdriver_maxBusy = 0
 def webdriver_allBusy():
@@ -2690,7 +2800,7 @@ def webdriver_checkServe(*args):
 def webdriver_checkRenew(*args):
     for i in webdriver_runner:
         if not i.wd_threadStart and i.usageCount and i.finishTime + options.js_restartMins < time.time(): i.renew_webdriver_newThread() # safe because we're running in the IOLoop thread, which therefore can't start wd_thread between our test of wd_threadStart and renew_webdriver_newThread
-    IOLoop.instance().add_timeout(time.time()+60,webdriver_checkRenew)
+    IOLoopInstance().add_timeout(time.time()+60,webdriver_checkRenew)
 def webdriver_fetch(url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
     if tooLate(): return # probably webdriver_queue overload (which will also be logged)
     elif prefetched and prefetched.code >= 500: return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something
@@ -2745,8 +2855,8 @@ the_supported_methods = ("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIO
 
 class RequestForwarder(RequestHandler):
     
-    def get_error_html(self,status,**kwargs): return htmlhead("Web Adjuster error")+options.errorHTML+"</body></html>"
-    def write_error(self,status,**kwargs):
+    def get_error_html(self,status,**kwargs): return htmlhead("Web Adjuster error")+options.errorHTML+"</body></html>" # Tornado 2.0
+    def write_error(self,status,**kwargs): # Tornado 2.1+
         msg = self.get_error_html(status,**kwargs)
         if "{traceback}" in msg and 'exc_info' in kwargs:
             msg = msg.replace("{traceback}","<pre>"+ampEncode("".join(traceback.format_exception(*kwargs["exc_info"])))+"</pre>")
@@ -2764,7 +2874,7 @@ class RequestForwarder(RequestHandler):
             else:
                 v = self.request.arguments.get(adjust_domain_cookieName,None)
                 if type(v)==type([]): v=v[-1]
-                if v: self.removeArgument(adjust_domain_cookieName,urllib.quote(v))
+                if v: self.removeArgument(adjust_domain_cookieName,quote(v))
             if v:
                 self.cookieViaURL = v
                 if v==adjust_domain_none: return None
@@ -2800,7 +2910,7 @@ class RequestForwarder(RequestHandler):
     def setCookie_with_dots(self,kv):
         for dot in ["","."]: self.add_header("Set-Cookie",kv+"; Domain="+dot+self.cookieHostToSet()+"; Path=/; Expires="+cookieExpires) # (at least in Safari, need BOTH with and without the dot to be sure of setting the domain and all subdomains.  TODO: might be able to skip the dot if not wildcard_dns, here and in the cookie-setting scripts.)
     def addCookieFromURL(self):
-        if self.cookieViaURL: self.add_header("Set-Cookie",adjust_domain_cookieName+"="+urllib.quote(self.cookieViaURL)+"; Path=/; Expires="+cookieExpires) # don't need dots for this (non-wildcard)
+        if self.cookieViaURL: self.add_header("Set-Cookie",adjust_domain_cookieName+"="+quote(self.cookieViaURL)+"; Path=/; Expires="+cookieExpires) # don't need dots for this (non-wildcard)
 
     def removeArgument(self,argName,value):
         if "&"+argName+"="+value in self.request.uri: self.request.uri=self.request.uri.replace("&"+argName+"="+value,"")
@@ -2813,7 +2923,7 @@ class RequestForwarder(RequestHandler):
         toRemove = ret = None
         if options.js_interpreter and options.js_links and webdriver_click_code in self.request.uri:
             toRemove = self.request.uri[self.request.uri.index(webdriver_click_code):]
-            ret2 = urllib.unquote(toRemove[len(webdriver_click_code):])
+            ret2 = unquote(toRemove[len(webdriver_click_code):])
         elif not options.viewsource: return False
         else: ret2 = None
         if self.request.uri.endswith(".viewsource"):
@@ -2827,7 +2937,7 @@ class RequestForwarder(RequestHandler):
         elif not toRemove: return False
         if ret2: ret = (ret2,ret)
         self.request.uri = self.request.uri[:-len(toRemove)]
-        if not self.request.method.lower() in ['get','head']: return ret # TODO: unless arguments are taken from both url AND body in that case
+        if not S(self.request.method).lower() in ['get','head']: return ret # TODO: unless arguments are taken from both url AND body in that case
         for k,argList in self.request.arguments.items():
             if argList and argList[-1].endswith(toRemove):
                 argList[-1]=argList[-1][:-len(toRemove)]
@@ -2836,24 +2946,26 @@ class RequestForwarder(RequestHandler):
     
     def cookieHostToSet(self):
         # for the Domain= field of cookies
+        host = S(self.request.host)
         for hs in options.host_suffix.split("/"):
-            if self.request.host.endswith("."+hs):
+            if host.endswith("."+hs):
                 return hs
         pp = ':'+str(options.publicPort)
-        if self.request.host.endswith(pp): return self.request.host[:-len(pp)]
-        return self.request.host
+        if host.endswith(pp): return host[:-len(pp)]
+        return host
     
     def authenticates_ok(self,host):
         if not options.password: return True
+        host = S(host)
         if options.password_domain and host and not any((host==p or host.endswith("."+p)) for p in options.password_domain.split('/')): return True
         if options.password_domain: self.is_password_domain=True
         # if they said ?p=(password), it's OK and we can
         # give them a cookie with it
-        if self.getArg("p") == options.password:
-            self.setCookie_with_dots(password_cookie_name+"="+urllib.quote(options.password))
+        if B(self.getArg("p")) == B(options.password):
+            self.setCookie_with_dots(password_cookie_name+"="+quote(options.password))
             self.removeArgument("p",options.password)
             return True
-        return self.getCookie(password_cookie_name)==urllib.quote(options.password)
+        return self.getCookie(password_cookie_name)==quote(options.password)
 
     def decode_argument(self, value, name=None): return value # don't try to UTF8-decode; it might not be UTF8
     
@@ -2875,7 +2987,7 @@ class RequestForwarder(RequestHandler):
 
     @asynchronous
     def connect(self, *args, **kwargs):
-      try: host, port = self.request.uri.split(':')
+      try: host, port = S(self.request.uri).split(':')
       except: host,port = None,None
       is_sshProxy = (host,port)==(allowConnectHost,allowConnectPort)
       if host and (options.real_proxy or self.isPjsUpstream or self.isSslUpstream or is_sshProxy): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
@@ -2890,14 +3002,16 @@ class RequestForwarder(RequestHandler):
             host,port = "127.0.0.1",port_randomise.get(self.WA_connectPort,self.WA_connectPort)
             debuglog("Rerouting CONNECT to "+host+":"+str(port))
         def callback(*args):
-          wrapped_readUntilClose(client,lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,"upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
+          readUntilClose(client,lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,"upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
           if self.isPjsUpstream: clientErr=None # we won't mind if our js_interpreter client gives up on an upstream fetch
           else: clientErr = "client "+self.request.remote_ip+self.debugExtras()
-          wrapped_readUntilClose(upstream,lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,clientErr,client,data))
-          try: client.write('HTTP/1.0 200 Connection established\r\n\r\n')
+          readUntilClose(upstream,lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,clientErr,client,data))
+          try:
+              client.write(B('HTTP/1.0 200 Connection established\r\n\r\n'))
+              debuglog("Connection established")
           except tornado.iostream.StreamClosedError:
               if not self.isPjsUpstream: logging.error("client "+self.request.remote_ip+" closed before we said Established"+self.debugExtras())
-        upstream.connect((host, int(port)), callback)
+        doCallback(self,upstream.connect,callback,(host, int(port)))
         # Tornado _log is not called until finish(); it would be useful to log the in-process connection at this point
         try: self._log()
         except: pass # not all Tornado versions support this?
@@ -2928,9 +3042,9 @@ class RequestForwarder(RequestHandler):
         try: self.set_status(status)
         except ValueError: self.set_status(status, "Redirect") # e.g. 308 (not all Tornado versions handle it)
         for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # clear these here, so redirect() can still be called even after a site's headers were copied in
-        self.add_header("Location",redir)
+        self.add_header("Location",S(redir))
         self.add_header("Content-Type","text/html")
-        if self.canWriteBody(): self.write('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % redir.replace('&','&amp;').replace('"','&quot;'))
+        if self.canWriteBody(): self.write(B('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % S(redir).replace('&','&amp;').replace('"','&quot;')))
         self.myfinish()
 
     def can_serve_without_redirect(self,redir):
@@ -2942,7 +3056,7 @@ class RequestForwarder(RequestHandler):
         self.request.redirCount += 1
         self.cookieViaURL = None # recalculate:
         oldArgs = self.request.arguments
-        (scheme, netloc, path, query, fragment) = urlparse.urlsplit(redir)
+        (scheme, netloc, path, query, fragment) = urlparse.urlsplit(S(redir))
         self.request.arguments = urlparse.parse_qs(query)
         if not url_is_ours(redir,self.cookie_host()):
             # raise Exception(repr((redir,self.cookie_host()))) # for testing
@@ -2976,7 +3090,7 @@ class RequestForwarder(RequestHandler):
         # If appropriate, writes a "conversion in progress" page and returns True, and then self.inProgress_run() should return True.
         # Not on wget or curl (TODO: configurable?)
         if not options.waitpage or not options.pdfepubkeep: return False
-        ua = " "+self.request.headers.get("User-Agent","")
+        ua = " "+S(self.request.headers.get("User-Agent",""))
         if " curl/" in ua or " Wget/" in ua: return False # (but don't return false for libcurl/)
         self.set_status(200)
         self.add_nocache_headers()
@@ -2994,27 +3108,29 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def inProgress_run(self): return hasattr(self,"inProgress_has_run") and self.inProgress_has_run
 
     def addToHeader(self,header,toAdd):
-        val = self.request.headers.get(header,"")
+        val = S(self.request.headers.get(header,""))
+        toAdd = S(toAdd)
         if (", "+val).endswith(", "+toAdd): return # seems we're running inside a software stack that already added it
         if val: val += ", "
         self.request.headers[header] = val+toAdd
 
     def forwardFor(self,server,serverType="ownServer"):
+        server = S(server)
         debuglog("forwardFor "+server+self.debugExtras())
-        if wsgi_mode: raise Exception("Not yet implemented for WSGI mode") # no .connection
+        if wsgi_mode: raise Exception("Not implemented for WSGI mode") # no .connection
         if server==options.own_server and options.ownServer_useragent_ip:
-            r = self.request.headers.get("User-Agent","")
+            r = S(self.request.headers.get("User-Agent",""))
             if r: r=" "+r
-            r="("+self.request.remote_ip+")"+r
+            r="("+S(self.request.remote_ip)+")"+r
             self.request.headers["User-Agent"]=r
         upstream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
         client = self.request.connection.stream
         if ':' in server: host, port = server.split(':')
         else: host, port = server, 80
-        upstream.connect((host, int(port)),lambda *args:(wrapped_readUntilClose(upstream,lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,serverType+" client",client,data)),wrapped_readUntilClose(client,lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,serverType+" upstream",upstream,data))))
+        doCallback(self,upstream.connect,lambda *args:(readUntilClose(upstream,lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,serverType+" client",client,data)),readUntilClose(client,lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,serverType+" upstream",upstream,data))),(host, int(port)))
         try: self.request.uri = self.request.original_uri
         except: pass
-        upstream.write(self.request.method+" "+self.request.uri+" "+self.request.version+"\r\n"+"\r\n".join(("%s: %s" % (k,v)) for k,v in (list(h for h in self.request.headers.get_all() if not h[0].lower()=="x-real-ip")+[("X-Real-Ip",self.request.remote_ip)]))+"\r\n\r\n"+self.request.body)
+        upstream.write(B(self.request.method)+B(" ")+B(self.request.uri)+B(" ")+B(self.request.version)+B("\r\n")+B("\r\n".join(("%s: %s" % (k,v)) for k,v in (list(h for h in self.request.headers.get_all() if not h[0].lower()=="x-real-ip")+[("X-Real-Ip",self.request.remote_ip)]))+"\r\n\r\n")+B(self.request.body))
 
     def thin_down_headers(self):
         # For ping, and for SSH tunnel.  Need to make the response short, but still allow keepalive
@@ -3035,20 +3151,20 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             stream.socket.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
             def writeBytes():
                 try:
-                    stream.write("1")
-                    IOLoop.instance().add_timeout(time.time()+1,lambda *args:writeBytes())
+                    stream.write(B("1"))
+                    IOLoopInstance().add_timeout(time.time()+1,lambda *args:writeBytes())
                 except:
                     # logging.info("ping2: disconnected")
                     self.myfinish()
-            if not options.background: sys.stderr.write("ping2: "+self.request.remote_ip+" connected\n") # (don't bother logging this normally, but might want to know when running in foreground)
+            if not options.background: sys.stderr.write("ping2: "+S(self.request.remote_ip)+" connected\n") # (don't bother logging this normally, but might want to know when running in foreground)
             writeBytes()
         else:
-            self.write("1") ; self.myfinish()
+            self.write(B("1")) ; self.myfinish()
 
     def answer_load_balancer(self):
         self.request.suppress_logging = True
         self.add_header("Content-Type","text/html")
-        if self.canWriteBody(): self.write(htmlhead()+"<h1>Web Adjuster load-balancer page</h1>This page should not be shown to normal browsers, only to load balancers and uptime checkers. If you are a human reading this message, <b>it probably means your browser is \"cloaked\"</b> (hidden User-Agent string); please un-hide this to see the top-level page.</body></html>")
+        if self.canWriteBody(): self.write(B(htmlhead()+"<h1>Web Adjuster load-balancer page</h1>This page should not be shown to normal browsers, only to load balancers and uptime checkers. If you are a human reading this message, <b>it probably means your browser is \"cloaked\"</b> (hidden User-Agent string); please set a browser string to see the top-level page.</body></html>"))
         self.myfinish()
 
     def find_real_IP(self):
@@ -3061,7 +3177,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 if xff:
                     self.request.remote_ip = xff[0]
                     return
-        if not options.ipTrustReal in [self.request.remote_ip,'*']: return
+        if not options.ipTrustReal in [S(self.request.remote_ip),'*']: return
         try: self.request.remote_ip = self.request.connection.stream.confirmed_ip
         except:
             self.request.remote_ip = self.request.headers.get("X-Real-Ip",self.request.remote_ip)
@@ -3072,7 +3188,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     
     def serveRobots(self):
         self.add_header("Content-Type","text/plain")
-        if self.canWriteBody(): self.write("User-agent: *\nDisallow: /\n")
+        if self.canWriteBody(): self.write(B("User-agent: *\nDisallow: /\n"))
         self.request.suppress_logger_host_convert = True
         self.myfinish()
 
@@ -3118,22 +3234,23 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     
     def handle_URLbox_query(self,v):
         self.set_htmlonly_cookie()
-        if not (v.startswith("http://") or v.startswith("https://")):
-            if ' ' in v or not '.' in v: v=getSearchURL(v)
-            else: v="http://"+v
+        v = B(v)
+        if not (v.startswith(B("http://")) or v.startswith(B("https://"))):
+            if B(' ') in v or not B('.') in v: v=getSearchURL(v)
+            else: v=B("http://")+v
         if not options.wildcard_dns: # need to use cookie_host
-            j = i = v.index('/')+2 # after the http:// or https://
-            while j<len(v) and v[j] in string.letters+string.digits+'.-': j += 1
+            j = i = v.index(B('/'))+2 # after the http:// or https://
+            while j<len(v) and v[j] in B(letters+digits+'.-'): j += 1
             wanted_host = v[i:j]
-            if v[i-4]=='s': wanted_host += ".0" # HTTPS hack (see protocolAndHost)
+            if v[i-4:i-3]==B('s'): wanted_host += B(".0") # HTTPS hack (see protocolAndHost)
             ch = self.cookie_host(checkURL=False) # current cookie hostname
-            if convert_to_requested_host(wanted_host,ch)==wanted_host:
-                # can't do it without changing cookie_host
+            if B(convert_to_requested_host(wanted_host,ch))==B(wanted_host):
+                debuglog("Need to change cookie_host to get "+repr(wanted_host))
                 if enable_adjustDomainCookieName_URL_override:
                     # do it by URL so they can bookmark it (that is if it doesn't immediately redirect)
                     # (TODO: option to also include the password in this link so it can be passed it around?  and also in the 'back to URL box' link?  but it would be inconsistent because not all links can do that, unless we consistently 302-redirect everything so that they do, but that would reduce the efficiency of the browser's HTTP fetches.  Anyway under normal circumstances we probably won't want users accidentally spreading include-password URLs)
-                    v = addArgument(v,adjust_domain_cookieName+'='+urllib.quote(wanted_host))
-                else: self.add_header("Set-Cookie",adjust_domain_cookieName+"="+urllib.quote(wanted_host)+"; Path=/; Expires="+cookieExpires) # (DON'T do this unconditionally, convert_to_requested_host above might see we already have another fixed domain for it)
+                    v = addArgument(v,adjust_domain_cookieName+'='+quote(wanted_host))
+                else: self.add_header("Set-Cookie",adjust_domain_cookieName+"="+quote(wanted_host)+"; Path=/; Expires="+cookieExpires) # (DON'T do this unconditionally, convert_to_requested_host above might see we already have another fixed domain for it)
                 # (TODO: if convert_to_requested_host somehow returns a *different* non-default_site domain, that cookie will be lost.  Might need to enforce max 1 non-default_site domain.)
             else: wanted_host = ch
         else: wanted_host=None # not needed if wildcard_dns
@@ -3149,27 +3266,27 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         return True
     def handleFullLocation(self):
         # HTTP 1.1 spec says ANY request can be of form http://...., not just a proxy request.  The differentiation of proxy/not-proxy depends on what host is requested.  So rewrite all http://... requests to HTTP1.0-style host+uri requests.
-        if self.request.uri.startswith("http://"):
+        if B(self.request.uri).startswith(B("http://")):
             self.request.original_uri = self.request.uri
-            parsed = urlparse.urlparse(self.request.uri)
+            parsed = urlparse.urlparse(S(self.request.uri))
             self.request.host = self.request.headers["Host"] = parsed.netloc
             self.request.uri = urlparse.urlunparse(("","")+parsed[2:])
             if not self.request.uri: self.request.uri="/"
-        elif not self.request.uri.startswith("/"): # invalid
+        elif not B(self.request.uri).startswith(B("/")): # invalid
             self.set_status(400) ; self.myfinish() ; return True
         if options.ssl_fork and self.request.headers.get("X-WA-FromSSLHelper",""):
             self.request.connection.stream.isFromSslHelper = True # it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it
             del self.request.headers["X-WA-FromSSLHelper"] # don't pass it to upstream servers
-        if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection.stream,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, or we're on port+0 and forked SSL helper has forwarded it to us, so the host asked for must be a .0 host for https
-            if self.request.host and not self.request.host.endswith(".0"): self.request.host += ".0"
+        if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection,"stream") and hasattr(self.request.connection.stream,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, or we're on port+0 and forked SSL helper has forwarded it to us, so the host asked for must be a .0 host for https
+            if self.request.host and not B(self.request.host).endswith(B(".0")): self.request.host = S(self.request.host)+".0"
             
     def handleSSHTunnel(self):
-        if not allowConnectURL=="http://"+self.request.host+self.request.uri: return
+        if not B(allowConnectURL)==B("http://")+B(self.request.host)+B(self.request.uri): return
         self.thin_down_headers() ; self.add_header("Pragma","no-cache") # hopefully "Pragma: no-cache" is enough and we don't need all of self.add_nocache_headers
         global the_ssh_tunnel # TODO: support more than one SSH tunnel? (but will need to use session IDs etc; GNU httptunnel does just 1 tunnel as of 3.x so maybe we're OK)
         try:
-            if self.request.body=="new connection":
-                self.request.body = ""
+            if B(self.request.body)==B("new connection"):
+                self.request.body = B("")
                 the_ssh_tunnel[1].append(None) # if exists
             if None in the_ssh_tunnel[1]:
                 try: the_ssh_tunnel[0].close()
@@ -3181,32 +3298,32 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             def add(data):
                 if sessionID==the_ssh_tunnel[2]:
                     the_ssh_tunnel[1].append(data)
-            the_ssh_tunnel[0].connect((allowConnectHost, int(allowConnectPort)), lambda *args:the_ssh_tunnel[0].read_until_close(lambda data:(add(data),add(None)),add))
+            doCallback(self,the_ssh_tunnel[0].connect,lambda *args:readUntilClose(the_ssh_tunnel[0],lambda data:(add(data),add(None)),add),(allowConnectHost, int(allowConnectPort)))
             # TODO: log the fact we're starting a tunnel?
         if self.request.body: the_ssh_tunnel[0].write(self.request.body) # TODO: will this work even when it's not yet established? (not a big problem on SSH because server always speaks first)
         def check_ssh_response(startTime,sessionID):
             if not the_ssh_tunnel[2]==sessionID: return self.myfinish()
-            if the_ssh_tunnel[1]==[] and not time.time()>startTime+3: return IOLoop.instance().add_timeout(time.time()+0.2,lambda *args:check_ssh_response(startTime,sessionID)) # keep waiting (up to max 3sec - not too long because if client issues a 'read on timeout' while the SSH layer above is waiting for user input then we still want it to be reasonably responsive to that input; it's the client side that should wait longer between polls)
+            if the_ssh_tunnel[1]==[] and not time.time()>startTime+3: return IOLoopInstance().add_timeout(time.time()+0.2,lambda *args:check_ssh_response(startTime,sessionID)) # keep waiting (up to max 3sec - not too long because if client issues a 'read on timeout' while the SSH layer above is waiting for user input then we still want it to be reasonably responsive to that input; it's the client side that should wait longer between polls)
             if None in the_ssh_tunnel[1]:
-                self.write(''.join(the_ssh_tunnel[1][:-1]))
+                self.write(B('').join(the_ssh_tunnel[1][:-1]))
                 the_ssh_tunnel[1] = [None]
             else:
-                self.write(''.join(the_ssh_tunnel[1]))
+                self.write(B('').join(the_ssh_tunnel[1]))
                 the_ssh_tunnel[1] = []
             self.myfinish()
-        IOLoop.instance().add_timeout(time.time()+0.2,lambda *args:check_ssh_response(time.time(),the_ssh_tunnel[2]))
+        IOLoopInstance().add_timeout(time.time()+0.2,lambda *args:check_ssh_response(time.time(),the_ssh_tunnel[2]))
         return True
 
     def handleSpecificIPs(self):
         if not ipMatchingFunc: return False
         msg = ipMatchingFunc(self.request.remote_ip)
         if not msg: return False
-        if msg.startswith('*'): # a block
-            self.write(htmlhead("Blocked")+msg[1:]+"</body></html>") ; self.myfinish() ; return True
-        if self.request.uri in ["/robots.txt","/favicon.ico"]: return False
+        if B(msg).startswith(B('*')): # a block
+            self.write(B(htmlhead("Blocked"))+B(msg)[1:]+B("</body></html>")) ; self.myfinish() ; return True
+        if B(self.request.uri) in [B("/robots.txt"),B("/favicon.ico")]: return False
         cookies = ';'.join(self.request.headers.get_list("Cookie"))
-        if msg.startswith('-'): # minor edit
-            msg = msg[1:]
+        if B(msg).startswith(B('-')): # minor edit
+            msg = B(msg)[1:]
             if seen_ipMessage_cookieName+"=" in cookies:
                 # seen ANY message before (not just this)
                 return False
@@ -3216,8 +3333,8 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             return False
         hs = self.cookieHostToSet()
         self.add_nocache_headers()
-        if self.canWriteBody(): self.write("%s%s<p><form><label><input type=\"checkbox\" name=\"gotit\">Don't show this message again</label><br><input type=\"submit\" value=\"Continue\" onClick=\"var a='%s=%s;domain=',b=(document.forms[0].gotit.checked?'expires=%s;':'')+'path=/',h='%s;';document.cookie=a+'.'+h+b;document.cookie=a+h+b;location.reload(true);return false\"></body></html>" % (htmlhead("Message"),msg,seen_ipMessage_cookieName,val,cookieExpires,hs))
-        logging.info("ip_messages: done "+self.request.remote_ip)
+        if self.canWriteBody(): self.write(B(htmlhead("Message"))+B(msg)+(B("<p><form><label><input type=\"checkbox\" name=\"gotit\">Don't show this message again</label><br><input type=\"submit\" value=\"Continue\" onClick=\"var a='%s=%s;domain=',b=(document.forms[0].gotit.checked?'expires=%s;':'')+'path=/',h='%s;';document.cookie=a+'.'+h+b;document.cookie=a+h+b;location.reload(true);return false\"></body></html>" % (seen_ipMessage_cookieName,val,cookieExpires,hs))))
+        logging.info("ip_messages: done "+S(self.request.remote_ip))
         self.myfinish() ; return True
 
     def handleGoAway(self,realHost,maybeRobots):
@@ -3229,11 +3346,11 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             return True # do NOT shorten this by making serveRobots return True: it must return None due to other uses
         # TODO: option to redirect immediately without this message?  (but then we'd be supplying a general redirection service, which might have issues of its own)
         if realHost:
-            msg = ' and <a rel="noreferrer" href="%s%s">go directly to the original site</a>' % (protocolWithHost(realHost),self.request.uri)
+            msg = ' and <a rel="noreferrer" href="%s%s">go directly to the original site</a>' % (S(protocolWithHost(realHost)),S(self.request.uri))
             self.request_no_external_referer()
         else: msg = ''
         self.add_nocache_headers()
-        if self.canWriteBody(): self.write("%s<h1>You don't need this!</h1>This installation of Web Adjuster has been set up to change certain characters into pictures, for people using old computers that don't know how to display them themselves. However, <em>you</em> seem to be using %s, which is <noscript>either </noscript>definitely capable of showing these characters by itself<noscript>, or else wouldn't be able to show the pictures anyway<!-- like Lynx --></noscript>. Please save our bandwidth for those who really need it%s. Thank you.</body></html>" % (htmlhead(),browser,msg))
+        if self.canWriteBody(): self.write(B("%s<h1>You don't need this!</h1>This installation of Web Adjuster has been set up to change certain characters into pictures, for people using old computers that don't know how to display them themselves. However, <em>you</em> seem to be using %s, which is <noscript>either </noscript>definitely capable of showing these characters by itself<noscript>, or else wouldn't be able to show the pictures anyway<!-- like Lynx --></noscript>. Please save our bandwidth for those who really need it%s. Thank you.</body></html>" % (htmlhead(),S(browser),msg)))
         self.myfinish() ; return True
 
     def needCssCookies(self):
@@ -3294,7 +3411,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             ckName = "adjustCss" + str(ckCount) + "s"
             ckVal = self.getArg(ckName)
             if ckVal:
-                self.setCookie_with_dots(ckName+"="+ckVal) # TODO: do we ever need to urllib.quote() ckVal ?  (document to be careful when configuring?)
+                self.setCookie_with_dots(ckName+"="+ckVal) # TODO: do we ever need to quote() ckVal ?  (document to be careful when configuring?)
                 self.setCookie(ckName,ckVal) # pretend it was already set on THIS request as well (for 'Try' button; URL should be OK as it redirects)
             ckCount += 1
     
@@ -3313,13 +3430,14 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         self.doResponse2(htmlhead()+err+'</body></html>',True,False) # TODO: run htmlFilter on it also? (render etc will be done by doResponse2)
 
     def serve_mailtoPage(self):
-        if any(re.search(x,self.request.headers.get("User-Agent","")) for x in options.prohibitUA): return self.serveRobots()
-        uri = self.request.uri[len(options.mailtoPath):].replace('%%+','%') # we encode % as %%+ to stop browsers and transcoders from arbitrarily decoding e.g. %26 to &
+        ua = S(self.request.headers.get("User-Agent",""))
+        if any(re.search(x,ua) for x in options.prohibitUA): return self.serveRobots()
+        uri = S(self.request.uri)[len(options.mailtoPath):].replace('%%+','%') # we encode % as %%+ to stop browsers and transcoders from arbitrarily decoding e.g. %26 to &
         if '?' in uri:
             addr,rest = uri.split('?',1)
             self.request.arguments = urlparse.parse_qs(rest) # after the above decoding of %'s
         else: addr=uri
-        addr = urllib.unquote(addr)
+        addr = unquote(addr)
         body = self.getArg("body")
         subj = self.getArg("subject")
         r = [] ; smsLink = ""
@@ -3336,7 +3454,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 if self.checkBrowser(["iPhone OS 4","iPhone OS 5","iPhone OS 6","iPhone OS 7"]): sep = ';'
                 elif self.checkBrowser(["iPhone OS 8","iPhone OS 9"]): sep = '&'
                 else: sep = '?'
-                smsLink = '<br><a href="sms:'+sep+'body=%s">Send as SMS (text message)</a>' % urllib.quote(rm_u8punc(smsLink))
+                smsLink = B('<br><a href="sms:'+sep+'body=')+quote(rm_u8punc(B(smsLink)))+B('">Send as SMS (text message)</a>')
                 if self.checkBrowser(["Windows Mobile"]):
                     # TODO: others? configurable?
                     # browsers that may also have this problem with EMAIL
@@ -3349,15 +3467,15 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             else: r=["The email's Body will be: "+ampEncode(body)]
         elif not r: r.append("The link does not specify any recognised email details")
         else: r.insert(0,"The following information will be sent to the email client:")
-        self.doResponse2(('%s<h3>mailto: link</h3>This link is meant to open an email client.<br>%s<br><a href=\"mailto:%s\">Open in email client</a> (if set up)%s%s<hr>This is %s</body></html>' % (htmlhead("mailto: link - Web Adjuster"),"<br>".join(r),uri,smsLink,backScript,serverName_html)),True,False)
+        self.doResponse2(('%s<h3>mailto: link</h3>This link is meant to open an email client.<br>%s<br><a href=\"mailto:%s\">Open in email client</a> (if set up)%s%s<hr>This is %s</body></html>' % (htmlhead("mailto: link - Web Adjuster"),"<br>".join(r),uri,S(smsLink),backScript,serverName_html)),True,False)
 
     def serve_submitPage(self):
         self.request.suppress_logger_host_convert = True
-        if self.request.uri=="/favicon.ico" or any(re.search(x,self.request.headers.get("User-Agent","")) for x in options.prohibitUA):
+        if B(self.request.uri)==B("/favicon.ico") or any(re.search(x,self.request.headers.get("User-Agent","")) for x in options.prohibitUA):
             # avoid logging favicon.ico tracebacks when submitPath=="/"
             self.set_status(400) ; self.myfinish() ; return
         if len(self.request.uri) > len(options.submitPath):
-            txt = self.request.uri[len(options.submitPath):]
+            txt = S(self.request.uri[len(options.submitPath):])
             if len(txt)==2 and options.submitBookmarklet:
                 filterNo = ord(txt[1])-ord('A')
                 if txt[0] in 'bB': return self.serve_bookmarklet_code(txt[1],txt[0]=='B')
@@ -3387,8 +3505,8 @@ document.forms[0].i.focus()
             txt = txt[0].strip()
             # On at least some browsers (e.g. some Safari versions), clicking one of our JS reload links after the POST text has been shown will reload the form (instead of re-submitting the POST text) and can scroll to an awkward position whether the code below calls focus() or not.  Could at least translate to GET if it's short enough (don't want to start storing things on the adjuster machine - that would require a shared database if load-balancing)
             if len(txt) <= 16384: # (else we wouldn't decompress all; see comment above)
-                enc = base64.b64encode(zlib.compress(txt,9))
-                if 0 < len(enc) < 2000: return self.redirect("http://"+hostSuffix()+publicPortStr()+options.submitPath+enc,303) # POST to GET
+                enc = base64.b64encode(zlib.compress(B(txt),9))
+                if 0 < len(enc) < 2000: return self.redirect(B("http://")+B(hostSuffix())+B(publicPortStr())+B(options.submitPath)+B(enc),303) # POST to GET
 
         # pretend it was served by a remote site; go through everything including filters (TODO: could bypass most of doResponse instead of rigging it up like this; alternatively keep this as it shows how to feed data to doResponse)
         self.connection_header = None
@@ -3400,31 +3518,31 @@ document.forms[0].i.focus()
             def get_all(self): return [("Content-Type","text/html; charset=utf-8")]
         if options.htmlUrl: line1 = "about:submitted\n"
         else: line1 = ""
-        runFilterOnText(self.getHtmlFilter(),find_text_in_HTML("""%s<h3>Your text</h3>%s<hr>This is %s. %s</body></html>""" % (htmlhead("Uploaded Text - Web Adjuster"),txt2html(txt),serverName_html,backScriptNoBr)),lambda out,err:self.doResponse2(out,True,False),prefix=line1) # backScriptNoBr AFTER the server notice to save vertical space
+        runFilterOnText(self,self.getHtmlFilter(),find_text_in_HTML(B(htmlhead("Uploaded Text - Web Adjuster"))+B("<h3>Your text</h3>")+B(txt2html(txt))+B("<hr>This is %s. %s</body></html>" % (serverName_html,backScriptNoBr))),lambda out,err:self.doResponse2(out,True,False),prefix=line1) # backScriptNoBr AFTER the server notice to save vertical space
     def serve_bookmarklet_code(self,xtra,forceSameWindow):
         self.add_header("Content-Type","application/javascript")
         self.add_header("Access-Control-Allow-Origin","*")
         if options.submitBookmarkletDomain: submit = "//"+options.submitBookmarkletDomain
         else: submit = "http://"+self.request.host
-        if self.canWriteBody(): self.write(bookmarkletMainScript(submit+options.submitPath+'j'+xtra,forceSameWindow))
+        if self.canWriteBody(): self.write(B(bookmarkletMainScript(submit+options.submitPath+'j'+xtra,forceSameWindow)))
         self.myfinish()
     def serve_err(self,err):
         self.set_status(500)
         self.add_header("Content-Type","text/plain")
-        logging.error("Bookmarklet error: "+err)
+        logging.error("Bookmarklet error: "+S(err))
         # +' '+repr(self.request.body)
-        if self.canWriteBody(): self.write(err)
+        if self.canWriteBody(): self.write(B(err))
         self.myfinish()
     def serve429(self,retrySecs=0):
         debuglog("serve429"+self.debugExtras())
         try: self.set_status(429,"Too many requests")
         except: self.set_status(429)
         if retrySecs: self.add_header("Retry-After",str(retrySecs))
-        if self.canWriteBody(): self.write("Too many requests (HTTP 429)")
+        if self.canWriteBody(): self.write(B("Too many requests (HTTP 429)"))
         if not self.request.remote_ip in options.ipNoLog:
-            try: f = " for "+self.urlToFetch
+            try: f = " for "+S(self.urlToFetch)
             except: f = ""
-            logging.error("Returning HTTP 429 (too many requests)"+f+" to "+self.request.remote_ip)
+            logging.error("Returning HTTP 429 (too many requests)"+f+" to "+S(self.request.remote_ip))
         self.request.suppress_logging = True
         self.myfinish()
     def serve_bookmarklet_json(self,filterNo):
@@ -3433,27 +3551,27 @@ document.forms[0].i.focus()
         if not self.request.body:
             self.add_header("Content-Type","text/plain")
             self.add_header("Allow","POST") # some browsers send OPTIONS first before POSTing via XMLHttpRequest (TODO: check if OPTIONS really is the request method before sending this?)
-            if self.canWriteBody(): self.write("OK")
+            if self.canWriteBody(): self.write(B("OK"))
             return self.myfinish()
         try: l = json.loads(self.request.body)
         except: return self.serve_err("Bad JSON")
         for i in xrange(len(l)):
-            if l[i]=='': l[i] = u'' # shouldn't get this (TODO: fix in bookmarkletMainScript? e.g. if submitBookmarkletFilterJS can match empty strings, or conversion to 'cnv' makes it empty, anything else?), but if we do, don't let it trip up the 'wrong data structure' below
+            if l[i]=='': l[i] = u'' # shouldn't get this (TODO: fix in bookmarkletMainScript? e.g. if submitBookmarkletFilterJS can match empty strings, or conversion to 'cnv' makes it empty, anything else?), but if we do, don't let it trip up the 'wrong data structure' below on Python 2
         if not (type(l)==list and all(((type(i)==unicode or (type(i)==str and all(ord(c)<0x80 for c in i))) and not chr(0) in i) for i in l)): return self.serve_err("Wrong data structure")
         codeTextList = []
         for i in l:
-            codeTextList.append(chr(0))
-            codeTextList.append(i.encode('utf-8'))
+            codeTextList.append(B(chr(0)))
+            if type(i)==bytes: codeTextList.append(i)
+            else: codeTextList.append(i.encode('utf-8'))
         def callback(out,err):
             self.add_header("Content-Type","application/json")
-            if self.canWriteBody(): self.write(json.dumps([i.decode('utf-8','replace') for i in out[1:].split(chr(0))])) # 'replace' here because we don't want utf-8 errors to time-out the entire request (although hopefully the filter WON'T produce utf-8 errors...)
+            if self.canWriteBody(): self.write(B(json.dumps([i.decode('utf-8','replace') for i in B(out)[1:].split(B(chr(0)))]))) # 'replace' here because we don't want utf-8 errors to time-out the entire request (although hopefully the filter WON'T produce utf-8 errors...)
             self.finish()
         if options.htmlUrl: line1 = "about:bookmarklet\n" # TODO: get the bookmarklet to report the location.href of the site (and update htmlUrl help text)
         else: line1 = ""
-        runFilterOnText(self.getHtmlFilter(filterNo),codeTextList,callback,prefix=line1)
+        runFilterOnText(self,self.getHtmlFilter(filterNo),codeTextList,callback,prefix=line1)
     def serve_backend_post(self,filterNo):
-        l = self.request.body
-        runFilter(self.getHtmlFilter(filterNo),self.request.body,lambda out,err: (self.write(out),self.finish()))
+        runFilter(self.getHtmlFilter(filterNo),self.request.body,lambda out,err: (self.write(B(out)),self.finish()))
 
     def checkTextCache(self,newext):
         # check for PDF/EPUB conversion on other threads or cached
@@ -3461,14 +3579,14 @@ document.forms[0].i.focus()
         ktkey = (self.request.host, self.request.uri)
         if ktkey in kept_tempfiles:
             def tryRead():
-                try: txt=open(kept_tempfiles[ktkey]).read()
+                try: txt=open(kept_tempfiles[ktkey],'rb').read() # ('rb' makes it give you a byte-string in Python 3)
                 except: txt = None
                 if txt:
                     if self.canWriteBody():
                         if newext==".mobi": self.write(txt)
                         else: self.write(remove_blanks_add_utf8_BOM(txt))
                     self.myfinish()
-                elif not self.inProgress(): IOLoop.instance().add_timeout(time.time()+1,lambda *args:tryRead())
+                elif not self.inProgress(): IOLoopInstance().add_timeout(time.time()+1,lambda *args:tryRead())
             tryRead() ; return True
         kept_tempfiles[ktkey] = 1 # conversion in progress
         return False
@@ -3480,13 +3598,14 @@ document.forms[0].i.focus()
 
     def debugExtras(self):
         r = " for "+self.request.method+" "+self.request.uri
-        if not self.request.uri.startswith("http"): r += " host="+str(self.request.host)
-        if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection.stream,"isFromSslHelper")): r += " WA_UseSSL"
+        if not self.request.uri.startswith("http"):
+            r += " host="+str(self.request.host)
+        if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection,"stream") and hasattr(self.request.connection.stream,"isFromSslHelper")): r += " WA_UseSSL"
         if self.isPjsUpstream: r += " isPjsUpstream instance "+str(self.WA_PjsIndex+self.WA_PjsStart)
         if self.isSslUpstream: r += " isSslUpstream"
         return r
 
-    def canWriteBody(self): return not self.request.method in ["HEAD","OPTIONS"] and not (hasattr(self,"_finished") and self._finished)
+    def canWriteBody(self): return not B(self.request.method) in [B("HEAD"),B("OPTIONS")] and not (hasattr(self,"_finished") and self._finished)
 
     def justMeCheck(self):
         # Ideally we should do this asynchronously, but as
@@ -3498,19 +3617,19 @@ document.forms[0].i.focus()
             try: s.connect(('localhost',113))
             except:
                 import pwd
-                for l in commands.getoutput("netstat -tpn").split("\n"):
+                for l in getoutput("netstat -tpn").split("\n"):
                     l = l.split()
-                    if len(l)>6 and l[3].endswith(":"+str(self.request.connection.stream.socket.getpeername()[1])) and l[5]=="ESTABLISHED" and "/" in l[6] and pwd.getpwuid(os.stat("/proc/"+l[6].split("/",1)[0]).st_uid).pw_name==myUsername: return True
+                    if len(l)>6 and l[3].endswith(":"+str(self.request.connection.stream.socket.getpeername()[1])) and l[5]=="ESTABLISHED" and "/" in l[6] and S(pwd.getpwuid(os.stat("/proc/"+l[6].split("/",1)[0]).st_uid).pw_name)==myUsername: return True
                 logging.error("no ident server and couldn't confirm username with netstat: rejecting this connection")
                 return
-            s.send("%d, %d\r\n" % (self.request.connection.stream.socket.getpeername()[1], port_randomise.get(self.WA_port,self.WA_port)))
+            s.send(B("%d, %d\r\n" % (self.request.connection.stream.socket.getpeername()[1], port_randomise.get(self.WA_port,self.WA_port))))
             usr = s.recv(1024).strip()
-            if usr.split(':')[-1]==myUsername: return True
+            if usr.split(B(':'))[-1]==B(myUsername): return True
             else: logging.error("ident server didn't confirm username: rejecting this connection")
         except Exception as e: logging.error("Trouble connecting to ident server (%s): rejecting this connection" % repr(e))
         self.set_status(401)
-        if usr: self.write(usr+": ")
-        self.write("Connection from wrong account (ident check failed)\n")
+        if usr: self.write(B(usr+": "))
+        self.write(B("Connection from wrong account (ident check failed)\n"))
         self.myfinish()
 
     def doReq(self):
@@ -3525,9 +3644,9 @@ document.forms[0].i.focus()
             try: origReqInFlight.add(id(self))
             except: pass # e.g. not options.profile
             if options.one_request_only:
-                IOLoop.instance().handle_callback_exception = lambda *args:0 # Tornado 4 raises EBADF in accept_handler if you call server.stop() from a request handler, so disable its handle_callback_exception to reduce log clutter (TODO: handle other errors using the original exception handler?)
+                IOLoopInstance().handle_callback_exception = lambda *args:0 # Tornado 4 raises EBADF in accept_handler if you call server.stop() from a request handler, so disable its handle_callback_exception to reduce log clutter (TODO: handle other errors using the original exception handler if present?)
                 mainServer.stop()
-        if wsgi_mode and self.request.path==urllib.quote(os.environ.get("SCRIPT_NAME","")+os.environ.get("PATH_INFO","")) and 'SCRIPT_URL' in os.environ:
+        if wsgi_mode and B(self.request.path)==B(quote(os.environ.get("SCRIPT_NAME","")+os.environ.get("PATH_INFO",""))) and 'SCRIPT_URL' in os.environ:
             # workaround for Tornado 2.x limitation when used with CGI and htaccess redirects
             self.request.uri = os.environ['SCRIPT_URL']
             qs = os.environ.get("QUERY_STRING","")
@@ -3536,16 +3655,20 @@ document.forms[0].i.focus()
                 self.request.uri += "?"+qs
                 self.request.arguments = urlparse.parse_qs(qs)
             self.request.path = self.request.uri
-        else:
-            # HTTP/1.x headers are officially Latin-1 (but usually ASCII), and Tornado (at least versions 2 through 4) decodes the Latin-1 and re-encodes it as UTF-8.  This can cause confusion, so let's emulate modern browsers and %-encode any non-ASCII URIs:
+        elif sys.version_info[0]==2:
+            # HTTP/1.x headers are officially Latin-1 (but usually ASCII), and Tornado versions 2 through 4 decodes the Latin-1 and re-encodes it as UTF-8.  This can cause confusion, so let's emulate modern browsers and %-encode any non-ASCII URIs:
             try: self.request.uri = self.request.uri.decode('utf-8').encode('latin1')
             except: pass
-        self.request.uri=re.sub("[^!-~]+",lambda m:urllib.quote(m.group()),self.request.uri)
+        self.request.uri=re.sub("[^!-~]+",lambda m:quote(m.group()),S(self.request.uri))
+        self.request.method = S(self.request.method)
+        if self.request.host:
+            self.request.host = S(self.request.host)
+        else: self.request.host = ""
         if self.request.method=="HEAD": self.set_header("Content-Length","-1") # we don't yet the content length, so Tornado please don't add it!  (NB this is for HEAD only, not OPTIONS, which should have Content-Length 0 or some browsers time out) (TODO: in non-WSGI mode could call .flush() after writing headers (with callback param), then Content-Length won't be added on .finish())
         if self.request.headers.get("User-Agent","")=="ping":
             if self.request.uri=="/ping2": return self.answerPing(True)
             elif self.request.uri=="/ping": return self.answerPing(False)
-        elif options.loadBalancer and self.request.headers.get("User-Agent","")=="" and self.request.uri=="/": return self.answer_load_balancer()
+        elif options.loadBalancer and B(self.request.headers.get("User-Agent",""))==B("") and self.request.uri=="/": return self.answer_load_balancer()
         self.find_real_IP() # must find real ip BEFORE forwarding to fasterServer, because might also be behind nginx etc
         if fasterServer_up:
             return self.forwardFor(options.fasterServer,"fasterServer")
@@ -3578,6 +3701,8 @@ document.forms[0].i.focus()
             return self.forwardFor(options.own_server)
             # (TODO: what if it's keep-alive and some browser figures out our other domains are on the same IP and tries to fetch them through the same connection?  is that supposed to be allowed?)
         elif realHost==0 and options.ownServer_if_not_root: realHost=options.own_server # asking by cookie to adjust the same host, so don't forwardFor() it but fetch it normally and adjust it
+        if type(realHost)==bytes and not bytes==str:
+            realHost = S(realHost)
         isProxyRequest = self.isPjsUpstream or self.isSslUpstream or (options.real_proxy and realHost == self.request.host)
         self.request.valid_for_whois = True # (if options.whois, don't whois unless it gets this far, e.g. don't whois any that didn't even match "/(.*)" etc)
         maybeRobots = (not self.isPjsUpstream and not self.isSslUpstream and not options.robots and self.request.uri=="/robots.txt")
@@ -3612,7 +3737,7 @@ document.forms[0].i.focus()
               else:
                   self.set_status(401)
                   auth_error = options.auth_error
-              if self.canWriteBody(): self.write(htmlhead("")+auth_error+"</body></html>")
+              if self.canWriteBody(): self.write(B(htmlhead("")+auth_error+"</body></html>"))
               return self.myfinish()
         # Authentication is now OK
         fixServerHeader(self)
@@ -3620,7 +3745,7 @@ document.forms[0].i.focus()
           if self.handleGoAway(realHost,maybeRobots): return
           # Now check if it's an image request:
           _olduri = self.request.uri
-          self.request.uri=urllib.unquote(self.request.uri)
+          self.request.uri=unquote(self.request.uri)
           img = Renderer.getImage(self.request.uri)
           if img: return self.serveImage(img)
           # Not an image:
@@ -3643,7 +3768,7 @@ document.forms[0].i.focus()
         viewSource = (not self.isPjsUpstream and not self.isSslUpstream) and self.checkViewsource()
         if not self.isPjsUpstream and not self.isSslUpstream and self.needCssCookies():
             self.add_nocache_headers() # please don't cache this redirect!  otherwise user might not be able to leave the URL box after:
-            return self.redirect("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+urllib.quote(protocolWithHost(realHost)+self.request.uri),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
+            return self.redirect("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+quote(protocolWithHost(realHost)+self.request.uri),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
         if not self.isPjsUpstream and not self.isSslUpstream: self.addCookieFromURL() # for cookie_host
         converterFlags = []
         for opt,suffix,ext,fmt in [
@@ -3665,6 +3790,7 @@ document.forms[0].i.focus()
             return self.redirect(self.urlToFetch)
         # TODO: consider adding "not self.request.headers.get('If-Modified-Since','')" to the below list of sendHead() conditions, in case any referer-denying servers decide it's OK to send out "not modified" replies even to the wrong referer (which they arguably shouldn't, and seem not to as of 2013-09, but if they did then adjuster might erroneously redirect the SECOND time a browser displays the image)
         def ext(u):
+            u = S(u)
             if '?' in u:
                 e = ext(u[:u.index('?')])
                 if e: return e
@@ -3703,17 +3829,17 @@ document.forms[0].i.focus()
             if v:
                 self.original_referer = v
                 if not isProxyRequest: v = fixDNS(v,self)
-                if enable_adjustDomainCookieName_URL_override: v = re.sub("[?&]"+re.escape(adjust_domain_cookieName)+"=[^&]*$","",v)
-                if v in ["","http://","http:///"]:
+                if enable_adjustDomainCookieName_URL_override: v = re.sub(B("[?&]"+re.escape(adjust_domain_cookieName)+"=[^&]*$"),B(""),B(v))
+                if S(v) in ["","http://","http:///"]:
                     # it must have come from the URL box
                     del self.request.headers["Referer"]
-                else: self.request.headers["Referer"] = v
+                else: self.request.headers["Referer"] = S(v)
         for http in ["http://","http%3A%2F%2F"]: # xyz?q=http://... stuff
           if http in self.request.uri[1:]:
             u=self.request.uri.split(http)
             if not isProxyRequest:
                 for i in range(1,len(u)):
-                    u[i]=fixDNS(http+u[i],self)
+                    u[i]=S(fixDNS(http+u[i],self))
             self.request.uri="".join(u)
         self.removed_headers = []
         for h in rmClientHeaders:
@@ -3723,7 +3849,7 @@ document.forms[0].i.focus()
                 self.removed_headers.append((h,l[0]))
         self.request.headers["Host"]=realHost
         if options.via and not self.isSslUpstream:
-            v = self.request.version
+            v = S(self.request.version)
             if v.startswith("HTTP/"): v=v[5:]
             self.addToHeader("Via",v+" "+convert_to_via_host(self.request.host)+" ("+viaName+")")
             self.addToHeader("X-Forwarded-For",self.request.remote_ip)
@@ -3776,13 +3902,13 @@ document.forms[0].i.focus()
                 # prefetch the page, don't tie up a PJS until
                 # we have the page in hand
                 debuglog("prefetch "+self.urlToFetch)
-                httpfetch(self.urlToFetch,
+                httpfetch(self,self.urlToFetch,
                   connect_timeout=60,request_timeout=120,
                   proxy_host=ph, proxy_port=pp,
                   # TODO: use_gzip=enable_gzip, # but will need to retry without it if it fails
                   method=self.request.method,
                   allow_nonstandard_methods=True,
-                  headers=self.request.headers, body=body,
+                  headers=self.request.headers, body=B(body),
                   validate_cert=False,
                   callback=lambda prefetched_response:
                     webdriver_fetch(self.urlToFetch,
@@ -3803,7 +3929,7 @@ document.forms[0].i.focus()
                 if time.time() > last_Qoverload_time + 5:
                     logging.error("webdriver_queue overload (max prefetch delay %d secs)" % Qoverload_max)
                     last_Qoverload_time = time.time()
-                if not tooLate(): IOLoop.instance().add_timeout(again,lambda *args:prefetch_when_ready(t0))
+                if not tooLate(): IOLoopInstance().add_timeout(again,lambda *args:prefetch_when_ready(t0))
               prefetch_when_ready(time.time())
             else: # no reproxy: can't prefetch
                 webdriver_fetch(self.urlToFetch,None,ua,
@@ -3812,11 +3938,11 @@ document.forms[0].i.focus()
                         lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,js=True),tooLate)
         else:
             if options.js_interpreter and self.isPjsUpstream and webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
-            httpfetch(self.urlToFetch,
+            httpfetch(self,self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # Tornado's default is usually something like 20 seconds each; be more generous to slow servers (TODO: customise?)
                   proxy_host=ph, proxy_port=pp,
                   use_gzip=enable_gzip and not hasattr(self,"avoid_gzip"),
-                  method=self.request.method, headers=self.request.headers, body=body,
+                  method=self.request.method, headers=self.request.headers, body=B(body),
                   allow_nonstandard_methods=True, # (e.g. POST with empty body)
                   validate_cert=False, # TODO: options.validate_certs ? but (1) there's little point unless you also secure your connection to the adjuster (or run it on localhost), (2) we haven't sorted out how to gracefully return if the validation fails, (3) True will cause failure if we're on a VM/container without a decent root-certs configuration
                   callback=lambda r:self.doResponse(r,converterFlags,viewSource,isProxyRequest),follow_redirects=follow_redirects)
@@ -3860,7 +3986,7 @@ document.forms[0].i.focus()
             r += "<br>Fetched "+ampEncode(self.urlToFetch)
             if js:
                 screenshot_url = self.urlToFetch + ".screenshot"
-                if not options.urlboxPath=="/": screenshot_url = "http://" + convert_to_requested_host(self.cookie_host(),self.cookie_host()) + options.urlboxPath + "?q=" + urllib.quote(screenshot_url) + "&" + adjust_domain_cookieName + "=0&pr=on"
+                if not options.urlboxPath=="/": screenshot_url = "http://" + S(convert_to_requested_host(self.cookie_host(),self.cookie_host())) + options.urlboxPath + "?q=" + quote(screenshot_url) + "&" + adjust_domain_cookieName + "=0&pr=on"
                 elif not isProxyRequest: screenshot_url = domain_process(screenshot_url,self.cookie_host(),https=self.urlToFetch.startswith("https"))
                 r += " <ul><li>using %s (see <a href=\"%s\">screenshot</a>)</ul>" % (options.js_interpreter,screenshot_url)
             else: r += "<h2><a name=\"1\"></a>Headers sent</h2>"+h2html(self.request.headers)+"<a name=\"2\"></a><h2>Headers received</h2>"+h2html(response.headers)+"<a name=\"3\"></a>"
@@ -3884,10 +4010,10 @@ document.forms[0].i.focus()
                   "access-control-allow-origin", # better rewrite this for JSON responses to scripts that are used on a site's other domains
                   "link", # RFC 5988 equivalent to link elements in body; includes preloads; might want to adjust the resulting CSS or scripts (especially if the server won't support a fetch from a browser that supplies us as Referer)
                   # "x-associated-content" # see comment in rmServerHeaders
-                  ]: value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"),isProxyRequest=isProxyRequest,isSslUpstream=self.isSslUpstream)
+                  ]: value=S(domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"),isProxyRequest=isProxyRequest,isSslUpstream=self.isSslUpstream))
           elif name.lower()=="location": # TODO: do we need to delete this header if response.code not in [301,302,303,307] ?
             old_value_1 = value # before domain_process
-            value=domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"),isProxyRequest=isProxyRequest,isSslUpstream=self.isSslUpstream)
+            value=S(domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"),isProxyRequest=isProxyRequest,isSslUpstream=self.isSslUpstream))
             absolute = value.startswith("http://") or value.startswith("https://")
             offsite = (not isProxyRequest and value==old_value_1 and absolute) # i.e. domain_process didn't change it, and it's not relative
             old_value_2 = value # after domain_process but before PDF/EPUB-etc rewrites
@@ -3908,14 +4034,14 @@ document.forms[0].i.focus()
                 # (DON'T just do this for just ANY offsite url when in cookie_host mode (except when also in htmlOnlyMode, see below) - it could mess up images and things.  (Could still mess up images etc if they're served from / with query parameters; for now we're assuming path=/ is a good condition to do this.  The whole cookie_host thing is a compromise anyway; wildcard_dns is better.)  Can however do it if adjust_domain_cookieName is in the arguments, since this should mean a URL has just been typed in.)
                 if offsite:
                     # as cookie_host has been set, we know we CAN do this request if it were typed in directly....
-                    value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + options.urlboxPath + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
+                    value = "http://" + S(convert_to_requested_host(cookie_host,cookie_host)) + options.urlboxPath + "?q=" + quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
                     if self.htmlOnlyMode(isProxyRequest): value += "&pr=on"
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html lang=\"en\"><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
             elif can_do_cookie_host() and (offsite or (absolute and not options.urlboxPath=="/")) and self.htmlOnlyMode(isProxyRequest) and not options.htmlonly_css and enable_adjustDomainCookieName_URL_override: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally (TODO: can do this even if not enable_adjustDomainCookieName_URL_override, by issuing a Set-Cookie along with THIS response)
                 debuglog("HTML-only mode cookie-domain redirect (isProxyRequest="+repr(isProxyRequest)+")"+self.debugExtras())
-                value = "http://" + convert_to_requested_host(cookie_host,cookie_host) + options.urlboxPath + "?q=" + urllib.quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
+                value = "http://" + S(convert_to_requested_host(cookie_host,cookie_host)) + options.urlboxPath + "?q=" + quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
             doRedirect = value
           elif "set-cookie" in name.lower():
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host) # (never doing this if isProxyRequest, therefore don't have to worry about the upstream_rewrite_ssl exception that applies to normal domain_process isProxyRequest)
@@ -3937,7 +4063,7 @@ document.forms[0].i.focus()
           # TODO: if there's no content-type header, send one anyway, with a charset
         try: self.set_status(response.code) # (not before here! as might return doResponse2 above which will need status 200.  Redirect without Location gets "unknown error 0x80072f76" on IEMobile 6.)
         except ValueError: self.set_status(response.code,"Unknown") # some Tornado versions raise ValueError if given a code they can't look up in a 'reason' dict
-        if response.code >= 400 and response.body and response.body[:5].lower()=="<html": # some content distribution networks are misconfigured to serve their permission error messages with the Content-Type and Content-Disposition headers of the original file, so the browser won't realise it's HTML to be displayed if you try to fetch the link directly.  This should work around it (but should rarely be needed now that headResponse() is also 'aware' of this problem for redirectFiles)
+        if response.code >= 400 and response.body and B(response.body[:5]).lower()==B("<html"): # some content distribution networks are misconfigured to serve their permission error messages with the Content-Type and Content-Disposition headers of the original file, so the browser won't realise it's HTML to be displayed if you try to fetch the link directly.  This should work around it (but should rarely be needed now that headResponse() is also 'aware' of this problem for redirectFiles)
             for name,value in headers_to_add:
                 if name=='Content-Type' and not 'text/html' in value:
                     headers_to_add.remove((name,value))
@@ -3959,7 +4085,7 @@ document.forms[0].i.focus()
         if doRedirect:
             # ignore response.body and put our own in
             return self.redirect(doRedirect,response.code)
-        body = response.body
+        body = B(response.body)
         if not body or not self.canWriteBody(): return self.myfinish() # TODO: if canWriteBody() but not body and it's not just a redirect, set type to text/html and report empty?
         if do_html_process:
             # Normalise the character set
@@ -3971,7 +4097,7 @@ document.forms[0].i.focus()
                 except: charset="latin-1" # ?? (unrecognised charset name)
                 body=body.decode(charset,'replace').encode('utf-8')
             if self.checkBrowser(options.zeroWidthDelete):
-                body=body.replace(u"\u200b".encode('utf-8'),"") # U+200B zero-width space, sometimes used for word-wrapping purposes, but needs deleting for old browsers
+                body=body.replace(u"\u200b".encode('utf-8'),B("")) # U+200B zero-width space, sometimes used for word-wrapping purposes, but needs deleting for old browsers
                 # TODO: what about &#8203; and &#x200b;
         if do_pdftotext or do_epubtotext:
             if do_epubtotext and self.isKindle():
@@ -3980,7 +4106,7 @@ document.forms[0].i.focus()
             else:
                 self.set_header("Content-Type","text/plain; charset=utf-8")
                 newext = ".txt"
-            self.set_header("Content-Disposition","attachment; filename="+urllib.quote(self.request.uri[self.request.uri.rfind("/")+1:self.request.uri.rfind(".")]+newext))
+            self.set_header("Content-Disposition","attachment; filename="+quote(self.request.uri[self.request.uri.rfind("/")+1:self.request.uri.rfind(".")]+newext))
             # IEMobile 6 (and 7) ignores Content-Disposition and just displays the text in the browser using fonts that can't be made much bigger, even if you set Content-Type to application/octet-stream and filename to something ending .doc (or no filename at all), and even if you change the URL extension from TxT to TxQ or something.  Even a null-or-random byte or two before the BOM doesn't stop it.  Opening a real PDF file causes "Error: This file cannot be viewed on the device" (even if a PDF viewer is installed and associated with PDF files).  Serving a text file with Content-Type application/vnd.ms-cab-compressed results in no error but no download either (real CAB files give a download question); same result for application/msword or application/rtf.
             # And Opera Mini's not much help on that platform because its fonts can't be enlarged much (registry hacks to do so don't seem to work on non-touchscreen phones), although it could be squinted at to save some text files for later.
             # Opera Mobile 10 on Windows Mobile also has trouble recognising Content-Disposition: attachment, even though Opera Mini is fine with it.
@@ -3999,13 +4125,13 @@ document.forms[0].i.focus()
                 def tryDel(k):
                     try: del kept_tempfiles[k]
                     except: pass
-                IOLoop.instance().add_timeout(time.time()+options.pdfepubkeep,lambda *args:(tryDel(k),unlink(fn)))
+                IOLoopInstance().add_timeout(time.time()+options.pdfepubkeep,lambda *args:(tryDel(k),unlink(fn)))
             def txtCallback(self,fn,cmdname,err):
-                try: txt = open(fn+newext).read()
+                try: txt = open(fn+newext,'rb').read()
                 except: # try to diagnose misconfiguration
                     # TODO: change Content-Type and Content-Disposition headers if newext==".mobi" ? (but what if it's served by ANOTHER request?)
                     txt = "Could not read %s's output from %s\n%s\n(This is %s)" % (cmdname,fn+newext,err,serverName)
-                    try: open(fn+newext,"w").write(txt) # must unconditionally leave a .txt file as there might be other requests waiting on cache
+                    try: open(fn+newext,"wb").write(txt) # must unconditionally leave a .txt file as there might be other requests waiting on cache
                     except: txt += "\nCould not write to "+fn+".txt" # TODO: logging.error as well ?
                 unlinkOutputLater(fn+newext)
                 unlink(fn)
@@ -4016,21 +4142,21 @@ document.forms[0].i.focus()
                 self.myfinish()
             self.inProgress() # if appropriate
             if do_pdftotext:
-                if options.pdfepubkeep: runFilter(("pdftotext -enc UTF-8 -nopgbrk \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"pdftotext",out+err)), False)
-                elif self.canWriteBody(): runFilter(("pdftotext -enc UTF-8 -nopgbrk \"%s\" -" % f.name),"",(lambda out,err:(unlink(f.name),self.write(remove_blanks_add_utf8_BOM(out)),self.myfinish())), False) # (pipe o/p from pdftotext directly, no temp outfile needed)
+                if options.pdfepubkeep: runFilter(self,("pdftotext -enc UTF-8 -nopgbrk \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"pdftotext",out+err)), False)
+                elif self.canWriteBody(): runFilter(self,("pdftotext -enc UTF-8 -nopgbrk \"%s\" -" % f.name),"",(lambda out,err:(unlink(f.name),self.write(remove_blanks_add_utf8_BOM(out)),self.myfinish())), False) # (pipe o/p from pdftotext directly, no temp outfile needed)
                 else: self.myfinish()
-            elif self.isKindle(): runFilter(("ebook-convert \"%s\" \"%s.mobi\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)), False)
-            else: runFilter(("ebook-convert \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)), False)
+            elif self.isKindle(): runFilter(self,("ebook-convert \"%s\" \"%s.mobi\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)), False)
+            else: runFilter(self,("ebook-convert \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)), False)
             return
-        if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host,https=self.urlToFetch.startswith("https")) # first, so filters to run and scripts to add can mention new domains without these being redirected back
+        if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host,https=B(self.urlToFetch).startswith(B("https"))) # first, so filters to run and scripts to add can mention new domains without these being redirected back
         # Must also do things like 'delete' BEFORE the filters, especially if lxml is in use and might change the code so the delete patterns aren't recognised.  But do JS process BEFORE delete, as might want to pick up on something that was there originally.  (Must do it AFTER domain process though.)
         if self.isPjsUpstream:
           if do_html_process:
             # add a CSS rule to help with js_interpreter screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
-            i = htmlFind(body,"<head")
-            if i==-1: i=htmlFind(body,"<html")
-            if not i==-1: i = body.find('>',i)+1
-            if i: body=body[:i]+"<style>html{background:#fff}</style>"+body[i:] # setting on 'html' rather than 'body' allows body bgcolor= to override.  (body background= is not supported in HTML5 and PhantomJS will ignore it anyway.)
+            i = htmlFind(body,B("<head"))
+            if i==-1: i=htmlFind(body,B("<html"))
+            if not i==-1: i = body.find(B('>'),i)+1
+            if i: body=body[:i]+B("<style>html{background:#fff}</style>")+body[i:] # setting on 'html' rather than 'body' allows body bgcolor= to override.  (body background= is not supported in HTML5 and PhantomJS will ignore it anyway.)
             if options.js_upstream: body = html_additions(body,(None,None),False,"","",False,"","PjsUpstream",False,False,"") # just headAppend,bodyPrepend,bodyAppend (no css,ruby,render,UI etc, nor htmlFilter from below)
           if do_js_process and options.js_upstream: body = js_process(body,self.urlToFetch)
           return self.doResponse3(body) # write & finish
@@ -4045,21 +4171,21 @@ document.forms[0].i.focus()
         if do_html_process:
           if self.htmlOnlyMode(isProxyRequest):
               if isProxyRequest: url = self.urlToFetch
-              else: url = domain_process(self.urlToFetch,cookie_host,True,self.urlToFetch.startswith("https"))
+              else: url = domain_process(self.urlToFetch,cookie_host,True,B(self.urlToFetch).startswith(B("https")))
               if cookie_host:
-                  adjustList.append(RewriteExternalLinks("http://" + convert_to_requested_host(cookie_host,cookie_host) + options.urlboxPath + "?" + adjust_domain_cookieName+"=0&pr=on&q=",url,cookie_host))
+                  adjustList.append(RewriteExternalLinks("http://" + S(convert_to_requested_host(cookie_host,cookie_host)) + options.urlboxPath + "?" + adjust_domain_cookieName+"=0&pr=on&q=",url,cookie_host))
               if options.js_links:
                   adjustList.append(AddClickCodes(url))
               adjustList.append(StripJSEtc(self.urlToFetch,transparent=self.auto_htmlOnlyMode(isProxyRequest)))
               if not options.htmlonly_css:
-                  adjustList.append(transform_in_selected_tag("style",lambda s:"",True)) # strips JS events also (TODO: support this in htmlonly_css ? although htmlonly_css is mostly a 'developer' option)
+                  adjustList.append(transform_in_selected_tag("style",zapAllStrOrBytes,True)) # strips JS events also (TODO: support this in htmlonly_css ? although htmlonly_css is mostly a 'developer' option)
                   adjustList.append(AriaCopier())
           elif options.upstream_guard:
             # don't let upstream scripts get confused by our cookies (e.g. if the site is running Web Adjuster as well)
             # TODO: do it in script files also?
-            if options.cssName: adjustList.append(transform_in_selected_tag("script",lambda s:s.replace("adjustCssSwitch","adjustCssSwitch1")))
-            if options.htmlFilterName: adjustList.append(transform_in_selected_tag("script",lambda s:s.replace("adjustNoFilter","adjustNoFilter1")))
-            if options.renderName: adjustList.append(transform_in_selected_tag("script",lambda s:s.replace("adjustNoRender","adjustNoRender1")))
+            if options.cssName: adjustList.append(transform_in_selected_tag("script",lambda s:replaceStrOrBytes(s,"adjustCssSwitch","adjustCssSwitch1")))
+            if options.htmlFilterName: adjustList.append(transform_in_selected_tag("script",lambda s:replaceStrOrBytes(s,"adjustNoFilter","adjustNoFilter1")))
+            if options.renderName: adjustList.append(transform_in_selected_tag("script",lambda s:replaceStrOrBytes(s,"adjustNoRender","adjustNoRender1")))
         if (options.pdftotext or options.epubtotext or options.epubtozip or options.askBitrate or options.mailtoPath) and (do_html_process or (do_json_process and options.htmlJson)) and not any(re.search(x,self.urlToFetch) for x in options.skipLinkCheck):
             # Add PDF links BEFORE the external filter, in case the external filter is broken and we have trouble parsing the result
             if do_html_process: adjustList.append(AddConversionLinks(options.wildcard_dns or isProxyRequest,self.isKindle()))
@@ -4067,29 +4193,29 @@ document.forms[0].i.focus()
                 ctl = find_HTML_in_JSON(body)
                 for i in range(1,len(ctl),2):
                     ctl[i] = json_reEscape(add_conversion_links(ctl[i],options.wildcard_dns or isProxyRequest,self.isKindle()))
-                body = "".join(ctl)
+                body = B("").join(ctl)
         cssToAdd,attrsToAdd = self.cssAndAttrsToAdd()
         if cssToAdd:
           # remove !important from other stylesheets
-          important = re.compile("! *important")
+          important = re.compile(B("! *important"))
           if (do_html_process or (do_css_process and not self.urlToFetch == cssToAdd and not (options.protectedCSS and re.search(options.protectedCSS,self.urlToFetch)))) and re.search(important,body):
-            if do_css_process: body=re.sub(important,"",body)
-            else: adjustList.append(transform_in_selected_tag("style",lambda s:re.sub(important,"",s))) # (do_html_process must be True here)
+            if do_css_process: body=re.sub(important,B(""),body)
+            else: adjustList.append(transform_in_selected_tag("style",lambda s:zapStrOrBytes(s,"! *important"))) # (do_html_process must be True here)
         if adjustList: body = HTML_adjust_svc(body,adjustList)
         if options.prominentNotice=="htmlFilter": callback = lambda out,err: self.doResponse2(body,do_html_process,do_json_process,out)
         else: callback = lambda out,err:self.doResponse2(out,do_html_process,do_json_process)
         htmlFilter = self.getHtmlFilter()
-        if options.htmlUrl: line1 = self.urlToFetch+"\n"
-        else: line1 = ""
+        if options.htmlUrl: line1 = B(self.urlToFetch)+B("\n")
+        else: line1 = B("")
         if do_html_process and htmlFilter:
-            if options.htmlText: runFilterOnText(htmlFilter,find_text_in_HTML(body),callback,prefix=line1)
-            else: runFilter(htmlFilter,line1+body,callback)
+            if options.htmlText: runFilterOnText(self,htmlFilter,find_text_in_HTML(body),callback,prefix=line1)
+            else: runFilter(self,htmlFilter,line1+body,callback)
         elif do_json_process and options.htmlJson and htmlFilter:
             if options.htmlText: htmlFunc = find_text_in_HTML
             else: htmlFunc = None
-            runFilterOnText(htmlFilter,find_HTML_in_JSON(body,htmlFunc),callback,True,prefix=line1)
+            runFilterOnText(self,htmlFilter,find_HTML_in_JSON(body,htmlFunc),callback,True,prefix=line1)
         elif do_mp3 and options.bitrate:
-            runFilter("lame --quiet --mp3input -m m --abr %d - -o -" % options.bitrate,body,callback,False) # -m m = mono (TODO: optional?)
+            runFilter(self,"lame --quiet --mp3input -m m --abr %d - -o -" % options.bitrate,body,callback,False) # -m m = mono (TODO: optional?)
         else: callback(body,"")
     def getHtmlFilter(self,filterNo=None):
         return findFilter(self,filterNo)
@@ -4099,17 +4225,18 @@ document.forms[0].i.focus()
         # has been run) - now add scripts etc, and render
         canRender = options.render and (do_html_process or (do_json_process and options.htmlJson)) and not self.checkBrowser(options.renderOmit)
         jsCookieString = ';'.join(self.request.headers.get_list("Cookie"))
+        body = B(body)
         if do_html_process: body = html_additions(body,self.cssAndAttrsToAdd(),self.checkBrowser(options.cssNameReload),self.cookieHostToSet(),jsCookieString,canRender,self.cookie_host(),self.is_password_domain,self.checkBrowser(["Edge/"]),not do_html_process=="noFilterOptions",htmlFilterOutput) # noFilterOptions is used by bookmarklet code (to avoid confusion between filter options on current screen versus bookmarklets)
         if canRender and not "adjustNoRender=1" in jsCookieString:
             if do_html_process: func = find_text_in_HTML
             else: func=lambda body:find_HTML_in_JSON(body,find_text_in_HTML)
             debuglog("runFilterOnText Renderer"+self.debugExtras())
-            runFilterOnText(lambda t:Renderer.getMarkup(ampDecode(t.decode('utf-8'))).encode('utf-8'),func(body),lambda out,err:self.doResponse3(out),not do_html_process,chr(0))
+            runFilterOnText(self,lambda t:Renderer.getMarkup(ampDecode(t.decode('utf-8'))).encode('utf-8'),func(body),lambda out,err:self.doResponse3(out),not do_html_process,chr(0))
         else: self.doResponse3(body)
     def doResponse3(self,body):
         # 3rd stage (rendering has been done)
         debuglog(("doResponse3 (len=%d)" % len(body))+self.debugExtras())
-        if self.canWriteBody(): self.write(body)
+        if self.canWriteBody(): self.write(B(body))
         self.myfinish()
     def sendHead(self,forPjs=False):
         # forPjs is for options.js_reproxy: we've identified the request as coming from js_interpreter and being its main document (not images etc).  Just check it's not a download link.
@@ -4119,11 +4246,11 @@ document.forms[0].i.focus()
             debuglog("sendHead using prefetched head"+self.debugExtras())
             return self.headResponse(webdriver_prefetched[self.WA_PjsIndex],True)
         debuglog("sendHead"+self.debugExtras())
-        body = self.request.body
+        body = B(self.request.body)
         if not body: body = None
         if hasattr(self,"original_referer"): self.request.headers["Referer"],self.original_referer = self.original_referer,self.request.headers.get("Referer","") # we'll send the request with the user's original Referer, to check it still works
         ph,pp = upstream_proxy_host, upstream_proxy_port
-        httpfetch(self.urlToFetch,
+        httpfetch(self,self.urlToFetch,
                   connect_timeout=60,request_timeout=120, # same TODO as above
                   proxy_host=ph, proxy_port=pp,
                   method="HEAD", headers=self.request.headers, body=body,
@@ -4152,13 +4279,13 @@ document.forms[0].i.focus()
             if not reason: return self.sendRequest([False]*4,False,True,follow_redirects=False)
             self.set_status(200)
             self.add_header("Content-Type","text/html")
-            if self.canWriteBody(): self.write(htmlhead()+"js_interpreter cannot load "+ampEncode(self.urlToFetch)+" as "+reason+"</body></html>") # TODO: provide a direct link if the original request wasn't a proxy request?  (or even if it was a proxy request, give webdriver a placeholder (so it can still handle cookies etc) and bypass it with the actual response body?  but don't expect to load non-HTML files via PhantomJS: its currentUrl will be unchanged, sometimes from about:blank)
+            if self.canWriteBody(): self.write(B(htmlhead()+"js_interpreter cannot load "+ampEncode(self.urlToFetch)+" as "+reason+"</body></html>")) # TODO: provide a direct link if the original request wasn't a proxy request?  (or even if it was a proxy request, give webdriver a placeholder (so it can still handle cookies etc) and bypass it with the actual response body?  but don't expect to load non-HTML files via PhantomJS: its currentUrl will be unchanged, sometimes from about:blank)
             self.myfinish() ; return
         might_need_processing_after_all = True
         if response.code < 400: # this 'if' is a workaround for content-distribution networks that misconfigure their servers to serve Referrer Denied messages as HTML without changing the Content-Type from the original file: if the code is >=400 then assume might_need_processing_after_all is True no matter what the Content-Type is
          for name,value in response.headers.get_all():
           if name.lower()=="content-type":
-            value=value.lower()
+            value=S(value.lower())
             might_need_processing_after_all = ("html" in value or "css" in value or "javascript" in value or "json" in value or "rss+xml" in value) # these need at least domain processing
         # TODO: what if browser sent If-Modified-Since and it returned 304 Not Modified, which has no Content-Type?  (I suppose 200 w/out Content Type should assume HTML.)  If 304, we currently perform a fetch and log it, which seems a bit silly (although this shouldn't happen unless we previously proxied the file anyway)
         if might_need_processing_after_all: self.sendRequest([False]*4,False,False,follow_redirects=False)
@@ -4168,9 +4295,9 @@ document.forms[0].i.focus()
     def isKindle(self): return options.epubtotext and self.checkBrowser(["Kindle"]) and self.checkBrowser(["Linux"]) # (don't do it if epubtotext is false as might want epubtozip links only; TODO: some reports say Kindle Fire in Silk mode doesn't mention "Kindle" in user-agent)
     def checkBrowser(self,blist,warn="{B}"):
         assert type(blist)==list # (if it's a string we don't know if we should check for just that string or if we should .split() it on something)
-        ua = self.request.headers.get("User-Agent","")
+        ua = S(self.request.headers.get("User-Agent",""))
         for b in blist:
-            if b in ua: return warn.replace("{B}",b)
+            if S(b) in ua: return warn.replace("{B}",S(b))
         return ""
 
 #@file: ssl-certs.py
@@ -4289,7 +4416,10 @@ class UpSslRequestForwarder(RequestForwarder):
 
 #@file: wsgi.py
 # --------------------------------------------------
-# WSGI support for when we can't run as a server process
+# WSGI support for when we can't run as a server process.
+# Works on Tornado versions 2 through 5.  Support for this
+# has been dropped in Tornado 6, so don't use Tornado 6 if
+# you want WSGI support (Tornado 5.x can run in Python 3)
 # --------------------------------------------------
 
 def make_WSGI_application():
@@ -4309,16 +4439,20 @@ def make_WSGI_application():
         warn("pdfepubkeep and waitpage may not work in WSGI mode; clearing them") # both rely on one process doing all requests (not guaranteed in WSGI mode), and both rely on ioloop's add_timeout being FULLY functional
     options.own_server = "" # for now, until we get forwardFor to work (TODO, and update the above list of ignored options accordingly)
     import tornado.wsgi
+    if not hasattr(tornado.wsgi,"WSGIApplication"): errExit("Tornado 6+ does not support our WSGI mode. Use Tornado 5 or below.")
     handlers = [("(.*)",SynchronousRequestForwarder)]
     if options.staticDocs: handlers.insert(0,static_handler()) # (the staticDocs option is probably not really needed in a WSGI environment if we're behind a wrapper that can also list static URIs, but keeping it anyway might be a convenience for configuration-porting; TODO: warn that this won't work with htaccess redirect and SCRIPT_URL thing)
     return tornado.wsgi.WSGIApplication(handlers)
 
 wsgi_mode = False
-def httpfetch(url,**kwargs):
-    url = re.sub("[^ -~]+",lambda m:urllib.quote(m.group()),url) # sometimes needed to get out of redirect loops
-    debuglog("httpfetch "+url+" "+repr(kwargs)+repr([(n,v) for n,v in kwargs['headers'].get_all()]))
+def httpfetch(req,url,**kwargs):
+    url = B(url)
+    url = re.sub(B("[^ -~]+"),lambda m:quote(m.group()),url) # sometimes needed to get out of redirect loops
+    debuglog("httpfetch "+S(url)+" "+repr(kwargs)+repr([(n,v) for n,v in kwargs['headers'].get_all()]))
     if not wsgi_mode:
-        return MyAsyncHTTPClient().fetch(url,**kwargs)
+        callback = kwargs['callback']
+        del kwargs['callback']
+        return doCallback(req,MyAsyncHTTPClient().fetch,callback,url,**kwargs)
     # ----------------------------
     # -------- wsgi_mode: --------
     # Don't use HTTPClient: it usually just wraps ASyncHTTPClient with an IOLoop,
@@ -4329,11 +4463,11 @@ def httpfetch(url,**kwargs):
     data = kwargs.get('body',None)
     if not data: data = None
     headers = dict(kwargs.get('headers',{}))
-    req = urllib2.Request(url, data, headers)
+    req = Request(url, data, headers)
     if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
     r = None
-    try: resp = urllib2.build_opener(DoNotRedirect).open(req,timeout=60)
-    except urllib2.HTTPError as e: resp = e
+    try: resp = build_opener(DoNotRedirect).open(req,timeout=60)
+    except UL_HTTPError as e: resp = e
     except Exception as e: resp = r = wrapResponse(str(e)) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
     if r==None: r = wrapResponse(resp.read(),resp.info(),resp.getcode())
     kwargs['callback'](r)
@@ -4357,10 +4491,10 @@ def wrapResponse(body,info={},code=500):
             if hasattr(self.info,"headers"):
                 return [h.replace('\n','').split(': ',1) for h in self.info.headers]
             else: return self.info.get_all()
-    r.headers = H(info) ; r.body = body ; return r
+    r.headers = H(info) ; r.body = B(body) ; return r
 
-class DoNotRedirect(urllib2.HTTPRedirectHandler):
-    def http_error_302(self, req, fp, code, msg, headers): raise urllib2.HTTPError(req.get_full_url(), code, msg, headers, fp)
+class DoNotRedirect(HTTPRedirectHandler):
+    def http_error_302(self, req, fp, code, msg, headers): raise UL_HTTPError(req.get_full_url(), code, msg, headers, fp)
     http_error_301 = http_error_303 = http_error_307 = http_error_302
 
 class SynchronousRequestForwarder(RequestForwarder):
@@ -4382,16 +4516,16 @@ class SynchronousRequestForwarder(RequestForwarder):
 # --------------------------------------------------
 
 def addArgument(url,extraArg):
-    if '#' in url: url,hashTag = url.split('#',1)
+    if B('#') in url: url,hashTag = url.split(B('#'),1)
     else: hashTag=None
-    if '?' in url: url += '&'+extraArg
-    else: url += '?'+extraArg
-    if hashTag: url += '#'+hashTag
+    if B('?') in url: url += B('&')+B(extraArg)
+    else: url += B('?')+B(extraArg)
+    if hashTag: url += B('#')+hashTag
     return url
 
 def remove_blanks_add_utf8_BOM(out):
     # for writing text files from PDF and EPUB
-    return '\xef\xbb\xbf'+"\n".join([x for x in out.replace("\r","").split("\n") if x])
+    return unichr(0xFEFF).encode('utf-8')+B("\n").join([x for x in B(out).replace(B("\r"),B("")).split(B("\n")) if x])
 
 def rm_u8punc(u8):
     # for SMS links, turn some Unicode punctuation into ASCII (helps with some phones)
@@ -4401,8 +4535,8 @@ u8punc_d=u"\u2013 -- \u2014 -- \u2018 ' \u2019 ' \u201c \" \u201d \" \u2032 ' \u
 u8punc_d = zip(u8punc_d[::2], u8punc_d[1::2])
 
 def getSearchURL(q):
-    if not options.search_sites: return "http://"+urllib.quote(q) # ??
-    def site(s,q): return s.split()[0]+urllib.quote(q)
+    if not options.search_sites: return B("http://")+quote(q) # ??
+    def site(s,q): return B(s.split()[0])+quote(q)
     splitq = q.split(None,1)
     if len(splitq)==2 and len(options.search_sites)>1:
       cmd,rest = splitq
@@ -4422,7 +4556,7 @@ def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
     if default_url: r += ' value="'+default_url+'"'
     else: r += ' placeholder="http://"' # HTML5 (Firefox 4, Opera 11, MSIE 10, etc)
     r += '><input type="submit" value="Go">'+searchHelp()+cssOpts_html # 'go' button MUST be first, before cssOpts_html, because it's the button that's hit when Enter is pressed.  (So might as well make the below focus() script unconditional even if there's cssOpts_html.  Minor problem is searchHelp() might get in the way.)
-    if enable_adjustDomainCookieName_URL_override and not options.wildcard_dns and "" in options.default_site.split("/"): r += '<input type="hidden" name="%s" value="%s">' % (adjust_domain_cookieName,adjust_domain_none) # so you can get back to the URL box via the Back button as long as you don't reload
+    if enable_adjustDomainCookieName_URL_override and not options.wildcard_dns and "" in options.default_site.split("/"): r += '<input type="hidden" name="%s" value="%s">' % (adjust_domain_cookieName,S(adjust_domain_none)) # so you can get back to the URL box via the Back button as long as you don't reload
     if htmlonly_checked: htmlonly_checked=' checked="checked"'
     else: htmlonly_checked = ""
     if options.htmlonly_mode:
@@ -4633,10 +4767,10 @@ def android_ios_instructions(pType,reqHost,ua,filterNo):
 # Text processing etc: handle running arbitrary filters
 # --------------------------------------------------
 
-def runFilter(cmd,text,callback,textmode=True):
+def runFilter(req,cmd,text,callback,textmode=True):
 
     # (Note: replaced by sync_runFilter when in WSGI mode)
-    
+
     # runs shell command 'cmd' on input 'text' in a new
     # thread, then gets Tornado to call callback(out,err)
     # If 'cmd' is not a string, assumes it's a function
@@ -4647,54 +4781,58 @@ def runFilter(cmd,text,callback,textmode=True):
     # of a Python function to call on the text.  And if it
     # starts with http(s?):// then we assume it's a back-end
     # server to query.
+    text = B(text)
     if not cmd: return callback(text,"") # null filter, e.g. render-only submitPage
     if type(cmd)==type("") and cmd.startswith("*"):
         cmd = eval(cmd[1:]) # (normally a function name, but any Python expression that evaluates to a callable is OK, TODO: document this?  and incidentally if it evaluates to a string that's OK as well; the string will be given to an external command)
     if not type(cmd)==type(""):
-        if wsgi_mode: return callback(cmd(text),"")
+        if wsgi_mode: return callback(B(cmd(text)),"")
         # else use a slightly more roundabout version to give watchdog ping a chance to work between cmd and callback:
-        out = cmd(text)
-        return IOLoop.instance().add_timeout(time.time(),lambda *args:callback(out,""))
+        out = B(cmd(text))
+        return IOLoopInstance().add_timeout(time.time(),lambda *args:callback(out,""))
     elif cmd.startswith("http://") or cmd.startswith("https://"):
-        return httpfetch(cmd,method="POST",body=text,callback=lambda r:(curlFinished(),callback(r.body,"")))
+        return httpfetch(req,cmd,method="POST",body=text,callback=lambda r:(curlFinished(),callback(B(r.body),"")))
     def subprocess_thread():
         helper_threads.append('filter-subprocess')
         sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=textmode) # TODO: check shell=True won't throw error on Windows
         out,err = sp.communicate(text)
-        if not out: out=""
+        if not out: out=B("")
         if not err: err="" # TODO: else logging.debug ? (some stderr might be harmless; don't want to fill normal logs)
-        IOLoop.instance().add_callback(lambda *args:callback(out,err))
+        IOLoopInstance().add_callback(lambda *args:callback(out,err))
         helper_threads.remove('filter-subprocess')
     threading.Thread(target=subprocess_thread,args=()).start()
 
-def sync_runFilter(cmd,text,callback,textmode=True):
-    if not cmd: return callback(text,"")
+def sync_runFilter(req,cmd,text,callback,textmode=True):
+    text = B(text)
+    if not cmd: return B(callback(text,""))
     if type(cmd)==type("") and cmd.startswith("*"):
         cmd = eval(cmd[1:])
-    if not type(cmd)==type(""): out,err = cmd(text),""
+    if not type(cmd)==type(""): out,err = B(cmd(text)),""
     elif cmd.startswith("http://") or cmd.startswith("https://"):
-        return httpfetch(cmd,method="POST",body=text,callback=lambda r:callback(r.body,""))
+        return httpfetch(req,cmd,method="POST",body=text,callback=lambda r:callback(B(r.body),""))
     else:
         sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=textmode) # TODO: check shell=True won't throw error on Windows
         out,err = sp.communicate(text)
-        if not out: out=""
+        if not out: out=B("")
         if not err: err="" # TODO: else logging.debug ? (some stderr might be harmless; don't want to fill normal logs)
     callback(out,err)
 
-def json_reEscape(u8str): return json.dumps(u8str.decode('utf-8','replace'))[1:-1] # omit ""s (necessary as we might not have the whole string here)
+def json_reEscape(u8str): return B(json.dumps(u8str.decode('utf-8','replace')))[1:-1] # omit ""s (necessary as we might not have the whole string here)
 
-def runFilterOnText(cmd,codeTextList,callback,escape=False,separator=None,prefix=""):
+def runFilterOnText(req,cmd,codeTextList,callback,escape=False,separator=None,prefix=""):
     # codeTextList is a list of alternate [code, text, code, text, code]. Any 'text' element can itself be a list of [code, text, code] etc.
     # Pick out all the 'text' elements, separate them, send to the filter, and re-integrate assuming separators preserved
     # If escape is True, on re-integration escape anything that comes under a top-level 'text' element so they can go into JSON strings (see find_HTML_in_JSON)
     if not separator: separator = options.separator
     if not separator: separator="\n"
+    separator,prefix = B(separator),B(prefix)
     def getText(l,replacements=None,codeAlso=False,alwaysEscape=False):
         isTxt = False ; r = [] ; rLine = 0
-        def maybeEsc(x):
-            if escape and replacements and (isTxt or alwaysEscape): return json_reEscape(x)
-            else: return x
+        def maybeEsc(u8str):
+            if escape and replacements and (isTxt or alwaysEscape): return json_reEscape(u8str)
+            else: return u8str
         for i in l:
+            i = B(i)
             if isTxt:
                 if type(i)==type([]):
                   if i: # (skip empty lists)
@@ -4707,38 +4845,35 @@ def runFilterOnText(cmd,codeTextList,callback,escape=False,separator=None,prefix
                 elif replacements==None: r.append(maybeEsc(i))
                 else:
                     cl = countItems(["",i]) # >= 1 (site might already use separator)
-                    r.append(maybeEsc(separator.join(rpl.replace(chr(0),"&lt;NUL&gt;") for rpl in replacements[rLine:rLine+cl]))) # there shouldn't be any chr(0)s in the o/p, but if there are, don't let them confuse things
+                    r.append(maybeEsc(separator.join(rpl.replace(B(chr(0)),B("&lt;NUL&gt;")) for rpl in replacements[rLine:rLine+cl]))) # there shouldn't be any chr(0)s in the o/p, but if there are, don't let them confuse things
                     rLine += cl
             elif codeAlso: r.append(maybeEsc(i))
             isTxt = not isTxt
         return r
     def countItems(l): return len(separator.join(getText(l)).split(separator))
     text = getText(codeTextList)
-    toSend = separator.join(text).replace('\xe2\x80\x8b','') # the .replace is for U+200B, for some sites that use zero-width spaces between words that can upset some annotators (TODO: document)
-    if separator == options.separator:
+    toSend = separator.join(text).replace(unichr(0x200b).encode('utf-8'),B('')) # .replace for some sites that use zero-width spaces between words that can upset some annotators (TODO: document)
+    if separator == B(options.separator):
         toSend=separator+toSend+separator
         sortout = lambda out:out.split(separator)[1:-1]
     else: sortout = lambda out:out.split(separator)
-    runFilter(cmd,prefix+toSend,lambda out,err:callback("".join(getText(codeTextList,sortout(out),True)),err))
-
-def latin1decode(htmlStr):
-    # back to bytes (hopefully UTF-8)
-    if type(htmlStr)==type(u""):
-        return htmlStr.encode('latin1')
-    else: return htmlStr
+    runFilter(req,cmd,prefix+toSend,lambda out,err:callback(B("").join(getText(codeTextList,sortout(out),True)),err))
 
 def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in utf-8
     if options.useLXML:
         return LXML_find_text_in_HTML(htmlStr)
+    htmlStr = fixHTML(htmlStr) # may now be u8 or Unicode u8-values, see comments in fixHTML
     class Parser(HTMLParser):
         def shouldStripTag(self,tag):
             self.ignoredLastTag = (tag.lower() in options.stripTags and (self.ignoredLastTag or self.getBytePos()==self.lastCodeStart))
             return self.ignoredLastTag
         def handle_starttag(self, tag, attrs):
+            tag = S(tag)
             if self.shouldStripTag(tag): return
             if tag in options.leaveTags:
                 self.ignoreData=True
         def handle_endtag(self, tag):
+            tag = S(tag)
             if self.shouldStripTag(tag): return
             if tag in options.leaveTags:
                 self.ignoreData=False
@@ -4748,12 +4883,13 @@ def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in ut
             line,offset = self.getpos()
             while line>self.knownLine:
                 self.knownLine += 1
-                self.knownLinePos=htmlStr.find('\n',self.knownLinePos)+1
+                self.knownLinePos=htmlStr.find(asT(htmlStr,'\n'),self.knownLinePos)+1
             return self.knownLinePos + offset
         def handle_data(self,data,datalen=None):
             if self.ignoreData or not data.strip():
                 return # keep treating it as code
-            if datalen==None: data = latin1decode(data)
+            if datalen==None: data = latin1decode(data) # because the document being parsed was from fixHTML's output
+            # else datalen not None means data will already have been supplied as a UTF-8 byte string by handle_entityref or handle_charref below.  Either way, 'data' is now a UTF-8 byte string.
             dataStart = self.getBytePos()
             if self.codeTextList and (self.ignoredLastTag or dataStart == self.lastCodeStart): # no intervening code, merge (TODO reduce string concatenation?)
                 self.codeTextList[-1] += data
@@ -4763,8 +4899,10 @@ def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in ut
             if datalen==None: datalen = len(data) # otherwise we're overriding it for entity refs etc
             self.lastCodeStart = dataStart+datalen
         def handle_entityref(self,name):
+            name = S(name)
             if name in htmlentitydefs.name2codepoint and not name in ['lt','gt','amp']: self.handle_data(unichr(htmlentitydefs.name2codepoint[name]).encode('utf-8'),len(name)+2)
         def handle_charref(self,name):
+            name = S(name)
             if name.startswith('x'): d=unichr(int(name[1:],16))
             else: d=unichr(int(name))
             if d in u'<>&': pass # leave entity ref as-is
@@ -4773,7 +4911,6 @@ def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in ut
     parser.codeTextList = [] ; parser.lastCodeStart = 0
     parser.knownLine = 1 ; parser.knownLinePos = 0
     parser.ignoreData = parser.ignoredLastTag = False
-    htmlStr = fixHTML(htmlStr)
     err=""
     try:
         parser.feed(htmlStr) ; parser.close()
@@ -4789,7 +4926,7 @@ def find_text_in_HTML(htmlStr): # returns a codeTextList; encodes entities in ut
     if len(parser.codeTextList)%2: parser.codeTextList.append("") # ensure len is even before appending the remaining code (adjustment is required only if there was an error)
     if not options.renderDebug: err=""
     elif err: err="<!-- "+err+" -->"
-    parser.codeTextList.append(err+latin1decode(htmlStr[parser.lastCodeStart:]))
+    parser.codeTextList.append(B(err)+latin1decode(htmlStr[parser.lastCodeStart:]))
     return parser.codeTextList
 
 def LXML_find_text_in_HTML(htmlStr):
@@ -4815,7 +4952,7 @@ def LXML_find_text_in_HTML(htmlStr):
             if self.ignoreData or not data.strip():
                 self.out.append(data) ; return
             if self.ignoredLastTag: self.out = []
-            out = "".join(self.out)
+            out = B("").join(self.out)
             if self.codeTextList and not out:
                 # merge (TODO reduce string concatenation?)
                 self.codeTextList[-1] += data
@@ -4824,7 +4961,7 @@ def LXML_find_text_in_HTML(htmlStr):
                 self.codeTextList.append(data)
             self.out = []
         def comment(self,text): # TODO: same as above's def comment
-            self.out.append("<!--"+text.encode('utf-8')+"-->")
+            self.out.append(B("<!--")+text.encode('utf-8')+B("-->"))
         def close(self): pass
     parser = Parser() ; parser.out = []
     parser.codeTextList = []
@@ -4832,13 +4969,14 @@ def LXML_find_text_in_HTML(htmlStr):
     lparser = etree.HTMLParser(target=parser)
     etree.parse(StringIO(htmlStr.decode('utf-8','replace')), lparser)
     if len(parser.codeTextList)%2: parser.codeTextList.append("")
-    parser.codeTextList.append("".join(parser.out))
+    parser.codeTextList.append(B("").join(parser.out))
     return parser.codeTextList
 
 def find_HTML_in_JSON(jsonStr,htmlListFunc=None):
     # makes a codeTextList from JSON, optionally calling
     # htmlListFunc to make codeTextLists from any HTML
     # parts it finds.  Unescapes the HTML parts.
+    jsonStr = S(jsonStr)
     def afterQuoteEnd(i):
         while i<len(jsonStr):
             i += 1
@@ -4870,31 +5008,34 @@ def find_HTML_in_JSON(jsonStr,htmlListFunc=None):
 # --------------------------------------------------
 
 def extractCharsetEquals(value):
+    value = S(value)
     charset=value[value.index("charset=")+len("charset="):]
     if ';' in charset: charset=charset[:charset.index(';')]
     return charset
 
 def get_httpequiv_charset(htmlStr):
-    class Finished:
+    class Finished(Exception):
         def __init__(self,charset=None,tagStart=None,tagEnd=None):
             self.charset,self.tagStart,self.tagEnd = charset,tagStart,tagEnd
+    htmlStr = fixHTML(htmlStr)
     class Parser(HTMLParser): # better not use LXML yet...
         def handle_starttag(self, tag, attrs):
+            tag = S(tag)
             if tag=="body": raise Finished() # only interested in head
             attrs = dict(attrs)
-            if tag=="meta" and attrs.get("http-equiv",attrs.get("http_equiv","")).lower()=="content-type" and "charset=" in attrs.get("content","").lower():
+            if tag=="meta" and S(attrs.get("http-equiv",attrs.get("http_equiv","")).lower())=="content-type" and "charset=" in S(attrs.get("content","").lower()):
                 charset = extractCharsetEquals(attrs['content'].lower())
                 line,offset = self.getpos() ; knownLine = 1 ; knownLinePos = 0
                 while line>knownLine:
                     knownLine += 1
-                    knownLinePos=htmlStr.find('\n',knownLinePos)+1
+                    knownLinePos=htmlStr.find(asT(htmlStr,'\n'),knownLinePos)+1
                 tagStart = knownLinePos + offset
-                tagEnd = htmlStr.index(">",tagStart)+1
+                if type(htmlStr)==bytes: tagEnd = htmlStr.index(B(">"),tagStart)+1
+                else: tagEnd = htmlStr.index(">",tagStart)+1
                 raise Finished(charset,tagStart,tagEnd)
         def handle_endtag(self, tag):
-            if tag=="head": raise Finished() # as above
+            if S(tag)=="head": raise Finished() # as above
     parser = Parser()
-    htmlStr = fixHTML(htmlStr)
     try:
         parser.feed(htmlStr) ; parser.close()
     except UnicodeDecodeError: pass
@@ -4905,7 +5046,7 @@ def get_httpequiv_charset(htmlStr):
 def get_and_remove_httpequiv_charset(body):
     charset,tagStart,tagEnd = get_httpequiv_charset(body)
     if charset: body = body[:tagStart]+body[tagEnd:]
-    if body.startswith('<?xml version="1.0" encoding'): body = '<?xml version="1.0"'+body[body.find("?>"):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
+    if body.startswith(B('<?xml version="1.0" encoding')): body = B('<?xml version="1.0"')+body[body.find("?>"):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
     return charset, body
 
 #@file: run-browser.py
@@ -4947,8 +5088,8 @@ def runRun(*args):
         helper_threads.remove('runRun')
     threading.Thread(target=runner_thread,args=()).start()
 def setupRunAndBrowser():
-    if options.browser: IOLoop.instance().add_callback(runBrowser)
-    if options.run: IOLoop.instance().add_callback(runRun)
+    if options.browser: IOLoopInstance().add_callback(runBrowser)
+    if options.run: IOLoopInstance().add_callback(runRun)
 
 def stopServer(reason=None):
     def stop(*args):
@@ -4957,9 +5098,9 @@ def stopServer(reason=None):
             # defer it until this inner function is called
             if options.background: logging.info(reason)
             else: sys.stderr.write(reason+"\n")
-        IOLoop.instance().stop()
-    if reason.startswith("SIG") and hasattr(IOLoop.instance(),"add_callback_from_signal"): IOLoop.instance().add_callback_from_signal(stop)
-    else: IOLoop.instance().add_callback(stop)
+        IOLoopInstance().stop()
+    if reason.startswith("SIG") and hasattr(IOLoopInstance(),"add_callback_from_signal"): IOLoopInstance().add_callback_from_signal(stop)
+    else: IOLoopInstance().add_callback(stop)
 
 #@file: convert-PDF-etc.py
 # --------------------------------------------------
@@ -4978,27 +5119,27 @@ class AddConversionLinks:
         self.gotPDF=self.gotEPUB=self.gotMP3=None
     def handle_starttag(self, tag, attrs):
         attrsD = dict(attrs)
-        if tag=="a" and attrsD.get("href",None):
-            l = attrsD["href"].lower()
+        if S(tag)=="a" and attrsD.get("href",None):
+            l = S(attrsD["href"].lower())
             if l.startswith("http://") or l.startswith("https://"):
                 if not self.offsite_ok and not url_is_ours(l): return # "offsite" link, can't process (TODO: unless we send it to ourselves via an alternate syntax)
                 # TODO: (if don't implement processing the link anyway) insert explanatory text for why an alternate link wasn't provided?
             elif options.mailtoPath and l.startswith("mailto:"):
                 newAttrs = []
                 for k,v in items(attrs):
-                    if k.lower()=="href": v=options.mailtoPath+v[7:].replace('%','%%+') # see comments in serve_mailtoPage
+                    if k.lower()=="href": v=options.mailtoPath+S(v)[7:].replace('%','%%+') # see comments in serve_mailtoPage
                     newAttrs.append((k,v))
                 return (tag,newAttrs)
             elif ":" in l and l.index(":")<l.find("/"): return # non-HTTP protocol - can't do (TODO: unless we do https, or send the link to ourselves via an alternate syntax)
             if l.endswith(".pdf") or guessCMS(l,"pdf"):
-                self.gotPDF = attrsD["href"]
+                self.gotPDF = S(attrsD["href"])
                 if options.pdfomit and any(re.search(x,self.gotPDF) for x in options.pdfomit.split(",")): self.gotPDF = None
             if l.endswith(".epub") or guessCMS(l,"epub"):
-                self.gotEPUB = attrsD["href"]
+                self.gotEPUB = S(attrsD["href"])
             if l.endswith(".mp3"):
-                self.gotMP3 = attrsD["href"]
+                self.gotMP3 = S(attrsD["href"])
     def handle_endtag(self, tag):
-        if tag=="a" and ((self.gotPDF and options.pdftotext) or (self.gotEPUB and (options.epubtozip or options.epubtotext)) or (self.gotMP3 and options.bitrate and options.askBitrate)):
+        if S(tag)=="a" and ((self.gotPDF and options.pdftotext) or (self.gotEPUB and (options.epubtozip or options.epubtotext)) or (self.gotMP3 and options.bitrate and options.askBitrate)):
             linksToAdd = []
             linkStart = "<a style=\"display:inline!important;float:none!important\" href=" # adding style in case a site styles the previous link with float, which won't work with our '('...')' stuff
             if self.gotPDF: linksToAdd.append("%s\"%s%s\">text</a>" % (linkStart,self.gotPDF,pdftotext_suffix))
@@ -5034,6 +5175,7 @@ class StripJSEtc:
         self.parser = parser
         self.suppressing = False
     def handle_starttag(self, tag, attrs):
+        tag = S(tag)
         if tag in ["img","svg"] and not options.htmlonly_css:
             self.parser.addDataFromTagHandler(dict(attrs).get("alt",""),1)
             return True
@@ -5042,17 +5184,18 @@ class StripJSEtc:
             self.suppressing = True ; return True
         elif tag=="body":
             if not self.transparent:
-                if enable_adjustDomainCookieName_URL_override: xtra = "&"+adjust_domain_cookieName+"="+adjust_domain_none
+                if enable_adjustDomainCookieName_URL_override: xtra = "&"+adjust_domain_cookieName+"="+S(adjust_domain_none)
                 else: xtra = ""
-                self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a rel="noreferrer" href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+urllib.quote(self.url)+xtra,self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
+                self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a rel="noreferrer" href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+quote(self.url)+xtra,self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
                 # TODO: call request_no_external_referer() on the RequestForwarder as well? (may need a parameter for it)
             return
         elif tag=="a" and not self.suppressing:
             attrsD = dict(attrs)
-            if attrsD.get("href","").startswith("javascript:"):
+            if S(attrsD.get("href","")).startswith("javascript:"):
                 attrsD["href"] = "#" ; return tag,attrsD
         return self.suppressing or tag=='noscript' or (tag=='link' and not options.htmlonly_css)
     def handle_endtag(self, tag):
+        tag = S(tag)
         if tag=="head":
             self.parser.addDataFromTagHandler('<meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head>',True) # TODO: document that htmlonly_mode adds this; might also want to have it when CSS is on
             return True # suppress </head> because we've done it ourselves in the above (had to or addDataFromTagHandler would have added it AFTER the closing tag)
@@ -5065,31 +5208,32 @@ class StripJSEtc:
 
 class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will probably break the site's scripts in non-htmlOnly): make external links go back to URL box and act as though the link had been typed in
     def __init__(self, rqPrefix, baseHref, cookie_host):
-        self.rqPrefix = rqPrefix
-        self.baseHref = baseHref
-        self.cookie_host = cookie_host
+        self.rqPrefix = S(rqPrefix)
+        self.baseHref = S(baseHref)
+        self.cookie_host = S(cookie_host)
     def init(self,parser): self.parser = parser
     def handle_starttag(self, tag, attrs):
+        tag = S(tag)
         if tag=="base":
             attrsD = dict(attrs)
-            hr = attrsD.get("href","")
-            if hr.startswith("http"): self.baseHref = hr
+            hr = B(attrsD.get("href",""))
+            if hr.startswith(B("http")): self.baseHref = hr
         elif tag=="a" or (tag=="iframe" and not options.urlboxPath=="/"):
             att = {"a":"href","iframe":"src"}[tag]
             attrsD = dict(attrs)
-            hr = attrsD.get(att,"")
+            hr = B(attrsD.get(att,B("")))
             if not hr: return # no href
-            if hr.startswith('#'): return # in-page anchor
-            if not hr.startswith('http') and ':' in hr.split('/',1)[0]: return # non-HTTP(s) protocol?
+            if hr.startswith(B('#')): return # in-page anchor
+            if not hr.startswith(B('http')) and B(':') in hr.split(B('/'),1)[0]: return # non-HTTP(s) protocol?
             if self.baseHref:
-                try: hr=urlparse.urljoin(self.baseHref,hr)
+                try: hr=urlparse.urljoin(self.baseHref,S(hr))
                 except: pass # can't do it
-            if not (hr.startswith("http://") or hr.startswith("https://")): return # still a relative link etc after all that
+            if not (hr.startswith(B("http://")) or hr.startswith(B("https://"))): return # still a relative link etc after all that
             realUrl = url_is_ours(hr,self.cookie_host)
             if not options.urlboxPath=="/" and realUrl:
                 hr,realUrl = realUrl,None
             if not realUrl: # off-site
-              attrsD[att]=self.rqPrefix + urllib.quote(hr)
+              attrsD[att]=B(self.rqPrefix) + B(quote(hr))
               return tag,attrsD
     def handle_endtag(self, tag): pass
     def handle_data(self,data): pass
@@ -5099,6 +5243,7 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
     # Faster than running the HTMLParser separately for each adjuster,
     # but still limited (find_text_in_HTML is still separate)
     if options.useLXML and can_use_LXML: return HTML_adjust_svc_LXML(htmlStr,adjustList)
+    htmlStr = fixHTML(htmlStr)
     class Parser(HTMLParser):
         def handle_starttag(self, tag, att):
             changed = False
@@ -5112,7 +5257,7 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
         def suppressTag(self):
             pos = self.getBytePos()
             self.out.append(htmlStr[self.lastStart:pos])
-            self.lastStart = htmlStr.index(">",pos)+1
+            self.lastStart = htmlStr.index(asT(htmlStr,">"),pos)+1
             return True
         def handle_endtag(self, tag):
             for l in adjustList:
@@ -5121,15 +5266,18 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
         def addDataFromTagHandler(self,data,replacesTag=0):
             # (if replacesTag=1, tells us the tag will be suppressed later; does not actually do it now. C.f. the lxml version.)
             pos = self.getBytePos()
-            if not replacesTag: pos = htmlStr.index(">",pos)+1 # AFTER the tag (assumes tag not suppressed)
+            if not replacesTag: pos = htmlStr.index(asT(htmlStr,">"),pos)+1 # AFTER the tag (assumes tag not suppressed)
             self.out.append(htmlStr[self.lastStart:pos])
-            self.out.append(data) # (assumes none of the other handlers will want to process it)
+            # Assume none of the other handlers will want to process it:
+            if type(htmlStr)==bytes: self.out.append(B(data)) # ensure byte string (so addDataFromTagHandler can be called with literal "" strings in Python 3)
+            elif type(data)==bytes: self.out.append(data.decode('latin1')) # so we can do latin1decode after u"".join after
+            else: self.out.append(data) # assume it's UTF8 byte values coded in Unicode, so latin1decode should get it later
             self.lastStart = pos
         def getBytePos(self):
             line,offset = self.getpos()
             while line>self.knownLine:
                 self.knownLine += 1
-                self.knownLinePos=htmlStr.find('\n',self.knownLinePos)+1
+                self.knownLinePos=htmlStr.find(asT(htmlStr,'\n'),self.knownLinePos)+1
             return self.knownLinePos + offset
         def handle_data(self,data):
             if not data: return
@@ -5143,20 +5291,21 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
             self.out.append(data)
             self.lastStart = dataStart+len(oldData)
         def handle_entityref(self,name):
-            if any(l.handle_data('-')=="" for l in adjustList): # suppress entities when necessary, e.g. when suppressing noscript in js_interpreter-processed pages
+            if any(B(l.handle_data('-'))==B("") for l in adjustList): # suppress entities when necessary, e.g. when suppressing noscript in js_interpreter-processed pages
                 dataStart = self.getBytePos()
                 self.out.append(htmlStr[self.lastStart:dataStart])
-                self.lastStart = dataStart+len(name)+2
+                self.lastStart = dataStart+len(name)+2 # & ... ;
+            # else just leave the entity to be copied as-is later
         def handle_charref(self,name):
-            if any(l.handle_data('-')=="" for l in adjustList): # ditto
+            if any(B(l.handle_data('-'))==B("") for l in adjustList): # ditto
                 dataStart = self.getBytePos()
                 self.out.append(htmlStr[self.lastStart:dataStart])
-                self.lastStart = dataStart+len(name)+3
+                self.lastStart = dataStart+len(name)+3 # &# ... ;
+            # else just leave the char-ref to be copied as-is
     parser = Parser()
     for l in adjustList: l.init(parser)
     parser.out = [] ; parser.lastStart = 0
     parser.knownLine = 1 ; parser.knownLinePos = 0
-    htmlStr = fixHTML(htmlStr)
     numErrs = 0
     debug = False # change to True if needed
     while numErrs < 20: # TODO: customise this limit?
@@ -5168,7 +5317,7 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
         parser.out.append(htmlStr[parser.lastStart:parser.lastStart+1])
         parser2 = Parser()
         for l in adjustList: l.parser=parser2 # TODO: makes assumptions about how init() works
-        if debug: parser.out.append(" (Debugger: HTML_adjust_svc skipped a character) ")
+        if debug: parser.out.append(asT(htmlStr," (Debugger: HTML_adjust_svc skipped a character) "))
         htmlStr = htmlStr[parser.lastStart+1:]
         parser2.out = parser.out ; parser2.lastStart = 0
         parser2.knownLine = 1 ; parser2.knownLinePos = 0
@@ -5177,42 +5326,42 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
     try: parser.close()
     except UnicodeDecodeError: pass
     except HTMLParseError: pass
-    if debug: parser.out.append("<!-- Debugger: HTML_adjust_svc ended here -->")
+    if debug: parser.out.append(asT(htmlStr,"<!-- Debugger: HTML_adjust_svc ended here -->"))
     parser.out.append(htmlStr[parser.lastStart:])
     if type(htmlStr)==type(u""):
-        return latin1decode(u"".join(parser.out))
-    try: return "".join(parser.out)
+        try: return latin1decode(u"".join(parser.out))
+        except: raise Exception("parser.out should be all-Unicode but has some byte strings? "+repr([b for b in parser.out if not type(b)==type(u"")]))
+    try: return B("").join(parser.out)
     except UnicodeDecodeError: raise Exception("This should never happen: how did some of parser.out become Unicode when we were working in byte strings? repr: "+repr(parser.out))
 
 def encodeTag(tag,att):
     def encAtt(a,v):
         if v:
-            v=v.replace('&','&amp;').replace('"','&quot;')
-            if not re.search('[^A-Za-z_]',v): return a+'='+v # no quotes needed (TODO: option to keep it valid?)
-            return a+'="'+v+'"'
-        else: return a
-    return "<"+tag+"".join((" "+encAtt(a,v)) for a,v in items(att))+">"
+            v=B(v).replace(B('&'),B('&amp;')).replace(B('"'),B('&quot;'))
+            if not re.search(B('[^A-Za-z_]'),v): return B(a)+B('=')+v # no quotes needed (TODO: option to keep it valid?)
+            return B(a)+B('="')+B(v)+B('"')
+        else: return B(a)
+    return B("<")+B(tag)+B("").join((B(" ")+encAtt(a,v)) for a,v in items(att))+B(">")
 
 html_tags_not_needing_ends = set(['area','base','basefont','br','hr','input','img','link','meta'])
 
 def HTML_adjust_svc_LXML(htmlStr,adjustList):
     class Parser:
         def start(self, tag, att):
-            att=dict((k,v.encode('utf-8')) for k,v in dict(att).items()) # so latin1decode doesn't pick up on it
             i = len(self.out)
             for l in adjustList:
                 r = l.handle_starttag(tag,att)
                 if r==True: return # suppress the tag
                 elif r: tag,att = r
-            self.out.insert(i,encodeTag(tag,att))
+            self.out.insert(i,encodeTag(tag,dict((k,v.encode('utf-8')) for k,v in dict(att).items()))) # utf-8 so so latin1decode doesn't pick up on it
         def end(self, tag):
             i = len(self.out)
             for l in adjustList:
                 if l.handle_endtag(tag): return
             if tag not in html_tags_not_needing_ends:
-                self.out.insert(i,"</"+tag+">")
+                self.out.insert(i,B("</")+B(tag)+B(">"))
         def addDataFromTagHandler(self,data,_=0):
-            self.out.append(data)
+            self.out.append(B(data))
         def data(self,unidata):
             data = unidata.encode('utf-8')
             oldData = data
@@ -5220,20 +5369,29 @@ def HTML_adjust_svc_LXML(htmlStr,adjustList):
                 data0 = data
                 data = l.handle_data(data)
                 if data==None: data = data0
-            self.out.append(data)
-        def comment(self,text): # TODO: option to keep these or not?  some of them could be MSIE conditionals
-            self.out.append("<!--"+text.encode('utf-8')+"-->")
+            self.out.append(B(data))
+        def comment(self,text): # TODO: option to keep these or not?  some of them could be MSIE conditionals, in which case we might want to take them out or adjust what's inside
+            self.out.append(B("<!--")+text.encode('utf-8')+B("-->"))
         def close(self): pass
     parser = Parser() ; parser.out = []
     for l in adjustList: l.init(parser)
     lparser = etree.HTMLParser(target=parser)
     etree.parse(StringIO(htmlStr.decode('utf-8','replace')), lparser)
-    return "".join(parser.out)
+    return B("").join(parser.out)
 
 def items(maybeDict):
     if type(maybeDict)==dict: return maybeDict.items()
     else: return maybeDict
 
+def zapAllStrOrBytes(s):
+    if type(s)==bytes: return B("")
+    else: return ""
+def zapStrOrBytes(s,r):
+    if type(s)==bytes: return re.sub(B(r),B(""),s)
+    else: return re.sub(S(r),"",s)
+def replaceStrOrBytes(s,r1,r2):
+    if type(s)==bytes: return s.replace(B(r1),B(r2))
+    else: return s.replace(S(r1),S(r2))
 def transform_in_selected_tag(intag,transformFunc,events=False):
     # assumes intag is closed and not nested, e.g. style, although small tags appearing inside it MIGHT work
     # also assumes transformFunc doesn't need to know about entity references etc (it's called for the data between them)
@@ -5243,7 +5401,7 @@ def transform_in_selected_tag(intag,transformFunc,events=False):
             self.intag = False
             self.parser = parser
         def handle_starttag(self, tag, attrs):
-            if tag==intag: self.intag=True
+            if S(tag)==intag: self.intag=True
             elif intag in ["script","style"]:
               changed = False ; r=[]
               for k,v in items(attrs):
@@ -5255,7 +5413,7 @@ def transform_in_selected_tag(intag,transformFunc,events=False):
                   else: r.append((k,v))
               if changed: return (tag,r)
         def handle_endtag(self, tag):
-            if tag==intag: self.intag=False
+            if S(tag)==intag: self.intag=False
         def handle_data(self,data):
             if self.intag:
                 return transformFunc(data)
@@ -5271,8 +5429,8 @@ class AriaCopier:
 
 def fixHTML(htmlStr):
     # some versions of Python's HTMLParser can't cope with missing spaces between attributes:
-    if re.search(r'<[^>]*?= *"[^"]*"[A-Za-z]',htmlStr):
-        htmlStr = re.sub(r'(= *"[^"]*")([A-Za-z])',r'\1 \2',htmlStr) # (TODO: that might match cases outside of tags)
+    if re.search(B(r'<[^>]*?= *"[^"]*"[A-Za-z]'),htmlStr):
+        htmlStr = re.sub(B(r'(= *"[^"]*")([A-Za-z])'),B(r'\1 \2'),htmlStr) # (TODO: that might match cases outside of tags)
     # (TODO: don't need to do the above more than once on same HTML)
     
     # HTMLParser bug in some Python libraries: it can take UTF-8 bytes, but if both non-ASCII UTF-8 and entities (named or numeric) are used in the same attribute of a tag, we get a UnicodeDecodeError on the UTF-8 bytes.
@@ -5282,11 +5440,21 @@ def fixHTML(htmlStr):
     # Moreover, if we're being called by get_httpequiv_charset then we might not have UTF-8.
     # Workaround: do a .decode using 'latin1', which maps bytes to Unicode characters in a 'dumb' way.
     # (This is reversed by latin1decode.  If left as byte string, latin1decode does nothing.)
-    if type(htmlStr)==type(u""): htmlStr=htmlStr.encode('utf-8') # just in case
-    if re.search(r'<[^>]*?"[^"]*?&[^"]*?[^ -~]',htmlStr) or re.search(r'<[^>]*?"[^"]*[^ -~][^"]*?&',htmlStr): # looks like there are entities and non-ASCII in same attribute value
-        htmlStr = htmlStr.decode('latin1')
-    
-    return htmlStr
+    if type(htmlStr)==type(u""): htmlStr=htmlStr.encode('utf-8') # just in case we're not given a byte-string to start with
+    if re.search(B(r'<[^>]*?"[^"]*?&[^"]*?[^ -~]'),htmlStr) or re.search(B(r'<[^>]*?"[^"]*[^ -~][^"]*?&'),htmlStr): # looks like there are entities and non-ASCII in same attribute value
+        htmlStr = htmlStr.decode('latin1') # now type(u"") but actually a bunch of UTF-8 values
+    return htmlStr # either bytes or u"" UTF-8 values
+def asT(asType,s):
+    # See fixHTML: if htmlStr is of type u"" then it's actually UTF-8 byte-codes plonked into a Unicode string.  Make s the same, assuming that s is either 'proper Unicode' or UTF-8 bytes.
+    if type(asType)==type(u""):
+        if type(s)==type(u""): return s.encode('utf-8').decode('latin1')
+        else: return s.decode('latin1')
+    else: return B(s)
+def latin1decode(htmlStr):
+    # If it's UTF-8 byte values stored in Unicode string, turn it back into a byte string
+    if type(htmlStr)==type(u""):
+        return htmlStr.encode('latin1')
+    else: return htmlStr
 
 def js_process(body,url):
     # Change Javascript code on its way to the end-user
@@ -5295,23 +5463,24 @@ def js_process(body,url):
         if prefix.startswith('*'): cond = (prefix[1:] in body)
         elif '#' in prefix:
                 i = prefix.index('#')
-                cond = (url == prefix[:i])
+                cond = (S(url) == prefix[:i])
                 try: times = int(prefix[i+1:])
                 except: pass
-        else: cond = url.startswith(prefix)
+        else: cond = S(url).startswith(prefix)
         if cond:
-            if times: body=body.replace(srch,rplac,times)
-            else: body=body.replace(srch,rplac)
+            if times: body=B(body).replace(B(srch),B(rplac),times)
+            else: body=B(body).replace(B(srch),B(rplac))
     return body
 
 def process_delete(body):
     for d in options.delete:
-        body=re.sub(d,"",body)
+        body=re.sub(B(d),B(""),B(body))
     if options.delete_doctype:
-        body=re.sub("^<![dD][oO][cC][tT][yY][pP][eE][^>]*>","",body,1)
+        body=re.sub(B("^<![dD][oO][cC][tT][yY][pP][eE][^>]*>"),B(""),B(body),1)
     return body
 
 def process_delete_css(body,url):
+    url = S(url)
     for d in options.delete_css:
         if '@@' in d: # it's a replace, not a delete
             s,r = d.split('@@',1)
@@ -5319,8 +5488,8 @@ def process_delete_css(body,url):
                 r,urlPart = r.split('@@',1)
                 if not urlPart in url:
                     continue # skip this rule
-            body = re.sub(s,r,body)
-        else: body=re.sub(d,"",body)
+            body = re.sub(B(s),B(r),B(body))
+        else: body=re.sub(B(d),B(""),B(body))
     return body
 
 def htmlFind(html,markup):
@@ -5329,25 +5498,26 @@ def htmlFind(html,markup):
     # preferably without running a slow full parser
     r = html.lower().find(markup)
     if r<0: return r
-    c = html.find("<!--")
+    c = html.find(B("<!--"))
     if c<0 or c>r: return r
     # If gets here, we might have a headTrap situation
-    def blankOut(m): return " "*(m.end()-m.start())
-    return re.sub("<!--.*?-->",blankOut,html,flags=re.DOTALL).lower().find(markup) # TODO: improve efficiency of this? (blankOut doesn't need to go through the entire document)
+    def blankOut(m): return B(" ")*(m.end()-m.start())
+    return re.sub(B("<!--.*?-->"),blankOut,html,flags=re.DOTALL).lower().find(markup) # TODO: improve efficiency of this? (blankOut doesn't need to go through the entire document)
 
 def html_additions(html,toAdd,slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain,IsEdge,addHtmlFilterOptions,htmlFilterOutput):
     # Additions to make to HTML only (not on HTML embedded in JSON)
     # called from doResponse2 if do_html_process is set
-    if html.startswith("<?xml"): link_close = " /"
-    else: link_close = ""
-    if not "<body" in html.lower() and "<frameset" in html.lower(): return html # but allow HTML without <body if can't determine it's a frameset (TODO: what about <noframes> blocks?  although browsers that use those are unlikely to apply the kind of CSS/JS/etc things that html_additions puts in)
-    bodyAppend = bodyAppend1 = ""
-    bodyPrepend = options.bodyPrepend
-    if not bodyPrepend or (options.js_upstream and not is_password_domain=="PjsUpstream"): bodyPrepend = ""
-    headAppend = ""
-    if set_window_onerror: headAppend += r"""<script><!--
+    html = B(html)
+    if html.startswith(B("<?xml")): link_close = B(" /")
+    else: link_close = B("")
+    if not B("<body") in html.lower() and B("<frameset") in html.lower(): return html # but allow HTML without <body if can't determine it's a frameset (TODO: what about <noframes> blocks?  although browsers that use those are unlikely to apply the kind of CSS/JS/etc things that html_additions puts in)
+    bodyAppend = bodyAppend1 = B("")
+    bodyPrepend = B(options.bodyPrepend)
+    if not bodyPrepend or (options.js_upstream and not is_password_domain=="PjsUpstream"): bodyPrepend = B("")
+    headAppend = B("")
+    if set_window_onerror: headAppend += B(r"""<script><!--
 window.onerror=function(msg,url,line){alert(msg); return true}
---></script>"""
+--></script>""")
     cssToAdd,attrsToAdd = toAdd
     if cssToAdd:
         # do this BEFORE options.headAppend, because someone might want to refer to it in a script in options.headAppend (although bodyPrepend is a better place to put 'change the href according to screen size' scripts, as some Webkit-based browsers don't make screen size available when processing the HEAD of the 1st document in the session)
@@ -5356,52 +5526,52 @@ window.onerror=function(msg,url,line){alert(msg); return true}
           else: cssName = options.cssName
           if slow_CSS_switch:
               # alternate, slower code involving hard HTML coding and page reload (but still requires some JS)
-              bodyAppend += reloadSwitchJS("adjustCssSwitch",jsCookieString,False,cssName,cookieHostToSet,cookieExpires)
+              bodyAppend += B(reloadSwitchJS("adjustCssSwitch",jsCookieString,False,cssName,cookieHostToSet,cookieExpires))
               if options.cssName.startswith("*"): useCss = not "adjustCssSwitch=0" in jsCookieString
               else: useCss = "adjustCssSwitch=1" in jsCookieString
               if useCss:
-                  headAppend += '<link rel="stylesheet" type="text/css" href="%s"%s>' % (cssToAdd,link_close)
+                  headAppend += B('<link rel="stylesheet" type="text/css" href="%s"%s>' % (cssToAdd,link_close))
                   if attrsToAdd: html=addCssHtmlAttrs(html,attrsToAdd)
           else: # no slow_CSS_switch; client-side only CSS switcher using "disabled" attribute on the LINK element:
-            headAppend += """<link rel="alternate stylesheet" type="text/css" id="adjustCssSwitch" title="%s" href="%s"%s>""" % (cssName,cssToAdd,link_close)
+            headAppend += B("""<link rel="alternate stylesheet" type="text/css" id="adjustCssSwitch" title="%s" href="%s"%s>""" % (cssName,cssToAdd,link_close))
             # On some Webkit versions, MUST set disabled to true (from JS?) before setting it to false will work. And in MSIE9 it seems must do this from the BODY not the HEAD, so merge into the next script (also done the window.onload thing for MSIE; hope it doesn't interfere with any site's use of window.onload).  (Update: some versions of MSIE9 end up with CSS always-on, so adding these to default cssNameReload)
             if options.cssName.startswith("*"): cond='document.cookie.indexOf("adjustCssSwitch=0")==-1'
             else: cond='document.cookie.indexOf("adjustCssSwitch=1")>-1'
-            bodyPrepend += """<script><!--
+            bodyPrepend += B("""<script><!--
 if(document.getElementById) { var a=document.getElementById('adjustCssSwitch'); a.disabled=true; if(%s) {a.disabled=false;window.onload=function(e){a.disabled=true;a.disabled=false}} }
-//--></script>""" % cond
-            bodyAppend += r"""<script><!--
+//--></script>""" % cond)
+            bodyAppend += B(r"""<script><!--
 if(document.getElementById && !%s && document.readyState!='complete') document.write("%s: "+'<a href="#" onclick="document.cookie=\'adjustCssSwitch=1;domain=%s;expires=%s;path=/\';document.cookie=\'adjustCssSwitch=1;domain=.%s;expires=%s;path=/\';window.scrollTo(0,0);document.getElementById(\'adjustCssSwitch\').disabled=false;return false">On<\/a> | <a href="#" onclick="document.cookie=\'adjustCssSwitch=0;domain=%s;expires=%s;path=/\';document.cookie=\'adjustCssSwitch=0;domain=.%s;expires=%s;path=/\';window.scrollTo(0,0);document.getElementById(\'adjustCssSwitch\').disabled=true;return false">Off<\/a> ')
-//--></script>""" % (detect_iframe,cssName,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires) # (hope it helps some MSIE versions to set cookies 1st, THEN scroll, and only THEN change the document. Also using onclick= rather than javascript: URLs)
+//--></script>""" % (detect_iframe,cssName,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires)) # (hope it helps some MSIE versions to set cookies 1st, THEN scroll, and only THEN change the document. Also using onclick= rather than javascript: URLs)
             #" # (this comment helps XEmacs21's syntax highlighting)
         else: # no cssName: stylesheet always on
-          headAppend += '<link rel="stylesheet" type="text/css" href="%s"%s>' % (cssToAdd,link_close)
+          headAppend += B('<link rel="stylesheet" type="text/css" href="%s"%s>' % (cssToAdd,link_close))
           if attrsToAdd and slow_CSS_switch: html=addCssHtmlAttrs(html,attrsToAdd)
     if options.htmlFilterName and options.htmlFilter and addHtmlFilterOptions:
-        if '#' in options.htmlFilter: bodyAppend1 = reloadSwitchJSMultiple("adjustNoFilter",jsCookieString,True,options.htmlFilterName.split("#"),cookieHostToSet,cookieExpires) # (better put the multi-switch at the start of the options; it might be the most-used option.  Put it into bodyAppend1: we don't want the word "Off" to be misread as part of the next option string, seeing as the word before it was probably not "On", unlike normal reloadSwitchJS switches)
-        else: bodyAppend += reloadSwitchJS("adjustNoFilter",jsCookieString,True,options.htmlFilterName,cookieHostToSet,cookieExpires) # (after the CSS if it's only an on/off)
+        if '#' in options.htmlFilter: bodyAppend1 = B(reloadSwitchJSMultiple("adjustNoFilter",jsCookieString,True,options.htmlFilterName.split("#"),cookieHostToSet,cookieExpires)) # (better put the multi-switch at the start of the options; it might be the most-used option.  Put it into bodyAppend1: we don't want the word "Off" to be misread as part of the next option string, seeing as the word before it was probably not "On", unlike normal reloadSwitchJS switches)
+        else: bodyAppend += B(reloadSwitchJS("adjustNoFilter",jsCookieString,True,options.htmlFilterName,cookieHostToSet,cookieExpires)) # (after the CSS if it's only an on/off)
     if canRender:
         # TODO: make the script below set a cookie to stop itself from being served on subsequent pages if detect_renderCheck failed? but this might be a false economy if upload bandwidth is significantly smaller than download bandwidth (and making it external could have similar issues)
         # TODO: if cookies are not supported, the script below could go into an infinite reload loop
-        if options.renderCheck and not "adjustNoRender=1" in jsCookieString: bodyPrepend += r"""<script><!--
+        if options.renderCheck and not "adjustNoRender=1" in jsCookieString: bodyPrepend += B(r"""<script><!--
 if(!%s && %s) { document.cookie='adjustNoRender=1;domain=%s;expires=%s;path=/';document.cookie='adjustNoRender=1;domain=.%s;expires=%s;path=/';location.reload(true)
 }
-//--></script>""" % (detect_iframe,detect_renderCheck(),cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires)
+//--></script>""" % (detect_iframe,detect_renderCheck(),cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires))
         if options.renderName:
             if options.renderCheck and "adjustNoRender=1" in jsCookieString: extraCondition="!"+detect_renderCheck() # don't want the adjustNoRender=0 (fonts ON) link visible if detect_renderCheck is true, because it won't work anyway (any attempt to use it will be reversed by the script, and if we work around that then legacy pre-renderCheck cookies could interfere; anyway, if implementing some kind of 'show the switch anyway' option, might also have to address showing it on renderOmit browsers)
             else: extraCondition=None
-            bodyAppend += reloadSwitchJS("adjustNoRender",jsCookieString,True,options.renderName,cookieHostToSet,cookieExpires,extraCondition)
+            bodyAppend += B(reloadSwitchJS("adjustNoRender",jsCookieString,True,options.renderName,cookieHostToSet,cookieExpires,extraCondition))
     if cookie_host:
-        if enable_adjustDomainCookieName_URL_override: bodyAppend += r"""<script><!--
+        if enable_adjustDomainCookieName_URL_override: bodyAppend += B(r"""<script><!--
 if(!%s&&document.readyState!='complete')document.write('<a href="http://%s?%s=%s">Back to URL box<\/a>')
-//--></script><noscript><a href="http://%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,adjust_domain_none,cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,adjust_domain_none)
-        else: bodyAppend += r"""<script><!--
+//--></script><noscript><a href="http://%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none),cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none)))
+        else: bodyAppend += B(r"""<script><!--
 if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';if(location.href==\'http://%s\')location.reload(true);else location.href=\'http://%s?nocache=\'+Math.random()">Back to URL box<\/a>')
-//--></script>""" % (detect_iframe,adjust_domain_cookieName,adjust_domain_none,cookieExpires,cookieHostToSet+publicPortStr()+options.urlboxPath,cookieHostToSet+publicPortStr()+options.urlboxPath) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
-    if options.headAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): headAppend += options.headAppend
+//--></script>""" % (detect_iframe,adjust_domain_cookieName,S(adjust_domain_none),cookieExpires,cookieHostToSet+publicPortStr()+options.urlboxPath,cookieHostToSet+publicPortStr()+options.urlboxPath)) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
+    if options.headAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): headAppend += B(options.headAppend)
     if options.headAppendRuby and not is_password_domain=="PjsUpstream":
-        bodyPrepend += rubyScript
-        if IsEdge: bodyPrepend += "<table><tr><td>" # bug observed in Microsoft Edge 17, only when printing: inline-table with table-header-group gobbles whitespace before next inline-table, unless whole document is wrapped in a table cell
+        bodyPrepend += B(rubyScript)
+        if IsEdge: bodyPrepend += B("<table><tr><td>") # bug observed in Microsoft Edge 17, only when printing: inline-table with table-header-group gobbles whitespace before next inline-table, unless whole document is wrapped in a table cell
     if is_password_domain=="PjsUpstream": pn = None
     elif options.prominentNotice=="htmlFilter": pn = htmlFilterOutput
     elif options.prominentNotice and not is_password_domain: pn = options.prominentNotice
@@ -5410,14 +5580,14 @@ if(!%s&&document.readyState!='complete')document.write('<a href="javascript:docu
         # if JS is available, use fixed positioning (so it still works on sites that do that, in case we're not overriding it via user CSS) and a JS acknowledge button
         styleAttrib="style=\"width: 80% !important; margin: 10%; border: red solid !important; background: black !important; color: white !important; text-align: center !important; display: block !important; left:0px; top:0px; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; visibility: visible !important; max-height: 80% !important; overflow: auto !important; \""
         if slow_CSS_switch: # use a slow version for this as well (TODO document that we do this?) (TODO the detect_iframe exclusion of the whole message)
-            if not "_WA_warnOK=1" in jsCookieString: bodyPrepend += "<div id=_WA_warn0 "+styleAttrib+">"+pn+r"""<script><!--
+            if not "_WA_warnOK=1" in jsCookieString: bodyPrepend += B("<div id=_WA_warn0 "+styleAttrib+">")+B(pn)+B(r"""<script><!--
 if(document.readyState!='complete'&&document.cookie.indexOf("_WA_warnOK=1")==-1)document.write("<br><button style=\"color: black !important;background:#c0c0c0 !important;border: white solid !important\" onClick=\"document.cookie='_WA_warnOK=1;path=/';location.reload(true)\">Acknowledge<\/button>")
 //--></script></div><script><!--
 if(document.getElementById) document.getElementById('_WA_warn0').style.position="fixed"
 }
-//--></script>"""
+//--></script>""")
             #" # (this comment helps XEmacs21's syntax highlighting)
-        else: bodyPrepend += "<div id=_WA_warn0 "+styleAttrib+">"+pn+r"""</div><script><!--
+        else: bodyPrepend += B("<div id=_WA_warn0 "+styleAttrib+">")+B(pn)+B(r"""</div><script><!--
 if(document.getElementById) {
   var w=document.getElementById('_WA_warn0');
   if(w.innerHTML) {
@@ -5428,44 +5598,44 @@ if(document.getElementById) {
   if(f) document.body.removeChild(document.getElementById('_WA_warn0'));
   else w.innerHTML += "<br><button style=\"color: black !important;background:#c0c0c0 !important;border: white solid !important\" onClick=\"document.cookie='_WA_warnOK=1;path=/';document.body.removeChild(document.getElementById('_WA_warn0'))\">Acknowledge</button>";
 }}
-//--></script>"""
+//--></script>""")
         #" # (this comment helps XEmacs21's syntax highlighting)
         # (Above code works around a bug in MSIE 9 by setting the cookie BEFORE doing the removeChild.  Otherwise the cookie does not persist.)
-        if options.prominentNotice=="htmlFilter": bodyPrepend = bodyPrepend.replace("document.cookie='_WA_warnOK=1;path=/';","") # don't set the 'seen' cookie if the notice will be different on every page and if that's the whole point of htmlFilter
+        if options.prominentNotice=="htmlFilter": bodyPrepend = bodyPrepend.replace(B("document.cookie='_WA_warnOK=1;path=/';"),B("")) # don't set the 'seen' cookie if the notice will be different on every page and if that's the whole point of htmlFilter
     if options.headAppendRuby and not is_password_domain=="PjsUpstream":
-        if IsEdge: bodyAppend += "</td></tr></table>"
-        bodyAppend += rubyEndScript
+        if IsEdge: bodyAppend += B("</td></tr></table>")
+        bodyAppend += B(rubyEndScript)
     if headAppend:
-        i=htmlFind(html,"</head")
+        i=htmlFind(html,B("</head"))
         if i==-1: # no head section?
-            headAppend = "<head>"+headAppend+"</head>"
-            i=htmlFind(html,"<body")
+            headAppend = B("<head>")+headAppend+B("</head>")
+            i=htmlFind(html,B("<body"))
             if i==-1: # no body section either?
-                i=htmlFind(html,"<html")
-                if i > -1: i = html.find('>',i)
-                if i==-1: i=html.find('>')
+                i=htmlFind(html,B("<html"))
+                if i > -1: i = html.find(B('>'),i)
+                if i==-1: i=html.find(B('>'))
                 i += 1 # 0 if we're still -1, else past the '>'
         html = html[:i]+headAppend+html[i:]
     if bodyPrepend:
-        i=htmlFind(html,"<body")
-        if i==-1: i = htmlFind(html,"</head")
-        if i==-1: i = htmlFind(html,"<html")
+        i=htmlFind(html,B("<body"))
+        if i==-1: i = htmlFind(html,B("</head"))
+        if i==-1: i = htmlFind(html,B("<html"))
         if i>-1:
-            i=html.find(">",i)
+            i=html.find(B(">"),i)
             if i>-1: html=html[:i+1]+bodyPrepend+html[i+1:]
-    if bodyAppend1 and bodyAppend: bodyAppend = '<span style="float:left">' + bodyAppend1 + '</span><span style="float:left;width:1em"><br></span><span style="float: right">'+bodyAppend+'</span><span style="clear:both"></span>' # (the <br> is in case CSS is off or overrides float)
+    if bodyAppend1 and bodyAppend: bodyAppend = B('<span style="float:left">') + bodyAppend1 + B('</span><span style="float:left;width:1em"><br></span><span style="float: right">')+bodyAppend+B('</span><span style="clear:both"></span>') # (the <br> is in case CSS is off or overrides float)
     elif bodyAppend1: bodyAppend = bodyAppend1
-    if options.bodyAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): bodyAppend = options.bodyAppend + bodyAppend
-    elif bodyAppend: bodyAppend='<p>'+bodyAppend # TODO: "if" rather than "elif" if options.bodyAppend doesn't start with <center> etc, or if it's just a script with no text; TODO: is '<p>' always what we want if not options.bodyAppend ?
+    if options.bodyAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): bodyAppend = B(options.bodyAppend) + bodyAppend
+    elif bodyAppend: bodyAppend=B('<p>')+bodyAppend # TODO: "if" rather than "elif" if options.bodyAppend doesn't start with <center> etc, or if it's just a script with no text; TODO: is '<p>' always what we want if not options.bodyAppend ?
     if bodyAppend:
         i = -1
         if options.bodyAppendGoesAfter:
-            it = re.finditer(options.bodyAppendGoesAfter,html)
+            it = re.finditer(B(options.bodyAppendGoesAfter),html)
             while True:
                 try: i = it.next().end()
                 except StopIteration: break
-        if i==-1: i=html.lower().rfind("</body")
-        if i==-1: i=html.lower().rfind("</html")
+        if i==-1: i=html.lower().rfind(B("</body"))
+        if i==-1: i=html.lower().rfind(B("</html"))
         if i==-1: i=len(html)
         html = html[:i]+bodyAppend+html[i:]
     return html
@@ -5478,31 +5648,31 @@ if(document.getElementById) {
 class AddClickCodes:
     # add webdriver_click_code + clickID before any #
     # don't put & or = in it due to checkViewsource's arglist processing, try ;id or -txt
-    def __init__(self,url): self.url = url
+    def __init__(self,url): self.url = S(url)
     def init(self,parser):
         self.parser = parser
         self.linkStart = self.href = None
         self.linkTexts = set() ; self.inA = 0
     def handle_starttag(self, tag, attrs):
-        if not tag=="a": return
+        if not S(tag)=="a": return
         if self.inA==0: self.currentLinkText = ""
         self.inA += 1
         attrsD = dict(attrs)
-        if not ("onclick" in attrsD or attrsD.get("href","").startswith("javascript:")): return # not a js link
-        href = attrsD.get("href","")
-        if '#' in href: href = href[href.index('#'):]
-        else: href = ""
+        if not ("onclick" in attrsD or B(attrsD.get("href","")).startswith(B("javascript:"))): return # not a js link
+        href = B(attrsD.get("href",""))
+        if B('#') in href: href = href[href.index(B('#')):]
+        else: href = B("")
         if "id" in attrsD: # we can rewrite it straight away
-            attrsD["href"] = self.url + webdriver_click_code + ';' + attrsD["id"] + href
+            attrsD["href"] = B(self.url) + B(webdriver_click_code) + B(';') + B(attrsD["id"]) + B(href)
         else: # we have to wait to see the text inside it
             self.linkStart = len(self.parser.out) # assumes further processing hasn't already appended anything
             self.href = href
-            self.original_href = attrsD.get("href","#")
-            if self.original_href.startswith("javascript:"): self.original_href = "#" # take it out
-            attrsD["href"] = '"PLACEHOLDER"' + webdriver_click_code # make sure there's quotes in the placeholder so we always get quoted by encAtt (simplifies the back-off replace below)
+            self.original_href = B(attrsD.get("href","#"))
+            if self.original_href.startswith(B("javascript:")): self.original_href = B("#") # take it out
+            attrsD["href"] = B('"PLACEHOLDER"') + B(webdriver_click_code) # make sure there's quotes in the placeholder so we always get quoted by encAtt (simplifies the back-off replace below)
         return tag, attrsD
     def handle_endtag(self, tag):
-        if not tag=="a": return
+        if not S(tag)=="a": return
         self.inA = max(self.inA-1,0)
         if not self.linkStart: return
         # DON'T try to write 'shortest unique text', because
@@ -5510,13 +5680,16 @@ class AddClickCodes:
         # clicking the other link makes it disappear) and we
         # don't know what state the page will be in + could
         # end up with duplicate URLs.  Write full link text.
-        if self.currentLinkText in self.linkTexts: replaceWith = self.original_href.replace('&','&amp;').replace('"','&quot;') # oops, not unique, back off
-        else: replaceWith = self.url + webdriver_click_code + '-' + self.currentLinkText + self.href
+        if self.currentLinkText in self.linkTexts: replaceWith = B(self.original_href).replace(B('&'),B('&amp;')).replace(B('"'),B('&quot;')) # oops, not unique, back off
+        else: replaceWith = B(self.url) + B(webdriver_click_code) + B('-') + B(self.currentLinkText) + B(self.href)
         self.linkTexts.add(self.currentLinkText)
-        self.parser.out[self.linkStart] = self.parser.out[self.linkStart].replace('&quot;PLACEHOLDER&quot;' + webdriver_click_code,replaceWith)
+        if type(self.parser.out[self.linkStart])==bytes: self.parser.out[self.linkStart] = self.parser.out[self.linkStart].replace(B('&quot;PLACEHOLDER&quot;') + B(webdriver_click_code),B(replaceWith))
+        else: self.parser.out[self.linkStart] = self.parser.out[self.linkStart].replace('&quot;PLACEHOLDER&quot;' + S(webdriver_click_code),S(replaceWith)) # TODO: is this line ever used?
         self.linkStart = None ; self.currentLinkText = ""
     def handle_data(self,data):
-        if self.inA==1: self.currentLinkText += data
+        if self.inA==1:
+            if not self.currentLinkText: self.currentLinkText = data # Python 3: could be either string or bytes
+            else: self.currentLinkText += data
 
 #@file: user-switches.py
 # --------------------------------------------------
@@ -5603,25 +5776,30 @@ def detect_renderCheck(): return r"""(document.getElementsByTagName && function(
 # Works even in Opera Mini, which must somehow communicate the client's font metrics to the proxy
 
 def addCssHtmlAttrs(html,attrsToAdd):
-   i=htmlFind(html,"<body")
+   i=htmlFind(html,B("<body"))
    if i==-1: return html # TODO: what of HTML documents that lack <body> (and frameset), do we add one somewhere? (after any /head ??)
    i += 5 # after the "<body"
-   j = html.find('>', i)
+   j = html.find(B('>'), i)
    if j==-1: return html # ?!?
    attrs = html[i:j]
-   for a in re.findall(r'[A-Za-z_0-9]+\=',attrsToAdd): attrs = attrs.replace(a,"old"+a) # disable corresponding existing attributes (if anyone still uses them these days)
-   return html[:i] + attrs + " " + attrsToAdd + html[j:]
+   attrsToAdd = B(attrsToAdd)
+   for a in re.findall(B(r'[A-Za-z_0-9]+\='),attrsToAdd): attrs = attrs.replace(a,B("old")+a) # disable corresponding existing attributes (if anyone still uses them these days)
+   return html[:i] + attrs + B(" ") + attrsToAdd + html[j:]
 
 #@file: view-source.py
 # --------------------------------------------------
 # View-source support etc
 # --------------------------------------------------
 
-def ampEncode(t): return t.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
-# (needed below because these entities will be in cleartext to the renderer; also used by serve_mailtoPage to avoid cross-site scripting)
-def txt2html(t): return ampEncode(t).replace("\n","<br>")
+def ampEncode(t):
+    if type(t)==bytes: return t.replace(B("&"),B("&amp;")).replace(B("<"),B("&lt;")).replace(B(">"),B("&gt;"))
+    else: return t.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+def txt2html(t):
+    t = ampEncode(t)
+    if type(t)==bytes: return t.replace(B("\n"),B("<br>"))
+    else: return t.replace("\n","<br>")
 
-def ampDecode(t): return t.replace("&lt;","<").replace("&gt;",">").replace("&amp;","&")
+def ampDecode(t): return t.replace("&lt;","<").replace("&gt;",">").replace("&amp;","&") # called with unicode in Python 2 and str in Python 3, either way this should just work
 # ampDecode is needed if passing text with entity names to Renderer below (which ampEncode's its result and we might want it to render & < > chars)
 # (shouldn't need to cope with other named entities: find_text_in_HTML already processes all known ones in htmlentitydefs, and LXML also decodes all the ones it knows about)
 
@@ -5682,7 +5860,7 @@ class Renderer:
         else:
             w,h = self.font().getsize(unitext)
             if options.renderBlocks:
-                self.hanziW = w/len(unitext)
+                self.hanziW = int(w/len(unitext))
                 self.hanziH = h
         return ('<img src="%s%s" width=%s height=%s>' % (options.renderPath,imgEncode(unitext),w,h)), w # (%s is faster than %d apparently, and format strings are faster than ''.join)
     def getImage(self,uri):
@@ -5694,7 +5872,6 @@ class Renderer:
                 import PIL.Image as Image
             except:
                 from PIL import ImageDraw,Image
-        import cStringIO
         try: text=imgDecode(uri[len(options.renderPath):])
         except: return False # invalid base64 = fall back to fetching the remote site
         size = self.font().getsize(text) # w,h
@@ -5702,7 +5879,7 @@ class Renderer:
         else: bkg,fill = 1,0
         img=Image.new("1",size,bkg) # "1" is 1-bit
         ImageDraw.Draw(img).text((0, 0),text,font=self.font(),fill=fill)
-        dat=cStringIO.StringIO()
+        dat=BytesIO()
         img.save(dat,options.renderFormat)
         return dat.getvalue()
 Renderer=Renderer()
@@ -5729,12 +5906,12 @@ def imgEncode(unitext):
         o = ord(unitext)
         if o < 0x1000:
             # TODO: create_inRenderRange_function can also re-create this function to omit the above test if we don't have any ranges under 0x1000 ?  (but it should be quite quick)
-            if unitext in string.letters+string.digits+"_.-": return unitext
+            if unitext in letters+digits+"_.-": return unitext
             elif 0xf<ord(unitext): return hex(ord(unitext))[2:]
         elif o <= 0xFFFF: # (TODO: don't need that test if true for all our render ranges)
             # TODO: make this optional?  hex(ord(u))[-4:] is nearly 5x faster than b64encode(u.encode('utf-8')) in the case of 1 BMP character (it's faster than even just the .encode('utf-8') part), but result could also decode with base64, so we have to add an extra '_' byte to disambiguate, which adds to the traffic (although only a small amount compared to IMG markup anyway)
             return '_'+hex(o)[-4:]
-    return base64.b64encode(unitext.encode('utf-8'))
+    return S(base64.b64encode(unitext.encode('utf-8')))
 def imgDecode(code):
     if len(code)==1: return code
     elif len(code) <= 3: return unichr(int(code,16))
@@ -5764,7 +5941,7 @@ class Dynamic_DNS_updater:
                 ip_query_url2_user,ip_query_url2_pwd = auth.split(':',1)
                 ip_url2_pwd_is_fname = os.path.isfile(ip_query_url2_pwd)
         # and start the updater
-        IOLoop.instance().add_callback(lambda *args:self.queryIP())
+        IOLoopInstance().add_callback(lambda *args:self.queryIP())
     def queryLocalIP(self):
         # Queries ip_query_url2 (if set, and if we know current IP).  Depending on the response/situation, either passes control to queryIP (which sets the next timeout itself), or sets an ip_check_interval2 timeout.
         if not ip_query_url2 or not self.currentIP:
@@ -5775,33 +5952,33 @@ class Dynamic_DNS_updater:
               try:
                 miniupnpc.discover() # every time - it might have rebooted or changed
                 miniupnpc.selectigd()
-                addr = miniupnpc.externalipaddress()
+                addr = S(miniupnpc.externalipaddress())
               except: addr = ""
-              if addr == self.currentIP: IOLoop.instance().add_callback(lambda *args:(self.newIP(addr),IOLoop.instance().add_timeout(time.time()+options.ip_check_interval2,lambda *args:self.queryLocalIP()))) # (add_timeout doesn't always work when not from the IOLoop thread ??)
-              else: IOLoop.instance().add_callback(self.queryIP)
+              if addr == self.currentIP: IOLoopInstance().add_callback(lambda *args:(self.newIP(addr),IOLoopInstance().add_timeout(time.time()+options.ip_check_interval2,lambda *args:self.queryLocalIP()))) # (add_timeout doesn't always work when not from the IOLoop thread ??)
+              else: IOLoopInstance().add_callback(self.queryIP)
             threading.Thread(target=run,args=()).start()
             return
         def handleResponse(r):
             curlFinished()
-            if r.error or not self.currentIP in r.body:
+            if r.error or not B(self.currentIP) in B(r.body):
                 return self.queryIP()
             # otherwise it looks like the IP is unchanged:
             self.newIP(self.currentIP) # in case forceTime is up
-            IOLoop.instance().add_timeout(time.time()+options.ip_check_interval2,lambda *args:self.queryLocalIP())
+            IOLoopInstance().add_timeout(time.time()+options.ip_check_interval2,lambda *args:self.queryLocalIP())
         if ip_query_url2_user:
             # some routers etc insist we send the non-auth'd request first, and the credentials only when prompted (that's what Lynx does with the -auth command line), TODO do we really need to do this every 60secs? (do it only if the other way gets an error??) but low-priority as this is all local-net stuff (and probably a dedicated link to the switch at that)
             if ip_url2_pwd_is_fname: pwd=open(ip_query_url2_pwd).read().strip() # re-read each time
             else: pwd = ip_query_url2_pwd
-            callback = lambda r:(curlFinished(),MyAsyncHTTPClient().fetch(ip_query_url2, callback=handleResponse, auth_username=ip_query_url2_user,auth_password=pwd))
+            callback = lambda r:(curlFinished(),doCallback(None,MyAsyncHTTPClient().fetch,handleResponse, ip_query_url2, auth_username=ip_query_url2_user,auth_password=pwd))
         else: callback = handleResponse
-        MyAsyncHTTPClient().fetch(ip_query_url2, callback=callback)
+        doCallback(None,MyAsyncHTTPClient().fetch,callback,ip_query_url2)
     def queryIP(self):
         # Queries ip_query_url, and, after receiving a response (optionally via retries if ip_query_aggressive), sets a timeout to go back to queryLocalIP after ip_check_interval (not ip_check_interval2)
         debuglog("queryIP")
         def handleResponse(r):
             curlFinished()
             if not r.error:
-                self.newIP(r.body.strip())
+                self.newIP(S(r.body.strip()))
                 if self.aggressive_mode:
                     logging.info("ip_query_url got response, stopping ip_query_aggressive")
                     self.aggressive_mode = False
@@ -5810,8 +5987,8 @@ class Dynamic_DNS_updater:
                     logging.info("ip_query_url got error, starting ip_query_aggressive")
                     self.aggressive_mode = True
                 return self.queryIP()
-            IOLoop.instance().add_timeout(time.time()+options.ip_check_interval,lambda *args:self.queryLocalIP())
-        MyAsyncHTTPClient().fetch(options.ip_query_url, callback=handleResponse)
+            IOLoopInstance().add_timeout(time.time()+options.ip_check_interval,lambda *args:self.queryLocalIP())
+        doCallback(None,MyAsyncHTTPClient().fetch,handleResponse,options.ip_query_url)
     def newIP(self,ip):
         debuglog("newIP "+ip)
         if ip==self.currentIP and (not options.ip_force_interval or time.time()<self.forceTime): return
@@ -5839,7 +6016,7 @@ def openWatchdog():
 class WatchdogPings:
     def __init__(self):
         if options.watchdog:
-            self.wFile = open(options.watchdogDevice, 'w')
+            self.wFile = open(options.watchdogDevice, 'wb')
         else: self.wFile = None
         # then call start() after privileges are dropped
     def start(self):
@@ -5867,7 +6044,7 @@ class WatchdogPings:
                     stopped = 0
                 watchdog_mainServerResponded = False
                 sleptSinceResponse = 0
-                IOLoop.instance().add_callback(respond)
+                IOLoopInstance().add_callback(respond)
             elif sleptSinceResponse < options.watchdogWait: self.ping() # keep waiting for it
             elif not stopped:
                 logging.error("Main thread unresponsive, stopping watchdog ping. lastDebugMsg: "+lastDebugMsg)
@@ -5878,7 +6055,7 @@ class WatchdogPings:
         if not options.watchdogWait: debuglog("pinging watchdog",logRepeats=False,stillIdle=True) # ONLY if run from MAIN thread, otherwise it might overwrite the real lastDebugMsg of where we were stuck
         self.wFile.write('a') ; self.wFile.flush()
         if not options.watchdogWait: # run from main thread
-            IOLoop.instance().add_timeout(time.time()+options.watchdog,lambda *args:self.ping())
+            IOLoopInstance().add_timeout(time.time()+options.watchdog,lambda *args:self.ping())
         # else one ping only (see separate_thread)
 
 #@file: delegate.py
@@ -5912,10 +6089,10 @@ class checkServer:
         class NoConErrors:
             def filter(self,record): return not record.getMessage().startswith("Connect error on fd")
         logging.getLogger().addFilter(NoConErrors()) # ditto in Tornado 2 (which uses the root logger) (don't be tempted to combine this by setting tornado.general to a filter, as the message might change in future Tornado 3 releases)
-        IOLoop.instance().add_callback(self)
+        IOLoopInstance().add_callback(self)
     def __call__(self):
      if options.fasterServerNew:
-         # TODO: might be bytes in the queue if this server somehow gets held up.  Could try read_until_close(close,stream)
+         # TODO: might be bytes in the queue if this server somehow gets held up.  Could try readUntilClose(client,close,stream)
          if (self.client and self.count >= 2) or self.pendingClient: # it didn't call serverOK on 2 consecutive seconds (TODO: customizable?), or didn't connect within 1sec - give up
              try: self.pendingClient.close()
              except: pass
@@ -5923,29 +6100,29 @@ class checkServer:
              except: pass
              self.pendingClient = self.client = None
              self.interval = FSU_set(False,self.interval)
-             return IOLoop.instance().add_timeout(time.time()+self.interval,lambda *args:checkServer())
+             return IOLoopInstance().add_timeout(time.time()+self.interval,lambda *args:checkServer())
          elif self.client: self.count += 1
          else: # create new self.pendingClient
              server,port = options.fasterServer.rsplit(':',1)
              self.pendingClient = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
              def send_request(*args):
                  try:
-                     self.pendingClient.write('GET /ping2 HTTP/1.0\r\nUser-Agent: ping\r\n\r\n')
+                     self.pendingClient.write(B('GET /ping2 HTTP/1.0\r\nUser-Agent: ping\r\n\r\n'))
                      self.client = self.pendingClient
                      self.pendingClient = None
-                     self.client.read_until_close(lambda *args:True,lambda *args:self.serverOK())
+                     readUntilClose(self.client,lambda *args:True,lambda *args:self.serverOK())
                  except: pass
-             self.pendingClient.connect((server,int(port)),send_request)
-         IOLoop.instance().add_timeout(time.time()+1,lambda *args:checkServer()) # check back in 1sec to see if it connected OK (should do if it's local)
+             doCallback(None,self.pendingClient.connect,send_request,(server,int(port)))
+         IOLoopInstance().add_timeout(time.time()+1,lambda *args:checkServer()) # check back in 1sec to see if it connected OK (should do if it's local)
      else: # old version - issue HTTP requests to /ping
         def callback(r):
             self.interval = FSU_set(not r.error,self.interval)
             if not fasterServer_up: self.client = None
-            IOLoop.instance().add_timeout(time.time()+self.interval,lambda *args:checkServer())
+            IOLoopInstance().add_timeout(time.time()+self.interval,lambda *args:checkServer())
         if not self.client:
             self.client=MyAsyncHTTPClient()
             curlFinished() # we won't count it here
-        self.client.fetch("http://"+options.fasterServer+"/ping",connect_timeout=1,request_timeout=1,user_agent="ping",callback=callback,use_gzip=False)
+        doCallback(None,self.client.fetch,callback,"http://"+options.fasterServer+"/ping",connect_timeout=1,request_timeout=1,user_agent="ping",use_gzip=False)
     def serverOK(self):
         # called when any chunk is available from the stream (normally once a second, but might catch up a few bytes if we've delayed for some reason)
         self.interval = FSU_set(True,0)
