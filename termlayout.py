@@ -1,6 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
+# (works with either Python 2 or Python 3)
 
-# TermLayout v0.12 (c) 2014-2015 Silas S. Brown
+# TermLayout v0.13 (c) 2014-2015,2020 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,6 +23,10 @@
 # and on BitBucket https://bitbucket.org/ssb22/adjuster
 
 import re, unicodedata, os, sys
+
+if type("")==type(u""): # Python 3
+    unichr,unicode,xrange = chr,str,range
+    from functools import reduce
 
 class ANSIfiedText:
     "Small piece of text with its own ANSI attributes, which is self-contained so can be moved around into other contexts as needed.  Should not change attributes mid-text though."
@@ -692,7 +697,8 @@ def htmlPreprocess(h):
             h = h[:s]+h[e:]
             hl = hl[:s]+hl[e:]
     return decode_entities(h)
-import htmlentitydefs
+try: import htmlentitydefs # Python 2
+except ImportError: import html.entities as htmlentitydefs # Python 3
 def decode_entities(unistr): return re.sub('&([^&;]+);',matchEntity,unistr)
 def matchEntity(m):
   mid=m.group(1)
@@ -720,5 +726,6 @@ if __name__ == "__main__":
     if sys.stdout.isatty() and not sys.stdin.isatty() and os.path.exists('/usr/bin/less'):
         outstream = os.popen('/usr/bin/less -FrX','w')
     else: outstream = sys.stdout
-    parseDoc(htmlPreprocess(sys.stdin.read().decode(terminal_charset)),callback=lambda lines:(outstream.write(mergeAnsifiedLines(lines,not supports_ansi).encode(terminal_charset)),outstream.flush())) # TODO: although we definitely .encode(terminal_charset), the .decode might have to be something else if there's a META specifying it
+    if type("")==type(u""): parseDoc(htmlPreprocess(sys.stdin.read()),callback=lambda lines:(outstream.write(mergeAnsifiedLines(lines,not supports_ansi)),outstream.flush())) # Python 3 already decodes/encodes for us
+    else: parseDoc(htmlPreprocess(sys.stdin.read().decode(terminal_charset)),callback=lambda lines:(outstream.write(mergeAnsifiedLines(lines,not supports_ansi).encode(terminal_charset)),outstream.flush())) # TODO: although we definitely .encode(terminal_charset), the .decode might have to be something else if there's a META specifying it
 
