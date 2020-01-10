@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.3 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.301 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -190,6 +190,8 @@ else: # normal run: go ahead with Tornado import
 # --------------------------------------------------
 # Options and help text
 # --------------------------------------------------
+
+redir_relative_when_possible = False # Not yet an option (except here).  If setting this to True for when we're behind an optional SSL terminator e.g. Google App Engine, BEWARE you may find the SSL certificate does not cover our wildcard subdomains, as they can't put *.*.appspot.com in their certificate.  (Lynx offers to continue anyway, Firefox refuses due to HSTS.)  TODO: option to detect this situation using JS document.location.href.slice(0,5)=='https' and set a hidden form field switching off wildcard_dns and using cookie_host ?
 
 heading("General options")
 define("config",help="Name of the configuration file to read, if any. The process's working directory will be set to that of the configuration file so that relative pathnames can be used inside it. Any option that would otherwise have to be set on the command line may be placed in this file as an option=\"value\" or option='value' line (without any double-hyphen prefix). Multi-line values are possible if you quote them in \"\"\"...\"\"\", and you can use standard \\ escapes. You can also set config= in the configuration file itself to import another configuration file (for example if you have per-machine settings and global settings). If you want there to be a default configuration file without having to set it on the command line every time, an alternative option is to set the ADJUSTER_CFG environment variable.")
@@ -1788,7 +1790,7 @@ def banner(delayed=False):
     if options.ssl_fork and not options.background: ret.append("To inspect processes, use: pstree "+str(os.getpid()))
     ret = "\n".join(ret)+"\n"
     if delayed: ret=ret.replace("Listening","Will listen").replace("Writing","Will write") # for --ssl-fork --background, need early fork (TODO: unless write a PID somewhere)
-    sys.stderr.write(ret)
+    sys.stderr.write(ret),sys.stderr.flush()
     if not options.background:
         # set window title for foreground running
         t = "adjuster"
@@ -1803,7 +1805,7 @@ def set_title(t):
   is_screen = (term=="screen" and os.environ.get("STY",""))
   is_tmux = (term=="screen" and os.environ.get("TMUX",""))
   if is_xterm or is_tmux:
-      sys.stderr.write("\033]0;%s\007" % (t,))
+      sys.stderr.write("\033]0;%s\007" % (t,)),sys.stderr.flush()
       # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
   else: return
@@ -2746,21 +2748,21 @@ webdriver_inProgress = [] ; webdriver_queue = []
 webdriver_lambda = webdriver_mu = 0
 def test_init_webdriver():
     "Check that we CAN start a webdriver, before forking to background and starting all of them"
-    sys.stderr.write("Checking webdriver configuration... ")
+    sys.stderr.write("Checking webdriver configuration... "),sys.stderr.flush()
     get_new_webdriver(0).quit()
     sys.stderr.write("OK\n")
 quitFuncToCall = None
 def init_webdrivers(start,N):
     informing = not options.background and not start and not (options.multicore and options.ssl_fork) # (if ssl_fork, we don't want the background 'starting N processes' messages to be interleaved with this)
     if informing:
-        sys.stderr.write("Starting %d webdriver%s... " % (options.js_instances,plural(options.js_instances)))
+        sys.stderr.write("Starting %d webdriver%s... " % (options.js_instances,plural(options.js_instances))),sys.stderr.flush()
     for i in xrange(N):
         webdriver_runner.append(WebdriverRunner(start,len(webdriver_runner)))
         webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
         webdriver_via.append(None) ; webdriver_UA.append("")
     def quit_wd_atexit(*args):
-      if informing: sys.stderr.write("Quitting %d webdriver%s... " % (options.js_instances,plural(options.js_instances)))
+      if informing: sys.stderr.write("Quitting %d webdriver%s... " % (options.js_instances,plural(options.js_instances))),sys.stderr.flush()
       try:
         for i in webdriver_runner:
             try: i.quit_webdriver()
@@ -3042,9 +3044,28 @@ class RequestForwarder(RequestHandler):
         try: self.set_status(status)
         except ValueError: self.set_status(status, "Redirect") # e.g. 308 (not all Tornado versions handle it)
         for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # clear these here, so redirect() can still be called even after a site's headers were copied in
+        if redir_relative_when_possible: url_relative = url_is_ours(redir) # (no need to send the correct cookieHost, just need to know if host gets changed)
+        else: url_relative = False
+        if url_relative:
+            # If we're behind an optional HTTPS-terminating proxy, it would be nice to tell the browser to keep whatever protocol it's currently using, IF the browser would definitely understand this.
+            # RFC 7231 from 2014 allows relative redirects in updated HTTP/1.1 based on browser observations, but original 1999 HTTP/1.1 RFC didn't.  MSIE 9 from 2011 allows relative.
+            if self.checkBrowser(["Lynx/2.8","Gecko/20100101","Trident/7","Trident/8","Trident/9","Edge"]): pass
+            else:
+                ua = S(self.request.headers.get("User-Agent",""))
+                def v(b):
+                    if b in ua:
+                        m = re.match("[0-9]+",ua[ua.index(b)+len(b):])
+                        if m: return m.group()
+                    return 0
+                if v("WebKit/") < 537: # TODO: or v("") < ... etc
+                    # I haven't been able to test it works on these old versions
+                    url_relative = False
+            if url_relative: redir = S(redir).replace("http:","",1)
         self.add_header("Location",S(redir))
-        self.add_header("Content-Type","text/html")
-        if self.canWriteBody(): self.write(B('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % S(redir).replace('&','&amp;').replace('"','&quot;')))
+        if url_relative: pass # these browsers don't need a body
+        else:
+            self.add_header("Content-Type","text/html")
+            if self.canWriteBody(): self.write(B('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % S(redir).replace('&','&amp;').replace('"','&quot;')))
         self.myfinish()
 
     def can_serve_without_redirect(self,redir):
@@ -3481,7 +3502,8 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 if txt[0] in 'bB': return self.serve_bookmarklet_code(txt[1],txt[0]=='B')
                 elif txt[0]=='j': return self.serve_bookmarklet_json(filterNo)
                 elif txt[0]=='u': return self.serve_backend_post(filterNo)
-                elif txt[0] in 'iap': return self.doResponse2(htmlhead()+android_ios_instructions(txt[0],self.request.host,self.request.headers.get("User-Agent",""),filterNo),"noFilterOptions",False)
+                elif txt[0] in 'iap':
+                    return self.doResponse2(android_ios_instructions(txt[0],self.request.host,self.request.headers.get("User-Agent",""),filterNo),"noFilterOptions",False) # on Android and iOS, 'def bookmarklet' gives instruction_url#javascript:bookmarklet_code, so serve instructions here
             txt = zlib.decompressobj().decompress(base64.b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
             self.request.uri = "%s (input not logged, len=%d)" % (options.submitPath,len(txt))
         else: txt = self.request.arguments.get("i",None)
@@ -4740,8 +4762,8 @@ def android_ios_instructions(pType,reqHost,ua,filterNo):
     if title: title += " on current page" # because page won't be visible while choosing bookmarks, unlike on desktops
     else: title=theSys+" bookmarklet - Web Adjuster" # will be the default name of the bookmark
     # TODO: we say pType+'z' in the instructions to display on another device below, but if there are enough filters to get up to 'z' then the title on the other device will be whatever THAT filter is; might be better to just use txt in that situation
-    i0 = "<h3>%s bookmarklet</h3>To install this bookmarklet on %s, follow the instructions below. You might want to take some notes first, because this page will <em>not</em> be displayed throughout the process! If you have another device, you can show another copy of these instructions on it by going to <kbd>http://%sz</kbd>" % (theSys, theSys, reqHost+options.submitPath+pType)
-    if "Firefox/" in ua: i0 += "<h4>Not Yet Working On Mobile Firefox!</h4>Please use Chrome/Safari.<p>TODO: extension for mobile Firefox?"
+    i0 = htmlhead(title)+"<h3>%s bookmarklet</h3>To install this bookmarklet on %s, follow the instructions below. You might want to take some notes first, because this page will <em>not</em> be displayed throughout the process! If you have another device, you can show another copy of these instructions on it by going to <kbd>http://%sz</kbd>" % (theSys, theSys, reqHost+options.submitPath+pType)
+    if "Firefox/" in ua: i0 += "<h4>Not Yet Working On Mobile Firefox!</h4>Please use Chrome/Safari." # TODO: extension for mobile Firefox?
     i0 += "<h4>Instructions</h4><ol><li>"
     sharp = "<li>You should see a sharp sign (#). If you don't, you might have to scroll a little to the right to get it into view. When you see the sharp sign, press immediately to the right of it. (This can be difficult, depending on your eyesight and the size of your fingers. You must put the text cursor <em>immediately</em> to the right of that sharp. Keep trying until you get it in <em>exactly</em> the right place.)<li>Use the backspace key to delete everything up to and including the sharp. The code should now start with the word <code>javascript</code>.<li>"
     if pType in 'ip':
@@ -4757,9 +4779,9 @@ def android_ios_instructions(pType,reqHost,ua,filterNo):
             bookmarks = "(look near the top left of the iPad's screen for an open book) if the bookmarks are not already showing"
         i0 += "Press Menu (%s) and choose %s, to bookmark <b>this</b> page<li>Change the name if you want, and press %s<li>Press Bookmarks %s<li>Press Edit (bottom left or bottom right)<li>Find the bookmark you made and press it<li>Long-press the <em>second</em> line to get the selection menu on it<li>Press Select<li>Gently drag the left-most marker over to the left so that it scrolls to the extreme left of the address%sPress \"Done\" three times to come back here." % (menu,bookmarkOpt,bDone,bookmarks,sharp)
     else: # Android
-        i0 += "Press Menu and Save to Bookmarks, to bookmark <b>this</b> page (on some phones that option is just a drawing of a star)<li>Change the label if you want, but <b>do not</b> press OK<li>Long-press the <em>second</em> line to get the selection on it<li>Gently drag the marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"OK\" to come back here."
+        i0 += "Press Menu (&#x22ee;) and Save to Bookmarks (&#x2606;) to bookmark <b>this</b> page<li>In the pop-up, long-press the <em>second</em> line to get the selection on it<li>Gently drag the marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"OK\" to come back here."
     i0 += "<li>The bookmarklet is now ready for use. Go to whatever page you want to use it on, and select it from the bookmarks to use it."
-    if pType=='a': i0 += " <b>On later versions of Android, it doesn't work to choose the bookmark directly</b>: you have to start typing <kbd>javascript:</kbd> in the URL box and select it that way."
+    if pType=='a': i0 += " <b>On later versions of Android, it doesn't work to choose the bookmark directly</b>: you have to start typing \""+title+"\" in the URL box and select it that way."
     return i0+"</ol></body></html>"
 
 #@file: run-filters.py
@@ -5429,6 +5451,7 @@ class AriaCopier:
 
 def fixHTML(htmlStr):
     # some versions of Python's HTMLParser can't cope with missing spaces between attributes:
+    if type(htmlStr)==type(u""): htmlStr=htmlStr.encode('utf-8') # just in case we're not given a byte-string to start with
     if re.search(B(r'<[^>]*?= *"[^"]*"[A-Za-z]'),htmlStr):
         htmlStr = re.sub(B(r'(= *"[^"]*")([A-Za-z])'),B(r'\1 \2'),htmlStr) # (TODO: that might match cases outside of tags)
     # (TODO: don't need to do the above more than once on same HTML)
@@ -5440,8 +5463,7 @@ def fixHTML(htmlStr):
     # Moreover, if we're being called by get_httpequiv_charset then we might not have UTF-8.
     # Workaround: do a .decode using 'latin1', which maps bytes to Unicode characters in a 'dumb' way.
     # (This is reversed by latin1decode.  If left as byte string, latin1decode does nothing.)
-    if type(htmlStr)==type(u""): htmlStr=htmlStr.encode('utf-8') # just in case we're not given a byte-string to start with
-    if re.search(B(r'<[^>]*?"[^"]*?&[^"]*?[^ -~]'),htmlStr) or re.search(B(r'<[^>]*?"[^"]*[^ -~][^"]*?&'),htmlStr): # looks like there are entities and non-ASCII in same attribute value
+    if type(u"")==type("") or re.search(r'<[^>]*?"[^"]*?&[^"]*?[^ -~]',htmlStr) or re.search(r'<[^>]*?"[^"]*[^ -~][^"]*?&',htmlStr): # looks like there are entities and non-ASCII in same attribute value, or we're in Python 3 in which case HTMLParser can't take byte-strings
         htmlStr = htmlStr.decode('latin1') # now type(u"") but actually a bunch of UTF-8 values
     return htmlStr # either bytes or u"" UTF-8 values
 def asT(asType,s):
