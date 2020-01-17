@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6896 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v0.6897 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1387,7 +1387,7 @@ def bookmarkJS():
   ]
   if epub: should_suppress_toolset.append("location.href.slice(0,12)=='http://epub/'")
   should_suppress_toolset = "("+"||".join(should_suppress_toolset)+")"
-  toolset_openTag = sort20px(r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: #4040BF solid !important; background: #4040BF !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""") # need to select a background that doesn't 'invert' too much by whatever algorithm forceDarkAllowed uses
+  toolset_openTag = sort20px(r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: #1010AF solid !important; background: #1010AF !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""") # need to select a background that doesn't 'invert' too much by whatever algorithm forceDarkAllowed uses; 1010AF at opacity 0.8 = 4040BF on white
   toolset_closeTag = "'</span></span>'"
   bookmarkLink0 = "ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))"
   bookmarkLink = r'\"'+"javascript:"+bookmarkLink0+r'\"' # not ' as bookmarkLink0 contains '
@@ -1407,7 +1407,7 @@ def bookmarkJS():
   unconditional_inject = "ssb_local_annotator_toolE="+emoji_supported
   # Highlighting function, currently depending on android_print (calls canPrint, and currently no other way to save highlights, TODO: figure out how we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions)
   if android_print:
-    p = r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(r"""'<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important; overflow: auto !important;\">'""")+r"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
+    p = r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(r"""'<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important; overflow: auto !important;\">'""")+r"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
     if android_audio:
       p=p.replace("ssb_local_annotator_highlightSel=",r"""ssb_local_annotator_playSel=function(){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);var t=new Array();for(;i < s.length && r.intersectsNode(s[i]); i++) t.push(s[i].getElementsByTagName('rb')[0].innerText); ssb_local_annotator.sendToAudio(t.join(''))};ssb_local_annotator_highlightSel=""").replace("+'</button>'",r"""+'<span onclick=\"ssb_local_annotator_playSel()\">'+(ssb_local_annotator_toolE?'\ud83d\udd0a':'S')+'</span></button>'""")
       if android_audio_maxWords: p=p.replace("ssb_local_annotator.sendToAudio","if(t.length > %d) ssb_local_annotator.alert('','','Limit %d words!'); else ssb_local_annotator.sendToAudio" % (android_audio_maxWords,android_audio_maxWords))
@@ -1426,7 +1426,7 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
   # 
   # Common code for the JS-based DOM annotators
   # 
-  r = """var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
+  r = r"""var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
   
   mergeTags=['EM','I','B','STRONG']; /* we'll merge 2 of these the same if they're leaf elements */
   
@@ -1436,8 +1436,9 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
     function f(c){ /* scan all text under c */
       var i=0,r='',cn=c.childNodes;
       for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:''));
-      return r } """ + alertStr + r""" };
+      return r } """+alertStr+" };"
   
+  r += r"""
   function all_frames_docs(c) {
     /* Call function c on all documents in the window */
     var f=function(w) {
@@ -1445,14 +1446,18 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
         var i; for(i=0; i<w.frames.length; i++)
           f(w.frames[i]) }
       c(w.document) };
-    f(window) };
+    f(window) };"""
   
-  """+xtraDecls+r"""
+  r += xtraDecls
+  
+  r += r"""
   function tw0() { """+textWalkInit+r"""
-    all_frames_docs(function(d){annotWalk(d,d,false,false)}) };
+    all_frames_docs(function(d){annotWalk(d,d,false,false)}) };"""
   
-  function annotScan() {"""+extra_js.replace('\\',r'\\').replace('"',r'\"')+annotScan+r"""};
+  r += r"""
+  function annotScan() {"""+extra_js.replace('\\',r'\\').replace('"',r'\"')+annotScan+"};"
   
+  r += r"""
   function annotWalk(n,document,inLink,inRuby) {
     /* Our main DOM-walking code */
 
@@ -1490,8 +1495,7 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
     }
     
     /* 3. Batch-fix any damage we did to existing ruby.
-       Keep new title (at least for first word); normalise
-       the markup so our 3-line option still works.
+       Keep new titles; normalise the markup so our 3-line option still works.
        (TODO: this throws away hints at glossfile middle column e.g. chai1 vs cha4.  But only for the gloss line, and we do have an 'incomplete' warning.  Passing context in to every annotation call in an existing ruby could slow things down considerably.)
        Also ensure all ruby is space-separated like ours,
        so our padding CSS overrides don't give inconsistent results */
@@ -1962,7 +1966,7 @@ if glossfile: android_src += r"""
                         d.setPositiveButton("3 line", new android.content.DialogInterface.OnClickListener() {
                                 public void onClick(android.content.DialogInterface dialog,int id) {
 class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { browser.loadUrl(
-"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([(]?[^\"/(;]*)([/(;][^\"]*)?\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,'<ruby title=\"$1$2\"><rp>$3</rp><rp>$4</rp><rt>$1</rt><rt>$4</rt><rb>$3</rb></ruby>');var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
+"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt>'+title.split(' || ').map(function(m){return m.replace(/^([(]?[^/(;]*).*/,'$1')}).join(' ')+'</rt><rt>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
 /* Above rp elements are to make firstChild etc work in
    dialogue.  Don't do whole document.body.innerHTML, or
    scripts like document.write may execute a second time,
@@ -2179,7 +2183,7 @@ if epub: android_src += r"""
                                     if(mimeType==null || mimeType=="application/xhtml+xml") mimeType="text/html"; // needed for annogen style modifications
                                     if(mimeType=="text/html") {
                                         // TODO: if ((epubUrl.startsWith("file:") || epubUrl.contains("com.android.externalstorage")) && part!="toc.xhtml") then getSharedPreferences putString("eR"+epubUrl,part) ?  To avoid unbounded buildup, need to store only the most recent few (use one pref with separators?  or other mechanism e.g. 0=url 1=url ... nxtWrite=2 w. wraparound?)  Then add "jump to last seen page" link from both directory and toc.xhtml (latter will need manipulation as below)
-                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: #4040BF solid !important; background: #4040BF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+r""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+r""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                                     } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
@@ -2191,7 +2195,7 @@ if epub: android_src += r"""
                         return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
                     } finally { try { zin.close(); } catch(IOException e) {} }
                 }"""
-if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next</a><script>if(ssb_local_annotator.canPrint())document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: #4040BF solid !important; background: #4040BF !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 1 !important; filter: none !important; opacity: 1 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+r"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
+if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next</a><script>if(ssb_local_annotator.canPrint())document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+r"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
 if not android_template: android_src += r"""
                 float scale = 0; boolean scaling = false;
                 public void onScaleChanged(final WebView view,float from,final float to) {
