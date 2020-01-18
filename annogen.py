@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6897 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v0.6898 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -253,6 +253,7 @@ parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).")
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
+parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android or iOS browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. This overrides --existing-ruby-js-fixes.")
 parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read --extra-css=@file.css")
 parser.add_option("--app-name",default="Annotating browser",
                   help="User-visible name of the Android app")
@@ -438,7 +439,7 @@ if android_audio:
     android_audio,android_audio_maxWords = android_audio.split()
     android_audio_maxWords = int(android_audio_maxWords)
   else: android_audio_maxWords=None
-if (extra_js or extra_css or existing_ruby_js_fixes) and not (android or ios): errExit("--extra-js, --extra-css and --existing-ruby-js-fixes require either --android or --ios")
+if (extra_js or extra_css or existing_ruby_js_fixes or delete_existing_ruby) and not (android or ios): errExit("--extra-js, --extra-css, --existing-ruby-js-fixes and --delete-existing-ruby require either --android or --ios")
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
@@ -1463,7 +1464,11 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
 
     var c,nf=false; /* "need to fix" as there was already ruby on the page */
     if(!inRuby) for(c=n.firstChild; c; c=c.nextSibling) if(c.nodeType==1 && c.nodeName=='RUBY') { nf=true; break; }
-    var nReal = n; if(nf) { n=n.cloneNode(true); /* if messing with existing ruby, first do it offline for speed */"""+existing_ruby_js_fixes.replace('\\',r'\\').replace('"',r'\"')+r"""
+    var nReal = n; if(nf) {"""
+  r += "n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
+  if delete_existing_ruby: r += r"""n.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'')"""
+  else: r += existing_ruby_js_fixes.replace('\\',r'\\').replace('"',r'\"')
+  r += r"""
     }
     
     /* 1. check for WBR and mergeTags */
@@ -1485,15 +1490,20 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
       switch(c.nodeType) {
         case 1:
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
-            if(!nf && !inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */
+            if("""
+  if not delete_existing_ruby: r += "!nf &&"
+  r += r"""!inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */
             annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY'));
           } break;
         case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+r"""}
       }
       cP=c; c=cNext;
-      if(!nf && !inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling); /* space after the inline link or em etc */
-    }
-    
+      if("""
+  if not delete_existing_ruby: r += "!nf &&"
+  r += r"""!inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling); /* space after the inline link or em etc */
+    }"""
+  if delete_existing_ruby: r += "if(nf) nReal.parentNode.replaceChild(n,nReal);"
+  else: r += r"""
     /* 3. Batch-fix any damage we did to existing ruby.
        Keep new titles; normalise the markup so our 3-line option still works.
        (TODO: this throws away hints at glossfile middle column e.g. chai1 vs cha4.  But only for the gloss line, and we do have an 'incomplete' warning.  Passing context in to every annotation call in an existing ruby could slow things down considerably.)
@@ -1502,8 +1512,8 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
     if(nf) {
         nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
         if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')"""+postFixCond+r"""n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}
-    }
-  }"""
+    }"""
+  r += "}"
   r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param '
   return r

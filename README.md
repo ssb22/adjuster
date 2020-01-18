@@ -903,6 +903,10 @@ Options:
 `
  : Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: `--existing-ruby-js-fixes`=@file.js
 
+`--delete-existing-ruby
+`
+ : Set the Android or iOS browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. This overrides `--existing-ruby-js-fixes`.
+
 `--extra-css=EXTRA_CSS
 `
  : Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read `--extra-css`=@file.css
