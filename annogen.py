@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6898 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v0.6899 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -26,7 +26,9 @@ program_name = "Annotator Generator v0.6898 (c) 2012-20 Silas S. Brown"
 
 from optparse import OptionParser
 parser = OptionParser()
-import sys,os,os.path,tempfile,time,re,commands
+import sys,os,os.path,tempfile,time,re
+try: from subprocess import getoutput
+except: from commands import getoutput
 if not "mac" in sys.platform and not "darwin" in sys.platform and ("win" in sys.platform or "mingw32" in sys.platform): exe=".exe" # Windows, Cygwin, etc
 else: exe=""
 
@@ -1902,7 +1904,7 @@ if sharp_multi: android_src += r"""
                 StringBuffer sb=new StringBuffer();
                 while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(1)+"</rt>");
                 m.appendTail(sb); r=sb.toString();"""
-if epub: android_src += """if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"&lrm;"+r;""" # needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair
+if epub: android_src += r"""if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"\u200e"+r;""" # &lrm; needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair.  Fix in v0.6899: use Unicode rather than &lrm; as the latter is not recognised as "valid XML" by Android 10, leading to innerHTML assignment throwing an exception, which in previous versions went uncaught and led to unexplained disappearance of text instead of annotation, usually at 1 chunk per second due to runTimerLoop.  (This issue was not manifest on Android 9 and below.)
 android_src += r"""return r; }
             @JavascriptInterface public void alert(String text,String annot,String gloss) {
                 class DialogTask implements Runnable {
@@ -2280,7 +2282,7 @@ if pleco_hanping: android_src += r"""
     String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
     int[] hanpingVersion = new int[]{0,0,0};"""
 android_src += r"""
-    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild),' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };",textWalkInit="",annotScan=jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); newNode.innerHTML=nv; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+r""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
+    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild),' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };",textWalkInit="",annotScan=jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) } if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+r""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
     @SuppressWarnings("deprecation")
     @TargetApi(19)
     void runTimerLoop() {
@@ -4646,7 +4648,7 @@ def generate_map():
 
 def setup_parallelism():
     if single_core or not checkpoint: return # parallelise only if checkpoint (otherwise could have trouble sharing the normalised corpus and map etc)
-    args = commands.getoutput("ps -p " + str(os.getpid()) + " -o args")
+    args = getoutput("ps -p " + str(os.getpid()) + " -o args")
     try:
       args.index("-m mpi4py.futures") # ValueError if not found
       import mpi4py.futures # mpi4py v2.1+
@@ -4748,7 +4750,7 @@ def analyse():
 
 def read_manual_rules():
   if not manualrules: return
-  for l in openfile(manualrules).xreadlines():
+  for l in openfile(manualrules):
     if not l.strip(): continue
     l=l.decode(incode).strip() # TODO: manualrulescode ?
     if removeSpace: l=re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),l,flags=re.UNICODE)
@@ -4931,7 +4933,7 @@ def matchingAction(rule,glossDic,glossMiss,whitelist,blacklist):
 def readGlossfile():
     glossDic = {} ; glossMiss = set() ; whitelist = set()
     if glossfile:
-        for l in openfile(glossfile).xreadlines():
+        for l in openfile(glossfile):
             if not l.strip(): continue
             l=l.decode(incode,errors='replace') # TODO: glosscode ? (errors=replace because we said it's not necessary to completely debug glossfile; we don't want this to be brought down by one bad UTF8 sequence or whatever)
             try: word,annot,gloss = l.split("\t",2)
@@ -5362,10 +5364,10 @@ if main:
      cmd_or_exit("$BUILD_TOOLS/aapt package -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_")
      cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      a = " -JXmx4g --force-jumbo" # -J option must go first
-     if "min-sdk-version" in commands.getoutput("$BUILD_TOOLS/dx --help"):
+     if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
        a += " --min-sdk-version=1" # older versions of dx don't have that flag
      cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
-     dirName0 = commands.getoutput("pwd|sed -e s,.*./,,")
+     dirName0 = getoutput("pwd|sed -e s,.*./,,")
      dirName = shell_escape(dirName0)
      cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
      cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add "+dirName+".ap_ classes.dex")
