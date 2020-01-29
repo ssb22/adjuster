@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.301 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.302 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -5654,13 +5654,16 @@ if(document.getElementById) {
         if options.bodyAppendGoesAfter:
             it = re.finditer(B(options.bodyAppendGoesAfter),html)
             while True:
-                try: i = it.next().end()
+                try: i = next(it).end()
                 except StopIteration: break
         if i==-1: i=html.lower().rfind(B("</body"))
         if i==-1: i=html.lower().rfind(B("</html"))
         if i==-1: i=len(html)
         html = html[:i]+bodyAppend+html[i:]
     return html
+try: next # Python 2.6+
+except:
+    def next(i): return i.next() # Python 2.5 (.next() renamed .__next__() in 3.x, but that has a built-in next() anyway)
 
 #@file: js-links.py
 # --------------------------------------------------
