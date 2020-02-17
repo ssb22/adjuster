@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.6899 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v0.69 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -256,6 +256,7 @@ parser.add_option("--android-urls",
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android or iOS browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. This overrides --existing-ruby-js-fixes.")
+parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
 parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read --extra-css=@file.css")
 parser.add_option("--app-name",default="Annotating browser",
                   help="User-visible name of the Android app")
@@ -547,6 +548,10 @@ if android_urls:
   except: errExit("--android-urls requires urlparse module") # unless we re-implement
   if "?" in android_urls: errExit("You cannot include a ? in any of your --android-urls (Android does not count query-string as part of the path)")
 else: android_urls = "" # so it can still be .split()
+if existing_ruby_shortcut_yarowsky:
+  if not (android and ybytes and glossfile): errExit("--existing-ruby-shortcut-yarowsky makes sense only when generating an Android app with both ybytes and glossfile set")
+  if delete_existing_ruby: errExit("--existing-ruby-shortcut-yarowsky and --delete-existing-ruby are mutually exclusive")
+  if not data_driven: errExit("Current implementation of --existing-ruby-shortcut-yarowsky requires --data-driven") # (it doesn't have to, but doing so without would require it to be put into the non-datadriven n() test, and as we're probably turning on zlib for Android apps anyway, we might as well implement only for data-driven)
 if keep_whitespace: keep_whitespace = set(keep_whitespace.decode(terminal_charset).split(','))
 if glossmiss_hide: glossmiss_hide = set(glossmiss_hide.decode(terminal_charset).split(','))
 if status_prefix: status_prefix += ": "
@@ -1370,7 +1375,7 @@ c_end += r"""  while(!FINISHED) {
 jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari Unicode, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
 if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += "+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
-if android_template: jsAddRubyCss += "+(ssb_local_annotator.getDevCSS()?'ruby:not([title]){border:thin blue solid}':'')"
+if android_template: jsAddRubyCss += "+(ssb_local_annotator.getDevCSS()?'ruby:not([title]),ruby[title~=\\\"||\\\"]{border:thin blue solid}':'')" # (use *= instead of ~= if the || is not separated on both sides with space)
 jsAddRubyCss += "+'</style>'"
 def sort20px(singleQuotedStr): # 20px is relative to zoom
   assert singleQuotedStr.startswith("'") and singleQuotedStr.endswith("'")
@@ -1494,8 +1499,13 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
             if("""
   if not delete_existing_ruby: r += "!nf &&"
-  r += r"""!inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */
-            annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY'));
+  r += r"""!inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
+  if existing_ruby_shortcut_yarowsky: r += r"""
+            var setR=false; if(!inRuby) {setR=(c.nodeName=='RUBY');if(setR)ssb_local_annotator.setYShortcut(true)}
+            annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||setR);
+            if(setR)ssb_local_annotator.setYShortcut(false)"""
+  else: r += r"annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY'));"
+  r += r"""
           } break;
         case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+r"""}
       }
@@ -1512,7 +1522,7 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
        Also ensure all ruby is space-separated like ours,
        so our padding CSS overrides don't give inconsistent results */
     if(nf) {
-        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby>/g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
+        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
         if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')"""+postFixCond+r"""n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}
     }"""
   r += "}"
@@ -1864,6 +1874,8 @@ if android_template: android_src += r"""
 android_src += r"""
             }
             MainActivity act; String copiedText=""; int zoomLevel;"""
+if existing_ruby_shortcut_yarowsky: android_src += r"""
+            @JavascriptInterface public void setYShortcut(boolean v) { annotator.shortcut_nearTest=v; }"""
 if sharp_multi: android_src += r""" int annotNo;
             @JavascriptInterface public void setAnnotNo(int no) { annotNo = no;
                 android.content.SharedPreferences.Editor e;
@@ -2429,7 +2441,9 @@ byte[] s2b(String s) {
     return null;
   }
 }"""
-if data_driven: java_src += r"""
+if data_driven:
+  if existing_ruby_shortcut_yarowsky: java_src += "\npublic boolean shortcut_nearTest=false;"
+  java_src += r"""
     byte[] data; int addrLen, dPtr;
     int readAddr() {
         int i,addr=0;
@@ -2506,7 +2520,13 @@ if data_driven: java_src += r"""
                 case 81: inPtr=sPos.removeFirst(); break;
                 case 90: {
                     int tPtr = readAddr();
-                    int fPtr = readAddr();
+                    int fPtr = readAddr();"""
+  if existing_ruby_shortcut_yarowsky: java_src += r"""
+                    if (shortcut_nearTest) {
+                        dPtr = (tPtr<fPtr) ? tPtr : fPtr; // relying on BytecodeAssembler addActionDictSwitch behaviour: the higher pointer will be the one that skips past the 'if', so we want the lower one if we want to always take it
+                        break;
+                    }"""
+  java_src += r"""
                     sn(data[dPtr++] & 0xFF);
                     boolean found = false;
                     while (dPtr < tPtr && dPtr < fPtr) if (n(readRefStr())) { found = true; break; }
@@ -2517,7 +2537,12 @@ if data_driven: java_src += r"""
     }
 """
 java_src += r"""
-public String annotate(String txt) {
+public String annotate(String txt) {"""
+if existing_ruby_shortcut_yarowsky: java_src += r"""
+  boolean old_snt = shortcut_nearTest;
+  if(txt.length() < 2) shortcut_nearTest=false;
+"""
+java_src += r"""
   nearbytes=%%YBYTES%%;inBytes=s2b(txt);writePtr=0;needSpace=false;outBuf=new java.io.ByteArrayOutputStream();inPtr=0;
   while(inPtr < inBytes.length) {
     int oldPos=inPtr; """
@@ -2526,7 +2551,9 @@ else: java_src += "%%JPACKAGE%%.topLevelMatch.f(this);"
 java_src += r"""
     if (oldPos==inPtr) { needSpace=false; o(nB()); writePtr++; }
   }
-  String ret=null; try { ret=new String(outBuf.toByteArray(), "UTF-8"); } catch(java.io.UnsupportedEncodingException e) {}
+  String ret=null; try { ret=new String(outBuf.toByteArray(), "UTF-8"); } catch(java.io.UnsupportedEncodingException e) {}"""
+if existing_ruby_shortcut_yarowsky: java_src += "shortcut_nearTest=old_snt;"
+java_src += r"""
   inBytes=null; outBuf=null; return ret;
 }
 }
@@ -4143,8 +4170,10 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
     if _cmpW: sys.stderr.write("Finalising: done%s\n" % clear_eol)
     return sorted(r)
 
-if mreverse: mdStart,mdEnd,aoStart,aoEnd = markupMid,markupEnd,markupStart,markupMid
-else: mdStart,mdEnd,aoStart,aoEnd = markupStart,markupMid,markupMid,markupEnd
+def skipToNext(thing): return "(?:(?!"+re.escape(thing)+").)*"+re.escape(thing) # not ".*?"+re.escape(thing) as it may absorb one 'thing' to match the rest of the regex later
+if mreverse: mdStart,mdEnd,mdSplitR,aoStart,aoEnd = markupMid,markupEnd,re.escape(markupEnd)+r'\s*'+re.escape(markupStart)+skipToNext(markupMid),markupStart,markupMid
+else: mdStart,mdEnd,mdSplitR,aoStart,aoEnd = markupStart,markupMid,re.escape(markupMid)+skipToNext(markupEnd)+r'\s*'+re.escape(markupStart),markupMid,markupEnd
+mdSplitR="(?:"+mdSplitR+")?" # so can use it in .join(chars) to say "maybe word-break between these chars"
 
 def different_ways_of_splitting(chars,numWords):
   if numWords > len(chars): return
@@ -4174,7 +4203,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
         # (TODO: until the above is implemented, consider recommending --ymax-threshold=0, because, now that Yarowsky-like collocations can be negative, the 'following word' could just go in as a collocation with low ybytes)
         # TODO: also, if the exceptions to rule AB are always of the form "Z A B", and we can guarantee to generate a phrase rule for "Z A B", then AB can still be default.  (We should already catch this when the exceptions are "ZA B", but not when they are "Z A B", and --ymax-threshold=0 probably won't always help here, especially if Z==B; Mandarin "mei2you3" / "you3 mei2 you3" comes to mind)
         llen = len(mdStart)+len(nonAnnot)
-        regex=re.compile(re.escape(mdStart) + ("(?:"+re.escape(mdEnd)+"(?:(?!"+re.escape(mdStart)+").)*.?"+re.escape(mdStart)+")?") . join(re.escape(c) for c in list(nonAnnot)))
+        regex=re.compile(re.escape(mdStart) + mdSplitR.join(re.escape(c) for c in list(nonAnnot)))
         if all(x.end()-x.start()==llen for x in re.finditer(regex,corpus_unistr)):
           if nonAnnot==diagnose: diagnose_write("%s is default by %s rule after checking for dangerous overlaps etc" % (withAnnot_unistr,explain))
           return True
@@ -4309,17 +4338,18 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
          if not l: l.append(True)
          if all(covered):
           if append==pAppend: negate=False
-          elif append==nAppend: negate=True
-          else:
-            # We managed to get all exceptions with overmatch-negative, but did we make it worse than the undermatching positive case would have made it?
+          elif append==nAppend: negate=True # negate with no overmatch allowed found all the exceptions, so use it (don't use it if it doesn't find ALL the exceptions, since we don't ever want an as-if 'overmatch positive' i.e. misidentifying a word/phrase in a place where the corpus explicitly DOESN'T have it, unless force_negate see comment below)
+          else: # append==nAppend2 (negate with overmatch allowed): we managed to get all exceptions with overmatch-negative, but how much damage did our overmatching do to the NON-exceptions?
             fxCover = [True]*len(okStrs)
             for indicator in n2Ret:
               for i in xrange(len(okStrs)):
-                if fxCover[i] and indicator in okStrs[i]: fxCover[i] = False
+                if fxCover[i] and indicator in okStrs[i]:
+                  # a negative indicator 'misfires' here, resulting in this okStr NOT being identified as 'ok'
+                  fxCover[i] = False
             if sum(1 for x in fxCover if x) >= sum(1 for x in pCovered if x): negate="harder"
-            else: diagnose_extra.append("Overmatch-negate got worse actual coverage than partial-positive.")
+            else: diagnose_extra.append("Overmatch-negate got worse actual coverage than partial-positive.") # so don't set negate="harder", but we might still force_negate to set negate=True below
           break
-    # and if negate==None AFTER this loop, didn't get all(pCovered) OR all(nCovered), in which case we fall back to negate=False (unless force_negate).  In other words, negative indicators normally have to cover ALL non-occurrences to be passed, wheras positive indicators just have to cover SOME.  This is in keeping with the idea of 'under-match is better than over-match' (because an under-matching negative indicator is like an over-matching positive one)
+    # and if negate==None AFTER this loop, didn't get all(pCovered) OR all(nCovered), in which case we fall back to negate=False (unless force_negate).  In other words, negative indicators normally have to cover ALL non-occurrences to be passed, whereas positive indicators just have to cover SOME.  This is in keeping with the idea of 'under-match is better than over-match' (because an under-matching negative indicator is like an over-matching positive one)
     if force_negate: negate = True
     if negate==True: ret,covered = nRet,nCovered
     elif negate=="harder": ret,covered = n2Ret,n2Covered

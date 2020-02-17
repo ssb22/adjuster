@@ -907,6 +907,10 @@ Options:
 `
  : Set the Android or iOS browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. This overrides `--existing-ruby-js-fixes`.
 
+`--existing-ruby-shortcut-yarowsky
+`
+ : Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (because adding glosses to existing ruby is done without regard to context)
+
 `--extra-css=EXTRA_CSS
 `
  : Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read `--extra-css`=@file.css
