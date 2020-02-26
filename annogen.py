@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-program_name = "Annotator Generator v0.69 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v0.691 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1375,7 +1375,7 @@ c_end += r"""  while(!FINISHED) {
 jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: Gandhari Unicode, Lucida Sans Unicode, Times New Roman, DejaVu Sans, serif !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
 if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += "+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
-if android_template: jsAddRubyCss += "+(ssb_local_annotator.getDevCSS()?'ruby:not([title]),ruby[title~=\\\"||\\\"]{border:thin blue solid}':'')" # (use *= instead of ~= if the || is not separated on both sides with space)
+if android_template: jsAddRubyCss += "+(ssb_local_annotator.getDevCSS()?'ruby:not([title]){border:thin blue solid} ruby[title~=\\\"||\\\"]{border:thin blue dashed}':'')" # (use *= instead of ~= if the || is not separated on both sides with space)
 jsAddRubyCss += "+'</style>'"
 def sort20px(singleQuotedStr): # 20px is relative to zoom
   assert singleQuotedStr.startswith("'") and singleQuotedStr.endswith("'")
@@ -1718,7 +1718,7 @@ int main(int argc,char*argv[]) {
 
 # ANDROID: setDefaultTextEncodingName("utf-8") is included as it might be needed if you include file:///android_asset/ URLs in your app (files put into assets/) as well as remote URLs.  (If including ONLY file URLs then you don't need to set the INTERNET permission in Manifest, but then you might as well pre-annotate the files and use a straightforward static HTML app like http://ssb22.user.srcf.net/gradint/html2apk.html )
 # Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list) (TODO: API 1's shouldOverrideUrlLoading was deprecated in API 24; if they remove it, we may have to provide both to remain compatible?)
-android_upload = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"]) and not os.environ.get("ANDROID_NO_UPLOAD","") # TODO: document ANDROID_NO_UPLOAD
+android_upload = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"]) and not os.environ.get("ANDROID_NO_UPLOAD","")
 android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:sharedUserId="" android:installLocation="preferExternal" >
 <uses-permission android:name="android.permission.INTERNET" />"""
@@ -5387,18 +5387,20 @@ if main and not compile_only:
  outfile.close() ; sys.stderr.write("Output complete\n")
 if main:
  if android:
-   if all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS"]):
-     if compile_only: # AndroidManifest.xml will not have been updated
-       if android_upload: update_android_manifest() # so we'd better do it now
+   can_compile_android = all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS"])
+   can_track_android = (can_compile_android and android_upload) or ("GOOGLE_PLAY_TRACK" in os.environ and "SERVICE_ACCOUNT_KEY" in os.environ)
+   if can_compile_android and compile_only and android_upload: update_android_manifest() # AndroidManifest.xml will not have been updated, so we'd better do it now
+   if can_compile_android or can_track_android:
      os.chdir(jSrc+"/..")
+     dirName0 = getoutput("pwd|sed -e s,.*./,,")
+     dirName = shell_escape(dirName0)
+   if can_compile_android:
      cmd_or_exit("$BUILD_TOOLS/aapt package -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_")
      cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      a = " -JXmx4g --force-jumbo" # -J option must go first
      if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
        a += " --min-sdk-version=1" # older versions of dx don't have that flag
      cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
-     dirName0 = getoutput("pwd|sed -e s,.*./,,")
-     dirName = shell_escape(dirName0)
      cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
      cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add "+dirName+".ap_ classes.dex")
      if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore \"$KEYSTORE_FILE\" -storepass \"$KEYSTORE_PASS\" -keypass \"$KEYSTORE_PASS\" -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ \"$KEYSTORE_USER\" -tsa http://timestamp.digicert.com") # TODO: -tsa option requires an Internet connection; option to omit it if the key expiry date is far enough in the future?
@@ -5406,20 +5408,23 @@ if main:
      rm_f("../"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
      rm_f("bin/"+dirName0+".ap_")
      rm_f("bin/"+dirName0+".apk")
+     if not can_track_android: cmd_or_exit("du -h ../"+dirName+".apk")
+   if can_track_android:
+     import httplib2,googleapiclient.discovery,oauth2client.service_account # pip install google-api-python-client (or pip install --upgrade google-api-python-client if yours is too old).  Might need pip install oauth2client also.
+     trackToUse = os.environ.get('GOOGLE_PLAY_TRACK','beta')
+     sys.stderr.write("Logging in... ")
+     service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
+     eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
      if android_upload:
-       import httplib2,googleapiclient.discovery,oauth2client.service_account # pip install google-api-python-client (or pip install --upgrade google-api-python-client if yours is too old).  Might need pip install oauth2client also.
-       trackToUse = os.environ.get('GOOGLE_PLAY_TRACK','beta')
-       sys.stderr.write("Logging in... ")
-       service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
-       eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
        sys.stderr.write("uploading... ")
        v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
-       if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":os.environ["GOOGLE_PLAY_CHANGELOG"].decode(terminal_charset)}],u'status':u'completed'}]}).execute()
-       else: service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}]}).execute()
-       sys.stderr.write("Committing... ")
-       sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse))
-     else: cmd_or_exit("du -h ../"+dirName+".apk")
-   else: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
+       open(jSrc+"/../.last-versionCode","w").write(str(v))
+     else: v = int(open(jSrc+"/../.last-versionCode").read().strip()) # if this fails, you probably didn't run annogen v0.691+ to compile the APK before trying to change track (see instructions printed when GOOGLE_PLAY_TRACK environment variable is not set)
+     if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":os.environ["GOOGLE_PLAY_CHANGELOG"].decode(terminal_charset)}],u'status':u'completed'}]}).execute()
+     else: service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}]}).execute()
+     sys.stderr.write("Committing... ")
+     sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse))
+   if not can_compile_android and not can_track_android: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
 To have Annogen build it for you, set these environment variables
 before the Annogen run (change the examples obviously) :
    export SDK=/home/example/Android/Sdk
@@ -5434,6 +5439,7 @@ before the Annogen run (change the examples obviously) :
    # and optionally:
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
    export GOOGLE_PLAY_TRACK=alpha # default beta, please don't put production
+   # After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK, and run with --compile-only.
 
 You may also wish to create some icons in res/drawable*
    (using Android Studio or the earlier ADT tools).
