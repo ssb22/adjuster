@@ -305,7 +305,7 @@ parser.add_option("-Y","--python",
 cancelOpt("python")
 
 parser.add_option("--golang",
-                  help="[DEPRECATED] Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on old versions of AppEngine.  Deprecated because new AppEngine works differently (and can run C code); this option will probably be removed when they shut down the old one.")
+                  help="[DEPRECATED] Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on old AppEngine with Go 1.11 or below.  Deprecated because newer AppEngine runtimes work differently (and the \"flexible\" environment can run C code); this option will probably be removed if they shut down the old free-tier runtimes.")
 
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text, and if prefixed by ## it will be given text#annotation.  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
@@ -2693,9 +2693,9 @@ class Test {
 
 golang_start = '/* "Go" code '+version_stamp+r"""
 
-To set up a Web service on old GAE 2, put this file in a
-subdirectory of your project, and create a top-level .go
-file with something like:
+To set up a Web service on old AppEngine (Go 1.11 or below),
+put this file in a subdirectory of your project, and create a
+top-level .go file with something like:
 
 package server
 import (
@@ -2722,12 +2722,10 @@ handlers:
 Then test with: goapp serve
 (and POST to localhost:8080, e.g. via Web Adjuster --htmlFilter="http://localhost:8080")
 
-(To deploy with Web Adjuster also on old GAE 2, you'll need two GAE instances, because
+(To deploy with Web Adjuster also on old AppEngine, you'll need two instances, because
 although you could add Web Adjuster on the SAME one - put adjuster's app.yaml into a
 python-api.yaml with "module: pythonapi" - there will be the issue of how to set the
-URL handlers while making sure that Golang's has priority if it's an exception to .*
-- unless you want to port the whole of Web Adjuster to Golang and integrate it into your
-annotator that way.)
+URL handlers while making sure that Golang's has priority if it's an exception to .*)
 
  */
 

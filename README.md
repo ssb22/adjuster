@@ -971,7 +971,7 @@ Options:
  : Cancels any earlier `--python` option in Makefile variables etc
 
 `--golang=GOLANG`
- : [**Deprecated**] Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on old versions of AppEngine.  Deprecated because new AppEngine works differently (and can run C code); this option will probably be removed when they shut down the old one.
+ : [**Deprecated**] Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on old AppEngine with Go 1.11 or below.  Deprecated because newer AppEngine runtimes work differently (and the "flexible" environment can run C code); this option will probably be removed if they shut down the old free-tier runtimes.
 
 `--reannotator=REANNOTATOR
 `
