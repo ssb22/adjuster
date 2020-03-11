@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.302 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.303 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -478,7 +478,8 @@ define("renderDebug",default=False,help="If the character-set renderer is having
 define("renderName",default="Fonts",help="A name for a switch that allows the user to toggle character set rendering on and off from the browser (via a cookie and Javascript links at the bottom of HTML pages); if set to the empty string then no switch is displayed. At any rate none is displayed when renderOmit applies.") # TODO: non-Javascript fallback for the switcher
 
 heading("Dynamic DNS options")
-define("ip_change_command",help="An optional script or other shell command to launch whenever the public IP address changes. The new IP address will be added as a parameter; ip_query_url must be set to make this work. The script can for example update any Dynamic DNS services that point to the server.")
+define("ip_change_command",help="An optional script or other shell command to launch whenever the public IP address changes. The new IP address will be added as a parameter; ip_query_url must be set to make this work. The script can for example update any Dynamic DNS services that point to the server, and perhaps verify that the update actually took place.")
+define("ip_change_tries",default=1,help="Number of times to run ip_change_command if it returns failure.  0 means unlimited, which is not recommended.")
 define("ip_query_url",help="URL that will return your current public IP address, as a line of text with no markup added. Used for the ip_change_command option. You can set up a URL by placing a CGI script on a server outside your network and having it do: echo Content-type: text/plain;echo;echo $REMOTE_ADDR (but if you want your IPv4 address, ensure the adjuster machine and the outside server are not both configured for IPv6)")
 define("ip_query_url2",help="Optional additional URL that might sometimes return your public IP address along with other information. This can for example be a status page served by a local router (http://user:password@192.168... is accepted, and if the password is the name of an existing file then its contents are read instead). If set, the following behaviour occurs: Once ip_check_interval has passed since the last ip_query_url check, ip_query_url2 will be queried at an interval of ip_check_interval2 (which can be short), to check that the known IP is still present in its response. Once the known IP is no longer present, ip_query_url will be queried again. This arrangement can reduce the load on ip_query_url while allowing a reduced ip_check_interval for faster response to IP changes, while not completely trusting the local router to report the correct IP at all times. (If it's notoriously unleriable then it might be best NOT to reduce ip_check_interval, in which case at least you'll get a faster response once the initial ip_check_interval wait has passed after the previous IP change; this however might not be suitable if you're behind a router that is frequently rebooting.) See also ip_query_aggressive if the router might report an IP change before connectivity is restored. You may also set ip_query_url2 to the special value 'upnp' if you want it to query a router via UPnP (miniupnpc package required).") # (If using filename then its contents will be re-read every time the URL is used; this might be useful for example if the router password can change)
 define("ip_check_interval",default=8000,help="Number of seconds between checks of ip_query_url for the ip_change_command option")
@@ -2324,7 +2325,7 @@ def emergency_zap_pid_and_children(pid):
 try: from selenium.common.exceptions import TimeoutException
 except: # no Selenium or wrong version
     class TimeoutException: pass # placeholder
-class SeriousTimeoutException: pass
+class SeriousTimeoutException(Exception): pass
 def webdriverWrapper_receiver(pipe,timeoutLock):
     "Command receiver for WebdriverWrapper for when it's running over IPC (--js-multiprocess).  Receives (command,args) and sends (return,exception), releasing the timeoutLock whenever it's ready to return."
     setProcName("adjusterWDhelp")
@@ -3983,7 +3984,7 @@ document.forms[0].i.focus()
         if response==None or not response.code or response.code==599:
             # (some Tornado versions don't like us copying a 599 response without adding our own Reason code; just making it a 504 for now)
             try: error = str(response.error)
-            except: error = "Gateway timeout or something"
+            except: error = str(response)
             if "incorrect data check" in error and not hasattr(self,"avoid_gzip") and enable_gzip:
                 # Some versions of the GWAN server can send NUL bytes at the end of gzip data.  Retry without requesting gzip.
                 self.avoid_gzip = True
@@ -3998,6 +3999,11 @@ document.forms[0].i.focus()
             error = """%s<h1>Error</h1>%s<br>Was trying to fetch <a href="%s">%s</a><hr>This is %s</body></html>""" % (htmlhead("Error"),error,ampEncode(tryFetch),ampEncode(tryFetch),serverName_html)
             self.set_status(504)
             return self.doResponse2(error,True,False)
+        if not hasattr(response, "headers"): # HTTPError might not have them in Tornado 6
+            class H(dict):
+                def get_all(self): return []
+            response.headers = H()
+        if not hasattr(response, "body"): response.body = B("")
         if response.headers.get("Content-Encoding","")=="gzip": # sometimes Tornado's client doesn't decompress it for us, for some reason
             try: response.body = zlib.decompressobj().decompress(response.body,1048576*32) # 32M limit to avoid zip bombs (TODO adjust? what if exceeded?)
             except: pass
@@ -6025,8 +6031,44 @@ class Dynamic_DNS_updater:
         cmd = options.ip_change_command+" "+ip
         if len(options.ip_change_command) < 50: logging.info("ip_change_command: "+cmd)
         else: logging.info("Running ip_change_command for "+ip)
-        subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE)
+        sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE)
         self.forceTime=time.time()+options.ip_force_interval
+        if options.ip_change_tries==1: return # no need to start thread
+        def retry(sp):
+            triesLeft = options.ip_change_tries-1 # -ve if inf
+            while triesLeft:
+                if not sp.wait():
+                    logging.info("ip_change_command successfully completed for "+ip)
+                    break
+                logging.info("ip_change_command failed for "+ip+", retrying")
+                sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE)
+                triesLeft -= 1
+        threading.Thread(target=retry,args=(sp,)).start()
+
+def pimote_powercycle(deviceNo):
+    # Not used yet.  Get Raspberry Pi's "PiMote" add-on to
+    # power-cycle a router or something (TODO: need a way of
+    # detecting when we need to do this first!)
+    # Needs to be run in a separate thread.
+    # Takes 2 minutes (because we have no direct way to verify
+    # the sockets have received our signal, so just have to make
+    # the hopefully-worst-case assumptions)
+    if deviceNo=="all": p17,p22,p23 = 1,1,0
+    elif deviceNo==1:   p17,p22,p23 = 1,1,1
+    elif deviceNo==2:   p17,p22,p23 = 1,0,1
+    elif deviceNo==3:   p17,p22,p23 = 0,1,1
+    elif deviceNo==4:   p17,p22,p23 = 0,0,1
+    # TODO: unofficial 1 0 0 and 0 1 0 can be programmed (taking number of devices up to 6), + a 7th can be programmed on 000 but only for switch-on (as '0000' just resets the board; can switch off w. 'all').  Can program multiple switches to respond to same signal.
+    else: raise Exception("Invalid deviceNo "+repr(deviceNo))
+    def w(g,v): open("/sys/class/gpio/gpio%d/value" % g).write(str(v)+"\n") # TODO: check if \n really needed
+    for OnOff in [0, 1]:
+        w(25,0) # stop TX, just in case
+        w(17,p17), w(22,p22), w(23,p23), w(27,OnOff)
+        for Try in range(10): # sometimes the signal fails
+            w(25,1) # start TX
+            time.sleep(4)
+            w(25,0) # stop TX
+            time.sleep(1)
 
 def open_upnp():
     if options.ip_query_url2=="upnp":
