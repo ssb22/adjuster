@@ -2324,7 +2324,7 @@ def emergency_zap_pid_and_children(pid):
     except OSError: pass # maybe pid already gone
 try: from selenium.common.exceptions import TimeoutException
 except: # no Selenium or wrong version
-    class TimeoutException: pass # placeholder
+    class TimeoutException(Exception): pass # placeholder
 class SeriousTimeoutException(Exception): pass
 def webdriverWrapper_receiver(pipe,timeoutLock):
     "Command receiver for WebdriverWrapper for when it's running over IPC (--js-multiprocess).  Receives (command,args) and sends (return,exception), releasing the timeoutLock whenever it's ready to return."
