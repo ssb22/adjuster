@@ -6033,16 +6033,17 @@ class Dynamic_DNS_updater:
         else: logging.info("Running ip_change_command for "+ip)
         sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE)
         self.forceTime=time.time()+options.ip_force_interval
-        if options.ip_change_tries==1: return # no need to start thread
         def retry(sp):
             triesLeft = options.ip_change_tries-1 # -ve if inf
             while triesLeft:
                 if not sp.wait():
-                    logging.info("ip_change_command successfully completed for "+ip)
-                    break
+                    logging.info("ip_change_command succeeded for "+ip)
+                    return
                 logging.info("ip_change_command failed for "+ip+", retrying")
                 sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE)
                 triesLeft -= 1
+            if sp.wait(): logging.error("ip_change_command failed for "+ip)
+            else: logging.info("ip_change_command succeeded for "+ip)
         threading.Thread(target=retry,args=(sp,)).start()
 
 def pimote_powercycle(deviceNo):
