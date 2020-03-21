@@ -502,10 +502,10 @@ Dynamic DNS options
 -------------------
 
 `--ip_change_command` 
-: An optional script or other shell command to launch whenever the public IP address changes. The new IP address will be added as a parameter; ip_query_url must be set to make this work. The script can for example update any Dynamic DNS services that point to the server, and perhaps verify that the update actually took place.
+: An optional script or other shell command to launch whenever the public IP address changes. The new IP address will be added as a parameter; ip_query_url must be set to make this work. The script can for example update any Dynamic DNS services that point to the server.
 
 `--ip_change_tries`  (default 1)
-: Number of times to run ip_change_command if it returns failure.  0 means unlimited, which is not recommended.
+: Number of times to run ip_change_command if it returns failure (0 means unlimited, which is not recommended).  For example, you can have the script return failure if it doesn't get either an "Updated" or an expected "not changed" response from a Dynamic DNS service (but it is not advisable to expect a host lookup to reflect the change immediately)
 
 `--ip_query_url` 
 : URL that will return your current public IP address, as a line of text with no markup added. Used for the ip_change_command option. You can set up a URL by placing a CGI script on a server outside your network and having it do: echo Content-type: text/plain;echo;echo $REMOTE_ADDR (but if you want your IPv4 address, ensure the adjuster machine and the outside server are not both configured for IPv6)
