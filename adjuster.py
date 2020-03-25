@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.303 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.304 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -486,6 +486,7 @@ define("ip_check_interval",default=8000,help="Number of seconds between checks o
 define("ip_check_interval2",default=60,help="Number of seconds between checks of ip_query_url2 (if set), for the ip_change_command option")
 define("ip_query_aggressive",default=False,help="If a query to ip_query_url fails with a connection error or similar, keep trying again until we get a response. This is useful if the most likely reason for the error is that our ISP is down: we want to get the new IP just as soon as we're back online. However, if the error is caused by a problem with ip_query_url itself then this option can lead to excessive traffic, so use with caution. (Log entries are written when this option takes effect, and checking the logs is advisable.)")
 define("ip_force_interval",default=7*24*3600,help="Number of seconds before ip_change_command (if set) is run even if there was no IP change.  This is to let Dynamic DNS services know that we are still around.  Set to 0 to disable forced updates (a forced update will occur on server startup anyway), otherwise an update will occur on the next IP check after ip_force_interval has elapsed.")
+define("pimote",help="Use an Energenie Pi-mote home control system to power-cycle the router when its Internet connection appears to be stuck in a bad state.  This option works only if Web Adjuster is running on the Raspberry Pi, and it must be set to routerIP,ispDomain,internalResponse,deviceID where routerIP is the internal IP address of your router, ispDomain is the domain of your Internet service provider (assumed to be quick to look up), internalResponse is the IP provided by your router's built-in DNS when it's having trouble (e.g. Post Office Broadband's AMG1302-derived router responds with 219.87.158.116 which is presumably Zyxel's office in Taiwan), and deviceID is the Pi-mote device ID (1 to 4 or all) used to switch it off and on again.  Power-cycling will be initiated if two queries to the router's DNS for its ISP domain either fail or return internalResponse, and it's assumed router caching will let us check status frequently without causing traffic.")
 
 heading("Speedup options")
 define("useLXML",default=False,help="Use the LXML library for parsing HTML documents. This is usually faster, but it can fail if your system does not have a good installation of LXML and its dependencies. Use of LXML libraries may also result in more changes to all HTML markup: this should be harmless for browsers, but beware when using options like bodyAppendGoesAfter then you might or might not be dealing with the original HTML depending on which filters are switched on.")
@@ -1729,6 +1730,7 @@ def openPortsEtc():
         else: open_profile_pjsOnly()
         if options.js_interpreter: init_webdrivers(coreNo*js_per_core,js_per_core)
         if not options.multicore: setupRunAndBrowser()
+        if options.pimote: pimote_thread()
         watchdog.start() # ALL cores if multicore (since only one needs to be up for us to be still working) although TODO: do we want this only if not coreNo so as to ensure Dynamic_DNS_updater is still up?
         checkServer.setup() # (TODO: if we're multicore, can we propagate to other processes ourselves instead of having each core check the fasterServer?  Low priority because how often will a multicore box need a fasterServer)
         if not coreNo:
@@ -1843,6 +1845,7 @@ def main():
 #   'The Great Adjustment is taking place!'" - Thomas Hardy
     except KeyboardInterrupt: announceInterrupt()
     announceShutdown()
+    options.pimote = "" # so pimote_thread stops
     for v in kept_tempfiles.values(): unlink(v)
     if watchdog: watchdog.stop()
     stop_threads() # must be last thing
@@ -6046,30 +6049,47 @@ class Dynamic_DNS_updater:
             else: logging.info("ip_change_command succeeded for "+ip)
         threading.Thread(target=retry,args=(sp,)).start()
 
-def pimote_powercycle(deviceNo):
-    # Not used yet.  Get Raspberry Pi's "PiMote" add-on to
-    # power-cycle a router or something (TODO: need a way of
-    # detecting when we need to do this first!)
-    # Needs to be run in a separate thread.
-    # Takes 2 minutes (because we have no direct way to verify
-    # the sockets have received our signal, so just have to make
-    # the hopefully-worst-case assumptions)
+def pimote_thread():
+    routerIP, ispDomain, internalResponse, deviceNo = options.pimote.split(',')
+    try: deviceNo = int(deviceNo)
+    except: pass # "all" etc is OK
+    import DNS # apt-get install python-dns
     if deviceNo=="all": p17,p22,p23 = 1,1,0
     elif deviceNo==1:   p17,p22,p23 = 1,1,1
     elif deviceNo==2:   p17,p22,p23 = 1,0,1
     elif deviceNo==3:   p17,p22,p23 = 0,1,1
     elif deviceNo==4:   p17,p22,p23 = 0,0,1
     # TODO: unofficial 1 0 0 and 0 1 0 can be programmed (taking number of devices up to 6), + a 7th can be programmed on 000 but only for switch-on (as '0000' just resets the board; can switch off w. 'all').  Can program multiple switches to respond to same signal.
-    else: raise Exception("Invalid deviceNo "+repr(deviceNo))
-    def w(g,v): open("/sys/class/gpio/gpio%d/value" % g).write(str(v)+"\n") # TODO: check if \n really needed
-    for OnOff in [0, 1]:
-        w(25,0) # stop TX, just in case
-        w(17,p17), w(22,p22), w(23,p23), w(27,OnOff)
-        for Try in range(10): # sometimes the signal fails
-            w(25,1) # start TX
-            time.sleep(4)
-            w(25,0) # stop TX
-            time.sleep(1)
+    else: raise Exception("Invalid Pi-mote device number "+repr(deviceNo))
+    def t():
+      lastOK = True
+      helper_threads.append('PiMote')
+      while options.pimote:
+        try:
+            r = DNS.DnsRequest(server=routerIP,timeout=5).req(name=ispDomain,qtype="A")
+            ok = not(any(i['data']==internalResponse for i in r.answers))
+        except: ok = False
+        if ok or lastOK:
+            for i in xrange(30): # TODO: configurable?
+                if options.pimote: time.sleep(1)
+                else: break
+            lastOK = ok ; continue
+        logging.info("PiMote: power-cycling the router")
+        # Takes 2 minutes (because we have no direct way to verify
+        # the sockets have received our signal, so just have to make
+        # the hopefully-worst-case assumptions)
+        def w(g,v): open("/sys/class/gpio/gpio%d/value" % g).write(str(v)+"\n") # TODO: check if \n really needed
+        for OnOff in [0, 1]:
+            w(25,0) # stop TX, just in case
+            w(17,p17), w(22,p22), w(23,p23), w(27,OnOff)
+            for Try in range(10): # sometimes the signal fails
+                w(25,1) # start TX
+                time.sleep(4)
+                w(25,0) # stop TX
+                time.sleep(1)
+        time.sleep(99) # give it time to start up before we test it again
+      helper_threads.remove('PiMote')
+    threading.Thread(target=t,args=()).start()
 
 def open_upnp():
     if options.ip_query_url2=="upnp":
