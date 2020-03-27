@@ -4748,7 +4748,7 @@ function walk(n,document) {
     }
     c=cNext;
   }
-}adjusterScan();%s""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),locProto,jsonPostUrl,addRubyScript(),xtra,options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize,rubyEndScript[rubyEndScript.index("<!--")+4:rubyEndScript.rindex("//-->")]) # TODO: addRubyScript and rubyEndScript optional? (needed only if the filter is likely to use ruby); duplicate rubyEndScript added because at least some browsers don't seem to execute it when set as innerHTML by the all_frames_docs call in addRubyScript below, so at least we can do it here in the current frame
+}adjusterScan();%s undefined""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),locProto,jsonPostUrl,addRubyScript(),xtra,options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize,rubyEndScript[rubyEndScript.index("<!--")+4:rubyEndScript.rindex("//-->")]) # TODO: addRubyScript and rubyEndScript optional? (needed only if the filter is likely to use ruby); duplicate rubyEndScript added because at least some browsers don't seem to execute it when set as innerHTML by the all_frames_docs call in addRubyScript below, so at least we can do it here in the current frame.  "undefined" added after the ';' on rubyEndScript to ensure the bookmarklet's "eval()" returns undefined, which is needed in at least some versions of Firefox to prevent it replacing the page.
 def addRubyScript():
     if not options.headAppendRuby: return ""
     # rScript = rubyScript # doesn't work, fall back on:
