@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.304 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.305 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -348,6 +348,7 @@ define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",h
 # well, all ASCII + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8. (Previously said "To process ALL text, simply set this option to 'true'", but that can have odd effects on some sites' empty nodes. Saying c.nodeValue.length for now; c.nodeValue.match(/[^\s]/) might be better but needs more quoting explanation. Could change bookmarkletMainScript so it alters the DOM only if replacements[i] != oldTexts[i], c.f. annogen's android code, but that would mean future passes would re-send all the unchanged nodes cluttering the XMLHttpRequests especially if they fill a chunk - annogen version has the advantage of immediate local processing)
 define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate number of characters at a time that the 'bookmarklet' Javascript will send to the server if submitPath and submitBookmarklet are set. Setting this too high could impair browser responsiveness, but too low will be inefficient with bandwidth and pages will take longer to finish.")
 define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster (or an identically-configured copy) can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.")
+define("submitBookmarkletRemoveExstingRuby",default=True,help="Specifies that 'bookmarklets' added to the 'Upload text' page should remove all existing ruby on a page before running.  Use this for example if you expect to replace the text with ruby of a different kind of annotation.")
 
 heading("Javascript execution options")
 define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with an appropriate version of Selenium (and ChromeDriver if you're using HeadlessChrome).  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
@@ -3545,7 +3546,7 @@ document.forms[0].i.focus()
         if options.htmlUrl: line1 = "about:submitted\n"
         else: line1 = ""
         runFilterOnText(self,self.getHtmlFilter(),find_text_in_HTML(B(htmlhead("Uploaded Text - Web Adjuster"))+B("<h3>Your text</h3>")+B(txt2html(txt))+B("<hr>This is %s. %s</body></html>" % (serverName_html,backScriptNoBr))),lambda out,err:self.doResponse2(out,True,False),prefix=line1) # backScriptNoBr AFTER the server notice to save vertical space
-    def serve_bookmarklet_code(self,xtra,forceSameWindow):
+    def serve_bookmarklet_code(self,xtra,forceSameWindow): # (forceSameWindow is used by the "plus" bookmarklets)
         self.add_header("Content-Type","application/javascript")
         self.add_header("Access-Control-Allow-Origin","*")
         if options.submitBookmarkletDomain: submit = "//"+options.submitBookmarkletDomain
@@ -4661,12 +4662,11 @@ def bookmarklet(submit_url,local_submit_url):
     # 'loophole': https://bugzilla.mozilla.org/show_bug.cgi?id=1123694 (+ 'seem to' because I don't know if the timeout value is enough; however we don't want it to hang around too long) (don't do else h=null if successful because someone else may hv used that var?)
     # 'resetting the current page': so you lose anything you typed in text boxes etc
     # (DO hide bookmarklets by default, because don't want to confuse users if they're named the same as the immediate-action filter selections at the bottom of the page)
-    # TODO: maybe document that on Chrome Mobile (Android/iOS) you can tap address bar and start typing the bookmarklet name IF you've sync'd it from a desktop
     # TODO: we append '+' to the names of the 'advanced' versions of the bookmarklets, but we don't do so on the Android/iOS title pages; is that OK?
 def quote_for_JS_doublequotes(s): return s.replace("\\","\\\\").replace('"',"\\\"").replace("\n","\\n").replace('</','<"+"/') # for use inside document.write("") etc
 def bookmarkletMainScript(jsonPostUrl,forceSameWindow):
-    if forceSameWindow: xtra = "if(c.target=='_blank') c.removeAttribute('target'); "
-    else: xtra = ""
+    if forceSameWindow: case1Extra = "if(c.target=='_blank') c.removeAttribute('target'); " # (used by the "plus" bookmarklets)
+    else: case1Extra = ""
     # HTMLSizeChanged in the below calls callback the NEXT time HTML size is changed, and then stops checking.  The expectation is that HTMLSizeChanged will be called again to set up change monitoring again after the callback has made its own modifications.
     # innerHTML size will usually change if there's a JS popup etc (TODO: could periodically do a full scan anyway, on the off-chance that some JS change somehow keeps length the same); sizeChangedLoop is an ID so we can stop our checking loop if for any reason HTMLSizeChanged is called again while we're still checking (e.g. user restarts the bookmarklet, or callback is called by MutationObserver - we assume JS runs only one callback at a time).
     # MutationObserver gives faster response times when supported, but might not respond to ALL events on all browsers, so we keep the size check as well.
@@ -4674,6 +4674,8 @@ def bookmarkletMainScript(jsonPostUrl,forceSameWindow):
     else: locProto = ""
     # TODO: make mergeTags configurable, and implement it in the non-JS version (and expand it so it's not dependent on both of the consecutive EM-etc elements being leaf nodes?) (purpose is to stop problems with <em>txt1</em><em>txt2</em> resulting in an annotator receiving txt1 and txt2 separately and not adding space between them when necessary)
     # TODO: also apply annogen's "adapt existing ruby markup to gloss-only" logic? (but if they're using a bookmarklet, they might want, and should at least be able to put up with, an annotation of the whole thing, so this is low priority)
+    if options.submitBookmarkletRemoveExstingRuby: rmRT="if (c.nodeType==1 && c.nodeName=='RT') n.removeChild(c); else if (c.nodeType==1 && (c.nodeName=='RUBY' || c.nodeName=='RB') && c.firstChild) { cNext=c.firstChild; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); }"
+    else: rmRT = ""
     return r"""var leaveTags=%s,stripTags=%s,mergeTags=['EM','I','B','STRONG'];
 function HTMLSizeChanged(callback) {
   if(typeof window.sizeChangedLoop=="undefined") window.sizeChangedLoop=0; var me=++window.sizeChangedLoop;
@@ -4708,7 +4710,7 @@ function walk(n,document) {
   while(c) {
     var ps = c.previousSibling, cNext = c.nextSibling;
     function isTxt(n) {return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^"\s*$/)};
-    if (isTxt(cNext) && isTxt(ps)) {
+    %s if (isTxt(cNext) && isTxt(ps)) {
     var awkwardSpan = (c.nodeType==1 && c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\s*$/))));
     if (c.nodeType==1 && stripTags.indexOf(c.nodeName)!=-1 || awkwardSpan) { // TODO: this JS code strips more stripTags than the Python shouldStripTag stuff does
       while (c.firstChild && !awkwardSpan) {
@@ -4722,7 +4724,7 @@ function walk(n,document) {
     } else if(c.nodeType==1 && cNext && cNext.nodeType==1 && mergeTags.indexOf(c.nodeName)!=-1 && c.nodeName==cNext.nodeName && c.childNodes.length==1 && cNext.childNodes.length==1 && isTxt(c.firstChild) && isTxt(cNext.firstChild)) {
       cNext.firstChild.nodeValue = c.firstChild.nodeValue+cNext.firstChild.nodeValue;
       n.removeChild(c);
-    }
+    } else if(isTxt(c)) while(cNext && isTxt(cNext)) { cNext.nodeValue=c.nodeValue+cNext.nodeValue; n.removeChild(c); c=cNext; cNext=c.nextSibling; }
     c=cNext;
   }
   c=n.firstChild;
@@ -4748,7 +4750,7 @@ function walk(n,document) {
     }
     c=cNext;
   }
-}adjusterScan();%s undefined""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),locProto,jsonPostUrl,addRubyScript(),xtra,options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize,rubyEndScript[rubyEndScript.index("<!--")+4:rubyEndScript.rindex("//-->")]) # TODO: addRubyScript and rubyEndScript optional? (needed only if the filter is likely to use ruby); duplicate rubyEndScript added because at least some browsers don't seem to execute it when set as innerHTML by the all_frames_docs call in addRubyScript below, so at least we can do it here in the current frame.  "undefined" added after the ';' on rubyEndScript to ensure the bookmarklet's "eval()" returns undefined, which is needed in at least some versions of Firefox to prevent it replacing the page.
+}adjusterScan();%s undefined""" % (repr([t.upper() for t in options.leaveTags]),repr([t.upper() for t in options.stripTags]),locProto,jsonPostUrl,addRubyScript(),rmRT,case1Extra,options.submitBookmarkletFilterJS,options.submitBookmarkletChunkSize,rubyEndScript[rubyEndScript.index("<!--")+4:rubyEndScript.rindex("//-->")]) # TODO: addRubyScript and rubyEndScript optional? (needed only if the filter is likely to use ruby); duplicate rubyEndScript added because at least some browsers don't seem to execute it when set as innerHTML by the all_frames_docs call in addRubyScript below, so at least we can do it here in the current frame.  "undefined" added after the ';' on rubyEndScript to ensure the bookmarklet's "eval()" returns undefined, which is needed in at least some versions of Firefox to prevent it replacing the page.
 def addRubyScript():
     if not options.headAppendRuby: return ""
     # rScript = rubyScript # doesn't work, fall back on:
@@ -4790,7 +4792,7 @@ def android_ios_instructions(pType,reqHost,ua,filterNo):
     else: # Android
         i0 += "Press Menu (&#x22ee;) and Save to Bookmarks (&#x2606;) to bookmark <b>this</b> page<li>In the pop-up, long-press the <em>second</em> line to get the selection on it<li>Gently drag the marker over to the left so that it scrolls to the extreme left of the address"+sharp+"Press \"OK\" to come back here."
     i0 += "<li>The bookmarklet is now ready for use. Go to whatever page you want to use it on, and select it from the bookmarks to use it."
-    if pType=='a': i0 += " <b>On later versions of Android, it doesn't work to choose the bookmark directly</b>: you have to start typing \""+title+"\" in the URL box and select it that way."
+    if pType=='a': i0 += " <b>On later versions of Android, it doesn't work to choose the bookmark directly</b>: you have to start typing \""+title+"\" in the URL box and select it that way." # You can also tap address bar and start typing the bookmarklet name if you've sync'd it from a desktop
     return i0+"</ol></body></html>"
 
 #@file: run-filters.py
