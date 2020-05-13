@@ -1,6 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
+# (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v0.6912 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.0 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -26,7 +27,7 @@ program_name = "Annotator Generator v0.6912 (c) 2012-20 Silas S. Brown"
 
 from optparse import OptionParser
 parser = OptionParser()
-import sys,os,os.path,tempfile,time,re
+import sys,os,os.path,tempfile,time,re,subprocess
 try: from subprocess import getoutput
 except: from commands import getoutput
 if not "mac" in sys.platform and not "darwin" in sys.platform and ("win" in sys.platform or "mingw32" in sys.platform): exe=".exe" # Windows, Cygwin, etc
@@ -424,7 +425,7 @@ if nested_switch: nested_if = True
 def errExit(msg):
   assert main # bad news if this happens in non-main module
   try:
-    if not outfile==sys.stdout:
+    if not outfile==getBuf(sys.stdout):
       outfile.close() ; rm_f(c_filename)
   except: pass # works only if got past outfile opening
   sys.stderr.write(msg+"\n") ; sys.exit(1)
@@ -446,16 +447,30 @@ if (extra_js or extra_css or existing_ruby_js_fixes or delete_existing_ruby) and
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
-if extra_css.startswith("@"): extra_css = open(extra_css[1:]).read()
+if extra_css.startswith("@"): extra_css = open(extra_css[1:],"rb").read()
 if extra_js.startswith("@"):
   extra_js = extra_js[1:]
   if not os.system("which node 2>/dev/null >/dev/null"):
     # we can check the syntax
     import pipes
     if os.system("node -c "+pipes.quote(extra_js)): errExit("Syntax check failed for extra-js file "+extra_js)
-  extra_js = open(extra_js).read()
-if extra_js.rstrip() and not extra_js.rstrip()[-1] in ';}': errExit("--extra-js must end with a semicolon or a closing brace")
-if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:]).read()
+  extra_js = open(extra_js,"rb").read()
+if type("")==type(u""): # Python 3
+  def B(s):
+    try: return s.encode('latin1')
+    except: return s
+  def S(b):
+    try: return b.decode('latin1')
+    except: return b
+  def getBuf(f):
+    try: return f.buffer
+    except: return f
+else: # Python 2: pass through as quickly as possible
+  def B(s): return s # (and as this particular script shouldn't need to run on a Python 2 below 2.7, we also use b"" inline for literals)
+  def S(s): return s
+  def getBuf(f): return f
+if extra_js.rstrip() and not B(extra_js.rstrip()[-1:]) in b';}': errExit("--extra-js must end with a semicolon or a closing brace")
+if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:],"rb").read()
 jPackage = None
 if nested_switch: nested_switch=int(nested_switch) # TODO: if java, override it?  or just rely on the help text for --nested-switch (TODO cross-reference it from --java?)
 if java:
@@ -545,18 +560,23 @@ if not terminal_charset: terminal_charset = "utf-8"
 if android_urls:
   if not android: errExit("--android-urls requires --android (you need to set a default URL for direct launch)")
   try: import urlparse
-  except: errExit("--android-urls requires urlparse module") # unless we re-implement
+  except:
+    try: import urllib.parse as urlparse
+    except: errExit("--android-urls requires urlparse module") # unless we re-implement
   if "?" in android_urls: errExit("You cannot include a ? in any of your --android-urls (Android does not count query-string as part of the path)")
 else: android_urls = "" # so it can still be .split()
 if existing_ruby_shortcut_yarowsky:
   if not (android and ybytes and glossfile): errExit("--existing-ruby-shortcut-yarowsky makes sense only when generating an Android app with both ybytes and glossfile set")
   if delete_existing_ruby: errExit("--existing-ruby-shortcut-yarowsky and --delete-existing-ruby are mutually exclusive")
   if not data_driven: errExit("Current implementation of --existing-ruby-shortcut-yarowsky requires --data-driven") # (it doesn't have to, but doing so without would require it to be put into the non-datadriven n() test, and as we're probably turning on zlib for Android apps anyway, we might as well implement only for data-driven)
-if keep_whitespace: keep_whitespace = set(keep_whitespace.decode(terminal_charset).split(','))
-if glossmiss_hide: glossmiss_hide = set(glossmiss_hide.decode(terminal_charset).split(','))
+def T(s):
+  if type(s)==type(u""): return s # Python 3
+  return s.decode(terminal_charset)
+if keep_whitespace: keep_whitespace = set(T(keep_whitespace).split(','))
+if glossmiss_hide: glossmiss_hide = set(T(glossmiss_hide).split(','))
 if status_prefix: status_prefix += ": "
 else: status_prefix = ""
-if diagnose: diagnose=diagnose.decode(terminal_charset)
+if diagnose: diagnose=T(diagnose)
 diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
@@ -577,77 +597,90 @@ if not read_input:
 def nearCall(negate,conds,subFuncs,subFuncL):
   # returns what to put in the if() for ybytes near() lists
   if not max_or_length or len(conds) <= max_or_length:
-    if java: f="a.n"
-    else: f="near"
-    ret = " || ".join(f+"(\""+outLang_escape(c)+"\")" for c in conds)
+    if java: f=b"a.n"
+    else: f=b"near"
+    ret = b" || ".join(f+b"(\""+B(outLang_escape(c))+b"\")" for c in conds)
     if negate:
-      if " || " in ret: ret = " ! ("+ret+")"
-      else: ret = "!"+ret
+      if b" || " in ret: ret = b" ! ("+ret+b")"
+      else: ret = b"!"+ret
     return ret
-  if java: fStart,fEnd = "package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {","} }" # put functions in separate classes to try to save the constants table of the main class
-  elif golang: fStart,fEnd = "func NewFunc() bool {","}"
-  else: fStart,fEnd = outLang_bool+" NewFunc() {","}"
+  if java: fStart,fEnd = B("package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {"),b"} }" # put functions in separate classes to try to save the constants table of the main class
+  elif golang: fStart,fEnd = b"func NewFunc() bool {",b"}"
+  else: fStart,fEnd = outLang_bool+b" NewFunc() {",b"}"
   if negate: rTrue,rFalse = outLang_false,outLang_true
   else: rTrue,rFalse = outLang_true,outLang_false
-  return subFuncCall(fStart+"\n".join(outLang_shortIf(nearCall(False,conds[i:j],subFuncs,subFuncL),"return "+rTrue+";") for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+"\nreturn "+rFalse+";"+fEnd,subFuncs,subFuncL)
+  return subFuncCall(fStart+b"\n".join(outLang_shortIf(nearCall(False,conds[i:j],subFuncs,subFuncL),b"return "+rTrue+b";") for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+b"\nreturn "+rFalse+b";"+fEnd,subFuncs,subFuncL)
 
 def outLang_shortIf(cond,statement):
-  if golang: return "if "+cond+" {\n  "+statement+"\n}"
-  else: return "if("+cond+") "+statement
+  if golang: return b"if "+cond+b" {\n  "+statement+b"\n}"
+  else: return b"if("+cond+b") "+statement
 
 def subFuncCall(newFunc,subFuncs,subFuncL):
   if newFunc in subFuncs:
     # we generated an identical one before
     subFuncName=subFuncs[newFunc]
   else:
-    if java: subFuncName="z%X" % len(subFuncs) # (try to save as many bytes as possible because it won't be compiled out and we also have to watch the compiler's footprint; start with z so MainActivity.java etc appear before rather than among this lot in IDE listings)
-    else: subFuncName="match%d" % len(subFuncs)
+    if java: subFuncName=b"z%X" % len(subFuncs) # (try to save as many bytes as possible because it won't be compiled out and we also have to watch the compiler's footprint; start with z so MainActivity.java etc appear before rather than among this lot in IDE listings)
+    else: subFuncName=b"match%d" % len(subFuncs)
     subFuncs[newFunc]=subFuncName
-    if java or c_sharp or golang: static=""
-    else: static="static "
-    subFuncL.append(static+newFunc.replace("NewFunc",subFuncName,1))
-  if java: return jPackage+"."+subFuncName+".f(a)"
-  return subFuncName+"()" # the call (without a semicolon)
+    if java or c_sharp or golang: static=b""
+    else: static=b"static "
+    subFuncL.append(static+newFunc.replace(b"NewFunc",subFuncName,1))
+  if java: return B(jPackage)+b"."+subFuncName+b".f(a)"
+  return subFuncName+b"()" # the call (without a semicolon)
 
-def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFuncs={},java_localvar_counter=None,nestingsLeft=None): # ("topLevelMatch" is also mentioned in the C code)
+def iterkeys(d):
+  try: return d.iterkeys() # Python 2
+  except: return d.keys() # Python 3
+def itervalues(d):
+  try: return d.itervalues() # Python 2
+  except: return d.values() # Python 3
+def iteritems(d):
+  try: return d.iteritems() # Python 2
+  except: return d.items() # Python 3
+
+def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName=b"topLevelMatch",subFuncs={},java_localvar_counter=None,nestingsLeft=None): # ("topLevelMatch" is also mentioned in the C code)
     # make a function to switch on a large number of variable-length string cases without repeated lookahead for each case
     # (may still backtrack if no words or no suffices match)
     # byteSeq_to_action_dict is really a byte sequence to [(action, OR-list of Yarowsky-like indicators which are still in Unicode)], the latter will be c_escape()d
     # can also be byte seq to [(action,(OR-list,nbytes))] but only if OR-list is not empty, so value[1] will always be false if OR-list is empty
+    # so byteSeq_to_action_dict[k][0][0] is 1st action,
+    #    byteSeq_to_action_dict[k][0][1] is conditions,
+    #    byteSeq_to_action_dict[k][1][0] is 2nd action, &c
     if nestingsLeft==None: nestingsLeft=nested_switch
     canNestNow = not nestingsLeft==0 # (-1 = unlimited)
-    if java: adot = "a."
-    else: adot = ""
-    if java or c_sharp or golang: NEXTBYTE = adot + 'nB()'
-    else: NEXTBYTE = 'NEXTBYTE'
-    allBytes = set(b[0] for b in byteSeq_to_action_dict.iterkeys() if b)
+    if java: adot = b"a."
+    else: adot = b""
+    if java or c_sharp or golang: NEXTBYTE = adot+b'nB()'
+    else: NEXTBYTE = b'NEXTBYTE'
+    allBytes = set(b[:1] for b in iterkeys(byteSeq_to_action_dict) if b)
     ret = []
     if not java_localvar_counter: # Java and C# don't allow shadowing of local variable names, so we'll need to uniquify them
       java_localvar_counter=[0]
-    olvc = "%X" % java_localvar_counter[0] # old localvar counter
+    olvc = b"%X" % java_localvar_counter[0] # old localvar counter
     if funcName:
-        if java: ret.append("package "+jPackage+";\npublic class "+funcName+" { public static void f("+jPackage+".Annotator a) {")
+        if java: ret.append(b"package "+B(jPackage)+b";\npublic class "+funcName+b" { public static void f("+B(jPackage)+b".Annotator a) {")
         else:
-          if funcName=="topLevelMatch" and not c_sharp: stat="static " # because we won't call subFuncCall on our result
-          else: stat=""
-          if golang: ret.append("func %s() {" % funcName)
-          else: ret.append(stat+"void %s() {" % funcName)
+          if funcName==b"topLevelMatch" and not c_sharp: stat=b"static " # because we won't call subFuncCall on our result
+          else: stat=b""
+          if golang: ret.append(b"func %s() {" % funcName)
+          else: ret.append(stat+b"void %s() {" % funcName)
         savePos = len(ret)
-        if java or c_sharp: ret.append("{ int oldPos="+adot+"inPtr;")
-        elif golang: ret.append("{ oldPos := inPtr;")
-        else: ret.append("{ POSTYPE oldPos=THEPOS;")
-    elif "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1:
+        if java or c_sharp: ret.append(b"{ int oldPos="+adot+b"inPtr;")
+        elif golang: ret.append(b"{ oldPos := inPtr;")
+        else: ret.append(b"{ POSTYPE oldPos=THEPOS;")
+    elif b"" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1:
         # no funcName, but might still want to come back here as there's a possible action at this level
         savePos = len(ret)
         if java or c_sharp:
-          ret.append("{ int oP"+olvc+"="+adot+"inPtr;")
+          ret.append(b"{ int oP"+olvc+b"="+adot+b"inPtr;")
           java_localvar_counter[0] += 1
-        elif golang: ret.append("{ oldPos := inPtr;")
-        else: ret.append("{ POSTYPE oldPos=THEPOS;")
+        elif golang: ret.append(b"{ oldPos := inPtr;")
+        else: ret.append(b"{ POSTYPE oldPos=THEPOS;")
     else: savePos = None
     def restorePos():
       if not savePos==None:
-        if len(' '.join(ret).split(NEXTBYTE))==2 and not called_subswitch:
+        if len(b' '.join(ret).split(NEXTBYTE))==2 and not called_subswitch:
             # only 1 NEXTBYTE after the savePos - just
             # do a PREVBYTE instead
             # (note however that splitting on NEXTBYTE
@@ -656,96 +689,96 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName="topLevelMatch",subFun
             # there's more than 1.  We use max rule len
             # as an upper bound for that instead.)
             del ret[savePos]
-            if java: ret.append("a.inPtr--;")
-            elif c_sharp or golang: ret.append("inPtr--;")
-            else: ret.append("PREVBYTE;")
+            if java: ret.append(b"a.inPtr--;")
+            elif c_sharp or golang: ret.append(b"inPtr--;")
+            else: ret.append(b"PREVBYTE;")
         elif java or c_sharp:
-          if funcName: ret.append(adot+"inPtr=oldPos; }")
-          else: ret.append(adot+"inPtr=oP"+olvc+"; }")
-        elif golang: ret.append("inPtr=oldPos; }")
-        else: ret.append("SETPOS(oldPos); }") # restore
+          if funcName: ret.append(adot+b"inPtr=oldPos; }")
+          else: ret.append(adot+b"inPtr=oP"+olvc+b"; }")
+        elif golang: ret.append(b"inPtr=oldPos; }")
+        else: ret.append(b"SETPOS(oldPos); }") # restore
     called_subswitch = False
-    if "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[""])==1 and not byteSeq_to_action_dict[""][0][1] and all((len(a)==1 and a[0][0].startswith(byteSeq_to_action_dict[""][0][0]) and not a[0][1]) for a in byteSeq_to_action_dict.itervalues()):
+    if b"" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[b""])==1 and not byteSeq_to_action_dict[b""][0][1] and all((len(a)==1 and a[0][0].startswith(byteSeq_to_action_dict[b""][0][0]) and not a[0][1]) for a in itervalues(byteSeq_to_action_dict)):
         # there's an action in common for this and all subsequent matches, and no Yarowsky-like indicators, so we can do the common action up-front
-        ret.append(byteSeq_to_action_dict[""][0][0])
-        l = len(byteSeq_to_action_dict[""][0][0])
-        byteSeq_to_action_dict = dict((x,[(y[l:],z)]) for x,[(y,z)] in byteSeq_to_action_dict.iteritems())
+        ret.append(byteSeq_to_action_dict[b""][0][0])
+        l = len(byteSeq_to_action_dict[b""][0][0])
+        byteSeq_to_action_dict = dict((x,[(y[l:],z)]) for x,[(y,z)] in iteritems(byteSeq_to_action_dict))
         # and, since we'll be returning no matter what,
         # we can put the inner switch in a new function
         # (even if not re-used, this helps compiler speed)
         # + DON'T save/restore pos around it (it itself
         # will do any necessary save/restore pos)
-        del byteSeq_to_action_dict[""]
+        del byteSeq_to_action_dict[b""]
         if java and (canNestNow or len(byteSeq_to_action_dict)==1): # hang on - better nest (might be using --nested-switch to get around a Java compiler-memory problem; the len condition allows us to always nest a single 'if' rather than creating a new function+class for it)
-          ret += ["  "+x for x in stringSwitch(byteSeq_to_action_dict,subFuncL,None,subFuncs,java_localvar_counter,nestingsLeft)]
+          ret += [b"  "+x for x in stringSwitch(byteSeq_to_action_dict,subFuncL,None,subFuncs,java_localvar_counter,nestingsLeft)]
           restorePos()
-          ret.append("return;")
+          ret.append(b"return;")
         else: # ok, new function
-          newFunc = "\n".join(stringSwitch(byteSeq_to_action_dict,subFuncL,"NewFunc",subFuncs))
-          ret.append(subFuncCall(newFunc,subFuncs,subFuncL)+"; return;")
+          newFunc = b"\n".join(stringSwitch(byteSeq_to_action_dict,subFuncL,b"NewFunc",subFuncs))
+          ret.append(subFuncCall(newFunc,subFuncs,subFuncL)+b"; return;")
           del ret[savePos] # will be set to None below
-        byteSeq_to_action_dict[""] = [("",[])] # for the end of this func
+        byteSeq_to_action_dict[b""] = [(b"",[])] # for the end of this func
         savePos = None # as setting funcName on stringSwitch implies it'll give us a savePos, and if we didn't set funcName then we called restorePos already above
     elif allBytes:
       # deal with all actions except "" first
       use_if = (len(allBytes)==1)
       if not use_if:
         if nestingsLeft > 0: nestingsLeft -= 1
-        ret.append("switch("+NEXTBYTE+") {")
+        ret.append(b"switch("+NEXTBYTE+b") {")
       for case in sorted(allBytes):
-        if not c_sharp and 32<=ord(case)<127 and case!="'": cstr="'%c'" % case
-        elif ios and ord(case)>127: cstr=str(ord(case)-256)
+        if not c_sharp and 32<=ord(case)<127 and case!=b"'": cstr=b"'%c'" % case
+        elif ios and ord(case)>127: cstr=B(str(ord(case)-256)) # signed
         else:
-          cstr=str(ord(case))
-          if java: cstr = "(byte)"+cstr
-        if use_if: ret.append("if("+NEXTBYTE+"=="+cstr+") {")
-        else: ret.append("case %s:" % cstr)
-        subDict = dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case])
+          cstr=B(str(ord(case)))
+          if java: cstr = b"(byte)"+cstr
+        if use_if: ret.append(b"if("+NEXTBYTE+b"=="+cstr+b") {")
+        else: ret.append(b"case %s:" % cstr)
+        subDict = dict([(k[1:],v) for k,v in iteritems(byteSeq_to_action_dict) if k and k[0]==case])
         inner = stringSwitch(subDict,subFuncL,None,subFuncs,java_localvar_counter,nestingsLeft)
-        if canNestNow or not (inner[0].startswith("switch") or (inner[0].startswith("if(") and not nested_if)): ret += ["  "+x for x in inner]
+        if canNestNow or not (inner[0].startswith(b"switch") or (inner[0].startswith(b"if(") and not nested_if)): ret += [b"  "+x for x in inner]
         else:
           # Put the inner switch into a different function
           # which returns 1 if we should return.
           # (TODO: this won't catch cases where there's a savePos before the inner switch; will still nest in that case.  But it shouldn't lead to big nesting in practice.)
           if nested_switch: inner = stringSwitch(subDict,subFuncL,None,subFuncs,None,None) # re-do it with full nesting counter
-          if java: myFunc,funcEnd = ["package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {"], "}}"
-          elif golang: myFunc,funcEnd=["func NewFunc() bool {"],"}"
-          else: myFunc,funcEnd=[outLang_bool+" NewFunc() {"],"}"
+          if java: myFunc,funcEnd = [B("package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {")], b"}}"
+          elif golang: myFunc,funcEnd=[b"func NewFunc() bool {"],b"}"
+          else: myFunc,funcEnd=[outLang_bool+b" NewFunc() {"],b"}"
           for x in inner:
-            if x.endswith("return;"): x=x[:-len("return;")]+"return "+outLang_true+";"
-            myFunc.append("  "+x)
-          ret += ("  "+outLang_shortIf(subFuncCall("\n".join(myFunc)+"\n  return "+outLang_false+";\n"+funcEnd,subFuncs,subFuncL),"return;")).split('\n') # if golang, MUST have the \n before the 1st return there (optional for other languages); also must split outLang_shortIf o/p into \n for the above 'for x in inner' rewrite to work
+            if x.endswith(b"return;"): x=x[:-len(b"return;")]+b"return "+outLang_true+b";"
+            myFunc.append(b"  "+x)
+          ret += (b"  "+outLang_shortIf(subFuncCall(b"\n".join(myFunc)+b"\n  return "+outLang_false+b";\n"+funcEnd,subFuncs,subFuncL),b"return;")).split(b'\n') # if golang, MUST have the \n before the 1st return there (optional for other languages); also must split outLang_shortIf o/p into \n for the above 'for x in inner' rewrite to work
           called_subswitch=True # as it'll include more NEXTBYTE calls which are invisible to the code below
-        if not (use_if or inner[-1].endswith("return;")): ret.append("  break;")
-      ret.append("}") # end of switch or if
+        if not (use_if or inner[-1].endswith(b"return;")): ret.append(b"  break;")
+      ret.append(b"}") # end of switch or if
     restorePos()
     if funcName:
-      if java: ret.append("} }")
-      else: ret.append("}")
-    elif "" in byteSeq_to_action_dict:
+      if java: ret.append(b"} }")
+      else: ret.append(b"}")
+    elif b"" in byteSeq_to_action_dict:
         # if the C code gets to this point, no return; happened - no suffices
         # so execute one of the "" actions and return
         # (which one, if any, depends on the Yarowsky-like indicators; there should be at most one "default" action without indicators)
-        default_action = ""
-        for action,conds in byteSeq_to_action_dict[""]:
+        default_action = b""
+        for action,conds in byteSeq_to_action_dict[b""]:
             if conds:
                 assert action, "conds without action in "+repr(byteSeq_to_action_dict[""])
                 if type(conds)==tuple:
                     negate,conds,nbytes = conds
-                    if java: ret.append("a.sn(%d);" % nbytes)
-                    elif c_sharp or golang: ret.append("nearbytes=%d;" % nbytes)
-                    else: ret.append("setnear(%d);" % nbytes)
+                    if java: ret.append(b"a.sn(%d);" % nbytes)
+                    elif c_sharp or golang: ret.append(b"nearbytes=%d;" % nbytes)
+                    else: ret.append(b"setnear(%d);" % nbytes)
                 else: negate = False
-                ret.append("if ("+nearCall(negate,conds,subFuncs,subFuncL)+") {")
-                ret.append((action+" return;").strip())
-                ret.append("}")
+                ret.append(b"if ("+nearCall(negate,conds,subFuncs,subFuncL)+b") {")
+                ret.append((action+b" return;").strip())
+                ret.append(b"}")
             else: # no conds
                 if default_action:
                   sys.stderr.write("WARNING! More than one default action in "+repr(byteSeq_to_action_dict[""])+" - earlier one discarded!\n")
                   if rulesFile: sys.stderr.write("(This might indicate invalid markup in the corpus, but it might just be due to a small change or capitalisation update during an incremental run, which can be ignored.)\n") # TODO: don't write this warning at all if accum.amend_rules was set at the end of analyse() ?
                   else: sys.stderr.write("(This might indicate invalid markup in the corpus)\n")
                 default_action = action
-        if default_action or not byteSeq_to_action_dict[""]: ret.append((default_action+" return;").strip()) # (return only if there was a default action, OR if an empty "" was in the dict with NO conditional actions (e.g. from the common-case optimisation above).  Otherwise, if there were conditional actions but no default, we didn't "match" anything if none of the conditions were satisfied.)
+        if default_action or not byteSeq_to_action_dict[b""]: ret.append((default_action+b" return;").strip()) # (return only if there was a default action, OR if an empty "" was in the dict with NO conditional actions (e.g. from the common-case optimisation above).  Otherwise, if there were conditional actions but no default, we didn't "match" anything if none of the conditions were satisfied.)
     return ret # caller does '\n'.join
 
 if compress:
@@ -754,7 +787,7 @@ if compress:
     assert main, "squashFinish sets globals"
     global squashStrings # so can set it to "done" at end
     tokens = set()
-    for s in squashStrings: tokens.update(list(s))
+    for s in squashStrings: tokens.update(list(S(s)))
     totSaved = 0
     tokens = [chr(t) for t in range(1,256) if not chr(t) in tokens] ; orig_tokens = set(tokens)
     pairs = [chr(0)] * 512
@@ -765,24 +798,24 @@ if compress:
         # To make decompression as fast and compact as possible, each 1-byte token represents 2 bytes exactly.  In practice allowing it to represent variable lengths of whole bytes up to 4 is not likely to improve the compression by more than 3.2% (that's 3.2% of the 10-20% it achieves, so it's around 0.5%), and not very much better for length 9, so we might as well stick with this simpler scheme unless we do real LZMA or whatever.
           for i in range(0,len(s)-1):
             k = s[i:i+2]
-            if k[0] in orig_tokens or k[1] in orig_tokens: continue # to keep the decoder simple, don't set things up so it needs to recurse (being able to recurse within the 2-byte expansion is very unlikely to save anything in practice anyway - it didn't on my annotators - so not worth implementing the decoder for)
+            if S(k[:1]) in orig_tokens or S(k[1:]) in orig_tokens: continue # to keep the decoder simple, don't set things up so it needs to recurse (being able to recurse within the 2-byte expansion is very unlikely to save anything in practice anyway - it didn't on my annotators - so not worth implementing the decoder for)
             counts[k] = counts.get(k,0) + 1
       bSaved, k = max((v,k) for k,v in counts.items())
-      pairs[ord(t)] = k[0]
-      pairs[ord(t)+256] = k[1]
-      squashReplacements.append((k,t)) # this assumes we won't be doing things like 'if ALL instances of a byte end up in our tokens, add the byte's original value as an extra token'
+      pairs[ord(t)] = k[:1]
+      pairs[ord(t)+256] = k[1:]
+      squashReplacements.append((k,B(t))) # this assumes we won't be doing things like 'if ALL instances of a byte end up in our tokens, add the byte's original value as an extra token'
       for s in squashStrings:
-        s2 = s.replace(k,t)
+        s2 = s.replace(k,B(t))
         if not s2==s:
           squashStrings.remove(s) ; squashStrings.add(s2)
       totSaved += bSaved
-      sys.stderr.write("Compress: %d/%d tokens, %d bytes saved%s" % (len(orig_tokens)-len(tokens),len(orig_tokens),totSaved,clear_eol))
+      sys.stderr.write("Compress: %d/%d tokens, %d bytes saved%s" % (len(orig_tokens)-len(tokens),len(orig_tokens),totSaved,clear_eol)) ; sys.stderr.flush()
     squashStrings = "done"
     while len(pairs) > 256 and pairs[-1]==chr(0): pairs = pairs[:-1]
     sys.stderr.write("\n")
     if totSaved < len(pairs)+50: sys.stderr.write("Warning: --compress on this data made it bigger!  Consider dropping --compress\n") # 50 as rough guess for OutWriteDecompress binary (probably about 12 instructions at 4+ bytes each)
-    return c_escapeRawBytes("".join(pairs))
-  decompress_func=r"""
+    return c_escapeRawBytes(b"".join(B(p) for p in pairs))
+  decompress_func=br"""
 
 static unsigned char pairs[]="%%PAIRS%%";
 static void OutWriteDecompress(const char *s) {
@@ -792,7 +825,7 @@ while(*s) {
   s++;
 }
 }"""
-  if sharp_multi: decompress_func += r"""
+  if sharp_multi: decompress_func += br"""
 static int ns; static void OutWriteNSB(int b) {
   if(b=='#') ns++; else if(ns==numSharps) OutWriteByte(b);
 }
@@ -809,7 +842,7 @@ ns=0; while(*s && ns<=numSharps) {
         byteStr = byteStr.replace(k,v)
     else: squashStrings.add(byteStr) # for the dry run
     return byteStr
-elif sharp_multi: decompress_func = r"""
+elif sharp_multi: decompress_func = br"""
 static void OutWriteStrP(const char *annot) {
     int ns = numSharps;
     while(ns--) {
@@ -820,12 +853,12 @@ static void OutWriteStrP(const char *annot) {
     if(m) OutWriteStrN(annot,m-annot); else OutWriteStr(annot);
 }
 """
-else: decompress_func = ""
+else: decompress_func = b""
 
 if c_filename and os.sep in c_filename: cfn = c_filename[c_filename.rindex(os.sep)+1:]
 else: cfn = c_filename
 if ios:
-  c_preamble = r"""/*
+  c_preamble = br"""/*
 
 To compile this, go into Xcode and do File > New > Project
 and under iOS / Application choose Single View Application.
@@ -858,7 +891,7 @@ link will show and annotate the local clipboard.
 #import <UIKit/UIKit.h>
 #include <string.h>
 """
-  c_defs = r"""static const char *readPtr, *writePtr, *startPtr;
+  c_defs = br"""static const char *readPtr, *writePtr, *startPtr;
 static NSMutableData *outBytes;
 #define NEXTBYTE (*readPtr++)
 #define NEXT_COPY_BYTE (*writePtr++)
@@ -883,7 +916,7 @@ static int near(char* string) {
 """ # (strnstr is BSD-specific, but that's OK on iOS.  TODO: might be nice if all loops over outWriteByte could be reduced to direct calls of appendBytes with appropriate lengths, but it wouldn't be a major speedup)
   have_annotModes = False # only ruby is needed by the iOS code
 elif library:
-  c_preamble = r"""
+  c_preamble = br"""
   /*
      This library is NOT thread safe.  But you can use it
      with single-threaded or multiprocess code like Web Adjuster
@@ -896,60 +929,60 @@ alib = CDLL("./libannotator.so.1")
 _annotate,_afree = alib.annotate,alib.afree
 _annotate.restype = c_char_p
 _annotate.argtypes = [c_char_p"""
-  if sharp_multi: c_preamble += ",c_int"
-  c_preamble += r",c_int]"
+  if sharp_multi: c_preamble += b",c_int"
+  c_preamble += b",c_int]"
   if outcode=="utf-8":
-    c_preamble += r"""
+    c_preamble += br"""
 _annotateRL = alib.annotateRawLatinize
 _annotateRL.restype = c_char_p
 _annotateRL.argtypes = [c_char_p"""
-    if sharp_multi: c_preamble += ",c_int"
-    c_preamble += "]\ndef annotR(txt"
-    if sharp_multi: c_preamble += ",aType=0"
-    c_preamble += r"""):
+    if sharp_multi: c_preamble += b",c_int"
+    c_preamble += b"]\ndef annotR(txt"
+    if sharp_multi: c_preamble += b",aType=0"
+    c_preamble += br"""):
     if type(txt)==type(u''): txt = txt.encode('utf-8')
     r = _annotateRL(txt"""
-    if sharp_multi: c_preamble += ",aType"
-    c_preamble += r""")
+    if sharp_multi: c_preamble += b",aType"
+    c_preamble += br""")
     _afree() ; return r"""
-  c_preamble += "\ndef annotate(txt"
-  if sharp_multi: c_preamble += ",aType=0"
-  c_preamble += r""",aMode=1):
+  c_preamble += b"\ndef annotate(txt"
+  if sharp_multi: c_preamble += b",aType=0"
+  c_preamble += br""",aMode=1):
     "aMode: 0 = raw, 1 = ruby (default), 2 = braces"
     if type(txt)==type(u''): txt = txt.encode('"""+outcode+r"""')
     r = _annotate(txt"""
-  if sharp_multi: c_preamble += ",aType"
-  c_preamble += r""",aMode)
+  if sharp_multi: c_preamble += b",aType"
+  c_preamble += br""",aMode)
     _afree() ; return r
 # then for Web Adjuster you can do, for example,
 # adjuster.annotFunc1 = lambda t:annotate(t"""
-  if sharp_multi: c_preamble += ",1"
-  c_preamble += ",1)\n"
+  if sharp_multi: c_preamble += b",1"
+  c_preamble += b",1)\n"
   if outcode=="utf-8":
-    if sharp_multi: c_preamble += "# adjuster.annotFunc1R = lambda t:annotR(t,1)"
-    else: c_preamble += "# adjuster.annotFunc1R = annotR"
-    c_preamble += r"""
+    if sharp_multi: c_preamble += b"# adjuster.annotFunc1R = lambda t:annotR(t,1)"
+    else: c_preamble += b"# adjuster.annotFunc1R = annotR"
+    c_preamble += br"""
 # adjuster.options.htmlFilter = "*annotFunc1#*annotFunc1R"
 # adjuster.options.htmlFilterName = "ruby#annot-only"
 """
-  else: c_preamble += r"""
+  else: c_preamble += br"""
 # adjuster.options.htmlFilter = "*annotFunc1"
 """
-  if not outcode=="utf-8": c_preamble += r"""
+  if not outcode=="utf-8": c_preamble += br"""
 # but BEWARE Web Adjuster assumes UTF-8; you'd better write a wrapper to re-code it
 """ # (TODO: automate this?)
-  c_preamble += r"""
+  c_preamble += br"""
     Compile with:
     gcc -shared -fPIC -Wl,-soname,annotator.so.1 -o libannotator.so.1 annotator.c -lc
 
   */
   """
-  if cfn: c_preamble=c_preamble.replace("annotator.c",cfn)
-  c_preamble += r"""
+  if cfn: c_preamble=c_preamble.replace(b"annotator.c",B(cfn))
+  c_preamble += br"""
 #include <stdlib.h>
 #include <string.h>
 """
-  c_defs = r"""static const unsigned char *readPtr, *writePtr, *startPtr;
+  c_defs = br"""static const unsigned char *readPtr, *writePtr, *startPtr;
 static char *outBytes;
 static size_t outWriteLen,outWritePtr;
 #define NEXTBYTE (*readPtr++)
@@ -997,33 +1030,33 @@ int near(char* string) {
     return 0;
 }
 void matchAll();"""
-  c_defs += r"""
+  c_defs += br"""
 void afree() { if(outBytes) free(outBytes); outBytes=NULL; }
 char *annotate(const char *input"""
-  if sharp_multi: c_defs += ", int annotNo"
-  c_defs += r""",int aMode) {
+  if sharp_multi: c_defs += b", int annotNo"
+  c_defs += br""",int aMode) {
   readPtr=writePtr=startPtr=(char*)input;
   outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
   afree(); outBytes = malloc(outWriteLen);"""
-  if sharp_multi: c_defs += " numSharps=annotNo;"
-  c_defs += r""" annotation_mode = aMode;
+  if sharp_multi: c_defs += b" numSharps=annotNo;"
+  c_defs += br""" annotation_mode = aMode;
   if(outBytes) { outWritePtr = 0; matchAll(); }
   if(outBytes) OutWriteByte(0);
   return outBytes;
 }
 """
   if outcode=="utf-8": # (TODO: document this feature?  non-utf8 versions ??)
-    c_defs += r"""
+    c_defs += br"""
 static void latinizeMatch(); static int latCap,latSpace;
 char *annotateRawLatinize(const char *input"""
-    if sharp_multi: c_defs += ", int annotNo"
-    c_defs += r""") {
+    if sharp_multi: c_defs += b", int annotNo"
+    c_defs += br""") {
     // "Bonus" library function, works only if annotation is Latin-like,
     // tries to improve the capitalisation when in 'raw' mode
     // (TODO: make this available in other annogen output formats?  work into ruby mode??)
     char *tmp=annotate(input"""
-    if sharp_multi: c_defs += ",annotNo"
-    c_defs += r""",annotations_only);
+    if sharp_multi: c_defs += b",annotNo"
+    c_defs += br""",annotations_only);
     if(tmp) { tmp=strdup(tmp); if(tmp) {
       readPtr=writePtr=startPtr=tmp;
       afree(); outBytes=malloc(outWriteLen);
@@ -1172,7 +1205,7 @@ static void latinizeMatch() {
 """
   have_annotModes = library # only ruby is needed by the Android code
 elif windows_clipboard:
-  c_preamble = r"""/*
+  c_preamble = br"""/*
 
 For running on Windows desktop or WINE, compile with:
 
@@ -1219,8 +1252,8 @@ unsigned char *p, *copyP, *pOrig;
 #define PREVBYTE p--
 #define FINISHED (!*p && !p[1])
 """
-  if cfn: c_preamble=c_preamble.replace("annoclip.c",cfn)
-  c_defs = r"""static int near(char* string) {
+  if cfn: c_preamble=c_preamble.replace(b"annoclip.c",B(cfn))
+  c_defs = br"""static int near(char* string) {
   POSTYPE o=p; if(p>pOrig+nearbytes) o-=nearbytes; else o=pOrig;
   size_t l=strlen(string);
   POSTYPE max=p+nearbytes-l;
@@ -1233,14 +1266,14 @@ unsigned char *p, *copyP, *pOrig;
 """
   have_annotModes = False # only ruby is needed by the windows_clipboard code
 else:
-  c_preamble = r"""
+  c_preamble = br"""
 #include <stdio.h>
 #include <string.h>
 
 /* To include this code in another program,
    define the ifndef'd macros below + define Omit_main */
 """
-  c_defs = r"""#ifndef NEXTBYTE
+  c_defs = br"""#ifndef NEXTBYTE
 /* Default definition of NEXTBYTE etc is to read input
    from stdin and write output to stdout.  */
 enum { Half_Bufsize = %%LONGEST_RULE_LEN%% };
@@ -1289,7 +1322,7 @@ static int near(char* string) {
 """
   have_annotModes = True
 if have_annotModes:
-  c_defs = r"""
+  c_defs = br"""
 #ifndef Default_Annotation_Mode
 #define Default_Annotation_Mode ruby_markup
 #endif
@@ -1299,10 +1332,10 @@ enum {
   ruby_markup,
   brace_notation} annotation_mode = Default_Annotation_Mode;
 """ + c_defs
-  c_switch1=r"""switch (annotation_mode) {
+  c_switch1=br"""switch (annotation_mode) {
   case annotations_only: OutWriteDecompressP(annot); COPY_BYTE_SKIPN(numBytes); break;
   case ruby_markup:"""
-  c_switch2=r"""break;
+  c_switch2=br"""break;
   case brace_notation:
     OutWriteByte('{');
     for(;numBytes;numBytes--)
@@ -1310,31 +1343,31 @@ enum {
     OutWriteByte('|'); OutWriteDecompressP(annot);
     OutWriteByte('}'); break;
   }"""
-  c_switch3 = "if (annotation_mode == ruby_markup) {"
-  c_switch4 = "} else o(numBytes,annot);"
-else: c_switch1=c_switch2=c_switch3=c_switch4=""
+  c_switch3 = b"if (annotation_mode == ruby_markup) {"
+  c_switch4 = b"} else o(numBytes,annot);"
+else: c_switch1=c_switch2=c_switch3=c_switch4=b""
 
-if data_driven or sharp_multi: c_preamble += '#include <stdlib.h>\n' # for malloc or atoi
-if sharp_multi: c_preamble += '#include <ctype.h>\n'
-if zlib: c_preamble += '#include "zlib.h"\n'
-if sharp_multi: c_preamble += "static int numSharps=0;\n"
+if data_driven or sharp_multi: c_preamble += b'#include <stdlib.h>\n' # for malloc or atoi
+if sharp_multi: c_preamble += b'#include <ctype.h>\n'
+if zlib: c_preamble += b'#include "zlib.h"\n'
+if sharp_multi: c_preamble += b"static int numSharps=0;\n"
 
-version_stamp = time.strftime("generated %Y-%m-%d by ")+program_name[:program_name.index("(c)")].strip()
+version_stamp = B(time.strftime("generated %Y-%m-%d by ")+program_name[:program_name.index("(c)")].strip())
 
-if ios: c_name = "Objective-C"
-else: c_name = "C"
-c_start = "/* -*- coding: "+outcode+" -*- */\n/* "+c_name+" code "+version_stamp+" */\n"
-c_start += c_preamble+r"""
+if ios: c_name = b"Objective-C"
+else: c_name = b"C"
+c_start = b"/* -*- coding: "+B(outcode)+b" -*- */\n/* "+c_name+b" code "+version_stamp+b" */\n"
+c_start += c_preamble+br"""
 enum { ybytes = %%YBYTES%% }; /* for Yarowsky-like matching, minimum readahead */
 static int nearbytes = ybytes;
 #define setnear(n) (nearbytes = (n))
-""" + c_defs + r"""static int needSpace=0;
+""" + c_defs + br"""static int needSpace=0;
 static void s() {
   if (needSpace) OutWriteByte(' ');
   else needSpace=1; /* for after the word we're about to write (if no intervening bytes cause needSpace=0) */
 } static void s0() {
   if (needSpace) { OutWriteByte(' '); needSpace=0; }
-}""" + decompress_func + r"""
+}""" + decompress_func + br"""
 
 static void c(int numBytes) {
   /* copyBytes, needSpace unchanged */
@@ -1342,28 +1375,28 @@ static void c(int numBytes) {
     OutWriteByte(NEXT_COPY_BYTE);
 }
 static void o(int numBytes,const char *annot) {
-  s();""" + c_switch1 + r"""
+  s();""" + c_switch1 + br"""
     OutWriteStr("<ruby><rb>");
     for(;numBytes;numBytes--)
       OutWriteByte(NEXT_COPY_BYTE);
     OutWriteStr("</rb><rt>"); OutWriteDecompressP(annot);
-    OutWriteStr("</rt></ruby>"); """+c_switch2+r""" }
-static void o2(int numBytes,const char *annot,const char *title) {"""+c_switch3+r"""
+    OutWriteStr("</rt></ruby>"); """+c_switch2+br""" }
+static void o2(int numBytes,const char *annot,const char *title) {"""+c_switch3+br"""
     s();
     OutWriteStr("<ruby title=\""); OutWriteDecompress(title);
     OutWriteStr("\"><rb>");
     for(;numBytes;numBytes--)
       OutWriteByte(NEXT_COPY_BYTE);
     OutWriteStr("</rb><rt>"); OutWriteDecompressP(annot);
-    OutWriteStr("</rt></ruby>"); """+c_switch4+"}"
+    OutWriteStr("</rt></ruby>"); """+c_switch4+b"}"
 
-if not sharp_multi: c_start = c_start.replace("OutWriteDecompressP","OutWriteDecompress")
-if not compress: c_start = c_start.replace("OutWriteDecompress","OutWriteStr") # and hence OutWriteDecompressP to OutWriteStrP
+if not sharp_multi: c_start = c_start.replace(b"OutWriteDecompressP",b"OutWriteDecompress")
+if not compress: c_start = c_start.replace(b"OutWriteDecompress",b"OutWriteStr") # and hence OutWriteDecompressP to OutWriteStrP
 
-c_end = r"""
+c_end = br"""
 void matchAll() {"""
-if zlib: c_end += "  if(!data) init();\n"
-c_end += r"""  while(!FINISHED) {
+if zlib: c_end += b"  if(!data) init();\n"
+c_end += br"""  while(!FINISHED) {
     POSTYPE oldPos=THEPOS;
     topLevelMatch();
     if (oldPos==THEPOS) { needSpace=0; OutWriteByte(NEXTBYTE); COPY_BYTE_SKIP; }
@@ -1372,71 +1405,71 @@ c_end += r"""  while(!FINISHED) {
 
 # jsAddRubyCss will be in a quoted string in ObjC / Java source, so all " and \ must be escaped:
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
-annotation_font = [ "Times New Roman" ] # iOS has this for real, Android has Droid Serif but it's not selected if you put "serif" or "Droid Serif", it's mapped from "Times New Roman" (tested in Android 4.4 and Android 10)
+annotation_font = [b"Times New Roman"] # iOS has this for real, Android has Droid Serif but it's not selected if you put "serif" or "Droid Serif", it's mapped from "Times New Roman" (tested in Android 4.4 and Android 10)
 # there's a more comprehensive list in the windows_clipboard code below, but those fonts are less likely found on Android or iOS
-jsAddRubyCss="all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+", ".join(annotation_font)+" !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+extra_css.replace('\\',r'\\').replace('"',r'\"').replace("'",r"\\'")+"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
-if epub: jsAddRubyCss += "+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
-if android_print: jsAddRubyCss += "+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
-if android_template: jsAddRubyCss += "+(ssb_local_annotator.getDevCSS()?'ruby:not([title]){border:thin blue solid} ruby[title~=\\\"||\\\"]{border:thin blue dashed}':'')" # (use *= instead of ~= if the || is not separated on both sides with space)
-jsAddRubyCss += "+'</style>'"
+jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+b", ".join(annotation_font)+b" !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+B(extra_css).replace(b'\\',br'\\').replace(b'"',br'\"').replace(b"'",br"\\'")+b"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
+if epub: jsAddRubyCss += b"+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
+if android_print: jsAddRubyCss += b"+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
+if android_template: jsAddRubyCss += b"+(ssb_local_annotator.getDevCSS()?'ruby:not([title]){border:thin blue solid} ruby[title~=\\\"||\\\"]{border:thin blue dashed}':'')" # (use *= instead of ~= if the || is not separated on both sides with space)
+jsAddRubyCss += b"+'</style>'"
 def sort20px(singleQuotedStr): # 20px is relative to zoom
-  assert singleQuotedStr.startswith("'") and singleQuotedStr.endswith("'")
+  assert singleQuotedStr.startswith(b"'") and singleQuotedStr.endswith(b"'")
   if not android_template: return singleQuotedStr
-  return singleQuotedStr.replace("20px","'+Math.round(20/Math.pow((ssb_local_annotator.canCustomZoom()?ssb_local_annotator.getRealZoomPercent():100)/100,0.6))+'px") # (do allow some scaling, but not by the whole zoom factor)
+  return singleQuotedStr.replace(b"20px",b"'+Math.round(20/Math.pow((ssb_local_annotator.canCustomZoom()?ssb_local_annotator.getRealZoomPercent():100)/100,0.6))+'px") # (do allow some scaling, but not by the whole zoom factor)
 def bookmarkJS():
   "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks, and event-setup code to be added after (to work around onclick= restrictions on some sites, i.e. ones that set the HTTP header Content-Security-Policy: unsafe-inline)"
   assert not '"' in android, "bookmarkJS needs re-implementing if --android URL contains quotes: please %-escape it"
-  should_show_bookmarks = "(location.href=='"+android.replace("'",r"\\'")+"'&&!document.noBookmarks)" # noBookmarks is used for handling ACTION_SEND, since it has the same href (TODO @lower-priority: use different href instead?)
-  are_there_bookmarks = "ssb_local_annotator.getBMs().replace(/,/g,'')"
-  show_bookmarks_string = r"""'<div style=\"border: green solid\">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style=\"color:red;text-decoration:none\" href=\"javascript:if(confirm(\\'Delete '+title.replace(/\\'/g,\"&apos;\").replace(/\"/g,\"&quot;\")+\"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')[\"+i+']);location.reload()}\">Delete</a>] <a style=\"color:blue;text-decoration:none\" href=\"'+url+'\">'+title+'</a>'}return c+'</ul>'})()+'</div>'""" # TODO: use of confirm() will include the line "the page at file:// says", could do without that (but reimplementing will need complex callbacks rather than a simple 'if')
-  show_bookmarks_string = are_there_bookmarks+"?("+show_bookmarks_string+"):''"
+  should_show_bookmarks = B("(location.href=='"+android.replace("'",r"\\'")+"'&&!document.noBookmarks)") # noBookmarks is used for handling ACTION_SEND, since it has the same href (TODO @lower-priority: use different href instead?)
+  are_there_bookmarks = b"ssb_local_annotator.getBMs().replace(/,/g,'')"
+  show_bookmarks_string = br"""'<div style=\"border: green solid\">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style=\"color:red;text-decoration:none\" href=\"javascript:if(confirm(\\'Delete '+title.replace(/\\'/g,\"&apos;\").replace(/\"/g,\"&quot;\")+\"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')[\"+i+']);location.reload()}\">Delete</a>] <a style=\"color:blue;text-decoration:none\" href=\"'+url+'\">'+title+'</a>'}return c+'</ul>'})()+'</div>'""" # TODO: use of confirm() will include the line "the page at file:// says", could do without that (but reimplementing will need complex callbacks rather than a simple 'if')
+  show_bookmarks_string = are_there_bookmarks+b"?("+show_bookmarks_string+b"):''"
   should_suppress_toolset=[
-    "location.href.slice(0,7)=='file://'", # e.g. assets URLs
-    "document.noBookmarks",
+    b"location.href.slice(0,7)=='file://'", # e.g. assets URLs
+    b"document.noBookmarks",
     # "location.href=='about:blank'", # for the 'loading, please wait' on at least some Android versions (-> we set noBookmarks=1 in handleIntent instead)
   ]
-  if epub: should_suppress_toolset.append("location.href.slice(0,12)=='http://epub/'")
-  should_suppress_toolset = "("+"||".join(should_suppress_toolset)+")"
-  toolset_openTag = sort20px(r"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: #1010AF solid !important; background: #1010AF !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""") # need to select a background that doesn't 'invert' too much by whatever algorithm forceDarkAllowed uses; 1010AF at opacity 0.8 = 4040BF on white
-  toolset_closeTag = "'</span></span>'"
-  bookmarkLink0 = "ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))"
-  bookmarkLink = r'\"'+"javascript:"+bookmarkLink0+r'\"' # not ' as bookmarkLink0 contains '
-  copyLink0 = "ssb_local_annotator.copy(location.href,true)"
-  copyLink = "'javascript:"+copyLink0+"'" # ' is OK here
-  forwardLink = "'javascript:history.go(1)'"
-  closeLink = r'\"'+"javascript:var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)"+r'\"'
-  emoji_supported = "(function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
-  bookmarks_emoji = r"""'>\ud83d\udd16</a> &nbsp; <a href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; """
-  if android_print: bookmarks_emoji += r"""'+(ssb_local_annotator.canPrint()?('<a href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint()+'</a> &nbsp; '):'')+'""" # don't need bookmarks_noEmoji equivalent, because pre-4.4 devices can't print anyway
-  bookmarks_emoji += r"""<span id=annogenFwdBtn style=\"display: none\"><a href=\"'+forwardLink+'\">\u27a1\ufe0f</a> &nbsp;</span> <a href=\"'+closeLink+'\">\u274c'"""
-  bookmarks_noEmoji = r"""' style=\"color: white !important\">Bookmark</a> <a href=\"'+copyLink+'\" style=\"color: white !important\">Copy</a> <a id=annogenFwdBtn style=\"display: none\" href=\"'+forwardLink+'\" style=\"color: white !important\">Fwd</a> <a href=\"'+closeLink+'\" style=\"color: white !important\">X'"""
-  toolset_string = "(function(bookmarkLink,copyLink,forwardLink,closeLink){return "+toolset_openTag+r"""+'<a href=\"'+bookmarkLink+'\"'+(ssb_local_annotator_toolE?("""+bookmarks_emoji+"):("+bookmarks_noEmoji+r"""))+'</a>'+"""+toolset_closeTag+"})("+bookmarkLink+","+copyLink+","+forwardLink+","+closeLink+")" # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
+  if epub: should_suppress_toolset.append(b"location.href.slice(0,12)=='http://epub/'")
+  should_suppress_toolset = b"("+b"||".join(should_suppress_toolset)+b")"
+  toolset_openTag = sort20px(br"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: #1010AF solid !important; background: #1010AF !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""") # need to select a background that doesn't 'invert' too much by whatever algorithm forceDarkAllowed uses; 1010AF at opacity 0.8 = 4040BF on white
+  toolset_closeTag = b"'</span></span>'"
+  bookmarkLink0 = b"ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))"
+  bookmarkLink = br'\"'+b"javascript:"+bookmarkLink0+br'\"' # not ' as bookmarkLink0 contains '
+  copyLink0 = b"ssb_local_annotator.copy(location.href,true)"
+  copyLink = b"'javascript:"+copyLink0+b"'" # ' is OK here
+  forwardLink = b"'javascript:history.go(1)'"
+  closeLink = br'\"'+b"javascript:var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)"+br'\"'
+  emoji_supported = b"(function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
+  bookmarks_emoji = br"""'>\ud83d\udd16</a> &nbsp; <a href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; """
+  if android_print: bookmarks_emoji += br"""'+(ssb_local_annotator.canPrint()?('<a href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint()+'</a> &nbsp; '):'')+'""" # don't need bookmarks_noEmoji equivalent, because pre-4.4 devices can't print anyway
+  bookmarks_emoji += br"""<span id=annogenFwdBtn style=\"display: none\"><a href=\"'+forwardLink+'\">\u27a1\ufe0f</a> &nbsp;</span> <a href=\"'+closeLink+'\">\u274c'"""
+  bookmarks_noEmoji = br"""' style=\"color: white !important\">Bookmark</a> <a href=\"'+copyLink+'\" style=\"color: white !important\">Copy</a> <a id=annogenFwdBtn style=\"display: none\" href=\"'+forwardLink+'\" style=\"color: white !important\">Fwd</a> <a href=\"'+closeLink+'\" style=\"color: white !important\">X'"""
+  toolset_string = b"(function(bookmarkLink,copyLink,forwardLink,closeLink){return "+toolset_openTag+br"""+'<a href=\"'+bookmarkLink+'\"'+(ssb_local_annotator_toolE?("""+bookmarks_emoji+b"):("+bookmarks_noEmoji+br"""))+'</a>'+"""+toolset_closeTag+b"})("+bookmarkLink+b","+copyLink+b","+forwardLink+b","+closeLink+b")" # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
   # TODO: (don't know how much more room there is on smaller devices, but) U+1F504 Reload (just do window.location.reload)
-  toolset_string = should_suppress_toolset+"?'':("+toolset_string+")"
+  toolset_string = should_suppress_toolset+b"?'':("+toolset_string+b")"
   
-  unconditional_inject = "ssb_local_annotator_toolE="+emoji_supported
+  unconditional_inject = b"ssb_local_annotator_toolE="+emoji_supported
   # Highlighting function, currently depending on android_print (calls canPrint, and currently no other way to save highlights, TODO: figure out how we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions)
   if android_print:
-    p = r""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(r"""'<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important; overflow: auto !important;\">'""")+r"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
+    p = br""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(br"""'<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; position: fixed !important; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important; overflow: auto !important;\">'""")+br"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
     if android_audio:
-      p=p.replace("ssb_local_annotator_highlightSel=",r"""ssb_local_annotator_playSel=function(){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);var t=new Array();for(;i < s.length && r.intersectsNode(s[i]); i++) t.push(s[i].getElementsByTagName('rb')[0].innerText); ssb_local_annotator.sendToAudio(t.join(''))};ssb_local_annotator_highlightSel=""").replace("+'</button>'",r"""+'<span onclick=\"ssb_local_annotator_playSel()\">'+(ssb_local_annotator_toolE?'\ud83d\udd0a':'S')+'</span></button>'""")
-      if android_audio_maxWords: p=p.replace("ssb_local_annotator.sendToAudio","if(t.length > %d) ssb_local_annotator.alert('','','Limit %d words!'); else ssb_local_annotator.sendToAudio" % (android_audio_maxWords,android_audio_maxWords))
+      p=p.replace(b"ssb_local_annotator_highlightSel=",br"""ssb_local_annotator_playSel=function(){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);var t=new Array();for(;i < s.length && r.intersectsNode(s[i]); i++) t.push(s[i].getElementsByTagName('rb')[0].innerText); ssb_local_annotator.sendToAudio(t.join(''))};ssb_local_annotator_highlightSel=""").replace(b"+'</button>'",br"""+'<span onclick=\"ssb_local_annotator_playSel()\">'+(ssb_local_annotator_toolE?'\ud83d\udd0a':'S')+'</span></button>'""")
+      if android_audio_maxWords: p=p.replace(b"ssb_local_annotator.sendToAudio",b"if(t.length > %d) ssb_local_annotator.alert('','','Limit %d words!'); else ssb_local_annotator.sendToAudio" % (android_audio_maxWords,android_audio_maxWords))
     unconditional_inject += p
-  unconditional_inject = "(function(){"+unconditional_inject+"})()"
-  return unconditional_inject+"+("+should_show_bookmarks+"?("+show_bookmarks_string+"):("+toolset_string+"))", "var a=e.getElementsByTagName('*'),i;for(i=0;i < a.length; i++){var c=a[i].getAttribute('onclick');if(c){a[i].removeAttribute('onclick');a[i].addEventListener('click',Function('ev',c+';ev.preventDefault()'))}else{c=a[i].getAttribute('href');if(c&&c.slice(0,11)=='javascript:'){a[i].addEventListener('click',Function('ev',c.slice(11)+';ev.preventDefault()'))}}}"
-if bookmarks: jsAddRubyCss += "+("+bookmarkJS()[0]+")"
-jsAddRubyCss += ";d.body.insertBefore(e,d.body.firstChild)"
-if bookmarks: jsAddRubyCss += ";"+bookmarkJS()[1]
-jsAddRubyCss += ";d.rubyScriptAdded=1 })" # end of all_frames_docs call for add-ruby
-jsAddRubyCss += ";if(!window.doneHash){var h=window.location.hash.slice(1);if(h&&document.getElementById(h)) window.hash0=document.getElementById(h).offsetTop}" # see below
-jsAddRubyCss += "tw0()" # perform the first annotation scan after adding the ruby (calls all_frames_docs w.annotWalk)
-jsAddRubyCss += ";if(!window.doneHash && window.hash0){window.hCount=10*2;window.doneHash=function(){var e=document.getElementById(window.location.hash.slice(1)); if(e.offsetTop==window.hash0 && --window.hCount) setTimeout(window.doneHash,500); e.scrollIntoView()};window.doneHash()}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs; TODO: is this really necessary on iOS?), but don't redo this every time doc length changes on Android. setTimeout loop because rendering might take a while with large documents on slow devices.
+  unconditional_inject = b"(function(){"+unconditional_inject+b"})()"
+  return unconditional_inject+b"+("+should_show_bookmarks+b"?("+show_bookmarks_string+b"):("+toolset_string+b"))", b"var a=e.getElementsByTagName('*'),i;for(i=0;i < a.length; i++){var c=a[i].getAttribute('onclick');if(c){a[i].removeAttribute('onclick');a[i].addEventListener('click',Function('ev',c+';ev.preventDefault()'))}else{c=a[i].getAttribute('href');if(c&&c.slice(0,11)=='javascript:'){a[i].addEventListener('click',Function('ev',c.slice(11)+';ev.preventDefault()'))}}}"
+if bookmarks: jsAddRubyCss += b"+("+bookmarkJS()[0]+b")"
+jsAddRubyCss += b";d.body.insertBefore(e,d.body.firstChild)"
+if bookmarks: jsAddRubyCss += b";"+bookmarkJS()[1]
+jsAddRubyCss += b";d.rubyScriptAdded=1 })" # end of all_frames_docs call for add-ruby
+jsAddRubyCss += b";if(!window.doneHash){var h=window.location.hash.slice(1);if(h&&document.getElementById(h)) window.hash0=document.getElementById(h).offsetTop}" # see below
+jsAddRubyCss += b"tw0()" # perform the first annotation scan after adding the ruby (calls all_frames_docs w.annotWalk)
+jsAddRubyCss += b";if(!window.doneHash && window.hash0){window.hCount=10*2;window.doneHash=function(){var e=document.getElementById(window.location.hash.slice(1)); if(e.offsetTop==window.hash0 && --window.hCount) setTimeout(window.doneHash,500); e.scrollIntoView()};window.doneHash()}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs; TODO: is this really necessary on iOS?), but don't redo this every time doc length changes on Android. setTimeout loop because rendering might take a while with large documents on slow devices.
 
-def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
+def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=b""):
   # 
   # Common code for the JS-based DOM annotators
   # 
-  r = r"""var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
+  r = br"""var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
   
   mergeTags=['EM','I','B','STRONG']; /* we'll merge 2 of these the same if they're leaf elements */
   
@@ -1446,9 +1479,9 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
     function f(c){ /* scan all text under c */
       var i=0,r='',cn=c.childNodes;
       for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:''));
-      return r } """+alertStr+" };"
+      return r } """+alertStr+b" };"
   
-  r += r"""
+  r += br"""
   function all_frames_docs(c) {
     /* Call function c on all documents in the window */
     var f=function(w) {
@@ -1460,24 +1493,24 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
   
   r += xtraDecls
   
-  r += r"""
-  function tw0() { """+textWalkInit+r"""
+  r += br"""
+  function tw0() { """+textWalkInit+br"""
     all_frames_docs(function(d){annotWalk(d,d,false,false)}) };"""
   
-  r += r"""
-  function annotScan() {"""+extra_js.replace('\\',r'\\').replace('"',r'\"')+annotScan+"};"
+  r += br"""
+  function annotScan() {"""+B(extra_js).replace(b'\\',br'\\').replace(b'"',br'\"')+annotScan+b"};"
   
-  r += r"""
+  r += br"""
   function annotWalk(n,document,inLink,inRuby) {
     /* Our main DOM-walking code */
 
     var c,nf=false; /* "need to fix" as there was already ruby on the page */
     if(!inRuby) for(c=n.firstChild; c; c=c.nextSibling) if(c.nodeType==1 && c.nodeName=='RUBY') { nf=true; break; }
     var nReal = n; if(nf) {"""
-  r += "n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
-  if delete_existing_ruby: r += r"""n.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'')"""
-  else: r += existing_ruby_js_fixes.replace('\\',r'\\').replace('"',r'\"')
-  r += r"""
+  r += b"n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
+  if delete_existing_ruby: r += br"""n.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'')"""
+  else: r += B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"')
+  r += br"""
     }
     
     /* 1. check for WBR and mergeTags */
@@ -1500,24 +1533,24 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
         case 1:
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
             if("""
-  if not delete_existing_ruby: r += "!nf &&"
-  r += r"""!inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
-  if existing_ruby_shortcut_yarowsky: r += r"""
+  if not delete_existing_ruby: r += b"!nf &&"
+  r += br"""!inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
+  if existing_ruby_shortcut_yarowsky: r += br"""
             var setR=false; if(!inRuby) {setR=(c.nodeName=='RUBY');if(setR)ssb_local_annotator.setYShortcut(true)}
             annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||setR);
             if(setR)ssb_local_annotator.setYShortcut(false)"""
-  else: r += r"annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY'));"
-  r += r"""
+  else: r += br"annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY'));"
+  r += br"""
           } break;
-        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+r"""}
+        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+br"""}
       }
       cP=c; c=cNext;
       if("""
-  if not delete_existing_ruby: r += "!nf &&"
-  r += r"""!inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling); /* space after the inline link or em etc */
+  if not delete_existing_ruby: r += b"!nf &&"
+  r += br"""!inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling); /* space after the inline link or em etc */
     }"""
-  if delete_existing_ruby: r += "if(nf) nReal.parentNode.replaceChild(n,nReal);"
-  else: r += r"""
+  if delete_existing_ruby: r += b"if(nf) nReal.parentNode.replaceChild(n,nReal);"
+  else: r += br"""
     /* 3. Batch-fix any damage we did to existing ruby.
        Keep new titles; normalise the markup so our 3-line option still works.
        (TODO: this throws away hints at glossfile middle column e.g. chai1 vs cha4.  But only for the gloss line, and we do have an 'incomplete' warning.  Passing context in to every annotation call in an existing ruby could slow things down considerably.)
@@ -1525,15 +1558,15 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=""):
        so our padding CSS overrides don't give inconsistent results */
     if(nf) {
         nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
-        if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')"""+postFixCond+r"""n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}
+        if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')"""+postFixCond+br"""n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}
     }"""
-  r += "}"
-  r=re.sub(r"\s+"," ",re.sub("/[*].*?[*]/","",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
-  assert not '"' in r.replace(r'\"',''), 'Unescaped " character in jsAnnot param '
+  r += b"}"
+  r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
+  assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot param '
   return r
 
 if ios:
-  c_end += r"""
+  c_end += br"""
 /* TODO: iOS 12 deprecated UIWebView (although still supported),
    suggests moving to WKWebView (requires iOS 8+) but delegate
    needs potentially-major rewrite.  Recent macOS+Xcode would be
@@ -1556,13 +1589,13 @@ if ios:
 }
 - (void)loadInitialPage {
 """
-  ios=ios.replace('\\','\\\\').replace('"','\\"').replace('\n','\\n')
-  if ios.startswith('<'): c_end += '[self.myWebView loadHTMLString:@"'+ios+'" baseURL:nil];'
+  ios=ios.replace(b'\\',b'\\\\').replace(b'"',b'\\"').replace(b'\n',b'\\n')
+  if ios.startswith(b'<'): c_end += b'[self.myWebView loadHTMLString:@"'+ios+b'" baseURL:nil];'
   # TODO: 'file from local project' option?  for now, anything that doesn't start with < is taken as URL
   else:
-    if not "://" in ios: errExit("--ios value doesn't look like an HTML fragment or a URL")
-    c_end += '[self.myWebView loadRequest:[[NSURLRequest alloc] initWithURL:[[NSURL alloc] initWithString:@"'+ios+'"]]];'
-  c_end += r"""
+    if not b"://" in ios: errExit("--ios value doesn't look like an HTML fragment or a URL")
+    c_end += b'[self.myWebView loadRequest:[[NSURLRequest alloc] initWithURL:[[NSURL alloc] initWithString:@"'+ios+b'"]]];'
+  c_end += br"""
 }
 -(void)swipeBack:(UISwipeGestureRecognizer *)recognizer {
     if (recognizer.state == UIGestureRecognizerStateEnded) {
@@ -1572,7 +1605,7 @@ if ios:
 }
 - (void)webViewDidFinishLoad:(UIWebView *)webView
 {
-    [webView stringByEvaluatingJavaScriptFromString:@" """+jsAnnot(alertStr="window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a'",xtraDecls="var texts,tLen,oldTexts,otPtr,replacements; ",textWalkInit="texts = new Array(); tLen=0; otPtr=0; ",annotScan="oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a'",case3=r"""var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=cnv) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; newNode.innerHTML=r; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) a[i].addEventListener('click',annotPopAll)} otPtr=i;} else if (tLen < 1024) { texts[texts.length]=cnv;tLen += cnv.length;} else return""",postFixCond=r"if(n.title)")+r"""annotScan()"];
+    [webView stringByEvaluatingJavaScriptFromString:@" """+jsAnnot(alertStr=b"window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a'",xtraDecls=b"var texts,tLen,oldTexts,otPtr,replacements; ",textWalkInit=b"texts = new Array(); tLen=0; otPtr=0; ",annotScan=b"oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a'",case3=br"""var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=cnv) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; newNode.innerHTML=r; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) a[i].addEventListener('click',annotPopAll)} otPtr=i;} else if (tLen < 1024) { texts[texts.length]=cnv;tLen += cnv.length;} else return""",postFixCond=br"if(n.title)")+br"""annotScan()"];
 }
 - (BOOL)webView:(UIWebView*)webView shouldStartLoadWithRequest:(NSURLRequest*)request navigationType:(UIWebViewNavigationType)navigationType {
     NSURL *URL = [request URL];
@@ -1585,7 +1618,7 @@ if ios:
         NSString *texts=[self.myWebView stringByEvaluatingJavaScriptFromString:@"texts.join('/@@---------@@/')"];
         startPtr = [texts UTF8String]; readPtr = startPtr; writePtr = startPtr;
         outBytes = [NSMutableData alloc]; matchAll(); OutWriteByte(0);
-        if([texts length]>0) [self.myWebView stringByEvaluatingJavaScriptFromString:[@"replacements=\"" stringByAppendingString:[[[[[[NSString alloc] initWithUTF8String:[outBytes bytes]] stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""] stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"] stringByAppendingString:@"\".split('/@@---------@@/');oldTexts=texts;"""+jsAddRubyCss+r""""]]];
+        if([texts length]>0) [self.myWebView stringByEvaluatingJavaScriptFromString:[@"replacements=\"" stringByAppendingString:[[[[[[NSString alloc] initWithUTF8String:[outBytes bytes]] stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""] stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"] stringByAppendingString:@"\".split('/@@---------@@/');oldTexts=texts;"""+jsAddRubyCss+br""""]]];
         [self.myWebView stringByEvaluatingJavaScriptFromString:@"if(typeof window.sizeChangedLoop=='undefined') window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window); var stFunc=function(){window.setTimeout(tFunc,1000)}, tFunc=function(){if(window.sizeChangedLoop==me){if(getLen(window)==curLen) stFunc(); else annotScan()}}; stFunc(); var m=window.MutationObserver||window.WebKitMutationObserver; if(m) new m(function(mut,obs){if(mut[0].type=='childList'){obs.disconnect();if(window.sizeChangedLoop==me)annotScan()}}).observe(document.body,{childList:true,subtree:true})"]; // HTMLSizeChanged(annotScan)
         return NO;
     }
@@ -1593,7 +1626,7 @@ if ios:
 }
 @end
 """
-elif windows_clipboard: c_end += r"""
+elif windows_clipboard: c_end += br"""
 #ifdef _WINCE
 #define CMD_LINE_T LPWSTR
 #else
@@ -1664,7 +1697,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
     outFile=fopen(fname,"w");
     if (!outFile) errorExit("Cannot write c.html");
   }
-  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style id=\"ruby\">ruby { display: inline-table; vertical-align: bottom; -webkit-border-vertical-spacing: 1px; padding-top: 0.5ex; } ruby * { display: inline; vertical-align: top; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if lt IE 8]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->\n<!--[if !IE]>-->\n<style>rt { font-family: Gandhari Unicode, FreeSerif, DejaVu Sans, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n<script><!--\nif(navigator.userAgent.match('Edge/'))document.write('<table><tr><td>')\n//--></script><h3>Clipboard</h3>");
+  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style id=\"ruby\">ruby { display: inline-table; vertical-align: bottom; -webkit-border-vertical-spacing: 1px; padding-top: 0.5ex; } ruby * { display: inline; vertical-align: top; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if lt IE 8]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->\n<!--[if !IE]>-->\n<style>rt { font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n<script><!--\nif(navigator.userAgent.match('Edge/'))document.write('<table><tr><td>')\n//--></script><h3>Clipboard</h3>");
   p=pOrig; copyP=p;
   matchAll();
   free(pOrig);
@@ -1687,18 +1720,18 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
 }
 """
 elif not library:
-  c_end += r"""
+  c_end += br"""
 #ifndef Omit_main
 int main(int argc,char*argv[]) {
   int i=1;"""
-  if sharp_multi: c_end += r"""
+  if sharp_multi: c_end += br"""
   if(i<argc && isdigit(*argv[i])) numSharps=atoi(argv[i++]);"""
-  c_end += r"""
+  c_end += br"""
   for(; i<argc; i++) {
     if(!strcmp(argv[i],"--help")) {"""
-  if sharp_multi: c_end += r"""
+  if sharp_multi: c_end += br"""
       puts("Parameters: [annotation number] [options]");"""
-  c_end += r"""
+  c_end += br"""
       puts("--ruby   = output ruby markup (default)");
       puts("--raw    = output just the annotations without the base text");
       puts("--braces = output as {base-text|annotation}");
@@ -1721,11 +1754,11 @@ int main(int argc,char*argv[]) {
 # ANDROID: setDefaultTextEncodingName("utf-8") is included as it might be needed if you include file:///android_asset/ URLs in your app (files put into assets/) as well as remote URLs.  (If including ONLY file URLs then you don't need to set the INTERNET permission in Manifest, but then you might as well pre-annotate the files and use a straightforward static HTML app like http://ssb22.user.srcf.net/gradint/html2apk.html )
 # Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list) (TODO: API 1's shouldOverrideUrlLoading was deprecated in API 24; if they remove it, we may have to provide both to remain compatible?)
 android_upload = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"]) and not os.environ.get("ANDROID_NO_UPLOAD","")
-android_manifest = r"""<?xml version="1.0" encoding="utf-8"?>
+android_manifest = br"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:sharedUserId="" android:installLocation="preferExternal" >
 <uses-permission android:name="android.permission.INTERNET" />"""
 # The versionCode, versionName and sharedUserId attributes in the above are also picked up on in the code below
-if epub: android_manifest += r"""<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />"""
+if epub: android_manifest += br"""<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />"""
 # On API 19 (Android 4.4), the external storage permission is:
 # (1) needed for opening epubs from a file manager,
 # (2) automatically propagated throughout sharedUserId (if one of your apps has it then they will all get it),
@@ -1736,41 +1769,41 @@ if epub: android_manifest += r"""<uses-permission android:name="android.permissi
 # On an API 27 (Android 8) emulator, a content:// URI was sent instead of file://
 # so I would imagine the permission doesn't need activating on Android 8, but
 # for completeness we need to test Android 6 and Android 7 somehow (TODO)
-android_manifest += r"""
-<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="""+'"'
-if android_pre_2016 and not android_https_only: android_manifest += '26' # stuck on API 26 in these circumstances, won't be able to upload updates to Play Store after November 2019 unless you upgrade your SDK or accept https-only
-else: android_manifest += '28'
-android_manifest += r"""" />
+android_manifest += br"""
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="""+b'"'
+if android_pre_2016 and not android_https_only: android_manifest += b'26' # stuck on API 26 in these circumstances, won't be able to upload updates to Play Store after November 2019 unless you upgrade your SDK or accept https-only
+else: android_manifest += b'28'
+android_manifest += br"""" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" """
-if not android_https_only and not android_pre_2016: android_manifest += 'android:networkSecurityConfig="@xml/network_security_config" '
-android_manifest += r""">
+if not android_https_only and not android_pre_2016: android_manifest += b'android:networkSecurityConfig="@xml/network_security_config" '
+android_manifest += br""">
 <service android:name=".BringToFront" android:exported="false"/>
 <activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleTask" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
 <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>"""
-if epub: android_manifest += r"""
+if epub: android_manifest += br"""
 <intent-filter> <action android:name="android.intent.action.VIEW" /> <category android:name="android.intent.category.DEFAULT" /> <category android:name="android.intent.category.BROWSABLE" /> <data android:scheme="file"/> <data android:scheme="content"/> <data android:host="*" /> <data android:pathPattern="/.*\\.epub"/> </intent-filter> <intent-filter> <action android:name="android.intent.action.VIEW" /> <category android:name="android.intent.category.DEFAULT" /> <data android:scheme="file"/> <data android:scheme="content"/> <data android:mimeType="application/epub+zip"/> </intent-filter>"""
-android_layout = r"""<?xml version="1.0" encoding="utf-8"?>
+android_layout = br"""<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_height="fill_parent" android:layout_width="fill_parent" android:orientation="vertical">
   <WebView android:id="@+id/browser" android:layout_height="match_parent" android:layout_width="match_parent" />
 </LinearLayout>
 """
-if android_template == "blank": android_template = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body><h3>"""+app_name+r"</h3>URL_BOX_GOES_HERE</body></html>"
+if android_template == "blank": android_template = B(r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body><h3>"""+app_name+r"</h3>URL_BOX_GOES_HERE</body></html>")
 elif android_template:
-  android_template = open(android_template).read()
-  if not "</body" in android_template: warn("--android-template has no \"</body\" so won't have a version stamp")
-android_url_box = r"""
+  android_template = open(android_template,'rb').read()
+  if not b"</body" in android_template: warn("--android-template has no \"</body\" so won't have a version stamp")
+android_url_box = br"""
 <div style="border: thin dotted grey">"""
-if epub: android_url_box += r"""
+if epub: android_url_box += br"""
 <a style="float: left; border: thin grey dotted; padding: 0px 0.4em 0px 0.4em" href="javascript:ssb_local_annotator.getEPUB()">Offline EPUB file</a>
 <a style="float: right; padding: 0px 0.4em 0px 0.4em; border: thin grey dotted" href="clipboard.html">Clipboard</a>
 """
-else: android_url_box += r"""
+else: android_url_box += br"""
 <a href="clipboard.html">Offline&nbsp;clipboard</a>
 """
 # In the URL-box below: as we're using forceDarkAllowed to allow 'force dark mode' on Android 10, we MUST specify background and color.  Left unspecified results in input elements that always have white backgrounds even in dark mode, in which case you get white on white = invisible text.  "inherit" works; background #ededed looks more shaded and does get inverted; background-image linear-gradient does NOT get inverted (so don't use it).
-android_url_box += r"""
+android_url_box += br"""
 <form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(typeof annotUrlTrans!='undefined'){var u=annotUrlTrans(v);if(typeof u!='undefined')v=u}if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%;background:inherit;color:inherit" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%;background:#ededed;color:inherit"></td></tr></table></form>
 <script>
 function viewZoomCtrls() {
@@ -1798,10 +1831,10 @@ if(ssb_local_annotator.canCustomZoom()) document.write('<div>Text size: <button 
 var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<span id=insecure style=\"background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></span>");
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)) document.forms[document.forms.length-1].url.value=c</script>
 </div>"""
-if android_https_only: android_url_box=android_url_box.replace("http://","https://") # for the defaults, but not .replace("https?","https") because it can still get http on Android 8 and below
-if android_template: android_template = android_template.replace("URL_BOX_GOES_HERE",android_url_box)
-android_version_stamp = r"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue. Compile time %%TIME%%\')}" ':'')+'>%%DATE%% version</address>')</script>"""
-android_src = r"""package %%JPACKAGE%%;
+if android_https_only: android_url_box=android_url_box.replace(b"http://",b"https://") # for the defaults, but not .replace("https?","https") because it can still get http on Android 8 and below
+if android_template: android_template = android_template.replace(b"URL_BOX_GOES_HERE",android_url_box)
+android_version_stamp = br"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue. Compile time %%TIME%%\')}" ':'')+'>%%DATE%% version</address>')</script>"""
+android_src = br"""package %%JPACKAGE%%;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
@@ -1813,11 +1846,11 @@ import android.os.Handler;
 import android.view.KeyEvent;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;"""
-if epub: android_src += r"""
+if epub: android_src += br"""
 import android.webkit.WebResourceResponse;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;"""
-if android_print: android_src += r"""
+if android_print: android_src += br"""
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
 import java.lang.reflect.InvocationTargetException;
@@ -1826,7 +1859,7 @@ import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintDocumentAdapter.LayoutResultCallback;
 import android.print.PrintManager;"""
-android_src += r"""
+android_src += br"""
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
@@ -1851,34 +1884,34 @@ public class MainActivity extends Activity {
         // Delete the following line if you DON'T want to be able to use chrome://inspect in desktop Chromium when connected via USB to Android 4.4+
         if(Integer.valueOf(Build.VERSION.SDK) >= 19) WebView.setWebContentsDebuggingEnabled(true);
         // ---------------------------------------------"""
-if pleco_hanping: android_src += r"""
+if pleco_hanping: android_src += br"""
         try { getApplicationContext().getPackageManager().getPackageInfo("com.pleco.chinesesystem", 0); gotPleco = true; dictionaries++; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
         if(Integer.valueOf(Build.VERSION.SDK) >= 11) for(int i=0; i<3; i++) try { hanpingVersion[i]=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage[i],0).versionCode; if(hanpingVersion[i]!=0) { dictionaries++; if(i==1) break /* don't also check Lite if got Pro*/; } } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
         // ---------------------------------------------"""
-android_src += r"""
+android_src += br"""
         if(Integer.valueOf(Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheEnabled(true); } // not to be confused with the normal browser cache
         if(Integer.valueOf(Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. swipe-closed in Activity Manager)
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());"""
-if android_template: android_src += r"""
+if android_template: android_src += br"""
         float fs = getResources().getConfiguration().fontScale; // from device accessibility settings
         if (fs < 1.0f) fs = 1.0f; // bug in at least some versions of Android 8 returns 0 for fontScale
         final float fontScale=fs*fs; // for backward compatibility with older annogen (and pre-Android 4 version that still sets setDefaultFontSize) : unconfirmed reports say the OS scales the size units anyway, so we've been squaring fontScale all along, which is probably just as well because old Android versions don't offer much range in their settings"""
-android_src += r"""
+android_src += br"""
         @TargetApi(1)
         class A {
             public A(MainActivity act) {
                 this.act = act;"""
-if sharp_multi: android_src += r"""
+if sharp_multi: android_src += br"""
                 annotNo = Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("annotNo", "0")); setPattern();"""
-if android_template: android_src += r"""
+if android_template: android_src += br"""
                 if(canCustomZoom()) setZoomLevel(Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("zoom", "4")));"""
-android_src += r"""
+android_src += br"""
             }
             MainActivity act; String copiedText=""; int zoomLevel;"""
-if existing_ruby_shortcut_yarowsky: android_src += r"""
+if existing_ruby_shortcut_yarowsky: android_src += br"""
             @JavascriptInterface public void setYShortcut(boolean v) { annotator.shortcut_nearTest=v; }"""
-if sharp_multi: android_src += r""" int annotNo;
+if sharp_multi: android_src += br""" int annotNo;
             @JavascriptInterface public void setAnnotNo(int no) { annotNo = no;
                 android.content.SharedPreferences.Editor e;
                 do {
@@ -1891,9 +1924,9 @@ if sharp_multi: android_src += r""" int annotNo;
             }
             java.util.regex.Pattern smPat=java.util.regex.Pattern.compile("<rt>([^#]*?)(#.*?)?</rt>");
             @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
-if android_template: android_src += r"""
+if android_template: android_src += br"""
             @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
-            final int[] zoomPercents = new int[] {"""+','.join(str(x) for x in (list(reversed([int((0.9**x)*100) for x in range(5)][1:]))+[int((1.1**x)*100) for x in range(15)]))+r"""};
+            final int[] zoomPercents = new int[] {"""+B(','.join(str(x) for x in (list(reversed([int((0.9**x)*100) for x in range(5)][1:]))+[int((1.1**x)*100) for x in range(15)])))+br"""};
             @JavascriptInterface public int getZoomPercent() { return zoomPercents[zoomLevel]; }
             @JavascriptInterface public int getRealZoomPercent() { return Math.round(zoomPercents[zoomLevel]*fontScale); }
             @JavascriptInterface public int getMaxZoomLevel() { return zoomPercents.length-1; }
@@ -1909,17 +1942,17 @@ if android_template: android_src += r"""
                 } while(!e.commit());
                 zoomLevel = level;
             }"""
-android_src += r"""
+android_src += br"""
             @JavascriptInterface public String annotate(String t) """
-if data_driven: android_src += "throws java.util.zip.DataFormatException "
-android_src += '{ String r=annotator.annotate(t);'
-if sharp_multi: android_src += r"""
+if data_driven: android_src += b"throws java.util.zip.DataFormatException "
+android_src += b'{ String r=annotator.annotate(t);'
+if sharp_multi: android_src += br"""
                 java.util.regex.Matcher m = smPat.matcher(r);
                 StringBuffer sb=new StringBuffer();
                 while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(1)+"</rt>");
                 m.appendTail(sb); r=sb.toString();"""
-if epub: android_src += r"""if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"\u200e"+r;""" # &lrm; needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair.  Fix in v0.6899: use Unicode rather than &lrm; as the latter is not recognised as "valid XML" by Android 10, leading to innerHTML assignment throwing an exception, which in previous versions went uncaught and led to unexplained disappearance of text instead of annotation, usually at 1 chunk per second due to runTimerLoop.  (This issue was not manifest on Android 9 and below.)
-android_src += r"""return r; }
+if epub: android_src += br"""if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"\u200e"+r;""" # &lrm; needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair.  Fix in v0.6899: use Unicode rather than &lrm; as the latter is not recognised as "valid XML" by Android 10, leading to innerHTML assignment throwing an exception, which in previous versions went uncaught and led to unexplained disappearance of text instead of annotation, usually at 1 chunk per second due to runTimerLoop.  (This issue was not manifest on Android 9 and below.)
+android_src += br"""return r; }
             @JavascriptInterface public void alert(String text,String annot,String gloss) {
                 class DialogTask implements Runnable {
                     String tt,aa,gg;
@@ -1930,37 +1963,37 @@ android_src += r"""return r; }
 if pleco_hanping:
   if android_audio: maxDicts,xtraItems=0,2
   else: maxDicts,xtraItems=1,1
-  android_src += r"""
+  android_src += br"""
                         if(tt.length()>0 && dictionaries>%d) {
                             String[] items=new String[dictionaries+%d]; items[0]=gg; int i=1;
                             if(hanpingVersion[0]!=0) items[i++]="\u25b6CantoDict";
                             if(hanpingVersion[1]!=0) items[i++]="\u25b6Hanping Pro";
                             if(hanpingVersion[2]!=0) items[i++]="\u25b6Hanping Lite";
                             if(gotPleco) items[i++]="\u25b6Pleco";""" % (maxDicts,xtraItems)
-  if android_audio: android_src += r"""
+  if android_audio: android_src += br"""
                             items[i++]="\ud83d\udd0aAudio";
   """
-  android_src += r"""
+  android_src += br"""
                             // TODO: to prevent popup disappearing if items[0] is tapped, use d.setAdapter instead of d.setItems?  items must then implement android.widget.ListAdapter with: boolean isEnabled(int position) { return position!=0; } boolean areAllItemsEnabled() { return false; } int getCount(); Object getItem(int position); long getItemId(int position) { return position; } int getItemViewType(int position) { return -1; } boolean hasStableIds() { return true; } boolean isEmpty() { return false; } void registerDataSetObserver(android.database.DataSetObserver observer) {} void unregisterDataSetObserver(android.database.DataSetObserver observer) {}  but still need to implement android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) (init convertView or get a new one) and int getViewTypeCount()
                             d.setItems(items,new android.content.DialogInterface.OnClickListener() {
                                 @TargetApi(11) public void onClick(android.content.DialogInterface dialog,int id) {
                                     int test=0,i;
                                     for(i=0; i<3; i++) if(hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build()); h.setPackage(hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(h); }
                                     if(gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt+aa); startActivity(p); }"""
-  if android_audio: android_src += r"""
+  if android_audio: android_src += br"""
                                     if(++test==id) { sendToAudio(tt); act.runOnUiThread(new DialogTask(tt,aa,gg)); }"""
-  android_src += r"""
+  android_src += br"""
                         } });
                         } else"""
-android_src += r"""
+android_src += br"""
                         d.setMessage(gg);
                         d.setNegativeButton("Copy",new android.content.DialogInterface.OnClickListener() {
                                 public void onClick(android.content.DialogInterface dialog,int id) { copy(tt+aa+" "+gg,false); }
                         });"""
 if pleco_hanping:
-  if android_audio: android_src += r"""
+  if android_audio: android_src += br"""
                         if(dictionaries==0 && tt.length()>0) d.setNeutralButton("Audio", new android.content.DialogInterface.OnClickListener() {public void onClick(android.content.DialogInterface dialog,int id) {sendToAudio(tt); act.runOnUiThread(new DialogTask(tt,aa,gg));}});"""
-  else: android_src += r"""
+  else: android_src += br"""
                         if(dictionaries==1) { /* for consistency with old versions, have a 'middle button' if there's only one recognised dictionary app installed */
                         if(tt.length()==0) { /* Pleco or Hanping button not added if empty title i.e. error/info box */ }
                         else if(gotPleco) d.setNeutralButton("Pleco", new android.content.DialogInterface.OnClickListener() {
@@ -1984,7 +2017,7 @@ if pleco_hanping:
                                 startActivity(i);
                             }
                         }); }"""
-if glossfile: android_src += r"""
+if glossfile: android_src += br"""
                         if (tt.length()>0) {
                         // TODO: 3-line persist to pop-ups (re-scan the DOM)?
                         // TODO: 3-line persist to other pages? (might be counterproductive to encouraging people not to rely on it)
@@ -2006,7 +2039,7 @@ class InjectorTask implements Runnable { InjectorTask() {} @Override public void
    in their Content-Security-Policy headers. */
 ); } } act.runOnUiThread(new InjectorTask()); }});
                         } else """
-android_src += r"""
+android_src += br"""
                         d.setPositiveButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
                         d.create().show();
                     }
@@ -2016,11 +2049,11 @@ android_src += r"""
             @JavascriptInterface public String getClip() {
                 String r=readClipboard(); if(r.equals(copiedText)) return ""; else return r;
             }"""
-if android_template: android_src += r"""
+if android_template: android_src += br"""
             @JavascriptInterface public boolean canCustomZoom() {
                 return Integer.valueOf(Build.VERSION.SDK) >= 14;
             }"""
-if android_print: android_src += r"""
+if android_print: android_src += br"""
             @JavascriptInterface public String canPrint() {
                 if(Integer.valueOf(Build.VERSION.SDK) >= 24) return "\ud83d\udda8";
                 else if(Integer.valueOf(Build.VERSION.SDK) >= 19) return "<span style=color:black;background:white;padding:0.3ex>P</span>";
@@ -2045,7 +2078,7 @@ if android_print: android_src += r"""
                     }
                 });
             }"""
-if android_template: android_src += r"""
+if android_template: android_src += br"""
             @TargetApi(17)
             @JavascriptInterface public boolean isDevMode() {
                 return ((Integer.valueOf(Build.VERSION.SDK)==16)?android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),android.provider.Settings.Secure.DEVELOPMENT_SETTINGS_ENABLED,0):((Integer.valueOf(Build.VERSION.SDK)>=17)?android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,0):0)) != 0;
@@ -2057,7 +2090,7 @@ if android_template: android_src += r"""
             @JavascriptInterface public boolean getDevCSS() {
                 return devCSS;
             }"""
-android_src += r"""
+android_src += br"""
             @JavascriptInterface public void bringToFront() {
                 if(Integer.valueOf(Build.VERSION.SDK) >= 3) {
                     startService(new Intent(MainActivity.this, BringToFront.class));
@@ -2093,14 +2126,14 @@ android_src += r"""
                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
                 if(toast) Toast.makeText(act, "Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
             }"""
-if android_audio: android_src += r"""
+if android_audio: android_src += br"""
             @JavascriptInterface public void sendToAudio(final String s) {
-                class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { try { browser.loadUrl("javascript:var src='"""+android_audio+r""""+java.net.URLEncoder.encode(s,"utf-8")+"';if(!window.audioElement || window.audioElement.getAttribute('src')!=src){window.audioElement=document.createElement('audio');window.audioElement.setAttribute('src',src)}window.audioElement.play()"); } catch(java.io.UnsupportedEncodingException e) {} Toast.makeText(act, "Sent \""+s+"\" to audio server",Toast.LENGTH_LONG).show(); } };
+                class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { try { browser.loadUrl("javascript:var src='"""+android_audio+br""""+java.net.URLEncoder.encode(s,"utf-8")+"';if(!window.audioElement || window.audioElement.getAttribute('src')!=src){window.audioElement=document.createElement('audio');window.audioElement.setAttribute('src',src)}window.audioElement.play()"); } catch(java.io.UnsupportedEncodingException e) {} Toast.makeText(act, "Sent \""+s+"\" to audio server",Toast.LENGTH_LONG).show(); } };
                 act.runOnUiThread(new InjectorTask());
             }"""
-if epub: android_src += r"""
+if epub: android_src += br"""
             @JavascriptInterface public void getEPUB() { Intent i = new Intent(Intent.ACTION_GET_CONTENT); i.setType("*/*"); /* application/epub+zip leaves all files unselectable on Android 4.4 */ try { startActivityForResult(i, 8778); } catch (android.content.ActivityNotFoundException e) { Toast.makeText(act,"Please install a file manager",Toast.LENGTH_LONG).show(); } }"""
-if bookmarks: android_src += r"""
+if bookmarks: android_src += br"""
             @SuppressLint("DefaultLocale")
             @JavascriptInterface public void addBM(String p) {
                 android.content.SharedPreferences.Editor e;
@@ -2120,7 +2153,7 @@ if bookmarks: android_src += r"""
                 Toast.makeText(act, "Added bookmark", Toast.LENGTH_LONG).show();
             }
             @JavascriptInterface public void deleteBM(String p) {
-                android.content.SharedPreferences.Editor e; boolean done=false; String s,p2;"""+"".join(r"""
+                android.content.SharedPreferences.Editor e; boolean done=false; String s,p2;"""+B("".join(r"""
                 try {
                     do {
                         android.content.SharedPreferences sp=createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0);
@@ -2130,7 +2163,7 @@ if bookmarks: android_src += r"""
                         e = sp.edit(); done=true;
                         e.putString("prefs",s.substring(1));
                      } while(!e.commit());
-                } catch(Exception x) {} if(done) return;""" % p for p in bookmarks.split(",") if not p==jPackage)+r"""
+                } catch(Exception x) {} if(done) return;""" % p for p in bookmarks.split(",") if not p==jPackage))+br"""
                 do {
                    android.content.SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
                    p2=","+sp.getString("prefs", ",");
@@ -2141,20 +2174,20 @@ if bookmarks: android_src += r"""
                 } while(!e.commit());
             }
             @JavascriptInterface public String getBMs() {
-                String s="";"""+"".join(r"""
-                try { s = createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==jPackage)+r"""
+                String s="";"""+B("".join(r"""
+                try { s = createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==jPackage))+br"""
                 return s+getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
             }""" # and even if not bookmarks:
-android_src += "\n}\n"
-if data_driven: android_src += "try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this, \"Cannot load annotator data!\", Toast.LENGTH_LONG).show(); }" # TODO: should we keep one of these static and synchronized, in case some version of Android gives us multiple instances and we start taking up more RAM than necessary?
-else: android_src += "annotator=new %%JPACKAGE%%.Annotator();"
-android_src += r"""
+android_src += b"\n}\n"
+if data_driven: android_src += b"try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this, \"Cannot load annotator data!\", Toast.LENGTH_LONG).show(); }" # TODO: should we keep one of these static and synchronized, in case some version of Android gives us multiple instances and we start taking up more RAM than necessary?
+else: android_src += b"annotator=new %%JPACKAGE%%.Annotator();"
+android_src += br"""
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         final MainActivity act = this;
         browser.setWebViewClient(new WebViewClient() {
                 @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); if(AndroidSDK<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
                 public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else { needJsCommon=3; return false; } }"""
-if epub: android_src += r"""
+if epub: android_src += br"""
                 @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
                     String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
                     loadingEpub = url.startsWith(epubPrefix); // TODO: what if an epub includes off-site prerequisites? (should we be blocking that?) : setting loadingEpub false would suppress the lrm marks (could make them unconditional but more overhead; could make loadingEpub 'stay on' for rest of session)
@@ -2209,7 +2242,7 @@ if epub: android_src += r"""
                                     if(mimeType==null || mimeType=="application/xhtml+xml") mimeType="text/html"; // needed for annogen style modifications
                                     if(mimeType=="text/html") {
                                         // TODO: if ((epubUrl.startsWith("file:") || epubUrl.contains("com.android.externalstorage")) && part!="toc.xhtml") then getSharedPreferences putString("eR"+epubUrl,part) ?  To avoid unbounded buildup, need to store only the most recent few (use one pref with separators?  or other mechanism e.g. 0=url 1=url ... nxtWrite=2 w. wraparound?)  Then add "jump to last seen page" link from both directory and toc.xhtml (latter will need manipulation as below)
-                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+r""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+br""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                                     } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
@@ -2221,8 +2254,8 @@ if epub: android_src += r"""
                         return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
                     } finally { try { zin.close(); } catch(IOException e) {} }
                 }"""
-if epub and android_print: android_src = android_src.replace("Next</a>",r"""Next</a><script>if(ssb_local_annotator.canPrint())document.write("""+sort20px(r"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+r"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
-if not android_template: android_src += r"""
+if epub and android_print: android_src = android_src.replace(b"Next</a>",br"""Next</a><script>if(ssb_local_annotator.canPrint())document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+br"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
+if not android_template: android_src += br"""
                 float scale = 0; boolean scaling = false;
                 public void onScaleChanged(final WebView view,float from,final float to) {
                     if (AndroidSDK < Build.VERSION_CODES.KITKAT || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
@@ -2231,13 +2264,13 @@ if not android_template: android_src += r"""
                         scale=to; scaling=false;
                     } }, 100);
                 }"""
-android_src += r"""
+android_src += br"""
                 public void onPageFinished(WebView view,String url) {
                     if(AndroidSDK < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
                     browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
                     else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})");
                 } });"""
-if android_template: android_src += r"""
+if android_template: android_src += br"""
         if(AndroidSDK >= 3 && AndroidSDK < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
             browser.getSettings().setBuiltInZoomControls(true);
         } if (AndroidSDK < 14) {
@@ -2245,14 +2278,14 @@ if android_template: android_src += r"""
             browser.getSettings().setDefaultFontSize(size);
             browser.getSettings().setDefaultFixedFontSize(size);
         }"""
-else: android_src += r"""
+else: android_src += br"""
         if(AndroidSDK >= 3) browser.getSettings().setBuiltInZoomControls(true);
         float fs = getResources().getConfiguration().fontScale; // from device accessibility settings
         if (fs < 1.0f) fs = 1.0f; // bug in at least some versions of Android 8 returns 0 for fontScale
         final int size=Math.round(16*fs); // from device accessibility settings (might be squared if OS does it too, but that's OK because the settings don't give enough of a range)
         browser.getSettings().setDefaultFontSize(size);
         browser.getSettings().setDefaultFixedFontSize(size);"""
-android_src += r"""
+android_src += br"""
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         runTimerLoop();
         if (savedInstanceState!=null) browser.restoreState(savedInstanceState); else
@@ -2270,9 +2303,9 @@ android_src += r"""
         }
         else if (Intent.ACTION_VIEW.equals(intent.getAction())) {
             String url=intent.getData().toString();"""
-if epub: android_src += r"""
+if epub: android_src += br"""
             if (((url.startsWith("file:") || url.startsWith("content:")) && url.endsWith(".epub")) || "application/epub+zip".equals(intent.getType())) openEpub(url); else"""
-android_src += r""" loadingWait(url);
+android_src += br""" loadingWait(url);
         }
         else return false; return true;
     }
@@ -2281,7 +2314,7 @@ android_src += r""" loadingWait(url);
         browser.loadUrl(url);
     }
     String sentText = null;"""
-if epub: android_src += r"""
+if epub: android_src += br"""
     void openEpub(String url) {
         if(AndroidSDK<11 && url.endsWith(".epub")) { browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>This app'+\"'s EPUB handling requires Android 3 or above :-(</body>\")"); return; } // (Support for Android 2 would require using data URIs for images etc, and using shouldOverrideUrlLoading on all links)
         // Android 5+ content:// URIs expire when the receiving Activity finishes, so we won't be able to add them to bookmarks (unless copy the entire epub, which is not good on a space-limited device)
@@ -2290,13 +2323,13 @@ if epub: android_src += r"""
         loadingWait("http://epub/"); // links will be absolute; browser doesn't have to change
     }
     @Override protected void onActivityResult(int request, int result, Intent intent) { if(request!=8778 || intent==null || result!=-1) return; boolean isEpub=false; try{byte[] buf=new byte[58]; getContentResolver().openInputStream(Uri.parse(intent.getData().toString())).read(buf,0,58); isEpub=buf[0]=='P' && buf[1]=='K' && buf[2]==3 && buf[3]==4 && new String(buf,30,28).equals("mimetypeapplication/epub+zip"); }catch(Exception e){} if(isEpub) openEpub(intent.getData().toString()); else {Toast.makeText(this, "That wasn't an EPUB file :-(",Toast.LENGTH_LONG).show();} }"""
-if pleco_hanping: android_src += r"""
+if pleco_hanping: android_src += br"""
     int dictionaries = 0;
     boolean gotPleco = false;
     String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
     int[] hanpingVersion = new int[]{0,0,0};"""
-android_src += r"""
-    static final String js_common="""+'"'+jsAnnot(alertStr="ssb_local_annotator.alert(f(e.firstChild),' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls="function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };",textWalkInit="",annotScan=jsAddRubyCss,case3="var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) } if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+r""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
+android_src += br"""
+    static final String js_common="""+b'"'+jsAnnot(alertStr=b"ssb_local_annotator.alert(f(e.firstChild),' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls=b"function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };",textWalkInit=b"",annotScan=jsAddRubyCss,case3=b"var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) } if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+br""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
     @SuppressWarnings("deprecation")
     @TargetApi(19)
     void runTimerLoop() {
@@ -2341,9 +2374,9 @@ android_src += r"""
     @Override protected void onDestroy() { if(isFinishing() && AndroidSDK<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
     int AndroidSDK = (android.os.Build.VERSION.RELEASE.startsWith("1.") ? Integer.valueOf(Build.VERSION.SDK) : Build.VERSION.SDK_INT);
     WebView browser;"""
-if epub: android_src += " boolean loadingEpub = false;"
-android_src += "}\n"
-android_bringToFront=r"""package %%JPACKAGE%%;
+if epub: android_src += b" boolean loadingEpub = false;"
+android_src += b"}\n"
+android_bringToFront=br"""package %%JPACKAGE%%;
 import android.annotation.TargetApi;
 import android.content.Intent;
 import android.os.Build;
@@ -2359,7 +2392,7 @@ public class BringToFront extends android.app.IntentService {
     }
 }
 """
-android_clipboard = r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
+android_clipboard = br"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
 <script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('','',''+msg+' line '+line); return true}</script>
     <h3>Clipboard</h3>
     <div id="clip">waiting for clipboard contents</div>
@@ -2372,7 +2405,7 @@ if (newClip && newClip != curClip) {
   curClip = newClip; if(ssb_local_annotator.annotate(newClip)!=newClip) ssb_local_annotator.bringToFront(); // should work on Android 9 or below; Android Q (API 29) takes away background clipboard access and we'll just get newClip="" until we're brought to foreground manually
 } window.setTimeout(update,1000) } update(); </script>
 </body></html>"""
-java_src = r"""package %%JPACKAGE%%;
+java_src = br"""package %%JPACKAGE%%;
 public class Annotator {
 public Annotator() { %%JDATA%% }
 int nearbytes;
@@ -2444,8 +2477,8 @@ byte[] s2b(String s) {
   }
 }"""
 if data_driven:
-  if existing_ruby_shortcut_yarowsky: java_src += "\npublic boolean shortcut_nearTest=false;"
-  java_src += r"""
+  if existing_ruby_shortcut_yarowsky: java_src += b"\npublic boolean shortcut_nearTest=false;"
+  java_src += br"""
     byte[] data; int addrLen, dPtr;
     int readAddr() {
         int i,addr=0;
@@ -2523,12 +2556,12 @@ if data_driven:
                 case 90: {
                     int tPtr = readAddr();
                     int fPtr = readAddr();"""
-  if existing_ruby_shortcut_yarowsky: java_src += r"""
+  if existing_ruby_shortcut_yarowsky: java_src += br"""
                     if (shortcut_nearTest) {
                         dPtr = (tPtr<fPtr) ? tPtr : fPtr; // relying on BytecodeAssembler addActionDictSwitch behaviour: the higher pointer will be the one that skips past the 'if', so we want the lower one if we want to always take it
                         break;
                     }"""
-  java_src += r"""
+  java_src += br"""
                     sn(data[dPtr++] & 0xFF);
                     boolean found = false;
                     while (dPtr < tPtr && dPtr < fPtr) if (n(readRefStr())) { found = true; break; }
@@ -2538,55 +2571,55 @@ if data_driven:
         }
     }
 """
-java_src += r"""
+java_src += br"""
 public String annotate(String txt) {"""
-if existing_ruby_shortcut_yarowsky: java_src += r"""
+if existing_ruby_shortcut_yarowsky: java_src += br"""
   boolean old_snt = shortcut_nearTest;
   if(txt.length() < 2) shortcut_nearTest=false;
 """
-java_src += r"""
+java_src += br"""
   nearbytes=%%YBYTES%%;inBytes=s2b(txt);writePtr=0;needSpace=false;outBuf=new java.io.ByteArrayOutputStream();inPtr=0;
   while(inPtr < inBytes.length) {
     int oldPos=inPtr; """
-if data_driven: java_src = java_src.replace("annotate(String txt)","annotate(String txt) throws java.util.zip.DataFormatException")+"dPtr=1; readData();"
-else: java_src += "%%JPACKAGE%%.topLevelMatch.f(this);"
-java_src += r"""
+if data_driven: java_src = java_src.replace(b"annotate(String txt)",b"annotate(String txt) throws java.util.zip.DataFormatException")+b"dPtr=1; readData();"
+else: java_src += b"%%JPACKAGE%%.topLevelMatch.f(this);"
+java_src += br"""
     if (oldPos==inPtr) { needSpace=false; o(nB()); writePtr++; }
   }
   String ret=null; try { ret=new String(outBuf.toByteArray(), "UTF-8"); } catch(java.io.UnsupportedEncodingException e) {}"""
-if existing_ruby_shortcut_yarowsky: java_src += "shortcut_nearTest=old_snt;"
-java_src += r"""
+if existing_ruby_shortcut_yarowsky: java_src += b"shortcut_nearTest=old_snt;"
+java_src += br"""
   inBytes=null; outBuf=null; return ret;
 }
 }
 """
-android_loadData = r"""data=new byte[%%DLEN%%];
+android_loadData = br"""data=new byte[%%DLEN%%];
 context.getAssets().open("annotate.dat").read(data);"""
-if zlib: android_loadData += r"""
+if zlib: android_loadData += br"""
 java.util.zip.Inflater i=new java.util.zip.Inflater();
 i.setInput(data);
 byte[] decompressed=new byte[%%ULEN%%];
 i.inflate(decompressed); i.end(); data = decompressed;
 """
-android_loadData += "addrLen = data[0] & 0xFF;"
+android_loadData += b"addrLen = data[0] & 0xFF;"
 
 if os.environ.get("ANNOGEN_CSHARP_NO_MAIN",""):
-  cSharp_mainNote = ""
-else: cSharp_mainNote = r"""
+  cSharp_mainNote = b""
+else: cSharp_mainNote = br"""
 // or just use the Main() at end (compile with csc, and
 // see --help for usage)
 //   (to omit this Main() from the generated file, set
 //    the environment variable ANNOGEN_CSHARP_NO_MAIN before
 //    running Annotator Generator)"""
 
-cSharp_start = "// C# code "+version_stamp+r"""
+cSharp_start = b"// C# code "+version_stamp+br"""
 // use: new Annotator(txt).result()
-// (can also set annotation_mode on the Annotator)"""+cSharp_mainNote+r"""
+// (can also set annotation_mode on the Annotator)"""+cSharp_mainNote+br"""
 
 enum Annotation_Mode { ruby_markup, annotations_only, brace_notation };
 
 class Annotator {
-public const string version="""+'"'+version_stamp+r"""";
+public const string version="""+b'"'+version_stamp+br"""";
 public Annotator(string txt) { nearbytes=%%YBYTES%%; inBytes=System.Text.Encoding.UTF8.GetBytes(txt); inPtr=0; writePtr=0; needSpace=false; outBuf=new System.IO.MemoryStream(); annotation_mode = Annotation_Mode.ruby_markup; }
 int nearbytes;
 public Annotation_Mode annotation_mode;
@@ -2665,8 +2698,8 @@ public string result() {
   return System.Text.Encoding.UTF8.GetString(outBuf.ToArray());
 }
 """
-cSharp_end = "}\n"
-if cSharp_mainNote: cSharp_end += r"""
+cSharp_end = b"}\n"
+if cSharp_mainNote: cSharp_end += br"""
 class Test {
   static void Main(string[] args) {
     Annotation_Mode annotation_mode = Annotation_Mode.ruby_markup;
@@ -2693,7 +2726,7 @@ class Test {
 }
 """
 
-golang_start = '/* "Go" code '+version_stamp+r"""
+golang_start = b'/* "Go" code '+version_stamp+br"""
 
 To set up a Web service on old AppEngine (Go 1.11 or below),
 put this file in a subdirectory of your project, and create a
@@ -2843,8 +2876,8 @@ func o2(numBytes int,annot string,title string) {
   oS(annot)
   oS("</rt></ruby>")
 }
-""".replace("%%PKG%%",golang)
-golang_end=r"""
+""".replace(b"%%PKG%%",B(golang))
+golang_end=br"""
 func Annotate(src io.Reader, dest io.Writer) {
    inBuf := new(bytes.Buffer)
    io.Copy(inBuf, src)
@@ -2872,6 +2905,9 @@ func Annotate(src io.Reader, dest io.Writer) {
 if js_6bit: js_6bit_offset = 35 # any offset between 32 and 63 makes all printable, but 35+ avoids escaping of " at 34 (can't avoid escaping of \ though, unless have a more complex decoder), and low offsets increase the range of compact-switchbyte addressing also.
 else: js_6bit_offset = 0
 
+try: xrange # Python 2
+except: xrange,unichr,unicode = range,chr,str # Python 3
+
 class BytecodeAssembler:
   # Bytecode for a virtual machine run by the Javascript version etc
   opcodes = {
@@ -2897,8 +2933,8 @@ class BytecodeAssembler:
     self.addingPosStack = []
   def addOpcode(self,opcode): self.l.append((opcode,))
   def addBytes(self,bStr):
-      if type(bStr)==int: self.l.append(chr(bStr))
-      elif type(bStr)==str: self.l.append(bStr)
+      if type(bStr)==int: self.l.append(B(chr(bStr)))
+      elif type(bStr)==bytes: self.l.append(bStr)
       else: raise Exception("unspported bytes type")
   def startAddingFunction(self):
       self.addingPosStack.append((len(self.l),self.lastLabelNo))
@@ -2918,14 +2954,14 @@ class BytecodeAssembler:
       if not len(byteArray): return # empty switch = no-op
       self.addOpcode('switchbyte')
       self.addBytes(len(byteArray)-1) # num of bytes in list - 1 (so all 256 values can be accounted for if needed)
-      self.addBytes("".join(byteArray))
+      self.addBytes(b"".join(byteArray))
       for i in labelArray: self.addRef(i)
   def addActions(self,actionList):
     # assert type(actionList) in [list,tuple], repr(actionList)
     for a in actionList:
-      if a=='s0':
+      if a==b's0':
         self.addOpcode('s0') ; continue
-      assert 1 <= len(a) <= 3 and type(a[0])==int, repr(a)
+      assert 1 <= len(a) <= 3 and type(a[0])==int and all(type(b)==bytes for b in a[1:]), repr(a)
       assert 1 <= a[0] <= 255, "bytecode currently supports markup or copy between 1 and 255 bytes only, not %d (but 0 is reserved for expansion)" % a[0]
       self.addBytes(70+len(a)) # 71=copyBytes 72=o() 73=o2
       if js_6bit:
@@ -2937,23 +2973,23 @@ class BytecodeAssembler:
     # Actions aren't strings: they list tuples of either
     # 1, 2 or 3 items for copyBytes, o(), o2()
     # labelToJump is a jump to insert afterwards if not isFunc and if we don't emit an unconditional 'return'.  Otherwise, will ALWAYS end up with a 'return' (even if not isFunc i.e. the main program)
-    allBytes = set(b[0] for b in byteSeq_to_action_dict.iterkeys() if b)
+    allBytes = set(b[:1] for b in iterkeys(byteSeq_to_action_dict) if b)
     if isFunc:
         self.startAddingFunction()
         savePos = len(self.l)
         self.addOpcode('savepos')
-    elif ("" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1) or not labelToJump: # ('not labelToJump' and 'not isFunc' == main program)
+    elif (b"" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1) or not labelToJump: # ('not labelToJump' and 'not isFunc' == main program)
         savePos = len(self.l)
         self.addOpcode('savepos')
     else: savePos = None
-    if "" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[""])==1 and not byteSeq_to_action_dict[""][0][1] and all((len(a)==1 and a[0][0][:len(byteSeq_to_action_dict[""][0][0])]==byteSeq_to_action_dict[""][0][0] and not a[0][1]) for a in byteSeq_to_action_dict.itervalues()):
-        self.addActions(byteSeq_to_action_dict[""][0][0])
-        l = len(byteSeq_to_action_dict[""][0][0])
-        byteSeq_to_action_dict = dict((x,[(y[l:],z)]) for x,[(y,z)] in byteSeq_to_action_dict.iteritems())
+    if b"" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[b""])==1 and not byteSeq_to_action_dict[b""][0][1] and all((len(a)==1 and a[0][0][:len(byteSeq_to_action_dict[b""][0][0])]==byteSeq_to_action_dict[b""][0][0] and not a[0][1]) for a in itervalues(byteSeq_to_action_dict)):
+        self.addActions(byteSeq_to_action_dict[b""][0][0])
+        l = len(byteSeq_to_action_dict[b""][0][0])
+        byteSeq_to_action_dict = dict((x,[(y[l:],z)]) for x,[(y,z)] in iteritems(byteSeq_to_action_dict))
         del self.l[savePos] ; savePos = None
-        del byteSeq_to_action_dict[""]
+        del byteSeq_to_action_dict[b""]
         self.addActionDictSwitch(byteSeq_to_action_dict) # as a subfunction (ends up adding the call to it, which should be replaced by a jump during compaction; TODO: auto-inline if it turns out there's only this one call to it?  other calls might happen if it's merged with an identical one)
-        byteSeq_to_action_dict[""] = [("",[])] # for the end of this func
+        byteSeq_to_action_dict[b""] = [(b"",[])] # for the end of this func
         self.addOpcode('return')
     elif allBytes:
       allBytes = sorted(list(allBytes))
@@ -2961,16 +2997,16 @@ class BytecodeAssembler:
       self.addByteswitch(allBytes,labels)
       for case in allBytes:
         self.addLabelHere(labels[0]) ; del labels[0]
-        self.addActionDictSwitch(dict([(k[1:],v) for k,v in byteSeq_to_action_dict.iteritems() if k and k[0]==case]),False,labels[-1])
+        self.addActionDictSwitch(dict([(k[1:],v) for k,v in iteritems(byteSeq_to_action_dict) if k[:1]==case]),False,labels[-1])
       self.addLabelHere(labels[0])
     if not savePos==None: self.addOpcode('restorepos')
     if isFunc:
         self.addOpcode('return')
         if self.l[-1]==self.l[-2]: del self.l[-1] # double return
         return self.finishFunctionAndAddCall()
-    elif "" in byteSeq_to_action_dict:
-        default_action = ""
-        for action,conds in byteSeq_to_action_dict[""]:
+    elif b"" in byteSeq_to_action_dict:
+        default_action = b""
+        for action,conds in byteSeq_to_action_dict[b""]:
             if conds:
                 if type(conds)==tuple: negate,conds,nbytes = conds
                 else: negate,nbytes = False,ybytes_max
@@ -2988,7 +3024,7 @@ class BytecodeAssembler:
                 self.addOpcode('return')
                 self.addLabelHere(falseLabel)
             else: default_action = action
-        if default_action or not byteSeq_to_action_dict[""]:
+        if default_action or not byteSeq_to_action_dict[b""]:
             self.addActions(default_action)
             self.addOpcode('return') ; return
     if labelToJump:
@@ -3006,26 +3042,29 @@ class BytecodeAssembler:
       assert type(labelNo)==int
       self.l.append(-labelNo)
   def addRefToString(self,string):
-    assert type(string)==str
+    assert type(string)==bytes, repr(string)
     if python or java or javascript or dart:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
-      if js_6bit and not js_utf8: string = re.sub("%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape'
+      if js_6bit and not js_utf8: string = re.sub(b"%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape'
       elif js_utf8: string = string.decode('utf-8')
       if js_6bit:
-        if 1 <= len(string) <= 91:
-          string = chr(len(string)+31)+string # 32-122 inc
+        if 1 <= len(string) <= 91: # use 32-122 inclusive
+          if type(string)==type(u""): string = chr(len(string)+31)+string
+          else: string = B(chr(len(string)+31))+string
         else: # try to avoid using \x00 for termination
           for termChar in '{|}~\x00': # 123-126 + nul
+            if type(string)==bytes: termChar=B(termChar)
             if not termChar in string:
               string = termChar + string + termChar
               break
       elif js_utf8 and 1 <= len(string) < 0x02B0: # avoid combining and modifier marks just in case; also avoid 0xD800+ surrogates
         string = unichr(len(string)) + string
       elif 1 <= len(string) < 256:
-        string = chr(len(string))+string
-      else: string = chr(0)+string+chr(0)
-    else: string += chr(0) # just null-termination for C
+        string = B(chr(len(string)))+string
+      elif js_utf8: string = chr(0)+string+chr(0)
+      else: string = B(chr(0))+string+B(chr(0))
+    else: string += b'\x00' # just null-termination for C
     if not string in self.d2l:
       self.d2l[string] = (-len(self.d2l)-1,)
     self.l.append(self.d2l[string])
@@ -3033,11 +3072,11 @@ class BytecodeAssembler:
     # (add an 'end program' instruction before calling)
     def f(*args): raise Exception("Must call link() only once")
     self.link = f
-    sys.stderr.write("Linking... ")
-    for dat,ref in sorted(self.d2l.iteritems()): # the functions and data to add to the end of self.l, sorted so we can optimise for overlaps
+    sys.stderr.write("Linking... ") ; sys.stderr.flush()
+    for dat,ref in sorted(iteritems(self.d2l)): # the functions and data to add to the end of self.l, sorted so we can optimise for overlaps
         assert type(ref)==tuple and type(ref[0])==int
         self.l.append((-ref[0],)) # the label
-        if type(dat) in [str,unicode]:
+        if type(dat) in [bytes,unicode]:
             if type(self.l[-2])==type(dat) and self.l[-2][-1]==dat[0]: # overlap of termination-byte indicators (TODO: look for longer overlaps? unlikely to occur)
               self.l[-2] = self.l[-2][:-1]
             self.l.append(dat) ; continue
@@ -3060,14 +3099,12 @@ class BytecodeAssembler:
     # - +ve or -ve integers in tuples (labels for functions and text strings: different 'namespace')
     # strings in tuples: opcodes
     # 1st byte of o/p is num bytes needed per address
-    if 'ANNOGEN_DEBUG_BYTECODE' in os.environ:
-      for l in self.debugDisassemble():
-        sys.stderr.write(l+"\n")
     class TooNarrow(Exception): pass
     if js_6bit: aBits,aMask = 6,0x3F
     else: aBits,aMask = 8,0xFF
     for addrSize in xrange(1,256):
         sys.stderr.write("(%d-bit) " % (aBits*addrSize))
+        sys.stderr.flush()
         src = self.l[:] # must start with fresh copy, because compaction modifies src and we don't want a false start with wrong addrSize to affect us
         try:
           compacted = 0 ; compaction_types = set()
@@ -3083,14 +3120,15 @@ class BytecodeAssembler:
             counts_to_del = set()
             for count in xrange(len(src)-1,-1,-1):
                 i = src[count]
-                if type(i) in [str,unicode] and len(i)==1 and 71<=ord(i)<=73 and src[count+ord(i)-70+1]==('return',):
+                if type(i) in [bytes,unicode] and len(i)==1 and 71<=ord(i)<=73 and src[count+ord(i)-70+1]==('return',):
                   # (74 to 76 = 71 to 73 + return)
-                  src[count] = chr(ord(i)+3)
+                  src[count] = B(chr(ord(i)+3))
                   counts_to_del.add(count+ord(i)-70+1)
                   compacted += 1 ; bytesFromEnd -= 1
                   compaction_types.add('return')
                 elif type(i)==tuple and type(i[0])==str:
-                    opcode = i[0] ; i = "-"
+                    opcode = i[0]
+                    i = "-" # for len() at end of block
                     if opcode=='call' and src[count+2]==('return',):
                       src[count] = ('jump',)
                       counts_to_del.add(count+2)
@@ -3101,10 +3139,10 @@ class BytecodeAssembler:
                       offset = LGet(src[count+1],addrSize)
                       if offset == 0:
                         # can remove this jump completely
-                        i = "" # for bytesFromEnd count
+                        i = "" # for len() at end of block
                         compacted += 1
                         counts_to_del.add(count) # zap jmp
-                      else: src[count] = i = chr(0x80 | offset) # new instr: 0x80|offset
+                      else: src[count] = i = B(chr(0x80 | offset)) # new instr: 0x80|offset
                       counts_to_del.add(count+1) # zap the label
                       compacted += addrSize # as we're having a single byte instead of byte + address
                       bytesFromEnd -= addrSize
@@ -3116,15 +3154,15 @@ class BytecodeAssembler:
                        origOperandsLen = 1+numItems+numLabels*addrSize # number + N bytes + the labels
                        if LGet(src[count+3],origOperandsLen)==0 and all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF-js_6bit_offset for N in xrange(4,3+numLabels)): # 1st label is immediately after the switchbyte, and all others are in range
                         if javascript or dart: # use printable range
-                          if js_6bit and numItems<=17 and all(0x80<=ord(x)<=0xBF or 0xD4<=ord(x)<=0xEF for x in src[count+2]): # move UTF-8 representations of U+0500 through U+FFFF to printable range (in one test this saved 780k for the continuation bytes and another 200k for the rest)
+                          if js_6bit and numItems<=17 and all(0x80<=ord(x)<=0xBF or 0xD4<=ord(x)<=0xEF for x in S(src[count+2])): # if bytes being switched on are all from UTF-8 representations of U+0500 through U+FFFF, move to printable range (in one test this saved 780k for the continuation bytes and another 200k for the rest)
                             def mv(x):
                               if x>=0xD4: x -= 20 # or, equivalently, if (x-93)>118, which is done to the input byte in JS before searching on these
-                              return chr(x-93)
-                            src[count+2]=''.join(mv(ord(x)) for x in src[count+2])
-                            i = chr(ord(src[count+1])+91) # and a printable opcode
-                          else: i = chr(ord(src[count+1])+108) # can't make the match bytes printable, but at least we can have a printable opcode 108-127 for short switchbyte in Javascript or Dart
-                        else: i = src[count+1] # 0-19 for short switchbyte in C,Java,Python
-                        src[count] = i = i+src[count+2]+''.join(chr(LGet(src[count+N],origOperandsLen)+js_6bit_offset) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
+                              return B(chr(x-93))
+                            src[count+2]=b''.join(mv(ord(x)) for x in S(src[count+2]))
+                            i = B(chr(ord(src[count+1])+91)) # and a printable opcode
+                          else: i = B(chr(ord(src[count+1])+108)) # can't make the match bytes printable, but at least we can have a printable opcode 108-127 for short switchbyte in Javascript or Dart
+                        else: i = B(src[count+1]) # 0-19 for short switchbyte in C,Java,Python
+                        src[count] = i = i+src[count+2]+b''.join(B(chr(LGet(src[count+N],origOperandsLen)+js_6bit_offset)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
                         for ctd in xrange(count+1,count+3+numLabels): counts_to_del.add(ctd)
                         newOperandsLen = numItems*2 # for each byte, the byte itself and an offset, + 1 more offset as default, - 1 because first is not given
                         compacted += origOperandsLen-newOperandsLen
@@ -3143,12 +3181,12 @@ class BytecodeAssembler:
           # End of compact_opcodes
           lDic = {} # label dictionary: labelNo -> address
           for P in [1,2]:
-            r = [chr(addrSize)] # List to hold the output bytecode, initialised with a byte indicating how long our addresses will be.
+            r = [B(chr(addrSize))] # List to hold the output bytecode, initialised with a byte indicating how long our addresses will be.
             ll = 1 # cumulative length of output list
             count = 0 # reading through src opcodes etc
             while count < len(src):
                 i = src[count] ; count += 1
-                if type(i)==tuple and type(i[0])==str: i = chr(BytecodeAssembler.opcodes[i[0]])
+                if type(i)==tuple and type(i[0])==str: i = B(chr(BytecodeAssembler.opcodes[i[0]]))
                 elif type(i) in [int,tuple]: # labels
                     if type(i)==int: i2,iKey = i,-i # +ve integers are labels, -ve integers are references to them
                     else: i2,iKey = i[0],(-i[0],) # reserved labels (a different counter)
@@ -3167,20 +3205,21 @@ class BytecodeAssembler:
                         for b in xrange(addrSize):
                             # MSB-LSB (easier to do in JS)
                             shift -= aBits
-                            j.append(chr(((i>>shift)&aMask)+js_6bit_offset))
-                        i = "".join(j)
+                            j.append(B(chr(((i>>shift)&aMask)+js_6bit_offset)))
+                        i = b"".join(j)
                         assert len(i)==addrSize
                     else: # ref to as-yet unknown label
                         assert P==1, "undefined label %d" % -i
-                        i = "-"*addrSize # placeholder (well we could just advance ll, but setting this makes things easier if you ever want to inspect partial results)
+                        i = B("-"*addrSize) # placeholder (well we could just advance ll, but setting this makes things easier if you ever want to inspect partial results)
                 if len(i):
                   r.append(i) ; ll += len(i)
-            sys.stderr.write(".")
+            sys.stderr.write(".") ; sys.stderr.flush()
           if js_utf8: # some "bytes" will actually be Unicode characters, so normalise all before join
             for i in xrange(len(r)):
-              if type(r[i])==str:
+              if type(r[i])==bytes:
                 r[i]=unicode(r[i],'latin1')
-          r = "".join(r)
+            r = "".join(r)
+          else: r = b"".join(r)
           if zlib:
             self.origLen = ll # needed for efficient malloc in the C code later
             oR,r = r,zlib.compress(r,9)
@@ -3191,49 +3230,15 @@ class BytecodeAssembler:
           return r
         except TooNarrow: pass
     assert 0, "can't even assemble it with 255-byte addressing !?!"
-  def debugDisassemble(self):
-    i = 0
-    while i < len(self.l):
-      op = self.l[i]
-      if type(op) in [str,unicode] and op in 'GHI': op=(op,)
-      if op==('jump',):
-        params = (-self.l[i+1],)
-      elif op==[('call',)]:
-        params = ("Lib"+repr(-self.l[i+1][0]),)
-      elif op==('switchbyte',):
-        params = (1+ord(self.l[i+1]),)+tuple(self.l[i+2:i+5+ord(self.l[i+1])])
-      elif op in [('G',),('H',),('I',)]:
-        params = (ord(self.l[i+1]),)+tuple(self.l[i+2:i+2+ord(op[0])-ord('G')])
-        op=(['copyBytes','o','o2'][ord(op[0])-ord('G')],)
-      elif op==('neartest',): # until +ve label reached
-        j = i+3
-        while not (type(self.l[j])==int and self.l[j]>0):
-          j += 1
-        params = ('t='+repr(self.l[i+1]),'f='+repr(self.l[i+2]),'nB='+str(ord(self.l[i+3])))+tuple(self.l[i+4:j])
-      else: params = None
-      if type(op)==tuple and type(op[0])==str:
-        if params==None: yield "  "+op[0]
-        else:
-          yield "  "+op[0]+" "+" ".join(repr(x) for x in params)
-          if type(params)==tuple: i += len(params)
-          else: i += 1
-      elif type(op) in [str,unicode]: yield "  EQUS "+repr(op)
-      elif type(op)==int:
-        if op>0: yield "."+str(op)+":"
-        else: yield "  RefTo("+str(op)+")" # shouldn't happen outside a parameter
-      elif type(op)==tuple and type(op[0])==int:
-        if op>0: yield ".Lib"+str(op)+":"
-        else: yield "  RefTo(Lib"+str(op)+")" # shouldn't happen outside a parameter
-      i += 1
 
-js_start = '/* Javascript '+version_stamp+r"""
+js_start = b'/* Javascript '+version_stamp+br"""
 
 Usage:
 
  - You could just include this code and then call the
    annotate() function i.e. var result = annotate(input"""
-if sharp_multi: js_start += ", annotation_type_number"
-js_start += r""")
+if sharp_multi: js_start += b", annotation_type_number"
+js_start += br""")
 
  - Or you could use (and perhaps extend) the Annotator
    object, and call its annotate() method.  If you have
@@ -3247,7 +3252,7 @@ js_start += r""")
    "node" to annotate standard input as a simple test.
 """
 if zlib:
-  js_start += r"""
+  js_start += br"""
    zlib'd version uses Uint8Array so has minimum browser requirements
    (Chrome 7, Ffx 4, IE10, Op11.6, Safari5.1, 4.2 on iOS)
    - generate without --zlib to support older browsers.
@@ -3257,14 +3262,14 @@ if zlib:
 */
 function inflate(r,e){var t,n=new Uint8Array(e);t="undefined"!=typeof window&&window.atob?function(r){for(var e=new Uint8Array(r.length),t=0,n=e.length;t<n;t++)e[t]=r.charCodeAt(t);return e}(atob(r)):"undefined"!=typeof Buffer?new Buffer(r,"base64"):function(r){var e,t,n={},f=65,a=0,o=0,i=new Uint8Array(r.length),d=0,l=String.fromCharCode,v=r.length;for(e="";f<91;)e+=l(f++);for(e+=e.toLowerCase()+"0123456789+/",f=0;f<64;f++)n[e.charAt(f)]=f;for(e=0;e<v;e++)for(a=(a<<6)+(f=n[r.charAt(e)]),o+=6;8<=o;)((t=a>>>(o-=8)&255)||e<v-2)&&(i[d++]=t);return i}(r);var f=new Uint8Array(t.buffer,t.byteOffset+2,t.length-6),h={_decodeTiny:function(r,e,t,n,f,a){for(var o=f,i=h._bitsE,d=h._get17,l=t<<1,v=0,s=0;v<l;){var u=r[d(n,f)&e];f+=15&u;var p=u>>>4;if(p<=15)a[v]=0,s<(a[v+1]=p)&&(s=p),v+=2;else{var w=0,y=0;16==p?(y=3+i(n,f,2)<<1,f+=2,w=a[v-1]):17==p?(y=3+i(n,f,3)<<1,f+=3):18==p&&(y=11+i(n,f,7)<<1,f+=7);for(var U=v+y;v<U;)a[v]=0,a[v+1]=w,v+=2}}for(var c=a.length;v<c;)a[v+1]=0,v+=2;return s<<24|f-o},makeCodes:function(r,e){for(var t,n,f,a,o=h.U,i=r.length,d=o.bl_count,l=0;l<=e;l++)d[l]=0;for(l=1;l<i;l+=2)d[r[l]]++;var v=o.next_code;for(d[t=0]=0,n=1;n<=e;n++)t=t+d[n-1]<<1,v[n]=t;for(f=0;f<i;f+=2)0!=(a=r[f+1])&&(r[f]=v[a],v[a]++)},codes2map:function(r,e,t){var n=r.length,f=h.U.rev15;for(C=0;C<n;C+=2)if(0!=r[C+1])for(var a=C>>1,o=r[C+1],i=a<<4|o,d=e-o,l=r[C]<<d,v=l+(1<<d);l!=v;){t[f[l]>>>15-e]=i,l++}},revCodes:function(r,e){for(var t=h.U.rev15,n=15-e,f=0;f<r.length;f+=2){var a=r[f]<<e-r[f+1];r[f]=t[a]>>>n}},_bitsE:function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8)>>>(7&e)&(1<<t)-1},_get17:function(r,e){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)}};h.U={next_code:new Uint16Array(16),bl_count:new Uint16Array(16),ordr:[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15],of0:[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258,999,999,999],exb:[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0,0,0,0],ldef:new Uint16Array(32),df0:[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,65535,65535],dxb:[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,0,0],ddef:new Uint32Array(32),flmap:new Uint16Array(512),fltree:[],fdmap:new Uint16Array(32),fdtree:[],lmap:new Uint16Array(32768),ltree:[],dmap:new Uint16Array(32768),dtree:[],imap:new Uint16Array(512),itree:[],rev15:new Uint16Array(32768),lhst:new Uint32Array(286),dhst:new Uint32Array(30),ihst:new Uint32Array(19),lits:new Uint32Array(15e3),strt:new Uint16Array(65536),prev:new Uint16Array(32768)},function(){for(var r=h.U,e=0;e<32768;e++){var t=e;t=(4278255360&(t=(4042322160&(t=(3435973836&(t=(2863311530&t)>>>1|(1431655765&t)<<1))>>>2|(858993459&t)<<2))>>>4|(252645135&t)<<4))>>>8|(16711935&t)<<8,r.rev15[e]=(t>>>16|t<<16)>>>17}for(e=0;e<32;e++)r.ldef[e]=r.of0[e]<<3|r.exb[e],r.ddef[e]=r.df0[e]<<4|r.dxb[e];for(e=0;e<=143;e++)r.fltree.push(0,8);for(;e<=255;e++)r.fltree.push(0,9);for(;e<=279;e++)r.fltree.push(0,7);for(;e<=287;e++)r.fltree.push(0,8);for(h.makeCodes(r.fltree,9),h.codes2map(r.fltree,9,r.flmap),h.revCodes(r.fltree,9),e=0;e<32;e++)r.fdtree.push(0,5);h.makeCodes(r.fdtree,5),h.codes2map(r.fdtree,5,r.fdmap),h.revCodes(r.fdtree,5);for(e=0;e<19;e++)r.itree.push(0,0);for(e=0;e<286;e++)r.ltree.push(0,0);for(e=0;e<30;e++)r.dtree.push(0,0)}();for(var a,o,i=function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)&(1<<t)-1},d=h._bitsE,l=h._decodeTiny,v=h.makeCodes,s=h.codes2map,u=h._get17,p=h.U,w=0,y=0,U=0,c=0,A=0,m=0,b=0,g=0,_=0;0==w;)if(w=i(f,_,1),y=i(f,_+1,2),_+=3,0!=y){if(1==y&&(a=p.flmap,o=p.fdmap,m=511,b=31),2==y){U=d(f,_,5)+257,c=d(f,_+5,5)+1,A=d(f,_+10,4)+4;_+=14;for(var C=0;C<38;C+=2)p.itree[C]=0,p.itree[C+1]=0;var x=1;for(C=0;C<A;C++){var k=d(f,_+3*C,3);x<(p.itree[1+(p.ordr[C]<<1)]=k)&&(x=k)}_+=3*A,v(p.itree,x),s(p.itree,x,p.imap),a=p.lmap,o=p.dmap;var E=l(p.imap,(1<<x)-1,U,f,_,p.ltree);m=(1<<(E>>>24))-1,_+=16777215&E,v(p.ltree,E>>>24),s(p.ltree,E>>>24,a);var B=l(p.imap,(1<<x)-1,c,f,_,p.dtree);b=(1<<(B>>>24))-1,_+=16777215&B,v(p.dtree,B>>>24),s(p.dtree,B>>>24,o)}for(;;){var O=a[u(f,_)&m];_+=15&O;var T=O>>>4;if(T>>>8==0)n[g++]=T;else{if(256==T)break;var L=g+T-254;if(264<T){var S=p.ldef[T-257];L=g+(S>>>3)+d(f,_,7&S),_+=7&S}var j=o[u(f,_)&b];_+=15&j;var q=j>>>4,z=p.ddef[q],D=(z>>>4)+i(f,_,15&z);for(_+=15&z;g<L;)n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D];g=L}}}else{0!=(7&_)&&(_+=8-(7&_));var F=4+(_>>>3),G=f[F-4]|f[F-3]<<8;n.set(new Uint8Array(f.buffer,f.byteOffset+F,G),g),_=F+G<<3,g+=G}return n.length==g?n:n.slice(0,g)}
 """
-else: js_start += "*/"
-js_start += r"""
+else: js_start += b"*/"
+js_start += br"""
 
 var Annotator={
-version: '"""+version_stamp+"',\nnumLines: 2 /* override to 1 or 3 if you must, but not recommended for learning */,\n"
-if sharp_multi: js_end = "annotate: function(input,aType) { if(aType==undefined) aType=0;"
-else: js_end = "annotate: function(input) {"
-js_end += r"""
+version: '"""+version_stamp+b"',\nnumLines: 2 /* override to 1 or 3 if you must, but not recommended for learning */,\n"
+if sharp_multi: js_end = b"annotate: function(input,aType) { if(aType==undefined) aType=0;"
+else: js_end = b"annotate: function(input) {"
+js_end += br"""
 /* TODO: if input is a whole html doc, insert css in head
    (e.g. from annoclip and/or adjuster), and hope there's
    no stuff that's not to be annotated (form fields...) */
@@ -3279,9 +3284,9 @@ var output = new Array(), needSpace = 0;
 function readAddr() {
   var i,addr=0;
   for (i=addrLen; i; i--) addr=(addr << """
-if js_6bit: js_end += "6) | (data.charCodeAt(dPtr++)-"+str(js_6bit_offset)+");"
-else: js_end += "8) | data.charCodeAt(dPtr++);"
-js_end += r"""
+if js_6bit: js_end += b"6) | (data.charCodeAt(dPtr++)-"+B(str(js_6bit_offset))+b");"
+else: js_end += b"8) | data.charCodeAt(dPtr++);"
+js_end += br"""
   
   return addr;
 }
@@ -3289,20 +3294,20 @@ js_end += r"""
 function readRefStr() {
   var a = readAddr(); var l=data.charCodeAt(a);"""
 if js_6bit:
-  js_end += r"""
+  js_end += br"""
   if(l && l<123) a = data.slice(a+1,a+l-30);
   else a = data.slice(a+1,data.indexOf(data.charAt(a),a+1));"""
-elif zlib: js_end += r"""
+elif zlib: js_end += br"""
   if (l != 0) a = data.slice(a+1,a+l+1);
   else a = data.slice(a+1,data.indexOf(0,a+1));"""
-else: js_end += r"""
+else: js_end += br"""
   if (l != 0) a = data.slice(a+1,a+l+1);
   else a = data.slice(a+1,data.indexOf('\x00',a+1));"""
-if zlib: js_end += "return String.fromCharCode.apply(null,a)"
-elif js_utf8: js_end += "return unescape(encodeURIComponent(a))" # Unicode to UTF-8 (TODO: or keep as Unicode? but copyP things will be in UTF-8, as will the near tests)
-elif js_6bit: js_end += "return unescape(a)" # %-encoding
-else: js_end += "return a"
-js_end += r"""}
+if zlib: js_end += b"return String.fromCharCode.apply(null,a)"
+elif js_utf8: js_end += b"return unescape(encodeURIComponent(a))" # Unicode to UTF-8 (TODO: or keep as Unicode? but copyP things will be in UTF-8, as will the near tests)
+elif js_6bit: js_end += b"return unescape(a)" # %-encoding
+else: js_end += b"return a"
+js_end += br"""}
 function s() {
   if (needSpace) output.push(" ");
   else needSpace=1; // for after the word we're about to write (if no intervening bytes cause needSpace=0)
@@ -3313,13 +3318,13 @@ function readData() {
     while(1) {
         c = data.charCodeAt(dPtr++);
         if (c & 0x80) dPtr += (c&0x7F);"""
-if js_6bit: js_end += r"""
+if js_6bit: js_end += br"""
         else if (c > 90) { c-=90; 
             var i=-1;if(p<input.length){var cc=input.charCodeAt(p++)-93; if(cc>118)cc-=20; i=data.slice(dPtr,dPtr+c).indexOf(String.fromCharCode(cc))}
             if (i==-1) i = c;
-            if(i) dPtr += data.charCodeAt(dPtr+c+i-1)-"""+str(js_6bit_offset)+r""";
+            if(i) dPtr += data.charCodeAt(dPtr+c+i-1)-"""+str(js_6bit_offset)+br""";
             dPtr += c+c }"""
-js_end += r"""
+js_end += br"""
         else if (c > 107) { c-=107;
             var i = ((p>=input.length)?-1:data.slice(dPtr,dPtr+c).indexOf(input.charAt(p++)));
             if (i==-1) i = c;
@@ -3431,23 +3436,23 @@ dPtr=1;readData();
 if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
 }
 return decodeURIComponent(escape(output.join("")))"""
-if js_6bit: js_end = js_end.replace("var numBytes = data.charCodeAt(dPtr++);","var numBytes = (data.charCodeAt(dPtr++)-"+str(js_6bit_offset-1)+")&0xFF;")
-if sharp_multi: js_end += r""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
-js_end += r"""; // from UTF-8 back to Unicode
+if js_6bit: js_end = js_end.replace(b"var numBytes = data.charCodeAt(dPtr++);",b"var numBytes = (data.charCodeAt(dPtr++)-"+B(str(js_6bit_offset-1))+b")&0xFF;")
+if sharp_multi: js_end += br""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
+js_end += br"""; // from UTF-8 back to Unicode
 } // end of annotate function
 };
 """
-if sharp_multi: js_end += "function annotate(input,aType,numLines) { if(numLines==undefined) numLines=2; Annotator.numLines=numLines; return Annotator.annotate(input,aType) }"
-else: js_end += "function annotate(input,numLines) { if(numLines==undefined) numLines=2; Annotator.numLines=numLines; return Annotator.annotate(input) }"
-js_end += r"""
+if sharp_multi: js_end += b"function annotate(input,aType,numLines) { if(numLines==undefined) numLines=2; Annotator.numLines=numLines; return Annotator.annotate(input,aType) }"
+else: js_end += b"function annotate(input,numLines) { if(numLines==undefined) numLines=2; Annotator.numLines=numLines; return Annotator.annotate(input) }"
+js_end += br"""
 
 if (typeof Backbone != "undefined" && Backbone.Model) {
   Annotator = Backbone.Model.extend(Annotator);"""
-if sharp_multi: js_end += r"""
+if sharp_multi: js_end += br"""
   annotate=function(input,aType) { return new Annotator().annotate(input,aType) }"""
-else: js_end += r"""
+else: js_end += br"""
   annotate=function(input) { return new Annotator().annotate(input) }"""
-js_end += r"""
+js_end += br"""
 }
 if (typeof require != "undefined" && typeof module != "undefined" && require.main === module) {
   // Node.js command-line test
@@ -3458,34 +3463,34 @@ if (typeof require != "undefined" && typeof module != "undefined" && require.mai
 }
 """
 
-dart_src = r"""
+dart_src = br"""
 
 /* Usage
    -----
    If this file is saved as annotator.dart,
    you can import 'annotator.dart';
    and then call the annotate() function."""
-if dart_datafile: dart_src += r"""
+if dart_datafile: dart_src += br"""
    E.g. String result = await annotate(...);
-   (make your function async.)  Will read """+dart_datafile
-dart_src += r"""
+   (make your function async.)  Will read """+B(dart_datafile)
+dart_src += br"""
 */
 
 import 'dart:convert';"""
-if zlib: dart_src += "import 'dart:io';"
-dart_src += r"""
+if zlib: dart_src += b"import 'dart:io';"
+dart_src += br"""
 class _Annotator {
-  static const version="""+'"'+version_stamp+r"""";
+  static const version="""+b'"'+version_stamp+br"""";
   int numLines = 2;  // override to 1 or 3 if you must, but not recommended for learning"""
-if dart_datafile: dart_src+="\n  static String data=null;"
-else: dart_src+="\n  static final String data=%%DATA_INIT%%;"
-dart_src += r"""
+if dart_datafile: dart_src+=b"\n  static String data=null;"
+else: dart_src+=b"\n  static final String data=%%DATA_INIT%%;"
+dart_src += br"""
   int addrLen=data.codeUnitAt(0),dPtr;
   bool needSpace; StringBuffer output;
   int p, copyP; List<int> inBytes; int inputLength;
   String annotate(String input"""
-if sharp_multi: dart_src += r""",[int aType=0]"""
-dart_src += r""") {
+if sharp_multi: dart_src += br""",[int aType=0]"""
+dart_src += br""") {
     inBytes=utf8.encode(input); dPtr=0;
     inputLength=input.length;
     p=0; copyP=0;
@@ -3496,8 +3501,8 @@ dart_src += r""") {
       if (oldPos==p) { needSpace=false; output.write(String.fromCharCode(inBytes[p++])); copyP++; }
     }
     return Utf8Decoder().convert(output.toString().codeUnits)"""
-if sharp_multi: dart_src += r""".replaceAllMapped(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#"*aType+"(.*?)(#.*?)?</r"),(Match m)=>"${m[1]}${m[2]}</r")"""
-dart_src += r""";
+if sharp_multi: dart_src += br""".replaceAllMapped(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#"*aType+"(.*?)(#.*?)?</r"),(Match m)=>"${m[1]}${m[2]}</r")"""
+dart_src += br""";
   }
   int _readAddr() { int addr=0; for (int i=addrLen; i>0; i--) addr=(addr << 8) | data.codeUnitAt(dPtr++); return addr; }
   String _readRefStr() {
@@ -3506,10 +3511,10 @@ dart_src += r""";
     String r;
     if (l != 0) r=data.substring(a+1,a+l+1);
     else r=data.substring(a+1,data.indexOf("\u0000",a+1));"""
-if js_utf8: dart_src += r"""
+if js_utf8: dart_src += br"""
     return String.fromCharCodes(Utf8Encoder().convert(r));"""
-else: dart_src += "return r;"
-dart_src += r"""
+else: dart_src += b"return r;"
+dart_src += br"""
   }
   void _s() {
     if(needSpace) output.write(" ");
@@ -3625,19 +3630,19 @@ dart_src += r"""
 }
 
 """
-if dart_datafile: dart_src += "Future<String> annotate(String s,["
-else: dart_src += "String annotate(String s,["
-if sharp_multi: dart_src += "int aType=0,"
-dart_src += "int numLines=2]) "
-if dart_datafile: dart_src += "async "
-dart_src += "{ "
-if dart_datafile: dart_src += "if(_Annotator.data==null) _Annotator.data=await %%DATA_INIT%%;"
-dart_src += "var a=_Annotator(); a.numLines=numLines; return a.annotate(s"
-if sharp_multi: dart_src += ",aType"
-dart_src += "); }\n"
-if zlib: dart_src = dart_src.replace("%%DATA_INIT%%","String.fromCharCodes(zlib.decoder.convert(%%DATA_INIT%%))")
+if dart_datafile: dart_src += b"Future<String> annotate(String s,["
+else: dart_src += b"String annotate(String s,["
+if sharp_multi: dart_src += b"int aType=0,"
+dart_src += b"int numLines=2]) "
+if dart_datafile: dart_src += b"async "
+dart_src += b"{ "
+if dart_datafile: dart_src += b"if(_Annotator.data==null) _Annotator.data=await %%DATA_INIT%%;"
+dart_src += b"var a=_Annotator(); a.numLines=numLines; return a.annotate(s"
+if sharp_multi: dart_src += b",aType"
+dart_src += b"); }\n"
+if zlib: dart_src = dart_src.replace(b"%%DATA_INIT%%",b"String.fromCharCodes(zlib.decoder.convert(%%DATA_INIT%%))")
 
-py_start = '# Python '+version_stamp+r"""
+py_start = b'# Python '+version_stamp+br"""
 
 # You can import this module and call annotate(utf8 bytes)
 # (from multiple threads if desired),
@@ -3646,72 +3651,75 @@ py_start = '# Python '+version_stamp+r"""
 # annotate has an optional second argument, which can be
 # 'ruby' (default), 'raw' (annotation only) or 'braces'.
 
-assert not type("")==type(u""), "Python 3 not supported yet (Python 2 only for now)"
+# This module is compatible with both Python 2.7 and Python 3.
 
 """
-py_end = r"""
+py_end = br"""
 class Annotator:
- version="""+'"'+version_stamp+r""""
+ version="""+b'"'+version_stamp+br""""
  def __call__(self,inStr,aFormat):
-  if aFormat=="ruby": self.startA,self.midA,self.endA = "<ruby><rb>","</rb><rt>","</rt></ruby>"
-  elif aFormat=="raw": self.startA=self.midA=self.endA = ""
-  elif aFormat=="braces": self.startA,self.midA,self.endA = "{","|","}"
+  if aFormat=="ruby": self.startA,self.midA,self.endA = b"<ruby><rb>",b"</rb><rt>",b"</rt></ruby>"
+  elif aFormat=="raw": self.startA=self.midA=self.endA = b""
+  elif aFormat=="braces": self.startA,self.midA,self.endA = b"{",b"|",b"}"
   else: raise Exception("Unrecognised annotation format "+repr(aFormat))
-  assert type(inStr)==str
+  assert type(inStr)==bytes
   self.inStr = inStr
-  self.addrLen = ord(data[0])
+  self.addrLen = ord(data[:1])
   self.inputLength = len(inStr)
   self.p = 0 # read-ahead pointer
   self.copyP = 0 # copy pointer
   self.output = []
-  self.needSpace = 0 ; out = self.output
+  self.needSpace = 0
   while self.p < self.inputLength:
     oldPos = self.p
     self.dPtr = 1 ; self.readData()
     if oldPos == self.p:
       self.needSpace=0
-      out.append(inStr[self.p])
+      self.output.append(inStr[self.p:self.p+1])
       self.p += 1 ; self.copyP += 1
-  return "".join(self.output)
+  return b"".join(self.output)
  def readAddr(self):
   addr = 0
   for i in range(self.addrLen):
-    addr=(addr << 8) | ord(data[self.dPtr])
+    addr=(addr << 8) | ord(data[self.dPtr:self.dPtr+1])
     self.dPtr += 1
   return addr
  def readRefStr(self):
-  a = self.readAddr(); l=ord(data[a])
+  a = self.readAddr(); l=ord(data[a:a+1])
   if l: return data[a+1:a+l+1]
-  else: return data[a+1:data.index('\x00',a+1)]
+  else: return data[a+1:data.index(b'\x00',a+1)]
  def s(self):
-  if self.needSpace: self.output.append(" ")
+  if self.needSpace: self.output.append(b" ")
   else: self.needSpace=1
  def readData(self):
   sPos = [] ; out = self.output
   while True:
-    d = ord(data[self.dPtr]) ; self.dPtr += 1
+    d = ord(data[self.dPtr:self.dPtr+1]) ; self.dPtr += 1
     if d==50: self.dPtr = self.readAddr()
     elif d==51:
       func = self.readAddr() ; dO = self.dPtr
       self.dPtr = func ; self.readData() ; self.dPtr = dO
     elif d==52: return
     elif d==60:
-      nBytes = ord(data[self.dPtr])+1 ; self.dPtr += 1
+      nBytes = ord(data[self.dPtr:self.dPtr+1])+1
+      self.dPtr += 1
       if self.p>=len(self.inStr): i = -1
-      else: i = data[self.dPtr:self.dPtr+nBytes].find(self.inStr[self.p]) ; self.p += 1
+      else: i = data[self.dPtr:self.dPtr+nBytes].find(self.inStr[self.p:self.p+1]) ; self.p += 1
       if i==-1: i = nBytes
       self.dPtr += (nBytes + i * self.addrLen)
       self.dPtr = self.readAddr()
     elif d==70:
       if self.needSpace:
-        out.append(' ') ; self.needSpace=0
+        out.append(b' ') ; self.needSpace=0
     elif d==71 or d==74:
-      numBytes = ord(data[self.dPtr]) ; self.dPtr += 1
+      numBytes = ord(data[self.dPtr:self.dPtr+1])
+      self.dPtr += 1
       out.append(self.inStr[self.copyP:self.copyP+numBytes])
       self.copyP += numBytes
       if d==74: return
     elif d==72 or d==75:
-      numBytes = ord(data[self.dPtr]) ; self.dPtr += 1
+      numBytes = ord(data[self.dPtr:self.dPtr+1])
+      self.dPtr += 1
       annot = self.readRefStr()
       self.s()
       if self.startA:
@@ -3722,16 +3730,17 @@ class Annotator:
       out.append(self.endA)
       if d==75: return
     elif d==73 or d==76:
-      numBytes = ord(data[self.dPtr]) ; self.dPtr += 1
+      numBytes = ord(data[self.dPtr:self.dPtr+1])
+      self.dPtr += 1
       annot = self.readRefStr()
       title = self.readRefStr()
       self.s()
-      if self.startA=="{": # omit title in braces mode
+      if self.startA==b"{": # omit title in braces mode
         out.append(self.startA)
         out.append(self.inStr[self.copyP:self.copyP+numBytes])
       elif self.startA:
-        out.append("<ruby title=\"");out.append(title)
-        out.append("\"><rb>");
+        out.append(b"<ruby title=\"");out.append(title)
+        out.append(b"\"><rb>");
         out.append(self.inStr[self.copyP:self.copyP+numBytes])
       self.copyP += numBytes
       out.append(self.midA) ; out.append(annot)
@@ -3742,28 +3751,30 @@ class Annotator:
     elif d==90:
       tPtr = self.readAddr()
       fPtr = self.readAddr()
-      nearbytes = ord(data[self.dPtr]) ; self.dPtr += 1
+      nearbytes = ord(data[self.dPtr:self.dPtr+1])
+      self.dPtr += 1
       o = max(self.p-nearbytes,0)
       maxx = min(self.p+nearbytes,self.inputLength)
       tStr = self.inStr[o:maxx]
-      found = 0
+      found = False
       while self.dPtr < tPtr and self.dPtr < fPtr:
         if self.readRefStr() in tStr:
-          found = 1 ; break
+          found = True ; break
       if found: self.dPtr = tPtr
       else: self.dPtr = fPtr
-    else: raise Exception("corrupt data table at "+str(self.dPtr-1)+" ("+str(ord(data[self.dPtr-1]))+")")
+    else: raise Exception("corrupt data table at "+str(self.dPtr-1)+" ("+str(ord(data[self.dPtr-1:self.dPtr]))+")")
 
 def annotate(inStr,p="ruby"): return Annotator()(inStr,p)
 def main():
   import sys ; aFormat = 'ruby'
   for a in sys.argv[1:]:
     if a.startswith("--"): aFormat=a[2:]
-  sys.stdout.write(annotate(sys.stdin.read(),aFormat))
+  if type("")==type(u""): sys.stdout.buffer.write(annotate(sys.stdin.buffer.read(),aFormat)) # Python 3
+  else: sys.stdout.write(annotate(sys.stdin.read(),aFormat)) # Python 2
 if __name__=="__main__": main()
 """ # TODO: annotation-type option from command line in py
 
-c_zlib = r"""static unsigned char *data=NULL;
+c_zlib = br"""static unsigned char *data=NULL;
 static void init() {
   z_stream s; memset(&s,0,sizeof(s));
   s.next_in=origData; s.avail_in=%%ZLIBLEN%%;
@@ -3773,7 +3784,7 @@ static void init() {
   inflateEnd(&s);
 }
 """
-c_datadrive = r"""
+c_datadrive = br"""
 static unsigned char *dPtr; static int addrLen;
 
 #include <stdlib.h>
@@ -3935,6 +3946,7 @@ def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,la
       progress += ", analyse=%d:%02d:%02d" % (elapsed/3600,(elapsed%3600)/60,elapsed%60)
      progress += ")"
   sys.stderr.write(progress+clear_eol)
+  sys.stderr.flush()
 
 def normalise():
     if normalised_file == infile: return
@@ -3952,7 +3964,7 @@ def normalise():
         rm_f(checkpoint+os.sep+'map.bz2') ; rm_f(checkpoint+os.sep+'map')
         rm_f(checkpoint+os.sep+'checkpoint')
     else: assert main, "normalise called in non-main module and checkpoint isn't even set"
-    sys.stderr.write("Normalising...")
+    sys.stderr.write("Normalising...");sys.stderr.flush()
     old_caps = capitalisation
     if priority_list: capitalisation = True # no point keeping it at False
     allWords = getAllWords()
@@ -3968,7 +3980,7 @@ def normalise():
             idx = w.index('-'+aoEnd)
             if w[:idx].endswith(aoStart) or w[:idx].endswith("-"): continue # ignore this one (a mess of some kind)
             if hTry==2: # ouch, this doesn't look good
-              sys.stderr.write(" (can't normalise hyphens due to '%s') " % w.encode(terminal_charset,'replace'))
+              getBuf(sys.stderr).write((u" (can't normalise hyphens due to '%s') " % w).encode(terminal_charset,'replace')) ; sys.stderr.flush()
               corpus_unistr = cu0 ; break
             if mreverse: grp,mdG=r"-\1",r"\2"
             else: grp,mdG=r"-\2",r"\1"
@@ -3977,18 +3989,19 @@ def normalise():
             ff = 1
         if ff: allWords = getAllWords() # re-generate
       del cu0
-    sys.stderr.write(":")
+    sys.stderr.write(":") ; sys.stderr.flush()
     class Replacer:
       def __init__(self): self.dic = {}
       def add(self,x,y):
         if diagnose and diagnose in x: diagnose_write("Replacer.add(%s,%s)" % (x,y))
         self.dic[x] = y
-        if not (len(self.dic)%1500): sys.stderr.write('.') # try this instead
+        if not (len(self.dic)%1500):
+          sys.stderr.write('.') ; sys.stderr.flush()
       def flush(self):
         if not self.dic: return
         global corpus_unistr
-        for exp in orRegexes(re.escape(k) for k in self.dic.iterkeys()):
-          sys.stderr.write(';')
+        for exp in orRegexes(re.escape(k) for k in iterkeys(self.dic)):
+          sys.stderr.write(';') ; sys.stderr.flush()
           corpus_unistr = re.sub(exp,lambda k:self.dic[k.group(0)],corpus_unistr)
         self.dic = {}
     rpl = Replacer() ; rpl.cu_nosp = None
@@ -4048,7 +4061,7 @@ def normalise():
       if not w==w2: rpl.add(w,w2)
     rpl.flush()
     sys.stderr.write(" done\n")
-    if normalised_file: openfile(normalised_file,'wb').write(corpus_unistr.encode(incode))
+    if normalised_file: openfile(normalised_file,'w').write(corpus_unistr.encode(incode))
     if checkpoint and capitalisation==old_caps: open_try_bz2(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8'))
     capitalisation = old_caps
     checkpoint_exit()
@@ -4061,7 +4074,7 @@ def orRegexes(escaped_keys):
   escaped_keys = list(escaped_keys) # don't just iterate
   try: yield re.compile('|'.join(escaped_keys))
   except OverflowError: # regex too big (e.g. default Python on Mac OS 10.7 i.e. Python 2.7.1 (r271:86832, Jul 31 2011, 19:30:53); probably some Windows versions also; does not affect Mac HomeBrew's Python 2.7.12)
-    ek = escaped_keys[:len(escaped_keys)/2]
+    ek = escaped_keys[:int(len(escaped_keys)/2)]
     for r in orRegexes(ek): yield r
     ek = escaped_keys[len(ek):]
     for r in orRegexes(ek): yield r
@@ -4075,7 +4088,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
     votes = {} ; lastT = time.time()
     for pi in xrange(len(markedDown_Phrases)):
       if time.time() > lastT+2:
-        sys.stderr.write("PairPriorities: %d%%%s" % (pi*100/len(markedDown_Phrases),clear_eol))
+        sys.stderr.write("PairPriorities: %d%%%s" % (pi*100/len(markedDown_Phrases),clear_eol)) ; sys.stderr.flush()
         lastT = time.time()
       p=markedDown_Phrases[pi]
       for x in xrange(len(p)-1):
@@ -4090,7 +4103,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
             if k[0]==prefer: direction = 1
             else: direction = -1
             votes[k]=votes.get(k,0)+direction
-            if diagnose in k: diagnose_write(u"Prefer %s over %s: %d vote from %s | %s" % (k+(direction,a,b)))
+            if diagnose in k: diagnose_write("Prefer %s over %s: %d vote from %s | %s" % (k+(direction,a,b)))
     sys.stderr.write("PairPriorities: done\n")
     del markedDown_Phrases
     global closure,gtThan,lessThan
@@ -4116,7 +4129,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
         r=addToClosure(a,b)
         if diagnose in (a,b):
           if r==None: r = False
-          diagnose_write(u"addToClosure(%s,%s) [v=%d] returned %s" % (a,b,abs(v),repr(r)))
+          diagnose_write("addToClosure(%s,%s) [v=%d] returned %s" % (a,b,abs(v),repr(r)))
     trueClosure,closure = closure,None
     lastW,lastF,lastPriorW = set(),None,set()
     for _,w in reversed(sorted((f,w) for w,f in existingFreqs.items())): # highest frequency first
@@ -4140,11 +4153,11 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
       del gtThan[n]
     assert not lessThan and not gtThan, "graph has cycle(s), (%d,%d) edges remain" % (len(lessThan),len(gtThan))
     tcA = set(w for w,_ in trueClosure)
-    if diagnose: diagnose_write(u"%s in tcA %s" % (diagnose,diagnose in tcA))
+    if diagnose: diagnose_write("%s in tcA %s" % (diagnose,diagnose in tcA))
     r = [] ; _cmpT,_cmpW=time.time(),False
     for w in mdwList: # lower priorities first
         if time.time() > _cmpT + 2:
-          sys.stderr.write("Finalising: %d/%d%s" % (len(r),len(mdwList),clear_eol))
+          sys.stderr.write("Finalising: %d/%d%s" % (len(r),len(mdwList),clear_eol)) ; sys.stderr.flush()
           _cmpT=time.time()
           _cmpW=True
         if w in tcA:
@@ -4156,13 +4169,13 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
               if (w,W) in trueClosure:
                 found = True
                 if 1+f > f0:
-                  diagnose_write(u"Increasing f(%s) from %d to %d to outweigh %s (f=%d)" % (w,f0,1+f,W,f))
+                  diagnose_write("Increasing f(%s) from %d to %d to outweigh %s (f=%d)" % (w,f0,1+f,W,f))
                   f0 = 1+f
-                else: diagnose_write(u"f(%s)=%d already outweighs %d for %s" % (w,f0,f,W))
+                else: diagnose_write("f(%s)=%d already outweighs %d for %s" % (w,f0,f,W))
               elif (W,w) in trueClosure:
                 found = True
-                diagnose_write(u"Problem? %s (f=%d) before %s (f=%d)" % (W,f,w,f0))
-            if not found: diagnose_write(u"No interactions with %s found among %d lower-priority words" % (w,len(r)))
+                diagnose_write("Problem? %s (f=%d) before %s (f=%d)" % (W,f,w,f0))
+            if not found: diagnose_write("No interactions with %s found among %d lower-priority words" % (w,len(r)))
             l = [f0-1]
           else: l = [r[i][1] for i in xrange(len(r)) if (w,r[i][0]) in trueClosure]
         else: l = []
@@ -4243,7 +4256,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
         yield True ; return
     run_in_background = canBackground and len(okStarts) > 500 and executor # In a test with 300, 500, 700 and 900, the 500 threshold was fastest on concurrent.futures, but by just a few seconds.  TODO: does mpi4py.futures have a different 'sweet spot' here? (low priority unless we can get MPI to outdo concurrent.futures in this application)
     may_take_time = canBackground and len(okStarts) > 1000
-    if may_take_time: sys.stderr.write("\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),len(okStarts),badInfo(badStarts,nonAnnot),cond(run_in_background,"backgrounding","could take some time")))
+    if may_take_time: getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),cond(run_in_background,"backgrounding","could take some time"))).encode(terminal_charset,'replace'))
     if run_in_background:
       job = executor.submit(yarowsky_indicators_wrapped,withAnnot_unistr) # recalculate the above on the other CPU in preference to passing, as memory might not be shared
       yield "backgrounded" ; yield job.result() ; return
@@ -4264,8 +4277,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
       negate,ret = tryNBytes(ybytes_max,nonAnnot,badStarts,okStarts,withAnnot_unistr,can_be_default=="must")[:2]
       if ybytes < ybytes_max: distance = ybytes_max
       else: distance = None # all the same anyway
-    if not ret and warn_yarowsky: sys.stderr.write("Couldn't find ANY Yarowsky-like indicators for %s   \n" % (withAnnot_unistr.encode(terminal_charset,'replace'))) # (if nonAnnot==diagnose, this'll be reported by tryNBytes below)
-    # elif ybytes_max > ybytes: sys.stderr.write("Debugger: %s best coverage=%d/%d by %d indicators at nbytes=%d   \n" % (withAnnot_unistr.encode(terminal_charset,'replace'),-retList[0][0],retList[0][3],retList[0][1],retList[0][2]))
+    if not ret and warn_yarowsky: getBuf(sys.stderr).write((u"Couldn't find ANY Yarowsky-like indicators for %s   \n" % withAnnot_unistr).encode(terminal_charset,'replace')) # (if nonAnnot==diagnose, this'll be reported by tryNBytes below)
     # TODO: if partially but not completely covered, shouldn't entirely count the word as 'covered' in analyse()
     elif ret and may_take_time: sys.stderr.write(" - using %d indicators, negate=%s\n" % (len(ret),repr(negate)))
     if not ret or (not distance and not negate):
@@ -4388,7 +4400,7 @@ def cond(a,b,c):
   else: return c
 
 def badInfo(badStarts,nonAnnot):
-  ret = "%d false positive" % len(badStarts)
+  ret = u"%d false positive" % len(badStarts)
   if not len(badStarts)==1: ret += "s"
   if len(badStarts) > yarowsky_debug: return ret
   for wordStart in badStarts:
@@ -4406,7 +4418,7 @@ def badInfo(badStarts,nonAnnot):
     else: contextStart = max(0,wordStart - 15) # This might cut across markup, but better that than failing to report the original corpus and making it look like the words might not have "lined up" when actually they did.  Might also just cut into surrounding non-markup text (if the above loop simply couldn't find anything near enough because such text was in the way).
     if newCEnd in m2c_map: contextEnd = m2c_map[newCEnd]
     else: contextEnd = wordEnd + 15 # ditto
-   ret += (u" (%s%s%s%s%s)" % (toRead[contextStart:wordStart],reverse_on,toRead[wordStart:wordEnd],reverse_off,toRead[wordEnd:contextEnd])).replace("\n","\\n").replace("\r","\\r").encode(terminal_charset,'replace')
+   ret += (u" (%s%s%s%s%s)" % (toRead[contextStart:wordStart],reverse_on,toRead[wordStart:wordEnd],reverse_off,toRead[wordEnd:contextEnd])).replace("\n","\\n").replace("\r","\\r")
   return ret
 
 def unique_substrings(texts,allowedChars,omitFunc,valueFunc):
@@ -4542,17 +4554,18 @@ class RulesAccumulator:
     self.amend_rules = False
     if rulesFile: self.load()
   def save(self):
-    sys.stderr.write("\nPickling rules to %s... " % rulesFile)
-    f = openfile(rulesFile,'wb')
+    sys.stderr.write("\nPickling rules to %s... " % rulesFile) ; sys.stderr.flush()
+    f = openfile(rulesFile,'w')
     pickle.Pickler(f,-1).dump((self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists,self.seenPhrases))
     # (don't save self.rejectedRules, there might be better clues next time)
     f.close() ; sys.stderr.write("done")
+    sys.stderr.flush()
   def load(self):
     if not os.path.isfile(rulesFile):
       sys.stderr.write("%s does not exist, starting with blank rules\n" % rulesFile)
       return
-    sys.stderr.write("Unpickling rules from %s... " % rulesFile)
-    f = openfile(rulesFile,'rb')
+    sys.stderr.write("Unpickling rules from %s... " % rulesFile) ; sys.stderr.flush()
+    f = openfile(rulesFile)
     self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists,self.seenPhrases = pickle.Unpickler(f).load()
     sys.stderr.write("done\n")
     self.amend_rules = True
@@ -4754,6 +4767,7 @@ def analyse():
         if toCover:
           if checkpoint and (checkpoint_exit(0) or time.time() >= lastCheckpoint + 1000): # TODO: configurable?
             sys.stderr.write("Checkpointing..."+clear_eol)
+            sys.stderr.flush()
             for b in backgrounded: # flush (TODO: duplicate code)
               coveredA,toCoverA = b.next()
               covered += coveredA ; toCover += toCoverA
@@ -4798,7 +4812,7 @@ def test_manual_rules():
           if k not in precalc_sets: precalc_sets[k]=set()
       yb = []
       if not test_rule(l,yb).next() or len(yb):
-        sys.stderr.write("\nWARNING: Manual rule '%s' may contradict the examples. " % (l.encode(terminal_charset),))
+        getBuf(sys.stderr).write(("\nWARNING: Manual rule '%s' may contradict the examples. " % l).encode(terminal_charset))
         global diagnose,diagnose_limit,ybytes
         od,odl,oy,diagnose,diagnose_limit,ybytes = diagnose,diagnose_limit,ybytes,markDown(l),0,ybytes_max
         test_rule(l,[]).next()
@@ -4807,52 +4821,58 @@ def test_manual_rules():
 def java_escape(unistr):
   ret = []
   for c in unistr:
-    if c=='"': ret.append(r'\"')
-    elif c=='\\': ret.append(r'\\')
-    elif ord(' ') <= ord(c) <= 127: ret.append(c)
-    elif c=='\n': ret.append(r'\n')
-    else: ret.append('\u%04x' % ord(c))
-  return ''.join(ret)
+    if c=='"': ret.append(br'\"')
+    elif c=='\\': ret.append(br'\\')
+    elif ord(' ') <= ord(c) <= 127: ret.append(B(c))
+    elif c=='\n': ret.append(br'\n')
+    else: ret.append(br'\u%04x' % ord(c))
+  return b''.join(ret)
 
 def golang_escape(unistr):
   return unistr.replace('\\','\\\\').replace('"','\\"').replace('\n',r'\n').encode(outcode)
 
 def c_escape(unistr):
     # returns unistr encoded as outcode and escaped so can be put in C in "..."s
-    return zapTrigraphs(unistr.encode(outcode).replace('\\','\\\\').replace('"','\\"').replace('\n','\\n').replace('\r','\\r')) # TODO: \r shouldn't occur, error if it does?
-def zapTrigraphs(x): return re.sub(r"\?\?([=/'()<>!-])",r'?""?\1',x) # to get rid of trigraph warnings, TODO might get a marginal efficiency increase if do it to the entire C file at once instead)
+    return zapTrigraphs(unistr.encode(outcode).replace(b'\\',b'\\\\').replace(b'"',b'\\"').replace(b'\n',b'\\n').replace(b'\r',b'\\r')) # TODO: \r shouldn't occur, error if it does?
+def zapTrigraphs(x): return re.sub(br"\?\?([=/'()<>!-])",br'?""?\1',x) # to get rid of trigraph warnings, TODO might get a marginal efficiency increase if do it to the entire C file at once instead)
 
 def c_escapeRawBytes(s): # as it won't be valid outcode; don't want to crash any editors/viewers of the C file
-  if s.endswith(chr(0)): s=s[:-1] # as the C compiler will add a terminating 0 anyway
-  return re.sub(r"(?<!\\)((?:\\\\)*\\x..)([0-9a-fA-F])",r'\1""\2',zapTrigraphs(s.replace('\\','\\\\').decode('unicode_escape').encode('unicode_escape').replace('"','\\"')))
+  if s.endswith(b'\x00'): s=s[:-1] # as the C compiler will add a terminating 0 anyway
+  return re.sub(br"(?<!\\)((?:\\\\)*\\x..)([0-9a-fA-F])",br'\1""\2',zapTrigraphs(s.replace(b'\\',b'\\\\').decode('unicode_escape').encode('unicode_escape').replace(b'"',b'\\"')))
 
 def js_escapeRawBytes(s):
   assert not zlib # js_utf8 etc not relevant if base64
-  s = s.replace("\\",r"\\").replace('"',r'\"').replace(chr(8),r"\b").replace(chr(9),r"\t").replace(chr(10),r"\n").replace(chr(12),r"\f").replace(chr(13),r"\r")
-  if ignore_ie8: s = s.replace(chr(11),r"\v")
-  if js_octal: s = re.sub("[\x00-\x1f](?![0-9])",lambda m:r"\%o"%ord(m.group()),s)
-  else: s = re.sub(chr(0)+r"(?![0-9])",r"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
-  if js_utf8: return re.sub("[\x00-\x1f\x7f]",lambda m:r"\x%02x"%ord(m.group()),s.encode('utf-8'))
-  else: return re.sub("[\x00-\x1f\x7f-\xff]",lambda m:r"\x%02x"%ord(m.group()),s)
+  if js_utf8: # typeof(s)==typeof(u"")
+    s = s.replace("\\",r"\\").replace('"',r'\"').replace(chr(8),r"\b").replace(chr(9),r"\t").replace(chr(10),r"\n").replace(chr(12),r"\f").replace(chr(13),r"\r")
+    if ignore_ie8: s = s.replace(chr(11),r"\v")
+    if js_octal: s = re.sub("[\x00-\x1f](?![0-9])",lambda m:r"\%o"%ord(m.group()),s)
+    else: s = re.sub(chr(0)+r"(?![0-9])",r"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
+    return re.sub(b"[\x00-\x1f\x7f]",lambda m:br"\x%02x"%ord(m.group()),s.encode('utf-8'))
+  # otherwise typeof(s)==typeof(b"")
+  s = s.replace(b"\\",br"\\").replace(b'"',br'\"').replace(B(chr(8)),br"\b").replace(B(chr(9)),br"\t").replace(B(chr(10)),br"\n").replace(B(chr(12)),br"\f").replace(B(chr(13)),br"\r")
+  if ignore_ie8: s = s.replace(B(chr(11)),br"\v")
+  if js_octal: s = re.sub(b"[\x00-\x1f](?![0-9])",lambda m:br"\%o"%ord(m.group()),s)
+  else: s = re.sub(b'\x00'+br"(?![0-9])",br"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
+  return re.sub(b"[\x00-\x1f\x7f-\xff]",lambda m:br"\x%02x"%ord(m.group()),s)
 
 def dart_escapeRawBytes(s):
-  if js_utf8: return re.sub("[\x00-\x1f\"\\\\$\x7f]",lambda m:r"\u{%x}"%ord(m.group()),s.encode('utf-8'))
-  else: return re.sub("[\x00-\x1f\"\\\\$\x7f-\xff]",lambda m:r"\u{%x}"%ord(m.group()),s)
+  if js_utf8: return re.sub(b"[\x00-\x1f\"\\\\$\x7f]",lambda m:br"\u{%x}"%ord(m.group()),s.encode('utf-8'))
+  else: return re.sub(b"[\x00-\x1f\"\\\\$\x7f-\xff]",lambda m:br"\u{%x}"%ord(m.group()),s)
 
 def c_length(unistr): return len(unistr.encode(outcode))
 
 if java or c_sharp or golang:
   if golang: outLang_escape = golang_escape
   else: outLang_escape = java_escape
-  if java: outLang_bool = "boolean"
-  else: outLang_bool = "bool"
-  outLang_true = "true"
-  outLang_false = "false"
+  if java: outLang_bool = b"boolean"
+  else: outLang_bool = b"bool"
+  outLang_true = b"true"
+  outLang_false = b"false"
 else:
   outLang_escape = c_escape
-  outLang_bool = "int"
-  outLang_true = "1"
-  outLang_false = "0"
+  outLang_bool = b"int"
+  outLang_true = b"1"
+  outLang_false = b"0"
 
 def allVars(u):
   global cjk_cLookup
@@ -4947,16 +4967,16 @@ def matchingAction(rule,glossDic,glossMiss,whitelist,blacklist):
       annotation_bytes = outLang_escape(annotation_unistr)
       if gloss: gloss_bytes = outLang_escape(gloss)
       else: gloss_bytes = None
-    if java: adot = "a." # not used if data_driven
-    else: adot = ""
+    if java: adot = b"a." # not used if data_driven
+    else: adot = b""
     bytesToCopy = c_length(text_unistr)
     if gloss:
         if data_driven: action.append((bytesToCopy,annotation_bytes,gloss_bytes))
-        else: action.append(adot+'o2(%d,"%s","%s");' % (bytesToCopy,annotation_bytes,gloss_bytes))
+        else: action.append(adot+b'o2(%d,"%s","%s");' % (bytesToCopy,annotation_bytes,gloss_bytes))
     else:
         glossMiss.add(w)
         if data_driven: action.append((bytesToCopy,annotation_bytes))
-        else: action.append(adot+'o(%d,"%s");' % (bytesToCopy,annotation_bytes))
+        else: action.append(adot+b'o(%d,"%s");' % (bytesToCopy,annotation_bytes))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
@@ -4970,7 +4990,7 @@ def readGlossfile():
             except: # not enough tabs
               word = l.split("\t",1)[0] ; annot = gloss = ""
               if glossmiss_omit: pass # they can list words without glosses; no error if missing \t
-              else: sys.stderr.write("Gloss: Ignoring incorrectly-formatted line "+l.strip()+"\n")
+              else: getBuf(sys.stderr).write(("Gloss: Ignoring incorrectly-formatted line "+l.strip()+"\n").encode(terminal_charset))
             word,annot,gloss = word.strip(),annot.strip(),gloss.strip().replace("\t","\n")
             if glossmiss_omit and word: whitelist.add(word)
             if not word or not gloss: continue
@@ -4980,12 +5000,12 @@ def readGlossfile():
 
 def copyBytes(n,checkNeedspace=False): # needSpace unchanged for ignoreNewlines etc; checkNeedspace for open quotes
     if checkNeedspace:
-      if data_driven: return ['s0',(n,)] # copyBytes(n)
-      elif java: return r"a.s0(); a.c(%d);" % n
-      else: return r"s0(); c(%d);" % n
+      if data_driven: return [b's0',(n,)] # copyBytes(n)
+      elif java: return br"a.s0(); a.c(%d);" % n
+      else: return br"s0(); c(%d);" % n
     if data_driven: return [(n,)] # copyBytes(n)
-    elif java: return r"a.c(%d);" % n
-    else: return r"c(%d);" % n
+    elif java: return br"a.c(%d);" % n
+    else: return br"c(%d);" % n
 
 def outputParser(rulesAndConds):
     glossDic, glossMiss, whitelist = readGlossfile()
@@ -4994,7 +5014,7 @@ def outputParser(rulesAndConds):
     sys.stderr.write("Generating byte cases...\n")
     byteSeq_to_action_dict = {}
     if ignoreNewlines: # \n shouldn't affect needSpace
-        byteSeq_to_action_dict['\n'] = [(copyBytes(1),[])]
+      byteSeq_to_action_dict[b'\n'] = [(copyBytes(1),[])]
     for closeQuote in u'\u2019\u201d\u300b\u300d)\u3015\uff09\u3017\u3011]\uff3d':
       # close quotes should not affect needSpace
       try: closeQuote = closeQuote.encode(outcode)
@@ -5010,7 +5030,7 @@ def outputParser(rulesAndConds):
         action,gotAnnot = matchingAction(rule,glossDic,glossMiss,whitelist,blacklist)
         if not gotAnnot: return # not whitelisted, or some spurious o("{","") rule that got in due to markup corruption
         if manualOverride or not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
-        if not data_driven: action = ' '.join(action)
+        if not data_driven: action = b' '.join(action)
         byteSeq_to_action_dict[byteSeq].append((action,conds))
     def dryRun(clearReannotator=True): # to prime the reannotator or compressor
       global toReannotateSet, reannotateDict
@@ -5022,6 +5042,7 @@ def outputParser(rulesAndConds):
     if reannotator:
       global stderr_newline ; stderr_newline = False
       sys.stderr.write("Reannotating... ")
+      sys.stderr.flush()
       dryRun()
       # Setting buffer size is not enough on all systems.
       # To ensure the pipe does not fill its output while
@@ -5037,20 +5058,21 @@ def outputParser(rulesAndConds):
       elif reannotator[0]=='#': cmd=reannotator[1:]
       else: cmd = reannotator
       import thread ; sys.setcheckinterval(100)
-      global cout ; cin,cout = os.popen2(cmd)
+      sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,close_fds=True)
+      global cout ; cin,cout = sp.stdin,sp.stdout
       comms = [False,False]
       thread.start_new_thread(reader_thread,(comms,))
       while comms[0] == False: time.sleep(0.1)
       # NOW ready to start writing:
-      cin.write("\n".join(l).encode(outcode)+"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
+      cin.write("\n".join(l).encode(outcode)+b"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
       while comms[1] == False: time.sleep(1)
       l2 = comms[1]
       sys.setcheckinterval(32767)
-      del cin,cout,cmd,comms
+      del cin,cout,cmd,comms,sp
       while len(l2)>len(l) and not l2[-1]: del l2[-1] # don't mind extra blank line(s) at end of output
       if not len(l)==len(l2):
-        open('reannotator-debug-in.txt','w').write("\n".join(l).encode(outcode)+"\n")
-        open('reannotator-debug-out.txt','w').write("\n".join(l2).encode(outcode)+"\n")
+        open('reannotator-debug-in.txt','wb').write(os.linesep.join(l).encode(outcode)+B(os.linesep))
+        open('reannotator-debug-out.txt','wb').write(os.linesep.join(l2).encode(outcode)+B(os.linesep))
         errExit("Reannotator command didn't output the same number of lines as we gave it (gave %d, got %d).  Input and output have been written to reannotator-debug-in.txt and reannotator-debug-out.txt for inspection.  Bailing out." % (len(l),len(l2)))
       if stderr_newline: sys.stderr.write("Reannotated %d items\n" % len(l))
       else: sys.stderr.write("(%d items)\n" % len(l))
@@ -5059,11 +5081,11 @@ def outputParser(rulesAndConds):
       global squashStrings ; squashStrings = set() # discard any that were made in any reannotator dry-run
       dryRun(False) # redo with the new annotation strings (or do for the first time if no reannotator)
       pairs = squashFinish()
-    else: pairs = ""
+    else: pairs = b""
     for rule,conds in rulesAndConds: addRule(rule,conds,byteSeq_to_action_dict)
     for l in read_manual_rules(): addRule(l,[],byteSeq_to_action_dict,True)
     write_glossMiss(glossMiss)
-    longest_rule_len = max(len(b) for b in byteSeq_to_action_dict.iterkeys())
+    longest_rule_len = max(len(b) for b in iterkeys(byteSeq_to_action_dict))
     longest_rule_len += ybytes_max # because buffer len is 2*longest_rule_len, we shift half of it when (readPtr-bufStart +ybytes >= bufLen) and we don't want this shift to happen when writePtr-bufStart = Half_Bufsize-1 and readPtr = writePtr + Half_Bufsize-1 (TODO: could we get away with max(0,ybytes_max-1) instead? but check how this interacts with the line below; things should be safe as they are now).  This line's correction was missing in Annogen v0.599 and below, which could therefore occasionally emit code that, when running from stdin, occasionally replaced one of the document's bytes with an undefined byte (usually 0) while emitting correct annotation for the original byte.  (This could result in bad UTF-8 that crashed the bookmarklet feature of Web Adjuster v0.21 and below.)
     longest_rule_len = max(ybytes_max*2, longest_rule_len) # make sure the half-bufsize is at least ybytes_max*2, so that a read-ahead when pos is ybytes_max from the end, resulting in a shift back to the 1st half of the buffer, will still leave ybytes_max from the beginning, so yar() can look ybytes_max-wide in both directions
     if data_driven:
@@ -5076,8 +5098,8 @@ def outputParser(rulesAndConds):
     if javascript:
       if zlib:
         import base64
-        return outfile.write(js_start+"data: inflate(\""+base64.b64encode(ddrivn)+"\","+str(origLen)+"),\n"+re.sub(r"data\.charCodeAt\(([^)]*)\)",r"data[\1]",js_end).replace("indexOf(input.charAt","indexOf(input.charCodeAt")+"\n")
-      else: return outfile.write(js_start+"data: \""+js_escapeRawBytes(ddrivn)+"\",\n"+js_end+"\n") # not Uint8Array (even if browser compatibility is known): besides taking more source space, it's typically ~25% slower to load than string, even from RAM
+        return outfile.write(js_start+b"data: inflate(\""+base64.b64encode(ddrivn)+b"\","+B(str(origLen))+b"),\n"+re.sub(br"data\.charCodeAt\(([^)]*)\)",br"data[\1]",js_end).replace(b"indexOf(input.charAt",b"indexOf(input.charCodeAt")+b"\n")
+      else: return outfile.write(js_start+b"data: \""+js_escapeRawBytes(ddrivn)+b"\",\n"+js_end+b"\n") # not Uint8Array (even if browser compatibility is known): besides taking more source space, it's typically ~25% slower to load than string, even from RAM
     elif dart:
       if dart_datafile:
         if os.sep in c_filename: d=c_filename[:c_filename.rindex(os.sep)]+os.sep
@@ -5086,105 +5108,107 @@ def outputParser(rulesAndConds):
         else: d += dart_datafile
         open(d,'wb').write(ddrivn)
         sys.stderr.write("Wrote "+d+" (ensure this ships as "+dart_datafile+")\n")
-      if dart_datafile and zlib: return outfile.write(dart_src.replace("%%DATA_INIT%%","await(File('"+dart_datafile+"').readAsBytes())"))
-      elif zlib: return outfile.write(dart_src.replace("%%DATA_INIT%%","\""+dart_escapeRawBytes(ddrivn)+"\".codeUnits"))
-      elif dart_datafile: return outfile.write(dart_src.replace("%%DATA_INIT%%","String.fromCharCodes(await(File('"+dart_datafile+"').readAsBytes()))"))
-      else: return outfile.write(dart_src.replace("%%DATA_INIT%%","\""+dart_escapeRawBytes(ddrivn)+"\""))
+      if dart_datafile and zlib: return outfile.write(dart_src.replace(b"%%DATA_INIT%%",b"await(File('"+B(dart_datafile)+b"').readAsBytes())"))
+      elif zlib: return outfile.write(dart_src.replace(b"%%DATA_INIT%%",b"\""+dart_escapeRawBytes(ddrivn)+b"\".codeUnits"))
+      elif dart_datafile: return outfile.write(dart_src.replace(b"%%DATA_INIT%%",b"String.fromCharCodes(await(File('"+B(dart_datafile)+b"').readAsBytes()))"))
+      else: return outfile.write(dart_src.replace(b"%%DATA_INIT%%",b"\""+B(dart_escapeRawBytes(ddrivn))+b"\""))
     elif python:
-      outfile.write(py_start+"\ndata="+repr(ddrivn)+"\n")
-      if zlib: outfile.write("import zlib; data=zlib.decompress(data)\n")
-      return outfile.write(py_end+"\n")
+      dd2 = repr(ddrivn)
+      if not dd2.startswith('b'): dd2='b'+dd2 # (if we're generating in Python 2, we still want 2+3 compatibility)
+      outfile.write(py_start+b"\ndata="+B(dd2)+b"\n")
+      if zlib: outfile.write(b"import zlib; data=zlib.decompress(data)\n")
+      return outfile.write(py_end+b"\n")
     elif java:
-      start = java_src.replace("%%JPACKAGE%%",jPackage)
+      start = java_src.replace(b"%%JPACKAGE%%",B(jPackage))
       if data_driven:
-        a = android_loadData.replace("%%DLEN%%",str(len(ddrivn)))
-        if zlib: a = a.replace("%%ULEN%%",str(origLen))
-        start = start.replace("() { %%JDATA%% }","(android.content.Context context) throws java.io.IOException { "+a+" }") # Annotator c'tor needs a context argument if it's data-driven, to load annotate.dat
-        if zlib: start = start.replace("context) throws java.io.IOException {","context) throws java.io.IOException,java.util.zip.DataFormatException {")
-      else: start = start.replace("%%JDATA%%","")
+        a = android_loadData.replace(b"%%DLEN%%",B(str(len(ddrivn))))
+        if zlib: a = a.replace(b"%%ULEN%%",B(str(origLen)))
+        start = start.replace(b"() { %%JDATA%% }",b"(android.content.Context context) throws java.io.IOException { "+a+b" }") # Annotator c'tor needs a context argument if it's data-driven, to load annotate.dat
+        if zlib: start = start.replace(b"context) throws java.io.IOException {",b"context) throws java.io.IOException,java.util.zip.DataFormatException {")
+      else: start = start.replace(b"%%JDATA%%",b"")
     elif c_sharp: start = cSharp_start
     elif golang: start = golang_start
     else: start = c_start
-    outfile.write(start.replace('%%LONGEST_RULE_LEN%%',str(longest_rule_len)).replace("%%YBYTES%%",str(ybytes_max)).replace("%%PAIRS%%",pairs)+"\n")
+    outfile.write(start.replace(b'%%LONGEST_RULE_LEN%%',B(str(longest_rule_len))).replace(b"%%YBYTES%%",B(str(ybytes_max))).replace(b"%%PAIRS%%",pairs)+b"\n")
     if data_driven:
       if zlib: dataName = "origData"
       else: dataName = "data"
       if java: open(jSrc+"/../assets/annotate.dat","wb").write(ddrivn)
       else:
-        outfile.write("static unsigned char "+dataName+"[]=\""+c_escapeRawBytes(ddrivn)+'\";\n')
-        if zlib: outfile.write(c_zlib.replace('%%ORIGLEN%%',str(origLen)).replace('%%ZLIBLEN%%',str(len(ddrivn)))+"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
-        outfile.write(c_datadrive+"\n")
+        outfile.write(b"static unsigned char "+dataName+b"[]=\""+c_escapeRawBytes(ddrivn)+b'\";\n')
+        if zlib: outfile.write(c_zlib.replace(b'%%ORIGLEN%%',B(str(origLen))).replace(b'%%ZLIBLEN%%',B(str(len(ddrivn))))+b"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
+        outfile.write(c_datadrive+b"\n")
       del ddrivn
     else: # not data_driven
       subFuncL = []
       ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
       if java:
-        for f in subFuncL: open(java+os.sep+f[f.index("class ")+6:].split(None,1)[0]+".java","w").write(f)
-        open(java+os.sep+"topLevelMatch.java","w").write("\n".join(ret))
-      elif golang: outfile.write("\n".join(subFuncL + ret).replace(';\n','\n')+"\n") # (this 'elif' line is not really necessary but it might save someone getting worried about too many semicolons)
-      else: outfile.write("\n".join(subFuncL+ret)+"\n")
+        for f in subFuncL: open(java+os.sep+S(f[f.index(b"class ")+6:].split(None,1)[0])+".java","wb").write(f)
+        open(java+os.sep+"topLevelMatch.java","wb").write(b"\n".join(ret))
+      elif golang: outfile.write(b"\n".join(subFuncL + ret).replace(b';\n',b'\n')+b"\n") # (this 'elif' line is not really necessary but it might save someone getting worried about too many semicolons)
+      else: outfile.write(b"\n".join(subFuncL+ret)+b"\n")
       del subFuncL,ret
     if android:
-      open(java+os.sep+"MainActivity.java","w").write(android_src.replace("%%JPACKAGE%%",jPackage).replace('%%ANDROID-URL%%',android))
-      open(java+os.sep+"BringToFront.java","w").write(android_bringToFront.replace("%%JPACKAGE%%",jPackage))
-      open(jSrc+"/../assets/clipboard.html",'w').write(android_clipboard)
-      if android_template: open(jSrc+"/../assets/index.html",'w').write(android_template.replace("</body",android_version_stamp.replace("%%DATE%%","%d-%02d-%02d" % time.localtime()[:3]).replace("%%TIME%%","%d:%02d" % time.localtime()[3:5])+"</body")) # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line.  Time available in developer mode as might have more than one alpha release per day and want to check got latest.
+      open(java+os.sep+"MainActivity.java","wb").write(android_src.replace(b"%%JPACKAGE%%",B(jPackage)).replace(b'%%ANDROID-URL%%',B(android)))
+      open(java+os.sep+"BringToFront.java","wb").write(android_bringToFront.replace(b"%%JPACKAGE%%",B(jPackage)))
+      open(jSrc+"/../assets/clipboard.html",'wb').write(android_clipboard)
+      if android_template: open(jSrc+"/../assets/index.html",'wb').write(android_template.replace(b"</body",android_version_stamp.replace(b"%%DATE%%",b"%d-%02d-%02d" % time.localtime()[:3]).replace(b"%%TIME%%",b"%d:%02d" % time.localtime()[3:5])+b"</body")) # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line.  Time available in developer mode as might have more than one alpha release per day and want to check got latest.
       update_android_manifest()
-      open(jSrc+"/../res/layout/activity_main.xml","w").write(android_layout)
-      open(jSrc+"/../res/menu/main.xml","w").write('<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
-      open(jSrc+"/../res/values/dimens.xml","w").write('<resources><dimen name="activity_horizontal_margin">16dp</dimen><dimen name="activity_vertical_margin">16dp</dimen></resources>\n')
-      open(jSrc+"/../res/values/styles.xml","w").write('<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"><item name="android:forceDarkAllowed">true</item></style></resources>\n')
-      open(jSrc+"/../res/values/strings.xml","w").write('<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="app_name">'+app_name.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')+'</string></resources>\n')
-      if not android_https_only and not android_pre_2016: open(jSrc+"/../res/xml/network_security_config.xml","w").write('<?xml version="1.0" encoding="utf-8"?>\n<network-security-config><base-config cleartextTrafficPermitted="true" /></network-security-config>\n')
+      open(jSrc+"/../res/layout/activity_main.xml","wb").write(android_layout)
+      open(jSrc+"/../res/menu/main.xml","wb").write(b'<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
+      open(jSrc+"/../res/values/dimens.xml","wb").write(b'<resources><dimen name="activity_horizontal_margin">16dp</dimen><dimen name="activity_vertical_margin">16dp</dimen></resources>\n')
+      open(jSrc+"/../res/values/styles.xml","wb").write(b'<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"><item name="android:forceDarkAllowed">true</item></style></resources>\n')
+      open(jSrc+"/../res/values/strings.xml","wb").write(B('<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="app_name">'+app_name.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')+'</string></resources>\n'))
+      if not android_https_only and not android_pre_2016: open(jSrc+"/../res/xml/network_security_config.xml","wb").write(b'<?xml version="1.0" encoding="utf-8"?>\n<network-security-config><base-config cleartextTrafficPermitted="true" /></network-security-config>\n')
     elif c_sharp: outfile.write(cSharp_end)
     elif golang: outfile.write(golang_end)
     elif not java: outfile.write(c_end)
-    outfile.write("\n")
+    outfile.write(b"\n")
     del byteSeq_to_action_dict
     if no_summary or not rulesAndConds: return
     if reannotator:
-        outfile.write("\n/* Tab-delimited rules summary not yet implemented with reannotator option */\n")
+        outfile.write(b"\n/* Tab-delimited rules summary not yet implemented with reannotator option */\n")
         return
-    outfile.write("\n/* Tab-delimited summary of the rules: (total %d)\n" % len(rulesAndConds))
+    outfile.write(b"\n/* Tab-delimited summary of the rules: (total %d)\n" % len(rulesAndConds))
     outputRulesSummary(rulesAndConds)
-    outfile.write("*/\n")
+    outfile.write(b"*/\n")
 
 def update_android_manifest():
-  try: manifest = old_manifest = open(jSrc+"/../AndroidManifest.xml").read() # keep existing version codes (don't replace with 1 and 1.0) and existing targetSdkVersion, but do update android_urls (below)
+  try: manifest = old_manifest = open(jSrc+"/../AndroidManifest.xml",'rb').read() # keep existing version codes (don't replace with 1 and 1.0) and existing targetSdkVersion, but do update android_urls (below)
   except IOError: manifest,old_manifest = android_manifest,None
   def readAttr(aName):
-    allVals = re.findall(re.escape(aName)+r'\s*=\s*"([^"]*)"',manifest)
+    allVals = re.findall(B(re.escape(aName)+r'\s*=\s*"([^"]*)"'),manifest)
     assert len(allVals)==1, "AndroidManifest.xml has %d instances of %s, should be 1" % (len(allVals),aName)
     return allVals[0]
   versionCode,versionName = readAttr("android:versionCode"),readAttr("android:versionName")
-  if "android:sharedUserId" in manifest: sharedUID = readAttr("android:sharedUserId")
-  else: sharedUID = ""
+  if b"android:sharedUserId" in manifest: sharedUID = readAttr("android:sharedUserId")
+  else: sharedUID = b""
   if android_upload:
     sys.stderr.write("AndroidManifest.xml: bumping versionCode for upload\n (assuming you've taken care of versionName separately, if needed)\n") # (might not be needed if the previous upload wasn't actually released for example)
-    versionCode = str(int(versionCode)+1)
+    versionCode = B(str(int(versionCode)+1))
   def pathQ(x):
     x = urlparse.urlparse(x)
     if x.query: x=x.path+"?"+x.query
     else: x=x.path
-    if ".*" in x: return 'android:pathPattern="%s"' % (x,)
-    else: return 'android:pathPrefix="%s"' % (x,)
-  manifest = android_manifest.replace('%%JPACKAGE%%',jPackage).replace('android:versionCode="1"','android:versionCode="'+versionCode+'"').replace('android:versionName="1.0"','android:versionName="'+versionName+'"').replace('android:sharedUserId=""','android:sharedUserId="'+sharedUID+'"').replace('android:sharedUserId="" ','') + ''.join(('\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" %s /></intent-filter>'%(urlparse.urlparse(x).scheme,urlparse.urlparse(x).netloc,pathQ(x))) for x in android_urls.split()) + "\n</activity></application></manifest>\n"
+    if ".*" in x: return B('android:pathPattern="%s"' % (x,))
+    else: return B('android:pathPrefix="%s"' % (x,))
+  manifest = android_manifest.replace(b'%%JPACKAGE%%',B(jPackage)).replace(b'android:versionCode="1"',b'android:versionCode="'+versionCode+b'"').replace(b'android:versionName="1.0"',b'android:versionName="'+versionName+b'"').replace(b'android:sharedUserId=""',b'android:sharedUserId="'+sharedUID+b'"').replace(b'android:sharedUserId="" ',b'') + b''.join((b'\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" %s /></intent-filter>'%(B(urlparse.urlparse(x).scheme),B(urlparse.urlparse(x).netloc),B(pathQ(x)))) for x in android_urls.split()) + b"\n</activity></application></manifest>\n"
   if not manifest==old_manifest:
-    open(jSrc+"/../AndroidManifest.xml","w").write(manifest)
+    open(jSrc+"/../AndroidManifest.xml","wb").write(manifest)
   else: assert not android_upload, "Couldn't bump version code in "+repr(manifest)
 
 def write_glossMiss(glossMiss):
   if not glossmiss: return
   sys.stderr.write("Writing glossmiss (norefs=%s) to %s...\n" % (repr(norefs),glossmiss))
-  gm = openfile(glossmiss,'wb')
+  gm = openfile(glossmiss,'w')
   count = 1 ; t = time.time() ; prndProg=False
   for w in sorted(list(glossMiss)):
     try: num = str(len(getOkStarts(w)))+'\t'
     except: num = '?\t' # num occurrences in e.g.s
     a,b,r = markDown(w),annotationOnly(w),refs(w,True)
-    if a and b and not r=="\t": gm.write((num+a+"\t"+b+r+'\n').encode(incode)) # TODO: glosscode ? glossMissCode ??
+    if a and b and not r=="\t": gm.write((num+a+"\t"+b+r+os.linesep).encode(incode)) # TODO: glosscode ? glossMissCode ??
     if time.time() >= t + 2:
-      sys.stderr.write(("(%d of %d)" % (count,len(glossMiss)))+clear_eol)
+      sys.stderr.write(("(%d of %d)" % (count,len(glossMiss)))+clear_eol) ; sys.stderr.flush()
       t = time.time() ; prndProg = True
     count += 1
   if prndProg: sys.stderr.write("done"+clear_eol+"\n")
@@ -5246,43 +5270,45 @@ def outputRulesSummary(rulesAndConds):
     # Can now do the summary:
     for annot,orig,rule,conditions in d:
         if time.time() >= t + 2:
-          sys.stderr.write(("(%d of %d)" % (count,len(rulesAndConds)))+clear_eol)
+          sys.stderr.write(("(%d of %d)" % (count,len(rulesAndConds)))+clear_eol) ; sys.stderr.flush()
           t = time.time()
         count += 1
         def code(x):
           if not x.strip(): return repr(x)
-          else: return x.encode(outcode).replace('\n',r'\n').replace('\t',r'\t')
-        toPrn = code(orig)+"\t"+code(annot)
+          else: return x.encode(outcode).replace(b'\n',br'\n').replace(b'\t',br'\t')
+        toPrn = code(orig)+b"\t"+code(annot)
         if ybytes:
-            toPrn += "\t"
+            toPrn += b"\t"
             if conditions:
                 if type(conditions)==tuple:
                   negate,conds,nbytes = conditions[:3]
-                  if negate: negate=" not"
-                  else: negate=""
-                  toPrn += "if"+negate+" within "+str(nbytes)+" bytes of "+" or ".join(code(c) for c in conds)
-                else: toPrn += "if near "+" or ".join(code(c) for c in conditions)
-        if not toPrn in omit: outfile.write((toPrn+refs(rule).encode(outcode)).replace('/*','').replace('*/','')+"\n")
+                  if negate: negate=b" not"
+                  else: negate=b""
+                  toPrn += b"if"+negate+b" within "+B(str(nbytes))+b" bytes of "+b" or ".join(code(c) for c in conds)
+                else: toPrn += b"if near "+b" or ".join(code(c) for c in conditions)
+        if not toPrn in omit: outfile.write((toPrn+refs(rule).encode(outcode)).replace(b'/*',b'').replace(b'*/',b'')+b"\n")
     if ybytes: extraTab='\t'
     else: extraTab = ''
-    for l in read_manual_rules(): outfile.write((markDown(l)+'\t'+annotationOnly(l)+extraTab+'\t--manualrules '+manualrules).encode(outcode)+"\n")
+    for l in read_manual_rules(): outfile.write((markDown(l)+'\t'+annotationOnly(l)+extraTab+'\t--manualrules '+manualrules).encode(outcode)+b"\n")
     sys.stderr.write("done"+clear_eol+"\n")
 
 if isatty(sys.stdout):
     if summary_only:
         warn("Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'")
         c_filename = None
-    elif not java and main and not priority_list and not normalise_only: sys.stderr.write("Writing to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
+    elif not java and main and not priority_list and not normalise_only: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
 def openfile(fname,mode='r'):
     lzma = bz2 = None
+    mode += 'b' # Python 2+3 compatibility: always binary
     if fname.endswith(".xz"): import lzma # 'pip install lzma' or 'apt-get install python2.7-lzma' may be required for .xz files
     elif fname.endswith(".bz2"): import bz2
     if re.match("https?://",fname) or fname.startswith("ftp://"):
-        assert mode in ['r','rb'], "cannot write to "+fname
-        import urllib2
+        assert mode=='rb', "cannot write to "+fname
+        try: from urllib2 import urlopen # Python 2
+        except: from urllib.request import urlopen # Py3
         sys.stderr.write("Fetching "+fname+"\n")
-        fileobj = urllib2.urlopen(fname)
+        fileobj = urlopen(fname)
         # If it's bz2 or xz, we'd better decompress in one operation.  (gz library can stream)
         if fname.endswith(".bz2"):
             from cStringIO import StringIO
@@ -5314,7 +5340,7 @@ def set_title(t):
   is_tmux = (term=="screen" and os.environ.get("TMUX",""))
   if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
-def diagnose_write(s): sys.stderr.write(bold_on+"Diagnose: "+bold_off+s.encode(terminal_charset,'replace')+clear_eol+'\n')
+def diagnose_write(s): getBuf(sys.stderr).write(bold_on+"Diagnose: "+bold_off+s.encode(terminal_charset,'replace')+clear_eol+'\n')
 try: screenWidth = int(os.environ['COLUMNS'])
 except:
   import struct, fcntl, termios
@@ -5333,7 +5359,7 @@ if main and not compile_only:
   else:
     infile = sys.stdin
     if isatty(infile): sys.stderr.write("Reading from standard input\n(If that's not what you wanted, press Ctrl-C and run again with --help)\n")
-  corpus_unistr = infile.read().decode(incode)
+  corpus_unistr = getBuf(infile).read().decode(incode)
   if diagnose and not diagnose in corpus_unistr:
     diagnose_write(diagnose+" is not present in the corpus, even before normalisation")
     suppress = True
@@ -5352,14 +5378,15 @@ if main and not compile_only:
         except: return word,float(freq)
       existingFreqs=dict(getFreq(l) for l in openfile(priority_list) if len(l.strip().split())>=2)
     else: existingFreqs = {}
-    sys.stderr.write("Parsing...")
+    sys.stderr.write("Parsing...") ; sys.stderr.flush()
     i=[[markDown(w) for w in splitWords(phrase)] for phrase in splitWords(corpus_unistr,phrases=True)]
     del corpus_unistr
     sys.stderr.write(" calling PairPriorities...\n")
-    out="".join(w+"\t"+str(f)+"\n" for w,f in PairPriorities(i,existingFreqs) if f).encode(outcode)
+    out="".join(w+"\t"+str(f)+os.linesep for w,f in PairPriorities(i,existingFreqs) if f).encode(outcode)
     # (don't open the output before here, in case exception)
     if existingFreqs: sys.stderr.write("Updating "+priority_list+"...")
     else: sys.stderr.write("Writing "+priority_list+"...")
+    sys.stderr.flush()
     openfile(priority_list,'w').write(out)
     sys.stderr.write(" done\n")
     sys.exit()
@@ -5379,8 +5406,8 @@ def cmd_or_exit(cmd):
   sys.exit(r)
 
 if main and not compile_only:
- if c_filename: outfile = openfile(c_filename,"w")
- else: outfile = sys.stdout
+ if c_filename: outfile = openfile(c_filename,'w')
+ else: outfile = getBuf(sys.stdout)
  if summary_only: outputRulesSummary(rulesAndConds)
  else: outputParser(rulesAndConds)
  del rulesAndConds
@@ -5392,14 +5419,14 @@ if main:
    if can_compile_android and compile_only and android_upload: update_android_manifest() # AndroidManifest.xml will not have been updated, so we'd better do it now
    if can_compile_android or can_track_android:
      os.chdir(jSrc+"/..")
-     dirName0 = getoutput("pwd|sed -e s,.*./,,")
+     dirName0 = S(getoutput("pwd|sed -e s,.*./,,"))
      dirName = shell_escape(dirName0)
    if can_compile_android:
      cmd_or_exit("$BUILD_TOOLS/aapt package -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_")
      cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      a = " -JXmx4g --force-jumbo" # -J option must go first
      if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
-       a += " --min-sdk-version=1" # older versions of dx don't have that flag
+       a += " --min-sdk-version=1" # older versions of dx don't have that flag, but will be min-sdk=1 anyway
      cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
      cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
      cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add "+dirName+".ap_ classes.dex")
@@ -5417,12 +5444,14 @@ if main:
      eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
      if android_upload:
        sys.stderr.write("uploading... ")
+       sys.stderr.flush()
        v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
        open(jSrc+"/../.last-versionCode","w").write(str(v))
      else: v = int(open(jSrc+"/../.last-versionCode").read().strip()) # if this fails, you probably didn't run annogen v0.691+ to compile the APK before trying to change track (see instructions printed when GOOGLE_PLAY_TRACK environment variable is not set)
-     if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":os.environ["GOOGLE_PLAY_CHANGELOG"].decode(terminal_charset)}],u'status':u'completed'}],u'track':trackToUse}).execute()
+     if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":T(os.environ["GOOGLE_PLAY_CHANGELOG"])}],u'status':u'completed'}],u'track':trackToUse}).execute()
      else: service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}],u'track':trackToUse}).execute()
      sys.stderr.write("Committing... ")
+     sys.stderr.flush()
      sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse))
    if not can_compile_android and not can_track_android: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
 To have Annogen build it for you, set these environment variables
