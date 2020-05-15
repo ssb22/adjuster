@@ -41,7 +41,7 @@ Annotator Generator is an examples-driven generator of fast text annotators. “
 
 * You supply a corpus of pre-annotated texts for Annotator Generator to work out the rules and exceptions
 
-* Annotator Generator creates code (in C, C#, Java, Go, Javascript, Dart or Python 2) that hard-codes the rules for fast processing
+* Annotator Generator creates code (in C, C#, Java, Go, Javascript, Dart or Python with 2 and 3 compatibility) that hard-codes the rules for fast processing
 
 * The resulting program should be able to annotate any text that contains words or phrases similar to those found in the examples
 
