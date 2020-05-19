@@ -1432,7 +1432,7 @@ def bookmarkJS():
   should_suppress_toolset = b"("+b"||".join(should_suppress_toolset)+b")"
   toolset_openTag = sort20px(br"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: #1010AF solid !important; background: #1010AF !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""") # need to select a background that doesn't 'invert' too much by whatever algorithm forceDarkAllowed uses; 1010AF at opacity 0.8 = 4040BF on white
   toolset_closeTag = b"'</span></span>'"
-  bookmarkLink0 = b"ssb_local_annotator.addBM((location.href+' '+document.title).replace(/,/g,'%2C'))"
+  bookmarkLink0 = b"ssb_local_annotator.addBM((location.href+' '+(document.title?document.title:location.hostname?location.hostname:'untitled')).replace(/,/g,'%2C'))"
   bookmarkLink = br'\"'+b"javascript:"+bookmarkLink0+br'\"' # not ' as bookmarkLink0 contains '
   copyLink0 = b"ssb_local_annotator.copy(location.href,true)"
   copyLink = b"'javascript:"+copyLink0+b"'" # ' is OK here
