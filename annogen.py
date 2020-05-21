@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.0 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.01 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2041,7 +2041,10 @@ class InjectorTask implements Runnable { InjectorTask() {} @Override public void
                         } else """
 android_src += br"""
                         d.setPositiveButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
-                        d.create().show();
+                        try { d.create().show(); }
+                        catch(Exception e) {
+                            Toast.makeText(act, "Unable to create popup box",Toast.LENGTH_LONG).show(); // some reports of WindowManager$BadTokenException crash, maybe users are popping up too many boxes at a time?? catching like this for now
+                        }
                     }
                 }
                 act.runOnUiThread(new DialogTask(text,annot,gloss));
@@ -2211,6 +2214,8 @@ if epub: android_src += br"""
                         zin = new ZipInputStream(getContentResolver().openInputStream(epubUri));
                     } catch (FileNotFoundException e) {
                         return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Unable to open "+epubUrl+"<p>"+e.toString()+"<p>Could this be a permissions problem?").getBytes()));
+                    } catch (SecurityException e) {
+                        return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Insufficient permissions to open "+epubUrl+"<p>"+e.toString()).getBytes()));
                     }
                     java.util.zip.ZipEntry ze;
                     try {
@@ -2355,8 +2360,30 @@ android_src += br"""
     @TargetApi(11) @Override public void onStart() { super.onStart(); if(browser!=null && AndroidSDK >= 11) browser.onResume(); }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (nextBackHides) { nextBackHides = false; if(moveTaskToBack(true)) return true; }
-            if (browser.canGoBack()) { final String fwdUrl=browser.getUrl(); browser.goBack(); needJsCommon=3; final Handler theTimer=new Handler(); theTimer.postDelayed(new Runnable() { int tried=0; @Override public void run() { if(++tried==9) return; else if(browser.getUrl().equals(fwdUrl)) theTimer.postDelayed(this,500); else browser.evaluateJavascript("function annogenMakeFwd(){var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'; else window.setTimeout(annogenMakeFwd,1000)}annogenMakeFwd()",null); } },500); return true; }
+            if (nextBackHides) {
+                nextBackHides = false;
+                if(moveTaskToBack(true)) return true;
+            }
+            if (browser.canGoBack()) {
+                final String fwdUrl=browser.getUrl();
+                browser.goBack();
+                needJsCommon=3;
+                final Handler theTimer=new Handler();
+                theTimer.postDelayed(new Runnable() {
+                  int tried=0;
+                  @Override public void run() {
+                    if(++tried==9) return;
+                    runOnUiThread(new Runnable() {
+                    @Override public void run() {
+                        if(browser.getUrl().equals(fwdUrl)) {
+                            // not yet finished going back
+                            theTimer.postDelayed(this,500);
+                        } else browser.evaluateJavascript("function annogenMakeFwd(){var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'; else window.setTimeout(annogenMakeFwd,1000)}annogenMakeFwd()",null);
+                    }});
+                  }
+                },500);
+                return true;
+            }
         } return super.onKeyDown(keyCode, event);
     }
     @SuppressWarnings("deprecation") // using getText so works on API 1 (TODO consider adding a version check and the more-modern alternative android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip(); if (c != null && c.getItemCount()>0) return c.getItemAt(0).coerceToText(this).toString(); return ""; )
