@@ -1838,6 +1838,7 @@ android_src = br"""package %%JPACKAGE%%;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
@@ -2135,7 +2136,7 @@ if android_audio: android_src += br"""
                 act.runOnUiThread(new InjectorTask());
             }"""
 if epub: android_src += br"""
-            @JavascriptInterface public void getEPUB() { Intent i = new Intent(Intent.ACTION_GET_CONTENT); i.setType("*/*"); /* application/epub+zip leaves all files unselectable on Android 4.4 */ try { startActivityForResult(i, 8778); } catch (android.content.ActivityNotFoundException e) { Toast.makeText(act,"Please install a file manager",Toast.LENGTH_LONG).show(); } }"""
+            @JavascriptInterface public void getEPUB() { Intent i = new Intent(Intent.ACTION_GET_CONTENT); i.setType("*/*"); /* application/epub+zip leaves all files unselectable on Android 4.4 */ try { startActivityForResult(i, 8778); } catch (ActivityNotFoundException e) { Toast.makeText(act,"Please install a file manager",Toast.LENGTH_LONG).show(); } }"""
 if bookmarks: android_src += br"""
             @SuppressLint("DefaultLocale")
             @JavascriptInterface public void addBM(String p) {
@@ -2189,7 +2190,17 @@ android_src += br"""
         final MainActivity act = this;
         browser.setWebViewClient(new WebViewClient() {
                 @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); if(AndroidSDK<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
-                public boolean shouldOverrideUrlLoading(WebView view,String url) { if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) { startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url))); return true; } else { needJsCommon=3; return false; } }"""
+                @TargetApi(4) public boolean shouldOverrideUrlLoading(WebView view,String url) {
+                    if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) {
+                        // Let the default browser download this file, but prefer not to let EPUB-reader apps intercept the URL: we want it _downloaded_ so we can annotate it, but some users might get confused, so give preference to Chrome or Kindle Silk, only starting the Chooser if neither is installed
+                        Intent i=new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url));
+                        if(AndroidSDK < 4) startActivity(i); // no way to specify package preference
+                        else { i.setPackage("com.android.chrome"); try { startActivity(i); } catch (ActivityNotFoundException e1) { i.setPackage("com.amazon.cloud9"); try { startActivity(i); } catch (ActivityNotFoundException e2) { i.setPackage(null); startActivity(i); } } }
+                        return true;
+                    } else {
+                        needJsCommon=3; return false;
+                    }
+                }"""
 if epub: android_src += br"""
                 @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
                     String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
