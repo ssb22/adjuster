@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.01 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.02 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -403,6 +403,7 @@ if main: sys.stderr.write(bold_on+program_name+bold_off+"\n") # not sys.stdout: 
 options, args = parser.parse_args()
 globals().update(options.__dict__)
 
+if type("")==type(u""): sys.setcheckinterval=lambda x:x # don't bother doing this on Python 3 (TODO: setswitchinterval?)
 sys.setcheckinterval(32767) # won't be using threads or signals, so don't have to check for them very often
 import gc ; gc.disable() # should be OK if we don't create cycles (TODO: run gc.collect() manually after init, just in case?)
 
@@ -629,16 +630,6 @@ def subFuncCall(newFunc,subFuncs,subFuncL):
   if java: return B(jPackage)+b"."+subFuncName+b".f(a)"
   return subFuncName+b"()" # the call (without a semicolon)
 
-def iterkeys(d):
-  try: return d.iterkeys() # Python 2
-  except: return d.keys() # Python 3
-def itervalues(d):
-  try: return d.itervalues() # Python 2
-  except: return d.values() # Python 3
-def iteritems(d):
-  try: return d.iteritems() # Python 2
-  except: return d.items() # Python 3
-
 def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName=b"topLevelMatch",subFuncs={},java_localvar_counter=None,nestingsLeft=None): # ("topLevelMatch" is also mentioned in the C code)
     # make a function to switch on a large number of variable-length string cases without repeated lookahead for each case
     # (may still backtrack if no words or no suffices match)
@@ -733,7 +724,7 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName=b"topLevelMatch",subFu
           if java: cstr = b"(byte)"+cstr
         if use_if: ret.append(b"if("+NEXTBYTE+b"=="+cstr+b") {")
         else: ret.append(b"case %s:" % cstr)
-        subDict = dict([(k[1:],v) for k,v in iteritems(byteSeq_to_action_dict) if k and k[0]==case])
+        subDict = dict([(k[1:],v) for k,v in iteritems(byteSeq_to_action_dict) if k and k[:1]==case])
         inner = stringSwitch(subDict,subFuncL,None,subFuncs,java_localvar_counter,nestingsLeft)
         if canNestNow or not (inner[0].startswith(b"switch") or (inner[0].startswith(b"if(") and not nested_if)): ret += [b"  "+x for x in inner]
         else:
@@ -2192,7 +2183,7 @@ android_src += br"""
                 @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); if(AndroidSDK<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
                 @TargetApi(4) public boolean shouldOverrideUrlLoading(WebView view,String url) {
                     if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) {
-                        // Let the default browser download this file, but prefer not to let EPUB-reader apps intercept the URL: we want it _downloaded_ so we can annotate it, but some users might get confused, so give preference to Chrome or Kindle Silk, only starting the Chooser if neither is installed
+                        // Let the default browser download this file, but prefer not to let EPUB-reader apps intercept the URL: we want it _downloaded_ so we can annotate it, but some users might get confused, so give preference to Chrome or Kindle Silk, starting the Chooser only if neither is installed
                         Intent i=new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url));
                         if(AndroidSDK < 4) startActivity(i); // no way to specify package preference
                         else { i.setPackage("com.android.chrome"); try { startActivity(i); } catch (ActivityNotFoundException e1) { i.setPackage("com.amazon.cloud9"); try { startActivity(i); } catch (ActivityNotFoundException e2) { i.setPackage(null); startActivity(i); } } }
@@ -3993,7 +3984,7 @@ def normalise():
     global corpus_unistr
     if checkpoint:
       try:
-        f=open_try_bz2(checkpoint+os.sep+'normalised','rb')
+        f=open_try_bz2(checkpoint+os.sep+'normalised','r')
         corpus_unistr = f.read().decode('utf-8')
         sys.stderr.write("Normalised copy loaded\n")
         return True # loaded from checkpoint
@@ -4028,21 +4019,28 @@ def normalise():
         if ff: allWords = getAllWords() # re-generate
       del cu0
     sys.stderr.write(":") ; sys.stderr.flush()
-    class Replacer:
-      def __init__(self): self.dic = {}
-      def add(self,x,y):
+    KeywordProcessor = None
+    # try: from flashtext.keyword import KeywordProcessor # pip install flashtext
+    # except: pass
+    # # commenting out the above because the fallback code below was ~20% faster than flashtext in my test (perhaps their benchmark figures rely on a non-empty non_word_boundaries set)
+    if not KeywordProcessor:
+     class KeywordProcessor:
+      def __init__(self,*a,**k): self.dic = {}
+      def __len__(self): return len(self.dic)
+      def add_keyword(self,x,y):
         if diagnose and diagnose in x: diagnose_write("Replacer.add(%s,%s)" % (x,y))
         self.dic[x] = y
         if not (len(self.dic)%1500):
           sys.stderr.write('.') ; sys.stderr.flush()
-      def flush(self):
+      def replace_keywords(self,unistr):
         if not self.dic: return
-        global corpus_unistr
         for exp in orRegexes(re.escape(k) for k in iterkeys(self.dic)):
           sys.stderr.write(';') ; sys.stderr.flush()
-          corpus_unistr = re.sub(exp,lambda k:self.dic[k.group(0)],corpus_unistr)
-        self.dic = {}
-    rpl = Replacer() ; rpl.cu_nosp = None
+          unistr = re.sub(exp,lambda k:self.dic[k.group(0)],unistr)
+        return unistr
+    rpl = KeywordProcessor(case_sensitive=True)
+    rpl.non_word_boundaries = set()
+    cu_nosp = [None]
     def normWord(w):
       if '-' in w: hTry=set([w.replace('-','')]) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
       else: hTry=None
@@ -4069,15 +4067,15 @@ def normalise():
         # situations - the latter shouldn't necessarily be
         # converted into the former, but the former might
         # be convertible into the latter to simplify rules
-        if rpl.cu_nosp == None:
-          rpl.cu_nosp = re.sub(wspPattern,"",corpus_unistr)
-          if not capitalisation: rpl.cu_nosp = rpl.cu_nosp.lower() # ignore capitalisation when searching for this
+        if cu_nosp[0] == None:
+          cu_nosp[0] = re.sub(wspPattern,"",corpus_unistr)
+          if not capitalisation: cu_nosp[0] = cu_nosp[0].lower() # ignore capitalisation when searching for this
         if capitalisation: aoS2 = aoS
         else: aoS2 = [w0.lower() for w0 in aoS]
         for charBunches in different_ways_of_splitting(md,len(aoS)):
             mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS2)]
             multiword = "".join(mw)
-            if multiword in rpl.cu_nosp:
+            if multiword in cu_nosp[0]:
               # we're about to return a split version of the words, but we now have to pretend it went through the initial capitalisation logic that way (otherwise could get unnecessarily large collocation checks)
               if not capitalisation:
                 mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS)] # the original capitalisation. for selective .lower()
@@ -4095,12 +4093,14 @@ def normalise():
       if hTry:
         hTry.add(w2.replace('-','')) # in case not already there
         for h in hTry:
-          if h in allWords: rpl.add(h,w2)
-      if not w==w2: rpl.add(w,w2)
-    rpl.flush()
+          if h in allWords: rpl.add_keyword(h,w2)
+      if not w==w2: rpl.add_keyword(w,w2)
+    if len(rpl):
+      corpus_unistr = rpl.replace_keywords(corpus_unistr)
+    del rpl
     sys.stderr.write(" done\n")
     if normalised_file: openfile(normalised_file,'w').write(corpus_unistr.encode(incode))
-    if checkpoint and capitalisation==old_caps: open_try_bz2(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8'))
+    if checkpoint and capitalisation==old_caps: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8'))
     capitalisation = old_caps
     checkpoint_exit()
 def getAllWords():
@@ -4232,14 +4232,25 @@ def different_ways_of_splitting(chars,numWords):
     yield list(chars) ; return
   elif numWords == 1:
     yield [chars] ; return
-  spAt_try1 = len(chars) / numWords + 1
-  for spAt in range(spAt_try1,0,-1) + range(spAt_try1+1, len(chars)-numWords+1):
+  spAt_try1 = int(len(chars) / numWords) + 1
+  for spAt in list(range(spAt_try1,0,-1)) + list(range(spAt_try1+1, len(chars)-numWords+1)):
     for r in different_ways_of_splitting(chars[spAt:],numWords-1): yield [chars[:spAt]]+r
+
+if type(u"")==type(""): # Python 3
+  getNext = lambda gen: gen.__next__()
+  iterkeys = lambda d: d.keys()
+  itervalues = lambda d: d.values()
+  iteritems = lambda d: d.items()
+else: # Python 2
+  getNext = lambda gen: gen.next()
+  iterkeys = lambda d: d.iterkeys()
+  itervalues = lambda d: d.itervalues()
+  iteritems = lambda d: d.iteritems()
 
 def yarowsky_indicators(withAnnot_unistr,canBackground):
     # yields True if rule always works (or in majority of cases with ymajority), or lists enough indicators to cover example instances and yields (negate, list, nbytes), or just list if empty.
     # (If too few indicators can be found, will list the ones it can, or empty if no clearly-distinguishable indicators can be found within ybytes of end of match.)
-    # yield "backgrounded" = task has been backgrounded; .next() collects result
+    # yield "backgrounded" = task has been backgrounded; getNext collects result
     nonAnnot=markDown(withAnnot_unistr)
     def unconditional_looks_ok(explain):
         # could we have this as an unconditional rule, with the other cases as exceptions that will be found first?  (NB this is not the same thing as a 'default-yes rule with exceptions', this is a rule with NO qualifying indicators either way)
@@ -4325,12 +4336,20 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
       yield negate,ret,distance
 def yarowsky_indicators_wrapped(withAnnot_unistr):
     check_globals_are_set_up()
-    return yarowsky_indicators(withAnnot_unistr,False).next()
+    return getNext(yarowsky_indicators(withAnnot_unistr,False))
 def getOkStarts(withAnnot_unistr):
     if withAnnot_unistr in precalc_sets: return precalc_sets[withAnnot_unistr]
     walen = len(withAnnot_unistr)
-    return set(x for x in precalc_sets[splitWords(withAnnot_unistr).next()] if corpus_unistr[m2c_map[x]:m2c_map[x]+walen]==withAnnot_unistr)
-def getBadStarts(nonAnnot,okStarts): return set(x.start() for x in re.finditer(re.escape(nonAnnot),corpus_markedDown) if not x.start() in okStarts)
+    return set(x for x in precalc_sets[getNext(splitWords(withAnnot_unistr))] if corpus_unistr[m2c_map[x]:m2c_map[x]+walen]==withAnnot_unistr)
+def getBadStarts(nonAnnot,okStarts):
+  # TODO: this (along with the finditer() in second branch of unconditional_looks_ok for ref-pri etc) can be a slowdown if there's lots of unique single-word examples (e.g. tack on a dictionary to the corpus), especially as these repeated corpus scans are needed before we decide if yarowsky_indicators can background (so, repeated long searches on the main CPU).  Searching byte-strings instead doesn't speed things up either.  Single-pass matching of multiple badStart-finding would be nice, but complex to set up (could need analyse() to run a pre-pass of addRulesForPhrase / test_rule / yarowsky_indicators just to find what needs checking).
+  # Small speed-up for now: avoid using regex (faster without in speed unit tests)
+  i = corpus_markedDown.find(nonAnnot)
+  r = set() ; l=len(nonAnnot)
+  while i != -1:
+    if not i in okStarts: r.add(i)
+    i = corpus_markedDown.find(nonAnnot,i+l)
+  return r
 def getReallyBadStarts(badStarts,nonAnnot):
     # Some of the badStarts can be ignored on the grounds that they should be picked up by other rules first: any where the nonAnnot match does not start at the start of a word (the rule matching the word starting earlier should get there first), and any where it starts at the start of a word that is longer than its own first word (the longest-first ordering should take care of this).  So keep only the ones where it starts at the start of a word and that word is no longer than len(nonAnnot).
     reallyBadStarts = [] ; append=reallyBadStarts.append
@@ -4376,7 +4395,7 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
     while stuffToCheck and negate==None:
       for i in range(len(stuffToCheck)):
         l,strs,append,covered,generator = stuffToCheck[i]
-        try: indicator = generator.next()
+        try: indicator = getNext(generator)
         except StopIteration:
           del stuffToCheck[i] ; break
         found = True ; cChanged = False
@@ -4499,14 +4518,14 @@ def test_rule(withAnnot_unistr,yBytesRet,canBackground=None):
     # marked-up version.
     # (If we deal only in rules that ALWAYS work, we can
     # build them up incrementally without "cross-talk")
-    # yield "backgrounded" = task has been backgrounded; .next() collects result (nb we default to NOT canBackground, as test_rule is called from several places of which ONE can handle backgrounding)
+    # yield "backgrounded" = task has been backgrounded; getNext collects result (nb we default to NOT canBackground, as test_rule is called from several places of which ONE can handle backgrounding)
     if primitive: yield True
     elif ybytes:
         # Doesn't have to be always right, but put the indicators in yBytesRet
         ybrG = yarowsky_indicators(withAnnot_unistr,canBackground)
-        ybr = ybrG.next()
+        ybr = getNext(ybrG)
         if ybr == "backgrounded":
-          yield ybr ; ybr = ybrG.next()
+          yield ybr ; ybr = getNext(ybrG)
         if ybr==True or not ybr:
           yield ybr ; return
         yBytesRet.append(ybr) # (negate, list of indicators, nbytes)
@@ -4618,7 +4637,7 @@ class RulesAccumulator:
         rule = wspJoin(rulesAsWordlists[i])
         if rule not in self.newRules and checkCoverage(rulesAsWordlists[i],words,[False]*len(words)): # rule would apply to the new phrase
           yBytesRet = []
-          if not test_rule(rule,yBytesRet).next() or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i]): # re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So we now re-test before removal.
+          if not getNext(test_rule(rule,yBytesRet)) or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i]): # re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So we now re-test before removal.
             self.rejectedRules.add(rule)
             if not ybytes: self.rulesAsWordlists.discard(rulesAsWordlists[i])
             del rulesAsWordlists[i] ; del self.rules[rule]
@@ -4633,7 +4652,7 @@ class RulesAccumulator:
       else:
         yield 0,0 ; return # TODO: document that this means the total 'covered' figure in the progress status is AFTER phrase de-duplication (otherwise we'd have to look up what the previous values were last time we saw it - no point doing that just for a quick statistic)
     self.seenPhrases.add(phrase)
-    words = filter(lambda x:markDown(x).strip(),splitWords(phrase)) # filter out any that don't have base text (these will be input glitches, TODO: verify the annotation text is also just whitespace, warn if not)
+    words = list(filter(lambda x:markDown(x).strip(),splitWords(phrase))) # filter out any that don't have base text (these will be input glitches, TODO: verify the annotation text is also just whitespace, warn if not)
     if not words:
       yield 0,0 ; return
     covered = [False]*len(words)
@@ -4650,9 +4669,9 @@ class RulesAccumulator:
         if rule in self.rejectedRules: continue
         if rule in self.rules: continue # this can still happen even now all_possible_rules takes 'covered' into account, because the above checkCoverage assumes the rule won't be applied in a self-overlapping fashion, whereas all_possible_rules makes no such assumption (TODO: fix this inconsistency?)
         rGen = test_rule(rule,yBytesRet,canBackground)
-        r = rGen.next()
+        r = getNext(rGen)
         if r=="backgrounded":
-          yield r ; r = rGen.next()
+          yield r ; r = getNext(rGen)
         del rGen
         if not r or potentially_bad_overlap(self.rulesAsWordlists,ruleAsWordlist):
             self.rejectedRules.add(rule) # so we don't waste time evaluating it again (TODO: make sure rejectedRules doesn't get too big?)
@@ -4687,7 +4706,7 @@ def generate_map():
     global m2c_map, precalc_sets, yPriorityDic
     if checkpoint:
       try:
-        f=open_try_bz2(checkpoint+os.sep+'map','rb')
+        f=open_try_bz2(checkpoint+os.sep+'map','r')
         m2c_map,precalc_sets,yPriorityDic = pickle.Unpickler(f).load()
         return sys.stderr.write("Corpus map loaded\n")
       except: pass
@@ -4724,7 +4743,7 @@ def generate_map():
           if diagnose==wd: diagnose_write("yPriorityDic[%s] = %s" % (wd,w))
           yPriorityDic[wd] = w
     sys.stderr.write("done\n")
-    if checkpoint: pickle.Pickler(open_try_bz2(checkpoint+os.sep+'map','wb'),-1).dump((m2c_map,precalc_sets,yPriorityDic))
+    if checkpoint: pickle.Pickler(open_try_bz2(checkpoint+os.sep+'map','w'),-1).dump((m2c_map,precalc_sets,yPriorityDic))
     checkpoint_exit()
 
 def setup_parallelism():
@@ -4798,7 +4817,7 @@ def analyse():
         if type(phrases[phraseNo])==int:
           wordLen = phrases[phraseNo]
           for b in backgrounded: # flush (TODO: duplicate code)
-            coveredA,toCoverA = b.next()
+            coveredA,toCoverA = getNext(b)
             covered += coveredA ; toCover += toCoverA
           backgrounded = []
           phraseNo += 1 ; continue
@@ -4807,7 +4826,7 @@ def analyse():
             sys.stderr.write("Checkpointing..."+clear_eol)
             sys.stderr.flush()
             for b in backgrounded: # flush (TODO: duplicate code)
-              coveredA,toCoverA = b.next()
+              coveredA,toCoverA = getNext(b)
               covered += coveredA ; toCover += toCoverA
             backgrounded = []
             write_checkpoint((phraseNo,wordLen,covered,toCover,accum.__dict__))
@@ -4818,13 +4837,13 @@ def analyse():
           status_update(phraseNo,len(phrases),wordLen,len(accum.rules),phraseLastUpdate,lastUpdate,phraseLastCheckpoint,lastCheckpoint,cov,len(accum.rejectedRules),startTime)
           lastUpdate = time.time() ; phraseLastUpdate = phraseNo
         aRules = accum.addRulesForPhrase(phrases[phraseNo],wordLen==1) # TODO: we're saying canBackground only if wordLen==1 because longer phrases can be backgrounded only if they're guaranteed not to have mutual effects; do we want to look into when we can do that?  (and update the help text for --single-core if changing)
-        arr = aRules.next()
+        arr = getNext(aRules)
         if arr=="backgrounded": backgrounded.append(aRules)
         else:
           coveredA,toCoverA = arr
           covered += coveredA ; toCover += toCoverA
         phraseNo += 1
-    for b in backgrounded: b.next() # flush
+    for b in backgrounded: getNext(b) # flush
     del backgrounded
     if rulesFile: accum.save()
     if diagnose_manual: test_manual_rules()
@@ -4849,11 +4868,11 @@ def test_manual_rules():
           k = l[s:e]
           if k not in precalc_sets: precalc_sets[k]=set()
       yb = []
-      if not test_rule(l,yb).next() or len(yb):
+      if not getNext(test_rule(l,yb)) or len(yb):
         getBuf(sys.stderr).write(("\nWARNING: Manual rule '%s' may contradict the examples. " % l).encode(terminal_charset))
         global diagnose,diagnose_limit,ybytes
         od,odl,oy,diagnose,diagnose_limit,ybytes = diagnose,diagnose_limit,ybytes,markDown(l),0,ybytes_max
-        test_rule(l,[]).next()
+        getNext(test_rule(l,[]))
         diagnose,diagnose_limit,ybytes = od,odl,oy
 
 def java_escape(unistr):
@@ -5304,7 +5323,7 @@ def outputRulesSummary(rulesAndConds):
       d[(markDown(r),repr(c))] = (r,c)
     # Now sort so diff is possible between 2 summaries
     # (case-insensitive because capitalisation may change)
-    d = sorted(((annotationOnly(r),markDown(r),r,c) for r,c in d.values()),lambda x,y:cmp((x[0].lower(),)+x[1:],(y[0].lower(),)+y[1:]))
+    d = sorted(((annotationOnly(r),markDown(r),r,c) for r,c in d.values()),key=lambda x:(x[0].lower(),)+x[1:])
     # Can now do the summary:
     for annot,orig,rule,conditions in d:
         if time.time() >= t + 2:
@@ -5431,7 +5450,7 @@ if main and not compile_only:
   generate_map() ; setup_other_globals()
   if not no_input:
     executor = setup_parallelism()
-    if executor and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','wb').write(corpus_unistr.encode('utf-8')) # normalise won't have done it and the other nodes will need it (TODO: unless we're doing concurrent.futures with fork)
+    if executor and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8')) # normalise won't have done it and the other nodes will need it (TODO: unless we're doing concurrent.futures with fork)
     try: rulesAndConds = analyse()
     finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
   del _gp_cache
