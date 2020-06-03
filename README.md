@@ -51,7 +51,7 @@ Annotator Generator is an examples-driven generator of fast text annotators. “
 
 * If you have no backup annotator then try setting the `-y` option, which makes Annotator Generator try harder to find context-independent rules with context-dependent exceptions, so as to annotate as much text as possible.
 
-* Generated annotators can act as filters for Web Adjuster; options are also provided for generating client-side annotators for Android and iOS, and a clipboard annotator for Windows and Windows Mobile, or you could format the annotations on a Unix terminal
+* Generated annotators can act as filters for Web Adjuster; options are also provided for generating client-side annotators for Android, clipboard annotators for Windows and Windows Mobile, or you could format the annotations on a Unix terminal
 
 Legal considerations
 --------------------
@@ -810,9 +810,6 @@ Options:
 `--no-compress`
  : Cancels any earlier `--compress` option in Makefile variables etc
 
-`--ios=IOS`
- : [**Deprecated**] Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with `<` to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app; see the start of the generated C file for instructions. If Xcode runs out of space, try using `--data-driven`. The `--ios` option has been deprecated because it relies on a component called UIWebView which Apple have deprecated (ITMS-90809); it is likely to be removed in iOS 14 and the App Store will stop accepting apps that use it. Since I do not have the necessary equipment to test a rewrite with WKWebView (if that's even possible), nor am I aware of Apple's App Store having ever accepted an app from an Annogen user anyway, I do not now plan to invest time in migrating the code from UIWebView to WKWebView, and I will probably delete the `--ios` option soon unless somebody sends me a patch to fix it.
-
 `-D, `--data-driven``
  : Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's "section too large"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript, Python and Dart output is always data-driven anyway.
 
@@ -906,15 +903,15 @@ Options:
  : Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).
 
 `--extra-js=EXTRA_JS`
- : Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: `--extra-js`=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)
+ : Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: `--extra-js`=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)
 
 `--existing-ruby-js-fixes=EXISTING_RUBY_JS_FIXES
 `
- : Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: `--existing-ruby-js-fixes`=@file.js
+ : Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: `--existing-ruby-js-fixes`=@file.js
 
 `--delete-existing-ruby
 `
- : Set the Android or iOS browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. This overrides `--existing-ruby-js-fixes`.
+ : Set the Android browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. This overrides `--existing-ruby-js-fixes`.
 
 `--existing-ruby-shortcut-yarowsky
 `
@@ -922,7 +919,7 @@ Options:
 
 `--extra-css=EXTRA_CSS
 `
- : Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read `--extra-css`=@file.css
+ : Extra CSS to inject into sites to fix things in the Android browser app. You may also specify a file to read `--extra-css`=@file.css
 
 `--app-name=APP_NAME`
  : User-visible name of the Android app

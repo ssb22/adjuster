@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.02 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.03 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -190,9 +190,6 @@ parser.add_option("-z","--compress",
                   help="Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but might help if RAM is short; see also --data-driven.")
 cancelOpt("compress")
 
-parser.add_option("--ios", # when removing this, remove "ios" from annogen.html also
-                  help="[DEPRECATED] Include Objective-C code for an iOS app that opens a web-browser component and annotates the text on every page it loads.  The initial page is specified by this option: it can be a URL, or a markup fragment starting with < to hard-code the contents of the page. Also provided is a custom URL scheme to annotate the local clipboard. You will need Xcode to compile the app; see the start of the generated C file for instructions. If Xcode runs out of space, try using --data-driven. The --ios option has been deprecated because it relies on a component called UIWebView which Apple have deprecated (ITMS-90809); it is likely to be removed in iOS 14 and the App Store will stop accepting apps that use it. Since I do not have the necessary equipment to test a rewrite with WKWebView (if that's even possible), nor am I aware of Apple's App Store having ever accepted an app from an Annogen user anyway, I do not now plan to invest time in migrating the code from UIWebView to WKWebView, and I will probably delete the --ios option soon unless somebody sends me a patch to fix it.")
-
 parser.add_option("-D","--data-driven",
                   action="store_true",default=False,
                   help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's \"section too large\"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript, Python and Dart output is always data-driven anyway.") # If the resulting binary is compressed (e.g. in an APK), its compressed size will likely not change much (same information content), so I'm specifically saying "RAM size" i.e. when decompressed
@@ -254,11 +251,11 @@ cancelOpt("android-print")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).")
-parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android or iOS browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)")
-parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android or iOS browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
-parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android or iOS browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. This overrides --existing-ruby-js-fixes.")
+parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)")
+parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
+parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. This overrides --existing-ruby-js-fixes.")
 parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
-parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android or iOS browser app. You may also specify a file to read --extra-css=@file.css")
+parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android browser app. You may also specify a file to read --extra-css=@file.css")
 parser.add_option("--app-name",default="Annotating browser",
                   help="User-visible name of the Android app")
 
@@ -444,7 +441,7 @@ if android_audio:
     android_audio,android_audio_maxWords = android_audio.split()
     android_audio_maxWords = int(android_audio_maxWords)
   else: android_audio_maxWords=None
-if (extra_js or extra_css or existing_ruby_js_fixes or delete_existing_ruby) and not (android or ios): errExit("--extra-js, --extra-css, --existing-ruby-js-fixes and --delete-existing-ruby require either --android or --ios")
+if (extra_js or extra_css or existing_ruby_js_fixes or delete_existing_ruby) and not android: errExit("--extra-js, --extra-css, --existing-ruby-js-fixes and --delete-existing-ruby requires --android")
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
@@ -487,10 +484,9 @@ def shell_escape(arg):
   return "'"+arg.replace("'",r"'\''")+"'"
 if sharp_multi:
   if c_sharp or python or golang: errExit("sharp-multi not yet implemented in C#, Python or Go")
-  elif ios or windows_clipboard: errExit("sharp-multi not yet implemented for ios or windows-clipboard") # would need a way to select the annotator, probably necessitating a GUI on Windows (and extra callbacks on iOS)
+  elif windows_clipboard: errExit("sharp-multi not yet implemented for windows-clipboard") # would need a way to select the annotator, probably necessitating a GUI on Windows
 if java or javascript or python or c_sharp or golang or dart:
     def cOnly(param,lang="C"): errExit(param+" not yet implemented in any language other than "+lang+", so cannot be used with --java, --javascript, --python, --c-sharp, --golang or --dart")
-    if ios: cOnly("--ios","Objective-C")
     if windows_clipboard: cOnly("--windows-clipboard")
     if library: cOnly("--library")
     if not outcode=="utf-8": cOnly("Non utf-8 outcode")
@@ -515,16 +511,11 @@ if java or javascript or python or c_sharp or golang or dart:
       elif golang: c_filename = c_filename[:-2]+".go"
       else: c_filename = c_filename[:-2]+".py"
 elif windows_clipboard:
-  if ios: errExit("Support for having both --ios and --windows-clipboard at the same time is not yet implemented") # (I suppose you could make a single output file that will compile as either C+MS-stuff or Objective-C depending on preprocessor tests)
   if library: errExit("Support for having both --windows-clipboard and --library at the same time is not yet implemented") # ditto
   if c_compiler=="cc -o annotator": c_compiler="i386-mingw32-gcc -o annoclip.exe"
   if not outcode=="utf-8": errExit("outcode must be utf-8 when using --windows-clipboard")
 elif library:
-  if ios: errExit("Support for having both --ios and --library at the same time is not yet implemented") # (I suppose you could make a single output file that will compile as either C+MS-stuff or Objective-C depending on preprocessor tests)
   if c_compiler=="cc -o annotator": c_compiler="gcc -shared -fPIC -Wl,-soname,annotator.so.1 -o libannotator.so.1 -lc"
-elif ios:
-  if not outcode=="utf-8": errExit("outcode must be utf-8 when using --ios")
-  if c_filename.endswith(".c"): c_filename = c_filename[:-2]+".m" # (if the instructions are followed, it'll be ViewController.m, but no need to enforce that here)
 if js_6bit:
   if not javascript: errExit("--js-6bit requires --javascript") # or just set js_6bit=False in these circumstances?
   import urllib
@@ -545,14 +536,13 @@ if zlib:
     zlib_name = "zlib"
   data_driven = True
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
-  if ios: warn("--zlib with --ios will require -lz to be added to the linker options in XCode, and I don't have instructions for that (it probably differs across XCode versions)")
   if dart and not dart_datafile: warn("--zlib without --dart-datafile might not be as efficient as you'd hope (and --zlib prevents the resulting Dart code from being compiled to a \"Web app\" anyway)") # as it requires dart:io
 if data_driven:
   if c_sharp or golang: errExit("--data-driven and --zlib are not yet implemented in C# or Go")
   elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java? (in which case also update the 'compress' errExit above so it doesn't check for android before suggesting zlib)
 elif javascript or python or dart: data_driven = True
 compact_opcodes = data_driven and not fast_assemble and not python # currently implemented only in the C, Java and Javascript versions of the data-driven runtime
-if java or javascript or python or c_sharp or ios or golang or dart: c_compiler = None
+if java or javascript or python or c_sharp or golang or dart: c_compiler = None
 try:
   import locale
   terminal_charset = locale.getdefaultlocale()[1]
@@ -718,7 +708,6 @@ def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName=b"topLevelMatch",subFu
         ret.append(b"switch("+NEXTBYTE+b") {")
       for case in sorted(allBytes):
         if not c_sharp and 32<=ord(case)<127 and case!=b"'": cstr=b"'%c'" % case
-        elif ios and ord(case)>127: cstr=B(str(ord(case)-256)) # signed
         else:
           cstr=B(str(ord(case)))
           if java: cstr = b"(byte)"+cstr
@@ -848,65 +837,7 @@ else: decompress_func = b""
 
 if c_filename and os.sep in c_filename: cfn = c_filename[c_filename.rindex(os.sep)+1:]
 else: cfn = c_filename
-if ios:
-  c_preamble = br"""/*
-
-To compile this, go into Xcode and do File > New > Project
-and under iOS / Application choose Single View Application.
-Fill in the dialogue box as you like, then use this file
-to replace the generated ViewController.m file.  You should
-then be able to press the Run button on the toolbar.
-
-Tested on an iOS 6.1 simulator in Xcode 4.6 on Mac OS 10.7.
-Tested on Xcode 10 in Mac OS 10.14 and hardware iOS 10 and 12.
-
-On iOS 9+, normal http:// (not https) URLs will fail
-due to a new "ATS policy", unless you edit Info.plist
-and add the following line to it:
-
-<key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
-
-Otherwise, all links must be https (and we'd better let
-iOS itself take care of WiFi sign-in redirects).
-
-iOS 12 UIWebView deprecation: yes, I know (see TODO).
-
-Browser usage:
-
-Swipe left to go back (as in Safari).
-If your pages refer to clip://anything then that
-link will show and annotate the local clipboard.
-
-*/
-
-#import <UIKit/UIKit.h>
-#include <string.h>
-"""
-  c_defs = br"""static const char *readPtr, *writePtr, *startPtr;
-static NSMutableData *outBytes;
-#define NEXTBYTE (*readPtr++)
-#define NEXT_COPY_BYTE (*writePtr++)
-#define COPY_BYTE_SKIP writePtr++
-#define COPY_BYTE_SKIPN(n) writePtr += (n)
-#define POSTYPE const char*
-#define THEPOS readPtr
-#define SETPOS(p) (readPtr=(p))
-#define PREVBYTE readPtr--
-#define FINISHED (!(*readPtr))
-#define OutWriteStrN(s,n) [outBytes appendBytes:(s) length:(n)]
-static void OutWriteStr(const char *s) { OutWriteStrN(s,strlen(s)); }
-static void OutWriteByte(char c) { [outBytes appendBytes:(&(c)) length:1]; }
-static int near(char* string) {
-    const char *startFrom = readPtr-nearbytes;
-    size_t n=2*nearbytes;
-    if (startFrom < startPtr) {
-        n -= startPtr-startFrom;
-        startFrom = startPtr; }
-    return strnstr(startFrom,string,n) != NULL;
-}
-""" # (strnstr is BSD-specific, but that's OK on iOS.  TODO: might be nice if all loops over outWriteByte could be reduced to direct calls of appendBytes with appropriate lengths, but it wouldn't be a major speedup)
-  have_annotModes = False # only ruby is needed by the iOS code
-elif library:
+if library:
   c_preamble = br"""
   /*
      This library is NOT thread safe.  But you can use it
@@ -1345,9 +1276,7 @@ if sharp_multi: c_preamble += b"static int numSharps=0;\n"
 
 version_stamp = B(time.strftime("generated %Y-%m-%d by ")+program_name[:program_name.index("(c)")].strip())
 
-if ios: c_name = b"Objective-C"
-else: c_name = b"C"
-c_start = b"/* -*- coding: "+B(outcode)+b" -*- */\n/* "+c_name+b" code "+version_stamp+b" */\n"
+c_start = b"/* -*- coding: "+B(outcode)+b" -*- */\n/* C code "+version_stamp+b" */\n"
 c_start += c_preamble+br"""
 enum { ybytes = %%YBYTES%% }; /* for Yarowsky-like matching, minimum readahead */
 static int nearbytes = ybytes;
@@ -1396,8 +1325,8 @@ c_end += br"""  while(!FINISHED) {
 
 # jsAddRubyCss will be in a quoted string in ObjC / Java source, so all " and \ must be escaped:
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
-annotation_font = [b"Times New Roman"] # iOS has this for real, Android has Droid Serif but it's not selected if you put "serif" or "Droid Serif", it's mapped from "Times New Roman" (tested in Android 4.4 and Android 10)
-# there's a more comprehensive list in the windows_clipboard code below, but those fonts are less likely found on Android or iOS
+annotation_font = [b"Times New Roman"] # Android has Droid Serif but it's not selected if you put "serif" or "Droid Serif", it's mapped from "Times New Roman" (tested in Android 4.4 and Android 10)
+# there's a more comprehensive list in the windows_clipboard code below, but those fonts are less likely found on Android
 jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+b", ".join(annotation_font)+b" !important;}rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}rp{display:none!important}"+B(extra_css).replace(b'\\',br'\\').replace(b'"',br'\"').replace(b"'",br"\\'")+b"'" # :not(:last-of-type) rule is for 3line mode (assumes rt/rb and rt/rt/rb)
 if epub: jsAddRubyCss += b"+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += b"+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
@@ -1454,23 +1383,21 @@ if bookmarks: jsAddRubyCss += b";"+bookmarkJS()[1]
 jsAddRubyCss += b";d.rubyScriptAdded=1 })" # end of all_frames_docs call for add-ruby
 jsAddRubyCss += b";if(!window.doneHash){var h=window.location.hash.slice(1);if(h&&document.getElementById(h)) window.hash0=document.getElementById(h).offsetTop}" # see below
 jsAddRubyCss += b"tw0()" # perform the first annotation scan after adding the ruby (calls all_frames_docs w.annotWalk)
-jsAddRubyCss += b";if(!window.doneHash && window.hash0){window.hCount=10*2;window.doneHash=function(){var e=document.getElementById(window.location.hash.slice(1)); if(e.offsetTop==window.hash0 && --window.hCount) setTimeout(window.doneHash,500); e.scrollIntoView()};window.doneHash()}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs; TODO: is this really necessary on iOS?), but don't redo this every time doc length changes on Android. setTimeout loop because rendering might take a while with large documents on slow devices.
+jsAddRubyCss += b";if(!window.doneHash && window.hash0){window.hCount=10*2;window.doneHash=function(){var e=document.getElementById(window.location.hash.slice(1)); if(e.offsetTop==window.hash0 && --window.hCount) setTimeout(window.doneHash,500); e.scrollIntoView()};window.doneHash()}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs), but don't redo this every time doc length changes on Android. setTimeout loop because rendering might take a while with large documents on slow devices.
 
-def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=b""):
-  # 
-  # Common code for the JS-based DOM annotators
-  # 
+def jsAnnot():
+  # Android JS-based DOM annotator.  Return value becomes the js_common string in the Android Java
   r = br"""var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
   
   mergeTags=['EM','I','B','STRONG']; /* we'll merge 2 of these the same if they're leaf elements */
   
   function annotPopAll(e){
-    /* click handler: alert box for glosses etc */
+    /* click handler: alert box for glosses etc. Now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers. */
     if(e.currentTarget) e=e.currentTarget;
     function f(c){ /* scan all text under c */
       var i=0,r='',cn=c.childNodes;
       for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:''));
-      return r } """+alertStr+b" };"
+      return r } ssb_local_annotator.alert(f(e.firstChild),' '+f(e.firstChild.nextSibling),e.title||'') };"""
   
   r += br"""
   function all_frames_docs(c) {
@@ -1480,16 +1407,12 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=b""):
         var i; for(i=0; i<w.frames.length; i++)
           f(w.frames[i]) }
       c(w.document) };
-    f(window) };"""
-  
-  r += xtraDecls
-  
-  r += br"""
-  function tw0() { """+textWalkInit+br"""
-    all_frames_docs(function(d){annotWalk(d,d,false,false)}) };"""
+    f(window) };
+  function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };
+  function tw0() { all_frames_docs(function(d){annotWalk(d,d,false,false)}) };"""
   
   r += br"""
-  function annotScan() {"""+B(extra_js).replace(b'\\',br'\\').replace(b'"',br'\"')+annotScan+b"};"
+  function annotScan() {"""+B(extra_js).replace(b'\\',br'\\').replace(b'"',br'\"')+jsAddRubyCss+b"};"
   
   r += br"""
   function annotWalk(n,document,inLink,inRuby) {
@@ -1533,7 +1456,7 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=b""):
   else: r += br"annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY'));"
   r += br"""
           } break;
-        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');"""+case3+br"""}
+        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) } if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }}
       }
       cP=c; c=cNext;
       if("""
@@ -1549,75 +1472,14 @@ def jsAnnot(alertStr,xtraDecls,textWalkInit,annotScan,case3,postFixCond=b""):
        so our padding CSS overrides don't give inconsistent results */
     if(nf) {
         nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
-        if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')"""+postFixCond+br"""n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}
+        if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}
     }"""
   r += b"}"
   r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot param '
   return r
 
-if ios:
-  c_end += br"""
-/* TODO: iOS 12 deprecated UIWebView (although still supported),
-   suggests moving to WKWebView (requires iOS 8+) but delegate
-   needs potentially-major rewrite.  Recent macOS+Xcode would be
-   needed for iterative testing.
-  */
-@interface ViewController : UIViewController <UIWebViewDelegate>
-@property (nonatomic,retain) UIWebView *myWebView;
-@end
-@implementation ViewController
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.myWebView = [[UIWebView alloc] initWithFrame:CGRectMake(10, 20, 300,500)];
-    self.myWebView.backgroundColor = [UIColor whiteColor];
-    self.myWebView.scalesPageToFit = YES;
-    self.myWebView.autoresizingMask = (UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight);
-    self.myWebView.delegate = self;
-    [self.view addGestureRecognizer:[[UISwipeGestureRecognizer alloc] initWithTarget:self action:@selector(swipeBack:)]];
-    [self.view addSubview:self.myWebView];
-    [self loadInitialPage];
-}
-- (void)loadInitialPage {
-"""
-  ios=ios.replace(b'\\',b'\\\\').replace(b'"',b'\\"').replace(b'\n',b'\\n')
-  if ios.startswith(b'<'): c_end += b'[self.myWebView loadHTMLString:@"'+ios+b'" baseURL:nil];'
-  # TODO: 'file from local project' option?  for now, anything that doesn't start with < is taken as URL
-  else:
-    if not b"://" in ios: errExit("--ios value doesn't look like an HTML fragment or a URL")
-    c_end += b'[self.myWebView loadRequest:[[NSURLRequest alloc] initWithURL:[[NSURL alloc] initWithString:@"'+ios+b'"]]];'
-  c_end += br"""
-}
--(void)swipeBack:(UISwipeGestureRecognizer *)recognizer {
-    if (recognizer.state == UIGestureRecognizerStateEnded) {
-        if ([self.myWebView canGoBack]) [self.myWebView goBack];
-        else [self loadInitialPage];
-    }
-}
-- (void)webViewDidFinishLoad:(UIWebView *)webView
-{
-    [webView stringByEvaluatingJavaScriptFromString:@" """+jsAnnot(alertStr=b"window.alertTitle=f(e.firstChild)+' '+f(e.firstChild.nextSibling); window.alertMessage=e.title; window.location='alert:a'",xtraDecls=b"var texts,tLen,oldTexts,otPtr,replacements; ",textWalkInit=b"texts = new Array(); tLen=0; otPtr=0; ",annotScan=b"oldTexts = new Array(); replacements = new Array(); tw0(); window.location='scan:a'",case3=br"""var i=otPtr;while (i<oldTexts.length && oldTexts[i]!=cnv) i++;if(i<replacements.length) {var newNode=document.createElement('span');newNode.className='_adjust0';n.replaceChild(newNode, c);var r=replacements[i]; newNode.innerHTML=r; if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) a[i].addEventListener('click',annotPopAll)} otPtr=i;} else if (tLen < 1024) { texts[texts.length]=cnv;tLen += cnv.length;} else return""",postFixCond=br"if(n.title)")+br"""annotScan()"];
-}
-- (BOOL)webView:(UIWebView*)webView shouldStartLoadWithRequest:(NSURLRequest*)request navigationType:(UIWebViewNavigationType)navigationType {
-    NSURL *URL = [request URL];
-    if ([[URL scheme] isEqualToString:@"alert"]) {
-        [[[UIAlertView alloc] initWithTitle:[self.myWebView stringByEvaluatingJavaScriptFromString:@"window.alertTitle"] message:[self.myWebView stringByEvaluatingJavaScriptFromString:@"window.alertMessage"] delegate: self cancelButtonTitle: nil otherButtonTitles: @"OK",nil, nil] show];
-        return NO;
-    } else if ([[URL scheme] isEqualToString:@"clip"]) {
-        [self.myWebView loadHTMLString:[@"<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>" stringByAppendingString:[UIPasteboard generalPasteboard].string] baseURL:nil]; // TODO: make the string HTML-safe (and URL-clickable) and refresh it if clipboard changes, like the Android version does via JS
-    } else if ([[URL scheme] isEqualToString:@"scan"]) {
-        NSString *texts=[self.myWebView stringByEvaluatingJavaScriptFromString:@"texts.join('/@@---------@@/')"];
-        startPtr = [texts UTF8String]; readPtr = startPtr; writePtr = startPtr;
-        outBytes = [NSMutableData alloc]; matchAll(); OutWriteByte(0);
-        if([texts length]>0) [self.myWebView stringByEvaluatingJavaScriptFromString:[@"replacements=\"" stringByAppendingString:[[[[[[NSString alloc] initWithUTF8String:[outBytes bytes]] stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"] stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""] stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"] stringByAppendingString:@"\".split('/@@---------@@/');oldTexts=texts;"""+jsAddRubyCss+br""""]]];
-        [self.myWebView stringByEvaluatingJavaScriptFromString:@"if(typeof window.sizeChangedLoop=='undefined') window.sizeChangedLoop=0; var me=++window.sizeChangedLoop; var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r }; var curLen=getLen(window); var stFunc=function(){window.setTimeout(tFunc,1000)}, tFunc=function(){if(window.sizeChangedLoop==me){if(getLen(window)==curLen) stFunc(); else annotScan()}}; stFunc(); var m=window.MutationObserver||window.WebKitMutationObserver; if(m) new m(function(mut,obs){if(mut[0].type=='childList'){obs.disconnect();if(window.sizeChangedLoop==me)annotScan()}}).observe(document.body,{childList:true,subtree:true})"]; // HTMLSizeChanged(annotScan)
-        return NO;
-    }
-    return YES;
-}
-@end
-"""
-elif windows_clipboard: c_end += br"""
+if windows_clipboard: c_end += br"""
 #ifdef _WINCE
 #define CMD_LINE_T LPWSTR
 #else
@@ -2336,7 +2198,7 @@ if pleco_hanping: android_src += br"""
     String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
     int[] hanpingVersion = new int[]{0,0,0};"""
 android_src += br"""
-    static final String js_common="""+b'"'+jsAnnot(alertStr=b"ssb_local_annotator.alert(f(e.firstChild),' '+f(e.firstChild.nextSibling),e.title||'')",xtraDecls=b"function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };",textWalkInit=b"",annotScan=jsAddRubyCss,case3=b"var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) } if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }")+br""""; // now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
+    static final String js_common="""+b'"'+jsAnnot()+br"""";
     @SuppressWarnings("deprecation")
     @TargetApi(19)
     void runTimerLoop() {
@@ -4342,13 +4204,15 @@ def getOkStarts(withAnnot_unistr):
     walen = len(withAnnot_unistr)
     return set(x for x in precalc_sets[getNext(splitWords(withAnnot_unistr))] if corpus_unistr[m2c_map[x]:m2c_map[x]+walen]==withAnnot_unistr)
 def getBadStarts(nonAnnot,okStarts):
-  # TODO: this (along with the finditer() in second branch of unconditional_looks_ok for ref-pri etc) can be a slowdown if there's lots of unique single-word examples (e.g. tack on a dictionary to the corpus), especially as these repeated corpus scans are needed before we decide if yarowsky_indicators can background (so, repeated long searches on the main CPU).  Searching byte-strings instead doesn't speed things up either.  Single-pass matching of multiple badStart-finding would be nice, but complex to set up (could need analyse() to run a pre-pass of addRulesForPhrase / test_rule / yarowsky_indicators just to find what needs checking).
-  # Small speed-up for now: avoid using regex (faster without in speed unit tests)
+  # This can be a bottleneck.  One profile (single-core): 84% in analyse, 83% in yarowsky_indicators, 59% in tryNBytes (15% in the function itself), ~40% in sum() (y-indicator candidate tests, counting how many txt occurs in badStrs set etc (could we somehow limit the count? but unique_substrings calls valueFunc and yields ALL in order)), 21% HERE in unicode.find of getBadStarts, 3% in unconditional_looks_ok mostly on re.finditer.
+  # Lots of unique single-word examples (e.g. tack on a dictionary to the corpus) makes things worse, especially as these repeated corpus scans are needed before we decide if yarowsky_indicators can background (so, repeated long searches on the main CPU).  Single-pass matching of multiple badStart-finding would be nice, but complex to set up (could need analyse() to run a pre-pass of addRulesForPhrase / test_rule / yarowsky_indicators just to find what needs checking).
+  # Small speed-up for now: avoid using regex (the below is faster than re.finditer in speed unit tests)
   i = corpus_markedDown.find(nonAnnot)
-  r = set() ; l=len(nonAnnot)
+  r = [] ; l=len(nonAnnot)
+  find = corpus_markedDown.find ; append=r.append
   while i != -1:
-    if not i in okStarts: r.add(i)
-    i = corpus_markedDown.find(nonAnnot,i+l)
+    if not i in okStarts: append(i)
+    i = find(nonAnnot,i+l)
   return r
 def getReallyBadStarts(badStarts,nonAnnot):
     # Some of the badStarts can be ignored on the grounds that they should be picked up by other rules first: any where the nonAnnot match does not start at the start of a word (the rule matching the word starting earlier should get there first), and any where it starts at the start of a word that is longer than its own first word (the longest-first ordering should take care of this).  So keep only the ones where it starts at the start of a word and that word is no longer than len(nonAnnot).
