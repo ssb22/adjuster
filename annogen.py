@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.03 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.04 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -227,7 +227,7 @@ parser.add_option("--android-template",
                   help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc. This version also enables better zoom controls on Android 4+ and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses).") # annotUrlTrans returns undefined = uses original
 parser.add_option("--android-pre-2016",
                   action="store_true",default=False,
-                  help="[DEPRECATED] When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way are no longer allowed on \"Play Store\" unless you also set --android-https-only, since the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile.  This option is deprecated because you should be able to install a newer SDK on a virtual machine if your main OS cannot be upgraded (e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019).")
+                  help="[DEPRECATED] When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way are no longer allowed on \"Play Store\" unless you also set --android-https-only (because the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile), and are unlikely to be accepted at all once the Target API requirement is raised to 30 (because that'll need at least version 24 of the SDK to sign).  This option is deprecated because you should be able to install a newer SDK on a virtual machine if your main OS cannot be upgraded (e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless').")
 cancelOpt("android-pre-2016")
 parser.add_option("--android-https-only",
                   action="store_true",default=False,
@@ -5343,17 +5343,25 @@ if main:
      dirName0 = S(getoutput("pwd|sed -e s,.*./,,"))
      dirName = shell_escape(dirName0)
    if can_compile_android:
-     cmd_or_exit("$BUILD_TOOLS/aapt package -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_")
+     cmd_or_exit("$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
      cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      a = " -JXmx4g --force-jumbo" # -J option must go first
      if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
        a += " --min-sdk-version=1" # older versions of dx don't have that flag, but will be min-sdk=1 anyway
      cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
      cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
-     cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add "+dirName+".ap_ classes.dex")
-     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore \"$KEYSTORE_FILE\" -storepass \"$KEYSTORE_PASS\" -keypass \"$KEYSTORE_PASS\" -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ \"$KEYSTORE_USER\" -tsa http://timestamp.digicert.com") # TODO: -tsa option requires an Internet connection; option to omit it if the key expiry date is far enough in the future?
-     else: cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore \"$HOME\"/.android/debug.keystore -storepass android -keypass android -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ androiddebugkey") # if KEYSTORE_FILE not provided, try to use debug.keystore generated by Eclipse/Studio (TODO: file may not be present if you haven't created/tried any projects yet)
-     rm_f("../"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
+     cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add -0 '' "+dirName+".ap_ classes.dex")
+     if not android_pre_2016: # apksigner needs zipalign first
+       rm_f("bin/"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk")
+       rm_f("../"+dirName0+".apk")
+     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]):
+       if android_pre_2016: cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore \"$KEYSTORE_FILE\" -storepass \"$KEYSTORE_PASS\" -keypass \"$KEYSTORE_PASS\" -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ \"$KEYSTORE_USER\" -tsa http://timestamp.digicert.com") # TODO: -tsa option requires an Internet connection; option to omit it if the key expiry date is far enough in the future?
+       else: cmd_or_exit("$BUILD_TOOLS/apksigner sign --ks \"$KEYSTORE_FILE\" --v1-signer-name \"$KEYSTORE_USER\" --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out ../"+dirName+".apk bin/"+dirName+".apk")
+     else: # if KEYSTORE_FILE not provided, try to use debug.keystore generated by Eclipse/Studio (TODO: file may not be present if you haven't created/tried any projects yet)
+       if android_pre_2016: cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore \"$HOME\"/.android/debug.keystore -storepass android -keypass android -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ androiddebugkey")
+       else: cmd_or_exit("$BUILD_TOOLS/apksigner sign --ks \"$HOME\"/.android/debug.keystore --v1-signer-name androiddebugkey --ks-pass pass:android --key-pass pass:android --out ../"+dirName+".apk bin/"+dirName+".apk")
+     if android_pre_2016: # jarsigner needs zipalign after
+       rm_f("../"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
      rm_f("bin/"+dirName0+".ap_")
      rm_f("bin/"+dirName0+".apk")
      if not can_track_android: cmd_or_exit("du -h ../"+dirName+".apk")
