@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.04 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.05 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -222,17 +222,10 @@ cancelOpt("c-sharp")
 parser.add_option("--java",
                   help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
 parser.add_option("--android",
-                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools; if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.  If you load a page containing Javascript that allows the user to navigate to arbitrary URLs, you'll have an annotating Web browser app: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  Huawei devices sold after c.2019-05-20 won't have Play Store access, and Huawei's "AppGallery" was accepting only registered companies not individual developers, so 'side-loading' will be needed there too (unless you're a registered company).
+                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (SDK 24 or higher is required on the build machine, but the resulting app will be compatible with all versions of Android back to 1.x); if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
+# SDK 24 was released mid-2016.  If your main OS cannot be upgraded, you should be able to install a newer SDK on a virtual machine, e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless'
 parser.add_option("--android-template",
-                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from nothing if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc. This version also enables better zoom controls on Android 4+ and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses).") # annotUrlTrans returns undefined = uses original
-parser.add_option("--android-pre-2016",
-                  action="store_true",default=False,
-                  help="[DEPRECATED] When generating an Android app, assume the build environment is older than the mid-2016 release (SDK 24).  Apps compiled in this way are no longer allowed on \"Play Store\" unless you also set --android-https-only (because the extra configuration for non-HTTPS in Play Store's newly-required Target API needs at least version 24 of the SDK to compile), and are unlikely to be accepted at all once the Target API requirement is raised to 30 (because that'll need at least version 24 of the SDK to sign).  This option is deprecated because you should be able to install a newer SDK on a virtual machine if your main OS cannot be upgraded (e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless').")
-cancelOpt("android-pre-2016")
-parser.add_option("--android-https-only",
-                  action="store_true",default=False,
-                  help="[DEPRECATED] When generating an Android app, let Android 9+ restrict it to HTTPS-only URLs. This allows the app to be compiled in build environments older than the mid-2016 release (SDK 24) while still being allowed on the Play Store, but it restricts functionality.  Deprecated because it's possible to install a newer build environment on a virtual machine (see comments on --android-pre-2016)")
-cancelOpt("android-https-only")
+                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+ and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  Huawei devices sold after c.2019-05-20 won't have Play Store access, and Huawei's "AppGallery" was accepting only registered companies not individual developers, so 'side-loading' will be needed there too (unless you're a registered company).  annotUrlTrans returns undefined = uses original
 parser.add_option("-L","--pleco-hanping",
                   action="store_true",default=False,
                   help="In the Android app, make popup definitions link to Pleco or Hanping if installed")
@@ -502,8 +495,7 @@ if java or javascript or python or c_sharp or golang or dart:
       c_filename = java+os.sep+"Annotator.java"
       if main and android:
         os.system("rm -rf "+shell_escape(jSrc+"/../bin")) # needed to get rid of old *.class files that might be no longer used
-        for d in ["assets","bin","gen","res/layout","res/menu","res/values"]: os.system("mkdir -p "+shell_escape(jSrc+"/../"+d))
-        if not android_https_only and not android_pre_2016: os.system("mkdir -p "+shell_escape(jSrc+"/../res/xml"))
+        for d in ["assets","bin","gen","res/layout","res/menu","res/values","res/xml"]: os.system("mkdir -p "+shell_escape(jSrc+"/../"+d))
     elif c_filename.endswith(".c"):
       if javascript: c_filename = c_filename[:-2]+".js"
       elif dart: c_filename = c_filename[:-2]+".dart"
@@ -1623,14 +1615,9 @@ if epub: android_manifest += br"""<uses-permission android:name="android.permiss
 # so I would imagine the permission doesn't need activating on Android 8, but
 # for completeness we need to test Android 6 and Android 7 somehow (TODO)
 android_manifest += br"""
-<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="""+b'"'
-if android_pre_2016 and not android_https_only: android_manifest += b'26' # stuck on API 26 in these circumstances, won't be able to upload updates to Play Store after November 2019 unless you upgrade your SDK or accept https-only
-else: android_manifest += b'28'
-android_manifest += br"""" />
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="28" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
-<application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" """
-if not android_https_only and not android_pre_2016: android_manifest += b'android:networkSecurityConfig="@xml/network_security_config" '
-android_manifest += br""">
+<application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" android:networkSecurityConfig="@xml/network_security_config" >
 <service android:name=".BringToFront" android:exported="false"/>
 <activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleTask" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
@@ -1684,7 +1671,6 @@ if(ssb_local_annotator.canCustomZoom()) document.write('<div>Text size: <button 
 var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<span id=insecure style=\"background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></span>");
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)) document.forms[document.forms.length-1].url.value=c</script>
 </div>"""
-if android_https_only: android_url_box=android_url_box.replace(b"http://",b"https://") # for the defaults, but not .replace("https?","https") because it can still get http on Android 8 and below
 if android_template: android_template = android_template.replace(b"URL_BOX_GOES_HERE",android_url_box)
 android_version_stamp = br"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue. Compile time %%TIME%%\')}" ':'')+'>%%DATE%% version</address>')</script>"""
 android_src = br"""package %%JPACKAGE%%;
@@ -5080,7 +5066,7 @@ def outputParser(rulesAndConds):
       open(jSrc+"/../res/values/dimens.xml","wb").write(b'<resources><dimen name="activity_horizontal_margin">16dp</dimen><dimen name="activity_vertical_margin">16dp</dimen></resources>\n')
       open(jSrc+"/../res/values/styles.xml","wb").write(b'<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"><item name="android:forceDarkAllowed">true</item></style></resources>\n')
       open(jSrc+"/../res/values/strings.xml","wb").write(B('<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="app_name">'+app_name.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')+'</string></resources>\n'))
-      if not android_https_only and not android_pre_2016: open(jSrc+"/../res/xml/network_security_config.xml","wb").write(b'<?xml version="1.0" encoding="utf-8"?>\n<network-security-config><base-config cleartextTrafficPermitted="true" /></network-security-config>\n')
+      open(jSrc+"/../res/xml/network_security_config.xml","wb").write(b'<?xml version="1.0" encoding="utf-8"?>\n<network-security-config><base-config cleartextTrafficPermitted="true" /></network-security-config>\n')
     elif c_sharp: outfile.write(cSharp_end)
     elif golang: outfile.write(golang_end)
     elif not java: outfile.write(c_end)
@@ -5351,17 +5337,10 @@ if main:
      cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
      cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
      cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add -0 '' "+dirName+".ap_ classes.dex")
-     if not android_pre_2016: # apksigner needs zipalign first
-       rm_f("bin/"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk")
-       rm_f("../"+dirName0+".apk")
-     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]):
-       if android_pre_2016: cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore \"$KEYSTORE_FILE\" -storepass \"$KEYSTORE_PASS\" -keypass \"$KEYSTORE_PASS\" -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ \"$KEYSTORE_USER\" -tsa http://timestamp.digicert.com") # TODO: -tsa option requires an Internet connection; option to omit it if the key expiry date is far enough in the future?
-       else: cmd_or_exit("$BUILD_TOOLS/apksigner sign --ks \"$KEYSTORE_FILE\" --v1-signer-name \"$KEYSTORE_USER\" --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out ../"+dirName+".apk bin/"+dirName+".apk")
-     else: # if KEYSTORE_FILE not provided, try to use debug.keystore generated by Eclipse/Studio (TODO: file may not be present if you haven't created/tried any projects yet)
-       if android_pre_2016: cmd_or_exit("jarsigner -sigalg SHA1withRSA -digestalg SHA1 -keystore \"$HOME\"/.android/debug.keystore -storepass android -keypass android -signedjar bin/"+dirName+".apk bin/"+dirName+".ap_ androiddebugkey")
-       else: cmd_or_exit("$BUILD_TOOLS/apksigner sign --ks \"$HOME\"/.android/debug.keystore --v1-signer-name androiddebugkey --ks-pass pass:android --key-pass pass:android --out ../"+dirName+".apk bin/"+dirName+".apk")
-     if android_pre_2016: # jarsigner needs zipalign after
-       rm_f("../"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".apk ../"+dirName+".apk")
+     rm_f("bin/"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk")
+     rm_f("../"+dirName0+".apk")
+     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("$BUILD_TOOLS/apksigner sign --ks \"$KEYSTORE_FILE\" --v1-signer-name \"$KEYSTORE_USER\" --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out ../"+dirName+".apk bin/"+dirName+".apk")
+     else: cmd_or_exit("$BUILD_TOOLS/apksigner sign --ks \"$HOME\"/.android/debug.keystore --v1-signer-name androiddebugkey --ks-pass pass:android --key-pass pass:android --out ../"+dirName+".apk bin/"+dirName+".apk") # if KEYSTORE_FILE not provided, try to use debug.keystore generated by Eclipse/Studio (TODO: file may not be present if you haven't created/tried any projects yet)
      rm_f("bin/"+dirName0+".ap_")
      rm_f("bin/"+dirName0+".apk")
      if not can_track_android: cmd_or_exit("du -h ../"+dirName+".apk")
