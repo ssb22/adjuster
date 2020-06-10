@@ -1818,8 +1818,8 @@ if pleco_hanping:
                             d.setItems(items,new android.content.DialogInterface.OnClickListener() {
                                 @TargetApi(11) public void onClick(android.content.DialogInterface dialog,int id) {
                                     int test=0,i;
-                                    for(i=0; i<3; i++) if(hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build()); h.setPackage(hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(h); }
-                                    if(gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt+aa); startActivity(p); }"""
+                                    for(i=0; i<3; i++) if(hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build()); h.setPackage(hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); try { startActivity(h); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Hanping uninstalled?",Toast.LENGTH_LONG).show(); } }
+                                    if(gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt+aa); try { startActivity(p); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Pleco uninstalled?",Toast.LENGTH_LONG).show(); } }"""
   if android_audio: android_src += br"""
                                     if(++test==id) { sendToAudio(tt); act.runOnUiThread(new DialogTask(tt,aa,gg)); }"""
   android_src += br"""
@@ -1844,7 +1844,7 @@ if pleco_hanping:
                                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                                 i.putExtra("launch_section", "dictSearch");
                                 i.putExtra("replacesearchtext", tt+aa);
-                                startActivity(i);
+                                try { startActivity(i); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Pleco uninstalled?",Toast.LENGTH_LONG).show(); }
                             }
                         }); else d.setNeutralButton("Hanping", new android.content.DialogInterface.OnClickListener() {
                             @TargetApi(11)
@@ -1854,7 +1854,7 @@ if pleco_hanping:
                                 i.setData(new android.net.Uri.Builder().scheme(hanpingVersion[v]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[v].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build());
                                 i.setPackage(hanpingPackage[v]);
                                 i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
-                                startActivity(i);
+                                try { startActivity(i); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Hanping uninstalled?",Toast.LENGTH_LONG).show(); }
                             }
                         }); }"""
 if glossfile: android_src += br"""
