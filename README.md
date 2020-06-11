@@ -327,7 +327,7 @@ External processing options
 `--submitBookmarkletDomain` 
 : If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster (or an identically-configured copy) can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.
 
-`--submitBookmarkletRemoveExstingRuby`  (default True)
+`--submitBookmarkletRemoveExistingRuby`  (default True)
 : Specifies that 'bookmarklets' added to the 'Upload text' page should remove all existing ruby on a page before running.  Use this for example if you expect to replace the text with ruby of a different kind of annotation.
 
 Javascript execution options

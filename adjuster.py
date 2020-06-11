@@ -348,7 +348,7 @@ define("submitBookmarkletFilterJS",default=r"!c.nodeValue.match(/^[ -~\s]*$/)",h
 # well, all ASCII + whitespace.  TODO: add non-ascii 'smart punctuation'? entered as Unicode escapes, or rely on serving the script as utf-8. (Previously said "To process ALL text, simply set this option to 'true'", but that can have odd effects on some sites' empty nodes. Saying c.nodeValue.length for now; c.nodeValue.match(/[^\s]/) might be better but needs more quoting explanation. Could change bookmarkletMainScript so it alters the DOM only if replacements[i] != oldTexts[i], c.f. annogen's android code, but that would mean future passes would re-send all the unchanged nodes cluttering the XMLHttpRequests especially if they fill a chunk - annogen version has the advantage of immediate local processing)
 define("submitBookmarkletChunkSize",default=1024,help="Specifies the approximate number of characters at a time that the 'bookmarklet' Javascript will send to the server if submitPath and submitBookmarklet are set. Setting this too high could impair browser responsiveness, but too low will be inefficient with bandwidth and pages will take longer to finish.")
 define("submitBookmarkletDomain",help="If set, specifies a domain to which the 'bookmarklet' Javascript should send its XMLHttpRequests, and ensures that they are sent over HTTPS if the 'bookmarklet' is activated from an HTTPS page (this is needed by some browsers to prevent blocking the XMLHttpRequest).  submitBookmarkletDomain should be a domain for which the adjuster (or an identically-configured copy) can receive requests on both HTTP and HTTPS, and which has a correctly-configured HTTPS front-end with valid certificate.")
-define("submitBookmarkletRemoveExstingRuby",default=True,help="Specifies that 'bookmarklets' added to the 'Upload text' page should remove all existing ruby on a page before running.  Use this for example if you expect to replace the text with ruby of a different kind of annotation.")
+define("submitBookmarkletRemoveExistingRuby",default=True,help="Specifies that 'bookmarklets' added to the 'Upload text' page should remove all existing ruby on a page before running.  Use this for example if you expect to replace the text with ruby of a different kind of annotation.")
 
 heading("Javascript execution options")
 define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with an appropriate version of Selenium (and ChromeDriver if you're using HeadlessChrome).  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
@@ -2239,7 +2239,7 @@ def writeOrError(opposite,name,stream,data):
 # Miscellaneous variables
 # --------------------------------------------------
 
-cookieExpires = "Tue Jan 19 03:14:07 2038" # TODO: S2G
+cookieExpires = "Tue Jan 19 03:14:07 2038" # TODO: S2G (may have to switch to Max-Age and drop support for ~IE8)
 
 set_window_onerror = False # for debugging Javascript on some mobile browsers (TODO make this a config option? but will have to check which browsers do and don't support window.onerror)
 
@@ -3223,7 +3223,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             self.request.suppress_logging = True
         self.add_header("Content-Type","image/"+options.renderFormat)
         self.add_header("Last-Modified","Sun, 06 Jul 2008 13:20:05 GMT")
-        self.add_header("Expires","Wed, 1 Dec 2036 23:59:59 GMT") # TODO: S2G
+        self.add_header("Expires","Wed, 1 Dec 2036 23:59:59 GMT") # TODO: S2G (may need Cache-Control with max-age directive instead, drop older browsers)
         # self.clear_header("Server") # save bytes if possible as we could be serving a LOT of these images .. but is this really needed? (TODO)
         if self.canWriteBody(): self.write(img)
         self.myfinish()
@@ -4674,7 +4674,7 @@ def bookmarkletMainScript(jsonPostUrl,forceSameWindow):
     else: locProto = ""
     # TODO: make mergeTags configurable, and implement it in the non-JS version (and expand it so it's not dependent on both of the consecutive EM-etc elements being leaf nodes?) (purpose is to stop problems with <em>txt1</em><em>txt2</em> resulting in an annotator receiving txt1 and txt2 separately and not adding space between them when necessary)
     # TODO: also apply annogen's "adapt existing ruby markup to gloss-only" logic? (but if they're using a bookmarklet, they might want, and should at least be able to put up with, an annotation of the whole thing, so this is low priority)
-    if options.submitBookmarkletRemoveExstingRuby: rmRT="if (c.nodeType==1 && c.nodeName=='RT') n.removeChild(c); else if (c.nodeType==1 && (c.nodeName=='RUBY' || c.nodeName=='RB') && c.firstChild) { cNext=c.firstChild; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); }"
+    if options.submitBookmarkletRemoveExistingRuby: rmRT="if (c.nodeType==1 && c.nodeName=='RT') n.removeChild(c); else if (c.nodeType==1 && (c.nodeName=='RUBY' || c.nodeName=='RB') && c.firstChild) { cNext=c.firstChild; while (c.firstChild) { var tmp = c.firstChild; c.removeChild(tmp); n.insertBefore(tmp,c); } n.removeChild(c); }"
     else: rmRT = ""
     return r"""var leaveTags=%s,stripTags=%s,mergeTags=['EM','I','B','STRONG'];
 function HTMLSizeChanged(callback) {
