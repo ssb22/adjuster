@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.05 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.06 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1722,15 +1722,15 @@ public class MainActivity extends Activity {
         browser = (WebView)findViewById(R.id.browser);
         // ---------------------------------------------
         // Delete the following line if you DON'T want to be able to use chrome://inspect in desktop Chromium when connected via USB to Android 4.4+
-        if(Integer.valueOf(Build.VERSION.SDK) >= 19) WebView.setWebContentsDebuggingEnabled(true);
+        if(AndroidSDK >= 19) WebView.setWebContentsDebuggingEnabled(true);
         // ---------------------------------------------"""
 if pleco_hanping: android_src += br"""
         try { getApplicationContext().getPackageManager().getPackageInfo("com.pleco.chinesesystem", 0); gotPleco = true; dictionaries++; } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
-        if(Integer.valueOf(Build.VERSION.SDK) >= 11) for(int i=0; i<3; i++) try { hanpingVersion[i]=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage[i],0).versionCode; if(hanpingVersion[i]!=0) { dictionaries++; if(i==1) break /* don't also check Lite if got Pro*/; } } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
+        if(AndroidSDK >= 11) for(int i=0; i<3; i++) try { hanpingVersion[i]=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage[i],0).versionCode; if(hanpingVersion[i]!=0) { dictionaries++; if(i==1) break /* don't also check Lite if got Pro*/; } } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
         // ---------------------------------------------"""
 android_src += br"""
-        if(Integer.valueOf(Build.VERSION.SDK) >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheEnabled(true); } // not to be confused with the normal browser cache
-        if(Integer.valueOf(Build.VERSION.SDK)<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. swipe-closed in Activity Manager)
+        if(AndroidSDK >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheEnabled(true); } // not to be confused with the normal browser cache
+        if(AndroidSDK<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. swipe-closed in Activity Manager)
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());"""
 if android_template: android_src += br"""
@@ -1894,12 +1894,12 @@ android_src += br"""
             }"""
 if android_template: android_src += br"""
             @JavascriptInterface public boolean canCustomZoom() {
-                return Integer.valueOf(Build.VERSION.SDK) >= 14;
+                return AndroidSDK >= 14;
             }"""
 if android_print: android_src += br"""
             @JavascriptInterface public String canPrint() {
-                if(Integer.valueOf(Build.VERSION.SDK) >= 24) return "\ud83d\udda8";
-                else if(Integer.valueOf(Build.VERSION.SDK) >= 19) return "<span style=color:black;background:white;padding:0.3ex>P</span>";
+                if(AndroidSDK >= 24) return "\ud83d\udda8";
+                else if(AndroidSDK >= 19) return "<span style=color:black;background:white;padding:0.3ex>P</span>";
                 else return "";
             }
             boolean printing_in_progress = false;
@@ -1911,7 +1911,7 @@ if android_print: android_src += br"""
                         printing_in_progress = true;
                         try {
                             ((PrintManager) act.getSystemService(android.content.Context.PRINT_SERVICE)).print("annotated",new PrintDocumentAdapter(){
-                                PrintDocumentAdapter delegate=(Integer.valueOf(Build.VERSION.SDK) >= 21) ? (PrintDocumentAdapter)(WebView.class.getMethod("createPrintDocumentAdapter",new Class[] { String.class }).invoke(browser,"Annotated document")) : browser.createPrintDocumentAdapter(); // (createPrintDocumentAdapter w/out string deprecated in API 21; using introspection so this still compiles with API 19 SDKs e.g. old Eclipse)
+                                PrintDocumentAdapter delegate=(AndroidSDK >= 21) ? (PrintDocumentAdapter)(WebView.class.getMethod("createPrintDocumentAdapter",new Class[] { String.class }).invoke(browser,"Annotated document")) : browser.createPrintDocumentAdapter(); // (createPrintDocumentAdapter w/out string deprecated in API 21; using introspection so this still compiles with API 19 SDKs e.g. old Eclipse)
                                 @Override @SuppressLint("WrongCall") public void onLayout(PrintAttributes a, PrintAttributes b, CancellationSignal c, LayoutResultCallback d, Bundle e) { delegate.onLayout(a, b, c, d, e); }
                                 @Override public void onWrite(PageRange[] a, ParcelFileDescriptor b, CancellationSignal c, WriteResultCallback d) { try { delegate.onWrite(a,b,c,d); } catch(IllegalStateException e){Toast.makeText(act, "Print glitch. Press Back and try again.",Toast.LENGTH_LONG).show();} }
                                 @Override public void onStart() { browser.setVisibility(android.view.View.INVISIBLE); delegate.onStart(); }
@@ -1924,7 +1924,7 @@ if android_print: android_src += br"""
 if android_template: android_src += br"""
             @TargetApi(17)
             @JavascriptInterface public boolean isDevMode() {
-                return ((Integer.valueOf(Build.VERSION.SDK)==16)?android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),android.provider.Settings.Secure.DEVELOPMENT_SETTINGS_ENABLED,0):((Integer.valueOf(Build.VERSION.SDK)>=17)?android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,0):0)) != 0;
+                return ((AndroidSDK==16)?android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),android.provider.Settings.Secure.DEVELOPMENT_SETTINGS_ENABLED,0):((AndroidSDK>=17)?android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,0):0)) != 0;
             }
             boolean devCSS = false;
             @JavascriptInterface public void setDevCSS() {
@@ -1935,7 +1935,7 @@ if android_template: android_src += br"""
             }"""
 android_src += br"""
             @JavascriptInterface public void bringToFront() {
-                if(Integer.valueOf(Build.VERSION.SDK) >= 3) {
+                if(AndroidSDK >= 3) {
                     startService(new Intent(MainActivity.this, BringToFront.class));
                     nextBackHides = true;
                 }
@@ -2249,6 +2249,7 @@ android_src += br"""
     }
     @Override protected void onSaveInstanceState(Bundle outState) { browser.saveState(outState); }
     @Override protected void onDestroy() { if(isFinishing() && AndroidSDK<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
+    @SuppressWarnings("deprecation") // we use Build.VERSION.SDK only if we're on an Android so old that SDK_INT is not available:
     int AndroidSDK = (android.os.Build.VERSION.RELEASE.startsWith("1.") ? Integer.valueOf(Build.VERSION.SDK) : Build.VERSION.SDK_INT);
     WebView browser;"""
 if epub: android_src += b" boolean loadingEpub = false;"
@@ -2346,7 +2347,7 @@ public void o2(int numBytes,String annot,String title) {
   o("</rt></ruby>");
 }
 byte[] s2b(String s) {
-  // Convert string to bytes - version that works before Android API level 9 i.e. in Java 5 not 6.  (Some versions of Android Lint sometimes miss the fact that s.getBytes(UTF8) where UTF8==java.nio.charset.Charset.forName("UTF-8") won't always work.)  We could do an API9+ version and use @android.annotation.TargetApi(9) around the class (android.os.Build.VERSION.SDK_INT won't work on API less than 4 but Integer.valueOf(android.os.Build.VERSION.SDK) works), but anyway we'd rather not have to generate a special Android-specific version of Annotator as well as putting Android stuff in a separate class.)
+  // Convert string to bytes - version that works before Android API level 9 i.e. in Java 5 not 6.  (Some versions of Android Lint sometimes miss the fact that s.getBytes(UTF8) where UTF8==java.nio.charset.Charset.forName("UTF-8") won't always work.)  We could do an API9+ version and use @android.annotation.TargetApi(9) around the class, but anyway we'd rather not have to generate a special Android-specific version of Annotator as well as putting Android stuff in a separate class.)
   try { return s.getBytes("UTF-8"); }
   catch(java.io.UnsupportedEncodingException e) {
     // should never happen for UTF-8
@@ -4190,12 +4191,15 @@ def getOkStarts(withAnnot_unistr):
     walen = len(withAnnot_unistr)
     return set(x for x in precalc_sets[getNext(splitWords(withAnnot_unistr))] if corpus_unistr[m2c_map[x]:m2c_map[x]+walen]==withAnnot_unistr)
 def getBadStarts(nonAnnot,okStarts):
-  # This can be a bottleneck.  One profile (single-core): 84% in analyse, 83% in yarowsky_indicators, 59% in tryNBytes (15% in the function itself), ~40% in sum() (y-indicator candidate tests, counting how many txt occurs in badStrs set etc (could we somehow limit the count? but unique_substrings calls valueFunc and yields ALL in order)), 21% HERE in unicode.find of getBadStarts, 3% in unconditional_looks_ok mostly on re.finditer.
-  # Lots of unique single-word examples (e.g. tack on a dictionary to the corpus) makes things worse, especially as these repeated corpus scans are needed before we decide if yarowsky_indicators can background (so, repeated long searches on the main CPU).  Single-pass matching of multiple badStart-finding would be nice, but complex to set up (could need analyse() to run a pre-pass of addRulesForPhrase / test_rule / yarowsky_indicators just to find what needs checking).
-  # Small speed-up for now: avoid using regex (the below is faster than re.finditer in speed unit tests)
-  i = corpus_markedDown.find(nonAnnot)
-  r = [] ; l=len(nonAnnot)
-  find = corpus_markedDown.find ; append=r.append
+  r = [] ; append=r.append
+  l=len(nonAnnot)
+  k = nonAnnot[:2]
+  if k in bigramCache:
+    for i in bigramCache[k]:
+      if not i in okStarts and corpus_markedDown[i:i+l]==nonAnnot: append(i)
+    return r
+  find = corpus_markedDown.find
+  i = find(nonAnnot)
   while i != -1:
     if not i in okStarts: append(i)
     i = find(nonAnnot,i+l)
@@ -4636,12 +4640,18 @@ def get_phrases():
     _gp_cache = phrases ; return phrases
 
 def setup_other_globals():
-    global corpus_markedDown
+    global corpus_markedDown, bigramCache
     corpus_markedDown = markDown(corpus_unistr)
-    if ybytes:
-        global markedUp_unichars
-        if yarowsky_all: markedUp_unichars = None
-        else: markedUp_unichars = set(list(u"".join(markDown(p) for p in get_phrases() if not type(p)==int)))
+    if not ybytes: return
+    bigramCache=dict((i,[]) for i in set(corpus_markedDown[i:i+2] for i in xrange(len(corpus_markedDown)-1)))
+    for i in xrange(len(corpus_markedDown)-1):
+      k=corpus_markedDown[i:i+2]
+      if k in bigramCache:
+        bigramCache[k].append(i)
+        if len(bigramCache[k]) > 100: del bigramCache[k]
+    global markedUp_unichars
+    if yarowsky_all: markedUp_unichars = None
+    else: markedUp_unichars = set(list(u"".join(markDown(p) for p in get_phrases() if not type(p)==int)))
 def check_globals_are_set_up(): # for use during parallelism
   global corpus_unistr
   try: corpus_unistr # if we fork()d, we may already have it
@@ -5330,7 +5340,7 @@ if main:
      dirName = shell_escape(dirName0)
    if can_compile_android:
      cmd_or_exit("$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
-     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
+     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      a = " -JXmx4g --force-jumbo" # -J option must go first
      if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
        a += " --min-sdk-version=1" # older versions of dx don't have that flag, but will be min-sdk=1 anyway
