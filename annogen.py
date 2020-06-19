@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.06 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.07 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -225,7 +225,7 @@ parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (SDK 24 or higher is required on the build machine, but the resulting app will be compatible with all versions of Android back to 1.x); if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
 # SDK 24 was released mid-2016.  If your main OS cannot be upgraded, you should be able to install a newer SDK on a virtual machine, e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless'
 parser.add_option("--android-template",
-                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+ and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  Huawei devices sold after c.2019-05-20 won't have Play Store access, and Huawei's "AppGallery" was accepting only registered companies not individual developers, so 'side-loading' will be needed there too (unless you're a registered company).  annotUrlTrans returns undefined = uses original
+                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use --sharp-multi and set the Javascript array 'modeNames', and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2019, this is acceptable on Google Play but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  Huawei devices sold after c.2019-05-20 won't have Play Store access, and Huawei's "AppGallery" was accepting only registered companies not individual developers, so 'side-loading' will be needed there too (unless you're a registered company).  annotUrlTrans returns undefined = uses original
 parser.add_option("-L","--pleco-hanping",
                   action="store_true",default=False,
                   help="In the Android app, make popup definitions link to Pleco or Hanping if installed")
@@ -1667,10 +1667,13 @@ function zoomIn() {
    else document.getElementById("zO").disabled=false;
    viewZoomCtrls();
 }
-if(ssb_local_annotator.canCustomZoom()) document.write('<div>Text size: <button id=zO onclick="zoomOut()" style="background:#ededed;color:inherit">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()" style="background:#ededed;color:inherit">+</button></div>');
-var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<span id=insecure style=\"background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></span>");
-var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)) document.forms[document.forms.length-1].url.value=c</script>
-</div>"""
+if(ssb_local_annotator.canCustomZoom()) document.write('<div style="float:left">Text size: <button id=zO onclick="zoomOut()" style="background:#ededed;color:inherit">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()" style="background:#ededed;color:inherit">+</button></div>');"""
+if sharp_multi: android_url_box += br"""
+if(typeof modeNames!='undefined'){document.write('<div style="float:right; text-align: right">Mode: ');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)if(i==c)document.write('<button disabled style="background:#ededed;color:inherit"><input type=radio checked> '+modeNames[i]+'</button>');else document.write('<button style="background:#ededed;color:inherit" onclick="ssb_local_annotator.setAnnotNo('+i+');location.reload();return false"><input type=radio> '+modeNames[i]+'</button>');document.write('</div>')}"""
+android_url_box += br"""
+var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<div id=insecure style=\"clear: both; background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></div>");
+var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)) document.forms[document.forms.length-1].url.value=c</script>"""
+android_url_box += '<div style="clear:both"></div></div>' # make sure to clear the floats before ending the div if div#insecure is not displayed
 if android_template: android_template = android_template.replace(b"URL_BOX_GOES_HERE",android_url_box)
 android_version_stamp = br"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue. Compile time %%TIME%%\')}" ':'')+'>%%DATE%% version</address>')</script>"""
 android_src = br"""package %%JPACKAGE%%;
@@ -5356,7 +5359,8 @@ if main:
      if not can_track_android: cmd_or_exit("du -h ../"+dirName+".apk")
    if can_track_android:
      import httplib2,googleapiclient.discovery,oauth2client.service_account # pip install google-api-python-client (or pip install --upgrade google-api-python-client if yours is too old).  Might need pip install oauth2client also.
-     trackToUse = os.environ.get('GOOGLE_PLAY_TRACK','beta')
+     trackToUse = os.environ.get("GOOGLE_PLAY_TRACK","").strip()
+     if not trackToUse: trackToUse='beta'
      sys.stderr.write("Logging in... ")
      service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
      eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
@@ -5385,7 +5389,7 @@ before the Annogen run (change the examples obviously) :
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
    # and optionally:
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
-   export GOOGLE_PLAY_TRACK=alpha # default beta, please don't put production
+   export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
    # After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK, and run with --compile-only.
 
 You may also wish to create some icons in res/drawable*
