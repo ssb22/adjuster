@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.07 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.08 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1808,7 +1808,9 @@ if pleco_hanping:
   else: maxDicts,xtraItems=1,1
   android_src += br"""
                         if(tt.length()>0 && dictionaries>%d) {
-                            String[] items=new String[dictionaries+%d]; items[0]=gg; int i=1;
+                            int nItems=dictionaries+%d; if(gg.length()==0) --nItems;
+                            String[] items=new String[nItems]; int i=0;
+                            if(gg.length()>0) items[i++]=gg;
                             if(hanpingVersion[0]!=0) items[i++]="\u25b6CantoDict";
                             if(hanpingVersion[1]!=0) items[i++]="\u25b6Hanping Pro";
                             if(hanpingVersion[2]!=0) items[i++]="\u25b6Hanping Lite";
@@ -1817,10 +1819,11 @@ if pleco_hanping:
                             items[i++]="\ud83d\udd0aAudio";
   """
   android_src += br"""
-                            // TODO: to prevent popup disappearing if items[0] is tapped, use d.setAdapter instead of d.setItems?  items must then implement android.widget.ListAdapter with: boolean isEnabled(int position) { return position!=0; } boolean areAllItemsEnabled() { return false; } int getCount(); Object getItem(int position); long getItemId(int position) { return position; } int getItemViewType(int position) { return -1; } boolean hasStableIds() { return true; } boolean isEmpty() { return false; } void registerDataSetObserver(android.database.DataSetObserver observer) {} void unregisterDataSetObserver(android.database.DataSetObserver observer) {}  but still need to implement android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) (init convertView or get a new one) and int getViewTypeCount()
+                            // TODO: (if gloss exists) to prevent popup disappearing if items[0] is tapped, use d.setAdapter instead of d.setItems?  items must then implement android.widget.ListAdapter with: boolean isEnabled(int position) { return position!=0; } boolean areAllItemsEnabled() { return false; } int getCount(); Object getItem(int position); long getItemId(int position) { return position; } int getItemViewType(int position) { return -1; } boolean hasStableIds() { return true; } boolean isEmpty() { return false; } void registerDataSetObserver(android.database.DataSetObserver observer) {} void unregisterDataSetObserver(android.database.DataSetObserver observer) {}  but still need to implement android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) (init convertView or get a new one) and int getViewTypeCount()
                             d.setItems(items,new android.content.DialogInterface.OnClickListener() {
                                 @TargetApi(11) public void onClick(android.content.DialogInterface dialog,int id) {
                                     int test=0,i;
+                                    if(gg.length()==0) --test;
                                     for(i=0; i<3; i++) if(hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build()); h.setPackage(hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); try { startActivity(h); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Hanping uninstalled?",Toast.LENGTH_LONG).show(); } }
                                     if(gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt+aa); try { startActivity(p); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Pleco uninstalled?",Toast.LENGTH_LONG).show(); } }"""
   if android_audio: android_src += br"""
@@ -1829,7 +1832,7 @@ if pleco_hanping:
                         } });
                         } else"""
 android_src += br"""
-                        d.setMessage(gg);
+                        if(gg.length()>0) d.setMessage(gg);
                         d.setNegativeButton("Copy",new android.content.DialogInterface.OnClickListener() {
                                 public void onClick(android.content.DialogInterface dialog,int id) { copy(tt+aa+" "+gg,false); }
                         });"""
