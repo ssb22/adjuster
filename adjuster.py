@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.305 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.306 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -294,7 +294,7 @@ define("default_cookies",help="Semicolon-separated list of name=value cookies to
 define("headAppend",help="Code to append to the HEAD section of every HTML document that has a BODY. Use for example to add your own stylesheet links and scripts. Not added to documents that lack a BODY such as framesets.")
 define("headAppendCSS",help="URL of a stylesheet to add to the HEAD section of every HTML document that has a BODY.  This option automatically generates the LINK REL=... markup for it, and also tries to delete the string '!important' from other stylesheets, to emulate setting this stylesheet as a user CSS.  Additionally, it is not affected by --js-upstream as headAppend is.  You can also include one or more 'fields' in the URL, by marking them with %s and following the URL with options e.g. http://example.org/style%s-%s.css;1,2,3;A,B will allow combinations like style1-A.css or style3-B.css; in this case appropriate selectors are provided with the URL box (values may optionally be followed by = and a description), and any visitors who have not set their options will be redirected to the URL box to do so.")
 define("protectedCSS",help="A regular expression matching URLs of stylesheets with are \"protected\" from having their '!important' strings deleted by headAppendCSS's logic. This can be used for example if you are adding scripts to allow the user to choose alternate CSS files in place of headAppendCSS, and you wish the alternate CSS files to have the same status as the one supplied in headAppendCSS.")
-define("cssName",help="A name for the stylesheet specified in headAppendCSS, such as \"High Contrast\".  If cssName is set, then the headAppendCSS stylesheet will be marked as \"alternate\", with Javascript links at the bottom of the page for browsers that lack their own CSS switching options.  If cssName begins with a * then the stylesheet is switched on by default; if cssName is not set then the stylesheet (if any) is always on.")
+define("cssName",help="A name for the stylesheet specified in headAppendCSS, such as \"High Contrast\".  If cssName is set, then the headAppendCSS stylesheet will be marked as \"alternate\", with Javascript links at the bottom of the page for browsers that lack their own CSS switching options.  If cssName begins with a * then the stylesheet is switched on by default; if cssName begins with a # then the stylesheet is switched on by default only if the browser reports system dark mode; if cssName is not set then the stylesheet (if any) is always on.")
 define("cssNameReload",multiple=True,default="IEMobile 6,IEMobile 7,IEMobile 8,Opera Mini,Opera Mobi,rekonq,MSIE 5,MSIE 6,MSIE 7,MSIE 9,MSIE 10",help="List of (old) browsers that require alternate code for the cssName option, which is slower as it involves reloading the page on CSS switches.  Use this if the CSS switcher provided by cssName does nothing on your browser.")
 # cssNameReload: Opera Mini sometimes worked and sometimes didn't; maybe there were regressions at their proxy; JS switcher needs network traffic anyway on Opera Mini so we almost might as well use the reloading version (but in Spring 2014 they started having trouble with reload() AS WELL, see cssReload_cookieSuffix below)
 # Opera Mobile 10 on WM6.1 is fine with CSS switcher but it needs cssHtmlAttrs, TODO we might be able to have a list of browsers that require cssHtmlAttrs but not cssNameReload, add cssHtmlAttrs only if CSS is selected at time of page load, and make the 'off' switch remove them
@@ -5555,21 +5555,23 @@ window.onerror=function(msg,url,line){alert(msg); return true}
     if cssToAdd:
         # do this BEFORE options.headAppend, because someone might want to refer to it in a script in options.headAppend (although bodyPrepend is a better place to put 'change the href according to screen size' scripts, as some Webkit-based browsers don't make screen size available when processing the HEAD of the 1st document in the session)
         if options.cssName:
-          if options.cssName.startswith("*"): cssName = options.cssName[1:] # omit the *
+          if options.cssName.startswith("*") or options.cssName.startswith("#"): cssName = options.cssName[1:] # omit the * or #
           else: cssName = options.cssName
           if slow_CSS_switch:
               # alternate, slower code involving hard HTML coding and page reload (but still requires some JS)
               bodyAppend += B(reloadSwitchJS("adjustCssSwitch",jsCookieString,False,cssName,cookieHostToSet,cookieExpires))
               if options.cssName.startswith("*"): useCss = not "adjustCssSwitch=0" in jsCookieString
               else: useCss = "adjustCssSwitch=1" in jsCookieString
+              # we probably can't do an options.cssName.startswith("#") branch for the cssNameReload browsers (which are unlikely to report system dark mode anyway), so just fall back to default-off in this case
               if useCss:
                   headAppend += B('<link rel="stylesheet" type="text/css" href="%s"%s>' % (cssToAdd,link_close))
                   if attrsToAdd: html=addCssHtmlAttrs(html,attrsToAdd)
           else: # no slow_CSS_switch; client-side only CSS switcher using "disabled" attribute on the LINK element:
             headAppend += B("""<link rel="alternate stylesheet" type="text/css" id="adjustCssSwitch" title="%s" href="%s"%s>""" % (cssName,cssToAdd,link_close))
             # On some Webkit versions, MUST set disabled to true (from JS?) before setting it to false will work. And in MSIE9 it seems must do this from the BODY not the HEAD, so merge into the next script (also done the window.onload thing for MSIE; hope it doesn't interfere with any site's use of window.onload).  (Update: some versions of MSIE9 end up with CSS always-on, so adding these to default cssNameReload)
-            if options.cssName.startswith("*"): cond='document.cookie.indexOf("adjustCssSwitch=0")==-1'
-            else: cond='document.cookie.indexOf("adjustCssSwitch=1")>-1'
+            if options.cssName.startswith("*"): cond='document.cookie.indexOf("adjustCssSwitch=0")==-1' # CSS should be on by default, so un-disable the 'link rel' if we DON'T have a cookie saying it should be off
+            elif options.cssName.startswith("#"): cond='(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches)?document.cookie.indexOf("adjustCssSwitch=0")==-1:(document.cookie.indexOf("adjustCssSwitch=1")>-1)' # CSS should be on by default if system dark mode reported, in which case un-disable the 'link rel' if we don't have a cookie saying it should be off, otherwise un-disable it only if we have a cookie saying it should be on
+            else: cond='document.cookie.indexOf("adjustCssSwitch=1")>-1' # CSS should be off by default, so un-disable the 'link rel' only if we have a cookie saying it should be on
             bodyPrepend += B("""<script><!--
 if(document.getElementById) { var a=document.getElementById('adjustCssSwitch'); a.disabled=true; if(%s) {a.disabled=false;window.onload=function(e){a.disabled=true;a.disabled=false}} }
 //--></script>""" % cond)
