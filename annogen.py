@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.08 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.09 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -101,6 +101,9 @@ parser.add_option("--normalise-only",
                   default=False,
                   help="Exit after normalising the input")
 cancelOpt("normalise-only")
+
+parser.add_option("--post-normalise",
+                  help="Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This is meant for reducing the size of generated Android apps, and is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.")
 
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
@@ -535,6 +538,22 @@ if data_driven:
 elif javascript or python or dart: data_driven = True
 compact_opcodes = data_driven and not fast_assemble and not python # currently implemented only in the C, Java and Javascript versions of the data-driven runtime
 if java or javascript or python or c_sharp or golang or dart: c_compiler = None
+try: xrange # Python 2
+except: xrange,unichr,unicode = range,chr,str # Python 3
+if post_normalise:
+  if not (java and data_driven): errExit('--post-normalise currently requires --java and data-driven')
+  if type("")==type(u""): # Python 3 (this requires 3.5+, TODO: support 3.3/3.4 ?)
+    import importlib.util as iu
+    s = iu.spec_from_file_location("post.normalise", post_normalise)
+    post_normalise = iu.module_from_spec(s) ; s.loader.exec_module(post_normalise)
+  else: # Python 2
+    import imp
+    post_normalise = imp.load_source('post.normalise', post_normalise)
+  post_normalise = post_normalise.table
+  for k,v in list(post_normalise.items()):
+    if not (k<=0xFFFF and v<=0xFFFF and len(unichr(k).encode('utf-8'))==len(unichr(v).encode('utf-8'))): del post_normalise[k] # BMP only for now, and only mappings that don't change UTF-8 length so inBytes / origInBytes are sync'd
+  if type(u"")==type(""): post_normalise_translate = lambda x:x.translate(post_normalise) # Python 3 can use the dictionary as-is
+  else: post_normalise_translate = lambda u: u''.join(unichr(post_normalise.get(ord(i),ord(i))) for i in u) # as Python 2 .translate can take only len=256 (at least as documented; some versions can do more but not all tested), so we'd better write it out ourselves
 try:
   import locale
   terminal_charset = locale.getdefaultlocale()[1]
@@ -2291,7 +2310,26 @@ if (newClip && newClip != curClip) {
 </body></html>"""
 java_src = br"""package %%JPACKAGE%%;
 public class Annotator {
-public Annotator() { %%JDATA%% }
+public Annotator() { %%JDATA%%
+    addrLen = data[0] & 0xFF;"""
+if post_normalise: java_src += b"""
+    dPtr = 1; char[] compressedFreqs;
+    try {
+        compressedFreqs = new String(java.util.Arrays.copyOfRange(data,readAddr(),data.length), "UTF-16LE").toCharArray();
+    } catch (java.io.UnsupportedEncodingException e) {
+        // should never happen with UTF-16LE
+        return;
+    }
+    normalisationTable = new char[65536];
+    int maxRLE = compressedFreqs[0]; char w=0; // Java char is unsigned short
+    for(int cF=0; cF < compressedFreqs.length; cF++) {
+        if(compressedFreqs[cF] <= maxRLE) for(int j=0; j<compressedFreqs[cF]; j++) { normalisationTable[w]=w; w++; }
+        else normalisationTable[w++] = compressedFreqs[cF];
+    } while(w!=0) { normalisationTable[w]=w; w++; /* overflows to 0 */ }
+}
+char[] normalisationTable; byte[] origInBytes;"""
+else: java_src += b"}"
+java_src += br"""
 int nearbytes;
 byte[] inBytes;
 public int inPtr,writePtr; boolean needSpace;
@@ -2461,16 +2499,24 @@ if existing_ruby_shortcut_yarowsky: java_src += br"""
   boolean old_snt = shortcut_nearTest;
   if(txt.length() < 2) shortcut_nearTest=false;
 """
+if post_normalise: java_src += br"""
+  origInBytes=s2b(txt); char[] tmp=txt.toCharArray(); for(int i=0; i<tmp.length; i++) tmp[i]=normalisationTable[tmp[i]]; txt=new String(tmp);
+"""
 java_src += br"""
   nearbytes=%%YBYTES%%;inBytes=s2b(txt);writePtr=0;needSpace=false;outBuf=new java.io.ByteArrayOutputStream();inPtr=0;
   while(inPtr < inBytes.length) {
     int oldPos=inPtr; """
-if data_driven: java_src = java_src.replace(b"annotate(String txt)",b"annotate(String txt) throws java.util.zip.DataFormatException")+b"dPtr=1; readData();"
+if data_driven:
+  java_src = java_src.replace(b"annotate(String txt)",b"annotate(String txt) throws java.util.zip.DataFormatException")
+  if post_normalise: java_src += b"dPtr=1+addrLen;" # after byte nBytes, we'll have address of normalisation table, and then the bytecode itself
+  else: java_src += b"dPtr=1;" # just byte nBytes needs to be skipped
+  java_src += b"readData();"
 else: java_src += b"%%JPACKAGE%%.topLevelMatch.f(this);"
 java_src += br"""
     if (oldPos==inPtr) { needSpace=false; o(nB()); writePtr++; }
   }
   String ret=null; try { ret=new String(outBuf.toByteArray(), "UTF-8"); } catch(java.io.UnsupportedEncodingException e) {}"""
+if post_normalise: java_src = java_src.replace(b"inBytes[writePtr",b"origInBytes[writePtr").replace(b"o(nB()); writePtr++;",b"inPtr++; o(origInBytes[writePtr++]);")
 if existing_ruby_shortcut_yarowsky: java_src += b"shortcut_nearTest=old_snt;"
 java_src += br"""
   inBytes=null; outBuf=null; return ret;
@@ -2485,7 +2531,6 @@ i.setInput(data);
 byte[] decompressed=new byte[%%ULEN%%];
 i.inflate(decompressed); i.end(); data = decompressed;
 """
-android_loadData += b"addrLen = data[0] & 0xFF;"
 
 if os.environ.get("ANNOGEN_CSHARP_NO_MAIN",""):
   cSharp_mainNote = b""
@@ -2789,9 +2834,6 @@ func Annotate(src io.Reader, dest io.Writer) {
 if js_6bit: js_6bit_offset = 35 # any offset between 32 and 63 makes all printable, but 35+ avoids escaping of " at 34 (can't avoid escaping of \ though, unless have a more complex decoder), and low offsets increase the range of compact-switchbyte addressing also.
 else: js_6bit_offset = 0
 
-try: xrange # Python 2
-except: xrange,unichr,unicode = range,chr,str # Python 3
-
 class BytecodeAssembler:
   # Bytecode for a virtual machine run by the Javascript version etc
   opcodes = {
@@ -2976,8 +3018,25 @@ class BytecodeAssembler:
                 else: self.addRef(l2l[j])
             else: self.l.append(i) # str or tuple just cp
     del self.d2l
+    if post_normalise: # must be AFTER d2l, as EOF is used to end it
+      normLabel = self.makeLabel()
+      self.l.insert(0,-normLabel)
+      self.l.append(normLabel)
+      bmp = [(k,v) for k,v in sorted(post_normalise.items())]
+      maxRLE = min(bmp[0][0],min(v for k,v in bmp))-1
+      assert maxRLE >= 0, "can't have a mapping to 0"
+      curPtr = 0
+      def lsbmsb(i): return B(chr(i&0xFF)+chr(i>>8))
+      for i in xrange(len(bmp)):
+        delta = bmp[i][0]-curPtr
+        while delta:
+          skip = min(delta,maxRLE)
+          self.l.append(lsbmsb(skip))
+          delta -= skip ; curPtr += skip
+        self.l.append(lsbmsb(bmp[i][1]))
+        curPtr += 1
     # elements of self.l are now:
-    # - strings (just copied in)
+    # - (byte) strings (just copied in)
     # - positive integers (labels for code)
     # - negative integers (references to labels)
     # - +ve or -ve integers in tuples (labels for functions and text strings: different 'namespace')
@@ -4949,12 +5008,25 @@ def outputParser(rulesAndConds):
       except: continue # can't do this one
       byteSeq_to_action_dict[openQuote] = [(copyBytes(len(openQuote),checkNeedspace=True),[])]
     def addRule(rule,conds,byteSeq_to_action_dict,manualOverride=False):
-        byteSeq = markDown(rule).encode(outcode)
-        action,gotAnnot = matchingAction(rule,glossDic,glossMiss,whitelist,blacklist)
-        if not gotAnnot: return # not whitelisted, or some spurious o("{","") rule that got in due to markup corruption
-        if manualOverride or not byteSeq in byteSeq_to_action_dict: byteSeq_to_action_dict[byteSeq] = []
-        if not data_driven: action = b' '.join(action)
-        byteSeq_to_action_dict[byteSeq].append((action,conds))
+      md = md2 = markDown(rule)
+      if post_normalise:
+        md2 = post_normalise_translate(md)
+        byteSeq = md2.encode(outcode)
+        if type(conds)==tuple: conds=(conds[0],map(post_normalise_translate,conds[1]),conds[2])
+        else: conds=map(post_normalise_translate,conds)
+      else: byteSeq = md.encode(outcode)
+      action,gotAnnot = matchingAction(rule,glossDic,glossMiss,whitelist,blacklist)
+      if not gotAnnot: return # not whitelisted, or some spurious o("{","") rule that got in due to markup corruption
+      if manualOverride or not byteSeq in byteSeq_to_action_dict:
+        byteSeq_to_action_dict[byteSeq] = []
+      elif post_normalise:
+        if (action,conds) in byteSeq_to_action_dict[byteSeq]: return # exact duplicate after post-normalisation
+        elif any(x[1]==conds for x in byteSeq_to_action_dict[byteSeq]): # near-duplicate: same conds, different action
+          if md==md2: # this is the rule that DIDN'T have to be post-normalised, so its action should take priority
+            byteSeq_to_action_dict[byteSeq] = [x for x in byteSeq_to_action_dict[byteSeq] if not x[1]==conds]
+          else: return # other one probably has priority
+      if not data_driven: action = b' '.join(action)
+      byteSeq_to_action_dict[byteSeq].append((action,conds))
     def dryRun(clearReannotator=True): # to prime the reannotator or compressor
       global toReannotateSet, reannotateDict
       toReannotateSet = set()
@@ -5046,7 +5118,7 @@ def outputParser(rulesAndConds):
       if data_driven:
         a = android_loadData.replace(b"%%DLEN%%",B(str(len(ddrivn))))
         if zlib: a = a.replace(b"%%ULEN%%",B(str(origLen)))
-        start = start.replace(b"() { %%JDATA%% }",b"(android.content.Context context) throws java.io.IOException { "+a+b" }") # Annotator c'tor needs a context argument if it's data-driven, to load annotate.dat
+        start = start.replace(b"() { %%JDATA%%",b"(android.content.Context context) throws java.io.IOException { "+a) # Annotator c'tor needs a context argument if it's data-driven, to load annotate.dat
         if zlib: start = start.replace(b"context) throws java.io.IOException {",b"context) throws java.io.IOException,java.util.zip.DataFormatException {")
       else: start = start.replace(b"%%JDATA%%",b"")
     elif c_sharp: start = cSharp_start
