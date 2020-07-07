@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.1 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.11 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -4219,7 +4219,22 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
         yield True ; return
     run_in_background = canBackground and len(okStarts) > 500 and executor # In a test with 300, 500, 700 and 900, the 500 threshold was fastest on concurrent.futures, but by just a few seconds.  TODO: does mpi4py.futures have a different 'sweet spot' here? (low priority unless we can get MPI to outdo concurrent.futures in this application)
     may_take_time = canBackground and len(okStarts) > 1000
-    if may_take_time: getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),cond(run_in_background,"backgrounding","could take some time"))).encode(terminal_charset,'replace'))
+    if may_take_time:
+      getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),cond(run_in_background,"backgrounding","could take some time"))).encode(terminal_charset,'replace'))
+      if len(badStarts) <= yarowsky_debug:
+       global yarowsky_debug_ok,yarowsky_debug_file
+       try: yarowsky_debug_ok
+       except:
+        try: yarowsky_debug_ok=set(splitWords(openfile("allow-exceptions.txt").read().decode(terminal_charset)))
+        except IOError: yarowsky_debug_ok=set()
+       if withAnnot_unistr not in yarowsky_debug_ok:
+        try: yarowsky_debug_file
+        except:
+          yarowsky_debug_file = openfile('yarowsky-debug.txt','w')
+          getBuf(sys.stderr).write(bold_on+"yarowsky-debug: writing copy to yarowsky-debug.txt"+bold_off+"\n")
+          yarowsky_debug_file.write("Put any of the following first-of-line words into allow-exceptions.txt to avoid being alerted here next time.\n\n")
+        yarowsky_debug_file.write((u"%s has %d matches + %s\n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))).encode(terminal_charset,'replace'))
+        yarowsky_debug_file.flush() # in case interrupted
     if run_in_background:
       job = executor.submit(yarowsky_indicators_wrapped,withAnnot_unistr) # recalculate the above on the other CPU in preference to passing, as memory might not be shared
       yield "backgrounded" ; yield job.result() ; return
@@ -4375,7 +4390,7 @@ def cond(a,b,c):
   if a: return b
   else: return c
 
-def badInfo(badStarts,nonAnnot):
+def badInfo(badStarts,nonAnnot,for_tty=True):
   ret = u"%d false positive" % len(badStarts)
   if not len(badStarts)==1: ret += "s"
   if len(badStarts) > yarowsky_debug: return ret
@@ -4394,7 +4409,8 @@ def badInfo(badStarts,nonAnnot):
     else: contextStart = max(0,wordStart - 15) # This might cut across markup, but better that than failing to report the original corpus and making it look like the words might not have "lined up" when actually they did.  Might also just cut into surrounding non-markup text (if the above loop simply couldn't find anything near enough because such text was in the way).
     if newCEnd in m2c_map: contextEnd = m2c_map[newCEnd]
     else: contextEnd = wordEnd + 15 # ditto
-   ret += (u" (%s%s%s%s%s)" % (toRead[contextStart:wordStart],reverse_on,toRead[wordStart:wordEnd],reverse_off,toRead[wordEnd:contextEnd])).replace("\n","\\n").replace("\r","\\r")
+   if for_tty: ret += (u" (%s%s%s%s%s)" % (toRead[contextStart:wordStart],reverse_on,toRead[wordStart:wordEnd],reverse_off,toRead[wordEnd:contextEnd])).replace("\n","\\n").replace("\r","\\r")
+   else: ret += (u" (%s <<%s>> %s)" % (toRead[contextStart:wordStart],toRead[wordStart:wordEnd],toRead[wordEnd:contextEnd])).replace("\n","\\n").replace("\r","\\r")
   return ret
 
 def unique_substrings(texts,allowedChars,omitFunc,valueFunc):
@@ -4896,8 +4912,8 @@ def allVarsW(unistr):
         for vr in allVarsW(unistr[i+1:]):
           yield unistr[:i]+v+vr ; vRest.append(vr)
 
-def matchingAction(rule,glossDic,glossMiss,whitelist,blacklist):
-  # called by addRule in outputParser, returns (actionList, did-we-actually-annotate).  Also applies reannotator and compression (both of which will require 2 passes if present).  whitelist and blacklist are words, from glossmiss-omit and words-omit.
+def matchingAction(rule,glossDic,glossMiss,glosslist,omitlist):
+  # called by addRule in outputParser, returns (actionList, did-we-actually-annotate).  Also applies reannotator and compression (both of which will require 2 passes if present)
   action = []
   gotAnnot = False
   for w in splitWords(rule):
@@ -4907,10 +4923,10 @@ def matchingAction(rule,glossDic,glossMiss,whitelist,blacklist):
     mStart = wEnd+len(markupMid)
     annotation_unistr = w[mStart:w.index(markupEnd,mStart)]
     if mreverse: text_unistr,annotation_unistr = annotation_unistr,text_unistr
-    if whitelist and not text_unistr in whitelist:
-      return text_unistr+" not whitelisted",None
-    elif text_unistr in blacklist:
-      return text_unistr+" blacklisted",None
+    if glosslist and not text_unistr in glosslist:
+      return text_unistr+" not glosslisted",None
+    elif text_unistr in omitlist:
+      return text_unistr+" omitlisted",None
     gloss = glossDic.get((text_unistr,annotation_unistr),glossDic.get(text_unistr,None))
     if gloss_closure and not gloss and not w in glossMiss:
       for t2 in allVarsW(text_unistr):
@@ -4963,7 +4979,7 @@ def matchingAction(rule,glossDic,glossMiss,whitelist,blacklist):
   return action,gotAnnot
 
 def readGlossfile():
-    glossDic = {} ; glossMiss = set() ; whitelist = set()
+    glossDic = {} ; glossMiss = set() ; glosslist = set()
     if glossfile:
         for l in openfile(glossfile):
             if not l.strip(): continue
@@ -4974,11 +4990,11 @@ def readGlossfile():
               if glossmiss_omit: pass # they can list words without glosses; no error if missing \t
               else: getBuf(sys.stderr).write(("Gloss: Ignoring incorrectly-formatted line "+l.strip()+"\n").encode(terminal_charset))
             word,annot,gloss = word.strip(),annot.strip(),gloss.strip().replace("\t","\n")
-            if glossmiss_omit and word: whitelist.add(word)
+            if glossmiss_omit and word: glosslist.add(word)
             if not word or not gloss: continue
             if annot: glossDic[(word,annot)] = gloss
             else: glossDic[word] = gloss
-    return glossDic,glossMiss,whitelist
+    return glossDic,glossMiss,glosslist
 
 def copyBytes(n,checkNeedspace=False): # needSpace unchanged for ignoreNewlines etc; checkNeedspace for open quotes
     if checkNeedspace:
@@ -4990,9 +5006,9 @@ def copyBytes(n,checkNeedspace=False): # needSpace unchanged for ignoreNewlines 
     else: return br"c(%d);" % n
 
 def outputParser(rulesAndConds):
-    glossDic, glossMiss, whitelist = readGlossfile()
-    if words_omit: blacklist=set(w.strip() for w in openfile(words_omit).read().decode(incode).split('\n')) # TODO: glosscode?
-    else: blacklist = []
+    glossDic, glossMiss, glosslist = readGlossfile()
+    if words_omit: omitlist=set(w.strip() for w in openfile(words_omit).read().decode(incode).split('\n')) # TODO: glosscode?
+    else: omitlist = []
     sys.stderr.write("Generating byte cases...\n")
     byteSeq_to_action_dict = {}
     if ignoreNewlines: # \n shouldn't affect needSpace
@@ -5015,8 +5031,8 @@ def outputParser(rulesAndConds):
         if type(conds)==tuple: conds=(conds[0],map(post_normalise_translate,conds[1]),conds[2])
         else: conds=map(post_normalise_translate,conds)
       else: byteSeq = md.encode(outcode)
-      action,gotAnnot = matchingAction(rule,glossDic,glossMiss,whitelist,blacklist)
-      if not gotAnnot: return # not whitelisted, or some spurious o("{","") rule that got in due to markup corruption
+      action,gotAnnot = matchingAction(rule,glossDic,glossMiss,glosslist,omitlist)
+      if not gotAnnot: return # not glosslisted, or some spurious o("{","") rule that got in due to markup corruption
       if manualOverride or not byteSeq in byteSeq_to_action_dict:
         byteSeq_to_action_dict[byteSeq] = []
       elif post_normalise:
