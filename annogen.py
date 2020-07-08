@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.11 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.12 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -357,6 +357,7 @@ parser.add_option("--max-words",default=0,
 
 parser.add_option("--checkpoint",help="Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.")
 # (Condor can checkpoint an application on Win/Mac/Linux but is awkward to set up.  Various Linux and BSD application checkpoint approaches also exist, and virtual machines can have their state saved.  On the other hand the physical machine might have a 'hibernate' option which is easier.)
+parser.add_option("--checkpoint-period",default=1000,help="Approximate number of seconds between checkpoints (default %default).  Setting this to 0 disables periodic checkpoints but still allows use of checkpoint directory for concurrency or ExitASAP processing.")
 
 parser.add_option("-d","--diagnose",help="Output some diagnostics for the specified word. Use this option to help answer \"why doesn't it have a rule for...?\" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).")
 parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: %default")
@@ -405,6 +406,7 @@ def warn(msg):
   # else it should have already been written
 if "PyPy" in sys.version: warn("with annogen, PyPy is likely to run 60% slower than python") # (not to mention concurrent.futures being less likely to be available)
 
+if checkpoint_period: checkpoint_period=int(checkpoint_period)
 if primitive and ybytes: warn("primitive will override ybytes")
 if ybytes: ybytes=int(ybytes)
 if ybytes_max: ybytes_max=int(ybytes_max)
@@ -1692,7 +1694,7 @@ if(typeof modeNames!='undefined'){document.write('<div style="float:right; text-
 android_url_box += br"""
 var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<div id=insecure style=\"clear: both; background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></div>");
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)) document.forms[document.forms.length-1].url.value=c</script>"""
-android_url_box += '<div style="clear:both"></div></div>' # make sure to clear the floats before ending the div if div#insecure is not displayed
+android_url_box += b'<div style="clear:both"></div></div>' # make sure to clear the floats before ending the div if div#insecure is not displayed
 if android_template: android_template = android_template.replace(b"URL_BOX_GOES_HERE",android_url_box)
 android_version_stamp = br"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue. Compile time %%TIME%%\')}" ':'')+'>%%DATE%% version</address>')</script>"""
 android_src = br"""package %%JPACKAGE%%;
@@ -4763,7 +4765,7 @@ def analyse():
           backgrounded = []
           phraseNo += 1 ; continue
         if toCover:
-          if checkpoint and (checkpoint_exit(0) or time.time() >= lastCheckpoint + 1000): # TODO: configurable?
+          if checkpoint and (checkpoint_exit(0) or (checkpoint_period and time.time() >= lastCheckpoint + checkpoint_period)):
             sys.stderr.write("Checkpointing..."+clear_eol)
             sys.stderr.flush()
             for b in backgrounded: # flush (TODO: duplicate code)
@@ -4800,21 +4802,19 @@ def read_manual_rules():
 
 def test_manual_rules():
     for l in read_manual_rules():
-      for s in re.finditer(re.escape(markupStart), l):
-        # this loop is to prevent KeyError in getOkStarts
-        s=s.start()
-        e=l.find(markupEnd,s)
-        if e>-1:
-          e += len(markupEnd)
-          k = l[s:e]
-          if k not in precalc_sets: precalc_sets[k]=set()
+      words = splitWords(l)
+      # Prevent KeyError in getOkStarts:
+      for w in words:
+        if w not in precalc_sets: precalc_sets[w]=set()
+      # Call test_rule:
       yb = []
       if not getNext(test_rule(l,yb)) or len(yb):
         getBuf(sys.stderr).write(("\nWARNING: Manual rule '%s' may contradict the examples. " % l).encode(terminal_charset))
-        global diagnose,diagnose_limit,ybytes
-        od,odl,oy,diagnose,diagnose_limit,ybytes = diagnose,diagnose_limit,ybytes,markDown(l),0,ybytes_max
-        getNext(test_rule(l,[]))
-        diagnose,diagnose_limit,ybytes = od,odl,oy
+        if len(words)==1:
+          global diagnose,diagnose_limit,ybytes
+          od,odl,oy,diagnose,diagnose_limit,ybytes = diagnose,diagnose_limit,ybytes,markDown(l),0,ybytes_max
+          getNext(test_rule(l,[]))
+          diagnose,diagnose_limit,ybytes = od,odl,oy
 
 def java_escape(unistr):
   ret = []

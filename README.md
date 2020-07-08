@@ -1044,6 +1044,10 @@ Options:
 `
  : Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.
 
+`--checkpoint-period=CHECKPOINT_PERIOD
+`
+ : Approximate number of seconds between checkpoints (default 1000).  Setting this to 0 disables periodic checkpoints but still allows use of checkpoint directory for concurrency or ExitASAP processing.
+
 `-d DIAGNOSE, `--diagnose`=DIAGNOSE
 `
  : Output some diagnostics for the specified word. Use this option to help answer "why doesn't it have a rule for...?" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).
