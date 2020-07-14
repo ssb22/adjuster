@@ -901,7 +901,7 @@ Options:
 
 `--delete-existing-ruby
 `
- : Set the Android browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. This overrides `--existing-ruby-js-fixes`.
+ : Set the Android browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply `--existing-ruby-js-fixes` and/or `--existing-ruby-shortcut-yarowsky`, then `--delete-existing-ruby` specifies that only the first `--sharp-multi` option should have existing ruby preserved.
 
 `--existing-ruby-shortcut-yarowsky
 `

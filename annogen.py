@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.12 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.13 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -249,7 +249,7 @@ parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).")
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
-parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. This overrides --existing-ruby-js-fixes.")
+parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply --existing-ruby-js-fixes and/or --existing-ruby-shortcut-yarowsky, then --delete-existing-ruby specifies that only the first --sharp-multi option should have existing ruby preserved.")
 parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
 parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android browser app. You may also specify a file to read --extra-css=@file.css")
 parser.add_option("--app-name",default="Annotating browser",
@@ -571,7 +571,6 @@ if android_urls:
 else: android_urls = "" # so it can still be .split()
 if existing_ruby_shortcut_yarowsky:
   if not (android and ybytes and glossfile): errExit("--existing-ruby-shortcut-yarowsky makes sense only when generating an Android app with both ybytes and glossfile set")
-  if delete_existing_ruby: errExit("--existing-ruby-shortcut-yarowsky and --delete-existing-ruby are mutually exclusive")
   if not data_driven: errExit("Current implementation of --existing-ruby-shortcut-yarowsky requires --data-driven") # (it doesn't have to, but doing so without would require it to be put into the non-datadriven n() test, and as we're probably turning on zlib for Android apps anyway, we might as well implement only for data-driven)
 def T(s):
   if type(s)==type(u""): return s # Python 3
@@ -1435,7 +1434,9 @@ def jsAnnot():
     if(!inRuby) for(c=n.firstChild; c; c=c.nextSibling) if(c.nodeType==1 && c.nodeName=='RUBY') { nf=true; break; }
     var nReal = n; if(nf) {"""
   r += b"n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
-  if delete_existing_ruby: r += br"""n.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'')"""
+  if delete_existing_ruby:
+    if existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"if(!ssb_local_annotator.getAnnotNo()){%s} else " % (B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
+    r += br"""n.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'')"""
   else: r += B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"')
   r += br"""
     }
@@ -1461,6 +1462,7 @@ def jsAnnot():
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
             if("""
   if not delete_existing_ruby: r += b"!nf &&"
+  elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!ssb_local_annotator.getAnnotNo()) &&" # TODO: or just leave it as "!nf &&" in all 'MAY have existing ruby' cases?  check the 'fix' would still work if we go down this branch even if nf, i.e. is !nf just an optimisation?
   r += br"""!inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
   if existing_ruby_shortcut_yarowsky: r += br"""
             var setR=false; if(!inRuby) {setR=(c.nodeName=='RUBY');if(setR)ssb_local_annotator.setYShortcut(true)}
@@ -1474,22 +1476,28 @@ def jsAnnot():
       cP=c; c=cNext;
       if("""
   if not delete_existing_ruby: r += b"!nf &&"
+  elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!ssb_local_annotator.getAnnotNo()) &&" # TODO: same as above
   r += br"""!inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling); /* space after the inline link or em etc */
     }"""
-  if delete_existing_ruby: r += b"if(nf) nReal.parentNode.replaceChild(n,nReal);"
-  else: r += br"""
+  if delete_existing_ruby and not (existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky): r += b"if(nf) nReal.parentNode.replaceChild(n,nReal);"
+  else:
+    r += br"""
     /* 3. Batch-fix any damage we did to existing ruby.
        Keep new titles; normalise the markup so our 3-line option still works.
        (TODO: this throws away hints at glossfile middle column e.g. chai1 vs cha4.  But only for the gloss line, and we do have an 'incomplete' warning.  Passing context in to every annotation call in an existing ruby could slow things down considerably.)
        Also ensure all ruby is space-separated like ours,
        so our padding CSS overrides don't give inconsistent results */
-    if(nf) {
+    if(nf) {"""
+    if delete_existing_ruby: r += b"""
+        if(!ssb_local_annotator.getAnnotNo()) {"""
+    r += br"""
         nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
-        if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}
-    }"""
+        if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}"""
+    if delete_existing_ruby: r += b"""} else nReal.parentNode.replaceChild(n,nReal)"""
+    r += b"}" # if nf
   r += b"}"
   r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
-  assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot param '
+  assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot param'
   return r
 
 if windows_clipboard: c_end += br"""
