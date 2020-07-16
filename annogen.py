@@ -4810,7 +4810,7 @@ def read_manual_rules():
 
 def test_manual_rules():
     for l in read_manual_rules():
-      words = splitWords(l)
+      words = list(splitWords(l))
       # Prevent KeyError in getOkStarts:
       for w in words:
         if w not in precalc_sets: precalc_sets[w]=set()
