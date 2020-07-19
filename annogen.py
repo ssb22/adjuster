@@ -23,6 +23,7 @@ program_name = "Annotator Generator v3.13 (c) 2012-20 Silas S. Brown"
 # and on GitHub at https://github.com/ssb22/adjuster
 # and on GitLab at https://gitlab.com/ssb22/adjuster
 # and on BitBucket https://bitbucket.org/ssb22/adjuster
+# and at https://gitlab.developers.cam.ac.uk/ssb22/adjuster
 # although some early ones are missing.
 
 from optparse import OptionParser
