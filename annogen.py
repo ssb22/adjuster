@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.13 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.131 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1705,7 +1705,7 @@ var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) d
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)) document.forms[document.forms.length-1].url.value=c</script>"""
 android_url_box += b'<div style="clear:both"></div></div>' # make sure to clear the floats before ending the div if div#insecure is not displayed
 if android_template: android_template = android_template.replace(b"URL_BOX_GOES_HERE",android_url_box)
-android_version_stamp = br"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue. Compile time %%TIME%%\')}" ':'')+'>%%DATE%% version</address>')</script>"""
+android_version_stamp = br"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue. Compile time %%TIME%%\')}" ':'')+'>%%DATE%% version</address>')</script>""" # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line.  Time available in developer mode as might have more than one alpha release per day and want to check got latest.
 android_src = br"""package %%JPACKAGE%%;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
@@ -3115,7 +3115,7 @@ class BytecodeAssembler:
                             src[count+2]=b''.join(mv(ord(x)) for x in S(src[count+2]))
                             i = B(chr(ord(src[count+1])+91)) # and a printable opcode
                           else: i = B(chr(ord(src[count+1])+108)) # can't make the match bytes printable, but at least we can have a printable opcode 108-127 for short switchbyte in Javascript or Dart
-                        else: i = B(src[count+1]) # 0-19 for short switchbyte in C,Java,Python
+                        else: i = B(src[count+1]) # 0-19 for short switchbyte in C,Java (Python doesn't yet use opcode compaction)
                         src[count] = i = i+src[count+2]+b''.join(B(chr(LGet(src[count+N],origOperandsLen)+js_6bit_offset)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
                         for ctd in xrange(count+1,count+3+numLabels): counts_to_del.add(ctd)
                         newOperandsLen = numItems*2 # for each byte, the byte itself and an offset, + 1 more offset as default, - 1 because first is not given
@@ -5016,7 +5016,9 @@ def copyBytes(n,checkNeedspace=False): # needSpace unchanged for ignoreNewlines 
 
 def outputParser(rulesAndConds):
     glossDic, glossMiss, glosslist = readGlossfile()
-    if words_omit: omitlist=set(w.strip() for w in openfile(words_omit).read().decode(incode).split('\n')) # TODO: glosscode?
+    if words_omit:
+      omitlist=set(w.strip() for w in openfile(words_omit).read().decode(incode).split('\n')) # TODO: glosscode?
+      if diagnose and diagnose in omitlist: diagnose_write(diagnose+" is in words_omit file")
     else: omitlist = []
     sys.stderr.write("Generating byte cases...\n")
     byteSeq_to_action_dict = {}
@@ -5172,7 +5174,13 @@ def outputParser(rulesAndConds):
       open(java+os.sep+"MainActivity.java","wb").write(android_src.replace(b"%%JPACKAGE%%",B(jPackage)).replace(b'%%ANDROID-URL%%',B(android)))
       open(java+os.sep+"BringToFront.java","wb").write(android_bringToFront.replace(b"%%JPACKAGE%%",B(jPackage)))
       open(jSrc+"/../assets/clipboard.html",'wb').write(android_clipboard)
-      if android_template: open(jSrc+"/../assets/index.html",'wb').write(android_template.replace(b"</body",android_version_stamp.replace(b"%%DATE%%",b"%d-%02d-%02d" % time.localtime()[:3]).replace(b"%%TIME%%",b"%d:%02d" % time.localtime()[3:5])+b"</body")) # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line.  Time available in developer mode as might have more than one alpha release per day and want to check got latest.
+      if android_template:
+        aStamp = android_version_stamp
+        try: versionName = re.findall(B(re.escape("versionName")+r'\s*=\s*"([^"]*)"'),open(jSrc+"/../AndroidManifest.xml",'rb').read())[0]
+        except: versionName = None
+        if versionName: aStamp = aStamp.replace(b"%%DATE%% version",b"%%DATE%% version "+versionName)
+        aTemp = android_template.replace(b"</body",aStamp.replace(b"%%DATE%%",b"%d-%02d-%02d" % time.localtime()[:3]).replace(b"%%TIME%%",b"%d:%02d" % time.localtime()[3:5])+b"</body")
+        open(jSrc+"/../assets/index.html",'wb').write(aTemp)
       update_android_manifest()
       open(jSrc+"/../res/layout/activity_main.xml","wb").write(android_layout)
       open(jSrc+"/../res/menu/main.xml","wb").write(b'<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
