@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.131 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.132 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1751,7 +1751,17 @@ public class MainActivity extends Activity {
         // Delete the following line if you DON'T want full screen:
         requestWindowFeature(android.view.Window.FEATURE_NO_TITLE); getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
         // ---------------------------------------------
-        setContentView(R.layout.activity_main);
+        try {
+            setContentView(R.layout.activity_main);
+        } catch (android.view.InflateException e) {
+            // this can occur if "Android System Webview" on Android 5 happens to be in the process of updating, see Chromium bug 506369
+            android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(this); d.setTitle("Cannot start WebView"); d.setMessage("Your device may be updating WebView. Close this app and try again in a few minutes."); d.setPositiveButton("Bother",null);
+            try { d.create().show(); }
+            catch(Exception e0) {
+                Toast.makeText(this, "Cannot start WebView. Close and try when system update finished.",Toast.LENGTH_LONG).show();
+            }
+            return; // TODO: close app after dialog dismissed? (setNegativeButton?) currently needs Back pressed
+        }
         browser = (WebView)findViewById(R.id.browser);
         // ---------------------------------------------
         // Delete the following line if you DON'T want to be able to use chrome://inspect in desktop Chromium when connected via USB to Android 4.4+
@@ -2187,6 +2197,7 @@ android_src += br"""
         super.onNewIntent(intent); handleIntent(intent);
     }
     boolean handleIntent(Intent intent) {
+        if(browser==null) return false;
         if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
             sentText = intent.getStringExtra(Intent.EXTRA_TEXT);
             if (sentText == null) return false;
@@ -2250,7 +2261,7 @@ android_src += br"""
                 nextBackHides = false;
                 if(moveTaskToBack(true)) return true;
             }
-            if (browser.canGoBack()) {
+            if (browser!=null && browser.canGoBack()) {
                 final String fwdUrl=browser.getUrl();
                 browser.goBack();
                 needJsCommon=3;
@@ -2283,7 +2294,7 @@ android_src += br"""
         }
         return "";
     }
-    @Override protected void onSaveInstanceState(Bundle outState) { browser.saveState(outState); }
+    @Override protected void onSaveInstanceState(Bundle outState) { if(browser!=null) browser.saveState(outState); }
     @Override protected void onDestroy() { if(isFinishing() && AndroidSDK<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
     @SuppressWarnings("deprecation") // we use Build.VERSION.SDK only if we're on an Android so old that SDK_INT is not available:
     int AndroidSDK = (android.os.Build.VERSION.RELEASE.startsWith("1.") ? Integer.valueOf(Build.VERSION.SDK) : Build.VERSION.SDK_INT);
