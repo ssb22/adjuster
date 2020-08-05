@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.132 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.133 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1416,6 +1416,7 @@ def jsAnnot():
   function all_frames_docs(c) {
     /* Call function c on all documents in the window */
     var f=function(w) {
+      try{w.document}catch(E){return} /* (cross-domain issues?) */
       if(w.frames && w.frames.length) {
         var i; for(i=0; i<w.frames.length; i++)
           f(w.frames[i]) }

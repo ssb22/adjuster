@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.306 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.307 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -4687,7 +4687,7 @@ function HTMLSizeChanged(callback) {
   stFunc(); var m=window.MutationObserver||window.WebKitMutationObserver; if(m) new m(function(mut,obs){obs.disconnect();if(window.sizeChangedLoop==me)callback()}).observe(document.body,{childList:true,subtree:true})
 }
 var texts,tLen,oldTexts,otPtr,replacements;
-function all_frames_docs(c) { var f=function(w){if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }
+function all_frames_docs(c) { var f=function(w){try{w.document}catch(E){return}if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) f(w.frames[i]) } c(w.document) }; f(window) }
 function tw0() {
   texts = new Array(); tLen=0;
   otPtr=0; all_frames_docs(function(d){walk(d,d)}) }
