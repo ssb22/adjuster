@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.307 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.308 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -6025,6 +6025,7 @@ class Dynamic_DNS_updater:
                 if not self.aggressive_mode:
                     logging.info("ip_query_url got error, starting ip_query_aggressive")
                     self.aggressive_mode = True
+                    global pimote_may_need_override ; pimote_may_need_override = True # in case we're running that as well and it fails to detect the router issue via its own DNSRequest (happened once on Zyxel AMG1302-T11C: upnp stopped, connectivity stopped so got here, even DHCP stopped but somehow DNSRequest kept going without returning the internal-only IP or error, so better put this path in too)
                 return self.queryIP()
             IOLoopInstance().add_timeout(time.time()+options.ip_check_interval,lambda *args:self.queryLocalIP())
         doCallback(None,MyAsyncHTTPClient().fetch,handleResponse,options.ip_query_url)
@@ -6054,6 +6055,7 @@ class Dynamic_DNS_updater:
             else: logging.info("ip_change_command succeeded for "+ip)
         threading.Thread(target=retry,args=(sp,)).start()
 
+pimote_may_need_override=False
 def pimote_thread():
     routerIP, ispDomain, internalResponse, deviceNo = options.pimote.split(',')
     try: deviceNo = int(deviceNo)
@@ -6069,14 +6071,17 @@ def pimote_thread():
     def t():
       lastOK = True
       helper_threads.append('PiMote')
+      global pimote_may_need_override
       while options.pimote:
-        try:
+        if pimote_may_need_override: ok=False
+        else:
+          try:
             r = DNS.DnsRequest(server=routerIP,timeout=5).req(name=ispDomain,qtype="A")
-            ok = not(any(i['data']==internalResponse for i in r.answers))
-        except: ok = False
+            ok = r.answers and not(any(i['data']==internalResponse for i in r.answers))
+          except: ok = False
         if ok or lastOK:
             for i in xrange(30): # TODO: configurable?
-                if options.pimote: time.sleep(1)
+                if options.pimote and not pimote_may_need_override: time.sleep(1)
                 else: break
             lastOK = ok ; continue
         logging.info("PiMote: power-cycling the router")
@@ -6093,6 +6098,7 @@ def pimote_thread():
                 w(25,0) # stop TX
                 time.sleep(1)
         time.sleep(99) # give it time to start up before we test it again
+        pimote_may_need_override = False
       helper_threads.remove('PiMote')
     threading.Thread(target=t,args=()).start()
 
