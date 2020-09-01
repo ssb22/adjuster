@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.133 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.134 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1646,7 +1646,7 @@ if epub: android_manifest += br"""<uses-permission android:name="android.permiss
 # so I would imagine the permission doesn't need activating on Android 8, but
 # for completeness we need to test Android 6 and Android 7 somehow (TODO)
 android_manifest += br"""
-<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="28" />
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="29" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" android:networkSecurityConfig="@xml/network_security_config" >
 <service android:name=".BringToFront" android:exported="false"/>
@@ -2135,9 +2135,10 @@ if epub: android_src += br"""
                                     int bufSize=2048;
                                     if(ze.getSize()==-1) {
                                         f=new ByteArrayOutputStream();
+                                    } else {
                                         bufSize=(int)ze.getSize();
+                                        f=new ByteArrayOutputStream(bufSize);
                                     }
-                                    else f=new ByteArrayOutputStream((int)ze.getSize());
                                     byte[] buf=new byte[bufSize];
                                     int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
                                     String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
