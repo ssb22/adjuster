@@ -529,7 +529,7 @@ Dynamic DNS options
 : Number of seconds before ip_change_command (if set) is run even if there was no IP change.  This is to let Dynamic DNS services know that we are still around.  Set to 0 to disable forced updates (a forced update will occur on server startup anyway), otherwise an update will occur on the next IP check after ip_force_interval has elapsed.
 
 `--pimote` 
-: Use an Energenie Pi-mote home control system to power-cycle the router when its Internet connection appears to be stuck in a bad state.  This option works only if Web Adjuster is running on the Raspberry Pi, and it must be set to routerIP,ispDomain,internalResponse,deviceID where routerIP is the internal IP address of your router, ispDomain is the domain of your Internet service provider (assumed to be quick to look up), internalResponse is the IP provided by your router's built-in DNS when it's having trouble (e.g. Post Office Broadband's AMG1302-derived router responds with 219.87.158.116 which is presumably Zyxel's office in Taiwan), and deviceID is the Pi-mote device ID (1 to 4 or all) used to switch it off and on again.  Power-cycling will be initiated if two queries to the router's DNS for its ISP domain either fail or return internalResponse, and it's assumed router caching will let us check status frequently without causing traffic.
+: Use an Energenie Pi-mote home control system to power-cycle the router when its Internet connection appears to be stuck in a bad state.  This option works only if Web Adjuster is running on the Raspberry Pi, and it must be set to R,S,I,D where R is the internal IP address of your router, S is the domain of your Internet service provider (assumed to be quick to look up), I is the IP provided by your router's built-in DNS when it's having trouble (e.g. Post Office Broadband's AMG1302-derived router responds with 219.87.158.116 which is presumably Zyxel's office in Taiwan), and D is the Pi-mote device ID (1 to 4 or all) used to switch it off and on again.  Power-cycling will be initiated if two queries to the router's DNS for its ISP domain either fail or return internalResponse, and it's assumed router caching will let us check status frequently without causing traffic.
 
 Speedup options
 ---------------
@@ -633,7 +633,7 @@ Usage: annogen.py [options]
 
 Options:
 
-`-h, `--help``
+`-h, --help`
  : show this help message and exit
 
 `--infile=INFILE`
@@ -651,7 +651,7 @@ Options:
 `--mend=MARKUPEND`
  : The string that ends a piece of annotation markup in the input examples; default `</rt></ruby>`
 
-`-r, `--mreverse``
+`-r, --mreverse`
  : Specifies that the annotation markup is reversed, so the text **before** mmid is the annotation and the text **after** it is the base text
 
 `--no-mreverse`
@@ -668,13 +668,13 @@ Options:
 `--ref-pri=REF_PRI`
  : Name of a reference to be considered "high priority" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a "default" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high priority reference then the first annotation found in that reference will be considered the ideal "default" even if it's in a minority in the examples; everything else will be considered as an exception.
 
-`-s, `--spaces``
+`-s, --spaces`
  : Set this if you are working with a language that uses whitespace in its non-markedup version (not fully tested).  The default is to assume that there will not be any whitespace in the language, which is correct for Chinese and Japanese.
 
 `--no-spaces`
  : Cancels any earlier `--spaces` option in Makefile variables etc
 
-`-c, `--capitalisation``
+`-c, --capitalisation`
  : Don't try to normalise capitalisation in the input.  Normally, to simplify the rules, the analyser will try to remove start-of-sentence capitals in annotations, so that the only remaining words with capital letters are the ones that are **always** capitalised such as names.  (That's not perfect: some words might always be capitalised just because they never occur mid-sentence in the examples.)  If this option is used, the analyser will instead try to "learn" how to predict the capitalisation of **all** words (including start of sentence words) from their contexts.
 
 `--no-capitalisation`
@@ -710,7 +710,7 @@ Options:
 `
  : Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary "gloss" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do **not** affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.
 
-`-C, `--gloss-closure``
+`-C, --gloss-closure`
  : If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package.
 
 `--no-gloss-closure`
@@ -728,7 +728,7 @@ Options:
 `
  : If supplied, any references not matching this regular expression will be hidden from the glossmiss file (does not affect the glossmiss-omit option)
 
-`-M, `--glossmiss-omit``
+`-M, --glossmiss-omit`
  : Omit rules containing any word not mentioned in glossfile.  Might be useful if you want to train on a text that uses proprietary terms and don't want to accidentally 'leak' those terms (assuming they're not accidentally included in glossfile also).  Words may also be listed in glossfile with an empty gloss field to indicate that no gloss is available but rules using this word needn't be omitted.
 
 `--no-glossmiss-omit`
@@ -746,7 +746,7 @@ Options:
 `
  : Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will be read from it and incrementally updated. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.
 
-`-n, `--no-input``
+`-n, --no-input`
  : Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.
 
 `--no-no-input`
@@ -777,13 +777,13 @@ Options:
 `--outcode=OUTCODE`
  : Character encoding to use in the generated parser and rules summary (default utf-8, must be ASCII-compatible i.e. not utf-16)
 
-`-S, `--summary-only``
+`-S, --summary-only`
  : Don't generate a parser, just write the rules summary to standard output
 
 `--no-summary-only`
  : Cancels any earlier `--summary-only` option in Makefile variables etc
 
-`-N, `--no-summary``
+`-N, --no-summary`
  : Don't add a large rules-summary comment at the end of the parser code
 
 `--no-no-summary`
@@ -796,43 +796,43 @@ Options:
 `--maxrefs=MAXREFS`
  : The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is 3.
 
-`-R, `--norefs``
+`-R, --norefs`
  : Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if `--no-input` is specified.
 
 `--no-norefs`
  : Cancels any earlier `--norefs` option in Makefile variables etc
 
-`-E, `--newlines-reset``
+`-E, --newlines-reset`
  : Have the annotator reset its state on every newline byte. By default newlines do not affect state such as whether a space is required before the next word, so that if the annotator is used with Web Adjuster's htmlText option (which defaults to using newline separators) the spacing should be handled sensibly when there is HTML markup in mid-sentence.
 
 `--no-newlines-reset`
  : Cancels any earlier `--newlines-reset` option in Makefile variables etc
 
-`-z, `--compress``
+`-z, --compress`
  : Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but might help if RAM is short; see also `--data-driven`.
 
 `--no-compress`
  : Cancels any earlier `--compress` option in Makefile variables etc
 
-`-D, `--data-driven``
+`-D, --data-driven`
  : Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's "section too large"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript, Python and Dart output is always data-driven anyway.
 
 `--no-data-driven`
  : Cancels any earlier `--data-driven` option in Makefile variables etc
 
-`-F, `--fast-assemble``
+`-F, --fast-assemble`
  : Skip opcode compaction when using data-driven (slightly speeds up compilation, at the expense of larger code size)
 
 `--no-fast-assemble`
  : Cancels any earlier `--fast-assemble` option in Makefile variables etc
 
-`-Z, `--zlib``
+`-Z, --zlib`
  : Enable `--data-driven` and compress the embedded data table using zlib (or pyzopfli if available), and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike `--compress` which, although giving less compression, at least works 'in place').  Once `--zlib` is in use, specifying `--compress` too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator, the decompression code is inlined so there's no runtime zlib dependency, but startup can be ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source (unless you're running on Node.js in which case loading is faster due to the use of Node's "Buffer" class).
 
 `--no-zlib`
  : Cancels any earlier `--zlib` option in Makefile variables etc
 
-`-l, `--library``
+`-l, --library`
  : Instead of generating C code that reads and writes standard input/output, generate a C library suitable for loading into Python via ctypes.  This can be used for example to preload a filter into Web Adjuster to cut process-startup delays.
 
 `--no-library`
@@ -846,7 +846,7 @@ Options:
 `
  : Cancels any earlier `--windows-clipboard` option in Makefile variables etc
 
-`-#, `--c-sharp``
+`-#, --c-sharp`
  : Instead of generating C code, generate C# (not quite as efficient as the C code but close; might be useful for adding an annotator to a C# project; see comments at the start for usage)
 
 `--no-c-sharp`
@@ -862,7 +862,7 @@ Options:
 `
  : File to use as a template for Android start HTML.  This option implies `--android`=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use `--sharp-multi` and set the Javascript array 'modeNames', and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but **not** Amazon AppStore as they don't want 'competition' to their Silk browser.
 
-`-L, `--pleco-hanping``
+`-L, --pleco-hanping`
  : In the Android app, make popup definitions link to Pleco or Hanping if installed
 
 `--no-pleco-hanping`
@@ -872,7 +872,7 @@ Options:
 `
  : Android bookmarks: comma-separated list of package names that share our bookmarks. If this is not specified, the browser will not be given a bookmarks function. If it is set to the same value as the package specified in `--java`, bookmarks are kept in just this Android app. If it is set to a comma-separated list of packages that have also been generated by annogen (presumably with different annotation types), and if each one has the same android:sharedUserId attribute in AndroidManifest.xml's 'manifest' tag (you'll need to add this manually), and if the same certificate is used to sign all of them, then bookmarks can be shared across the set of browser apps.  But beware the following two issues: (1) adding an android:sharedUserId attribute to an app that has already been released without one causes some devices to refuse the update with a 'cannot install' message (details via adb logcat; affected users would need to uninstall and reinstall instead of update, and some of them may not notice the instruction to do so); (2) this has not been tested with Google's new "App Bundle" arrangement, and may be broken if the Bundle results in APKs being signed by a different key.  In June 2019 Play Console started issuing warnings if you release an APK instead of a Bundle, even though the "size savings" they mention are under 1% for annogen-generated apps.
 
-`-e, `--epub``
+`-e, --epub`
  : When generating an Android browser, make it also respond to requests to open EPUB files. This results in an app that requests the 'read external storage' permission on Android versions below 6, so if you have already released a version without EPUB support then devices running Android 5.x or below will not auto-update past this change until the user notices the update notification and approves the extra permission.
 
 `--no-epub`
@@ -920,7 +920,7 @@ Options:
 `--no-compile-only`
  : Cancels any earlier `--compile-only` option in Makefile variables etc
 
-`-j, `--javascript``
+`-j, --javascript`
  : Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and `--no-summary` will also be set).  See comments at the start for usage.
 
 `--no-javascript`
@@ -932,7 +932,7 @@ Options:
 `--no-js-6bit`
  : Cancels any earlier `--js-`6bit option in Makefile variables etc
 
-`-8, `--js-octal``
+`-8, --js-octal`
  : When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode. Not relevant if using zlib.
 
 `--no-js-octal`
@@ -960,7 +960,7 @@ Options:
 `
  : When generating Dart code, put annotator data into a separate file and open it using this pathname. Not compatible with Dart's "Web app" option, but might save space in a Flutter app (especially along with `--zlib`)
 
-`-Y, `--python``
+`-Y, --python`
  : Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.
 
 `--no-python`
@@ -986,13 +986,13 @@ Options:
 `--no-sharp-multi`
  : Cancels any earlier `--sharp-multi` option in Makefile variables etc
 
-`-o, `--allow-overlaps``
+`-o, --allow-overlaps`
  : Normally, the analyser avoids generating rules that could overlap with each other in a way that would leave the program not knowing which one to apply.  If a short rule would cause overlaps, the analyser will prefer to generate a longer rule that uses more context, and if even the entire phrase cannot be made into a rule without causing overlaps then the analyser will give up on trying to cover that phrase.  This option allows the analyser to generate rules that could overlap, as long as none of the overlaps would cause actual problems in the example phrases. Thus more of the examples can be covered, at the expense of a higher risk of ambiguity problems when applying the rules to other texts.  See also the -y option.
 
 `--no-allow-overlaps`
  : Cancels any earlier `--allow-overlaps` option in Makefile variables etc
 
-`-P, `--primitive``
+`-P, --primitive`
  : Don't bother with any overlap or conflict checks at all, just make a rule for each word. The resulting parser is not likely to be useful, but the summary might be.
 
 `--no-primitive`
@@ -1014,13 +1014,13 @@ Options:
 `
  : The increment value for the loop between ybytes and ybytes-max
 
-`-k, `--warn-yarowsky``
+`-k, --warn-yarowsky`
  : Warn when absolutely no distinguishing Yarowsky seed collocations can be found for a word in the examples
 
 `--no-warn-yarowsky`
  : Cancels any earlier `--warn-yarowsky` option in Makefile variables etc
 
-`-K, `--yarowsky-all``
+`-K, --yarowsky-all`
  : Accept Yarowsky seed collocations even from input characters that never occur in annotated words (this might include punctuation and example-separation markup)
 
 `--no-yarowsky-all`
@@ -1030,7 +1030,7 @@ Options:
 `
  : Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default 1). Occasionally these might be due to typos in the corpus, so it might be worth a check.
 
-`-1, `--single-words``
+`-1, --single-words`
  : Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.
 
 `--no-single-words`
@@ -1063,7 +1063,7 @@ Options:
 `--no-diagnose-manual`
  : Cancels any earlier `--diagnose-manual` option in Makefile variables etc
 
-`-q, `--diagnose-quick``
+`-q, --diagnose-quick`
  : Ignore all phrases that do not contain the word specified by the `--diagnose` option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics **without** these disadvantages by loading a `--rules`File instead.
 
 `--no-diagnose-quick`
@@ -1073,13 +1073,13 @@ Options:
 `
  : Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2 or .xz file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.
 
-`-t, `--time-estimate``
+`-t, --time-estimate`
  : Estimate time to completion.  The code to do this is unreliable and is prone to underestimate.  If you turn it on, its estimate is displayed at the end of the status line as days, hours or minutes.
 
 `--no-time-estimate`
  : Cancels any earlier `--time-estimate` option in Makefile variables etc
 
-`-0, `--single-core``
+`-0, --single-core`
  : Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires `--checkpoint` + shared filespace, and is currently used only for large collocation checks in limited circumstances. Single-core saves on CPU power consumption, but if the computer is set to switch itself off at the end of the run then **total** energy used is generally less if you allow it to run multicore and reach that switchoff sooner.
 
 `--no-single-core`
