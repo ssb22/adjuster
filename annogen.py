@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.134 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.135 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1702,8 +1702,9 @@ if(ssb_local_annotator.canCustomZoom()) document.write('<div style="float:left">
 if sharp_multi: android_url_box += br"""
 if(typeof modeNames!='undefined'){document.write('<div style="float:right; text-align: right">Mode: ');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)if(i==c)document.write('<button disabled style="background:#ededed;color:inherit"><input type=radio checked> '+modeNames[i]+'</button>');else document.write('<button style="background:#ededed;color:inherit" onclick="ssb_local_annotator.setAnnotNo('+i+');location.reload();return false"><input type=radio> '+modeNames[i]+'</button>');document.write('</div>')}"""
 android_url_box += br"""
-var m=navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./); if(m && m[2]<=33) document.write("<div id=insecure style=\"clear: both; background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be better to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></div>");
+var m=navigator.userAgent.match(/Android ([0-9]+)\./); if(m && m[1]<5) document.write("<div id=insecure style=\"clear: both; background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be safer to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></div>");
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)) document.forms[document.forms.length-1].url.value=c</script>"""
+# API 19 (4.4) and below has no browser updates.  API 17 (4.2) and below is even worse due to known shell exploits for CVE-2012-6636 which requires only that a site (or network access point) can inject arbitrary Javascript into the HTTP stream.  Not sure what context the resulting shell runs in, but there are probably escalation attacks available.  TODO: insist on working offline-only on old versions?
 android_url_box += b'<div style="clear:both"></div></div>' # make sure to clear the floats before ending the div if div#insecure is not displayed
 if android_template: android_template = android_template.replace(b"URL_BOX_GOES_HERE",android_url_box)
 android_version_stamp = br"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue. Compile time %%TIME%%\')}" ':'')+'>%%DATE%% version</address>')</script>""" # ensure date itself is on LHS as zoom control (on API levels 3 through 13) can overprint RHS. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line.  Time available in developer mode as might have more than one alpha release per day and want to check got latest.
