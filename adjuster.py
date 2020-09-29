@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.308 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.309 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -907,7 +907,11 @@ def preprocessOptions():
             errExit("--one-request-only doesn't make sense with a js_instances value other than 1")
             # (well we could start N instances if you like, but what's the point? - this probably indicates 'wrong config= option' or something, so flag it)
     if options.restart and options.watchdog and options.watchdogDevice=="/dev/watchdog" and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
-    if options.host_suffix==getfqdn_default: options.host_suffix = socket.getfqdn()
+    if options.host_suffix==getfqdn_default:
+        if wsgi_mode and os.environ.get("SERVER_NAME",""):
+            # if we're running as a CGI, the server may have been configured to respond to more than one domain, in which case we want to prefer SERVER_NAME to getfqdn
+            options.host_suffix = os.environ["SERVER_NAME"]
+        else: options.host_suffix = socket.getfqdn()
     if type(options.mailtoSMS)==type(""): options.mailtoSMS=options.mailtoSMS.split(',')
     if type(options.leaveTags)==type(""): options.leaveTags=options.leaveTags.split(',')
     if type(options.stripTags)==type(""): options.stripTags=options.stripTags.split(',')
