@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.135 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.136 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1399,7 +1399,7 @@ jsAddRubyCss += b"tw0()" # perform the first annotation scan after adding the ru
 jsAddRubyCss += b";if(!window.doneHash && window.hash0){window.hCount=10*2;window.doneHash=function(){var e=document.getElementById(window.location.hash.slice(1)); if(e.offsetTop==window.hash0 && --window.hCount) setTimeout(window.doneHash,500); e.scrollIntoView()};window.doneHash()}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs), but don't redo this every time doc length changes on Android. setTimeout loop because rendering might take a while with large documents on slow devices.
 
 def jsAnnot():
-  # Android JS-based DOM annotator.  Return value becomes the js_common string in the Android Java
+  # Android JS-based DOM annotator.  Return value becomes the js_common string in the Android Java: must be escaped as if in single-quoted Java string
   r = br"""var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
   
   mergeTags=['EM','I','B','STRONG']; /* we'll merge 2 of these the same if they're leaf elements */
@@ -1473,7 +1473,7 @@ def jsAnnot():
   else: r += br"annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY'));"
   r += br"""
           } break;
-        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'');var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) } if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }}
+        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'').replace(/\\B +\\B/g,'');var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) } if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }}
       }
       cP=c; c=cNext;
       if("""
@@ -2204,7 +2204,7 @@ android_src += br"""
         if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
             sentText = intent.getStringExtra(Intent.EXTRA_TEXT);
             if (sentText == null) return false;
-            browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>'+ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\\u200b/g,'').replace(/(https?:\\/\\/[-!#%&+,.0-9:;=?@A-Z\\/_|~]+)/gi,function r(m,p1) { return '<a href=\"'+p1.replace('&amp;','&')+'\">'+p1+'</a>'}).replace('\\n','<br>')+'</body>')");
+            browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>'+ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/(https?:\\/\\/[-!#%&+,.0-9:;=?@A-Z\\/_|~]+)/gi,function r(m,p1) { return '<a href=\"'+p1.replace('&amp;','&')+'\">'+p1+'</a>'}).replace('\\n','<br>')+'</body>')");
         }
         else if (Intent.ACTION_VIEW.equals(intent.getAction())) {
             String url=intent.getData().toString();"""
@@ -2329,7 +2329,8 @@ var curClip="";
 function update() {
 var newClip = ssb_local_annotator.getClip();
 if (newClip && newClip != curClip) {
-  document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\u200b/g,'').replace(/(https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+)/gi,function r(m,p1) { return '<a href="'+p1.replace('&amp;','&')+'">'+p1+'</a>' });
+  document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/(https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+)/gi,function r(m,p1) { return '<a href="'+p1.replace('&amp;','&')+'">'+p1+'</a>' });
+  if(typeof annotScan!='undefined') annotScan();
   curClip = newClip; if(ssb_local_annotator.annotate(newClip)!=newClip) ssb_local_annotator.bringToFront(); // should work on Android 9 or below; Android Q (API 29) takes away background clipboard access and we'll just get newClip="" until we're brought to foreground manually
 } window.setTimeout(update,1000) } update(); </script>
 </body></html>"""
@@ -3237,6 +3238,7 @@ var Annotator={
 version: '"""+version_stamp+b"',\nnumLines: 2 /* override to 1 or 3 if you must, but not recommended for learning */,\n"
 if sharp_multi: js_end = b"annotate: function(input,aType) { if(aType==undefined) aType=0;"
 else: js_end = b"annotate: function(input) {"
+if removeSpace: js_end += br" input=input.replace(/\B +\B/g,'');" # TODO: document that we do this (currently only in JS annotator here, and Android app via jsAnnot, although Web Adjuster does it separately in Python before calling the filter).  It deals with software that adds ASCII spaces between Chinese characters of the same word, without deleting spaces between embedded English words (TODO: this 'JS + app' version may still delete spaces between punctuation characters, which may be an issue for consecutive quoted words e.g. 'so-called "word1" "word2"').  If doing it at the nextbyte level, we'd have to update prevbyte; if this or doing it at switchbyte level (e.g. recurse) we'd have to do something about the copy pointer (skip the spaces?) and the near-call distance (and associated buffer sizes in C) so they're best pre-removed, but only from between characters we annotate.
 js_end += br"""
 /* TODO: if input is a whole html doc, insert css in head
    (e.g. from annoclip and/or adjuster), and hope there's

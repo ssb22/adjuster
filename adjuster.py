@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.309 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.31 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1073,7 +1073,6 @@ def preprocessOptions():
     submitPathForTest = options.submitPath
     if submitPathForTest and submitPathForTest[-1]=="?": submitPathForTest = submitPathForTest[:-1] # for CGI mode: putting the ? in tells adjuster to ADD a ? before any parameters, but does not require it to be there for the base submit URL (but don't do this if not submitPathForTest because it might not be a string)
     if options.submitPath and not options.htmlText: errExit("submitPath only really makes sense if htmlText is set (or do you want users to submit actual HTML?)") # TODO: allow this? also with submitBookmarklet ??
-    if options.separator and unichr(0x200b).encode('utf-8') in B(options.separator): errExit("U+200B in separator not supported (see code)")
     if options.prominentNotice=="htmlFilter":
         if not options.htmlFilter: errExit("prominentNotice=\"htmlFilter\" requires htmlFilter to be set")
         if options.htmlJson or options.htmlText: errExit("prominentNotice=\"htmlFilter\" does not work with the htmlJson or htmlText options")
@@ -3603,6 +3602,7 @@ document.forms[0].i.focus()
         else: line1 = ""
         runFilterOnText(self,self.getHtmlFilter(filterNo),codeTextList,callback,prefix=line1)
     def serve_backend_post(self,filterNo):
+        # for another instance's htmlFilter=http://...uA etc
         runFilter(self.getHtmlFilter(filterNo),self.request.body,lambda out,err: (self.write(B(out)),self.finish()))
 
     def checkTextCache(self,newext):
@@ -4739,7 +4739,7 @@ function walk(n,document) {
     case 1: if (leaveTags.indexOf(c.nodeName)==-1 && c.className!="_adjust0") walk(c,document); %sbreak;
     case 3:
       if (%s) {
-          var cnv = c.nodeValue.replace(/\u200b/g,''); // for some sites that use zero-width spaces between words that can upset some annotators (TODO: document)
+          var cnv = c.nodeValue;
           var i=otPtr;
           while (i<oldTexts.length && oldTexts[i]!=cnv) i++;
           if(i<replacements.length) {
@@ -4890,7 +4890,9 @@ def runFilterOnText(req,cmd,codeTextList,callback,escape=False,separator=None,pr
         return r
     def countItems(l): return len(separator.join(getText(l)).split(separator))
     text = getText(codeTextList)
-    toSend = separator.join(text).replace(unichr(0x200b).encode('utf-8'),B('')) # .replace for some sites that use zero-width spaces between words that can upset some annotators (TODO: document)
+    text = [t.replace(unichr(0x200b).encode('utf-8'),B('')) for t in text] # for some sites that use zero-width spaces between words that can upset some annotators (TODO: document that we do this)
+    text = [re.sub(u'(?<=[\u2E80-\u9FFF]) +(?=[\u2E80-\u9FFF])','',t.decode('utf-8')).encode('utf-8') for t in text] # also rm normal space when it's between two consecutive CJK characters (TODO: add hangul range? add non-BMP ranges? but what if narrow Python build?)
+    toSend = separator.join(text)
     if separator == B(options.separator):
         toSend=separator+toSend+separator
         sortout = lambda out:out.split(separator)[1:-1]
