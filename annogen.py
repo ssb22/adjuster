@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.136 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.137 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2162,7 +2162,7 @@ if epub and android_print: android_src = android_src.replace(b"Next</a>",br"""Ne
 if not android_template: android_src += br"""
                 float scale = 0; boolean scaling = false;
                 public void onScaleChanged(final WebView view,float from,final float to) {
-                    if (AndroidSDK < Build.VERSION_CODES.KITKAT || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
+                    if (AndroidSDK < 19 || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
                     scaling=view.postDelayed(new Runnable() { public void run() {
                         view.evaluateJavascript("document.body.style.width=((window.visualViewport!=undefined?window.visualViewport.width:window.innerWidth)-getComputedStyle(document.body).marginLeft.replace(/px/,'')*1-getComputedStyle(document.body).marginRight.replace(/px/,'')*1)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null); // window.outerWidth will still be excessive on 4.4; not sure there's much we can do about that
                         scale=to; scaling=false;
@@ -2267,6 +2267,7 @@ android_src += br"""
             if (browser!=null && browser.canGoBack()) {
                 final String fwdUrl=browser.getUrl();
                 browser.goBack();
+                if(AndroidSDK<19) return true; // no forward button before Android 4.4 (because we can't evaluateJavascript, and unclear if we can loadUrl javascript: when we don't have onPageFinished on back; TODO: could have the general script periodically check a canGoForward JavascriptInterface function and reveal button if so (albeit delayed))
                 needJsCommon=3;
                 final Handler theTimer=new Handler();
                 theTimer.postDelayed(new Runnable() {
