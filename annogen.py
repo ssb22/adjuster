@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.137 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.138 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1988,6 +1988,7 @@ android_src += br"""
                     nextBackHides = true;
                 }
             }
+            @JavascriptInterface public boolean canGoForward() { return browser.canGoForward(); }
             @JavascriptInterface public String getSentText() { return sentText; }
             @JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */
             @JavascriptInterface public void openPlayStore() {
@@ -2170,8 +2171,8 @@ if not android_template: android_src += br"""
                 }"""
 android_src += br"""
                 public void onPageFinished(WebView view,String url) {
-                    if(AndroidSDK < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.
-                    browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
+                    if(AndroidSDK < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.  Also handles displaying the forward button when needed (4.4+ uses different logic for this in onKeyDown, because API19+ reduces frequency of scans when same length, due to it being only a backup to MutationObserver)
+                    browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();if(!document.doneFwd && ssb_local_annotator.canGoForward()){var e=document.getElementById('annogenFwdBtn');if(e){e.style.display='inline';document.doneFwd=1}}window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
                     else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})");
                 } });"""
 if android_template: android_src += br"""
@@ -2267,7 +2268,7 @@ android_src += br"""
             if (browser!=null && browser.canGoBack()) {
                 final String fwdUrl=browser.getUrl();
                 browser.goBack();
-                if(AndroidSDK<19) return true; // no forward button before Android 4.4 (because we can't evaluateJavascript, and unclear if we can loadUrl javascript: when we don't have onPageFinished on back; TODO: could have the general script periodically check a canGoForward JavascriptInterface function and reveal button if so (albeit delayed))
+                if(AndroidSDK<19) return true; // before Android 4.4 we can't evaluateJavascript, and unclear if we can loadUrl javascript: when we don't have onPageFinished on back, but AnnotMonitor runs at a higher frequency so we let that do it instead of this
                 needJsCommon=3;
                 final Handler theTimer=new Handler();
                 theTimer.postDelayed(new Runnable() {
