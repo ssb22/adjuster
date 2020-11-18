@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.138 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.139 (c) 2012-20 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1795,7 +1795,7 @@ android_src += br"""
             }
             MainActivity act; String copiedText=""; int zoomLevel;"""
 if existing_ruby_shortcut_yarowsky: android_src += br"""
-            @JavascriptInterface public void setYShortcut(boolean v) { annotator.shortcut_nearTest=v; }"""
+            @JavascriptInterface public void setYShortcut(boolean v) { if(annotator!=null) annotator.shortcut_nearTest=v; }"""
 if sharp_multi: android_src += br""" int annotNo;
             @JavascriptInterface public void setAnnotNo(int no) { annotNo = no;
                 android.content.SharedPreferences.Editor e;
@@ -1830,7 +1830,7 @@ if android_template: android_src += br"""
 android_src += br"""
             @JavascriptInterface public String annotate(String t) """
 if data_driven: android_src += b"throws java.util.zip.DataFormatException "
-android_src += b'{ String r=annotator.annotate(t);'
+android_src += b'{ if(annotator==null) return t; String r=annotator.annotate(t);'
 if sharp_multi: android_src += br"""
                 java.util.regex.Matcher m = smPat.matcher(r);
                 StringBuffer sb=new StringBuffer();
@@ -2071,7 +2071,7 @@ if bookmarks: android_src += br"""
                 return s+getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
             }""" # and even if not bookmarks:
 android_src += b"\n}\n"
-if data_driven: android_src += b"try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this, \"Cannot load annotator data!\", Toast.LENGTH_LONG).show(); }" # TODO: should we keep one of these static and synchronized, in case some version of Android gives us multiple instances and we start taking up more RAM than necessary?
+if data_driven: android_src += b"try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this,\"Cannot load annotator data!\",Toast.LENGTH_LONG).show(); String m=e.getMessage(); if(m!=null) Toast.makeText(this,m,Toast.LENGTH_LONG).show(); }" # TODO: should we keep a static synchronized annotator instance, in case some version of Android gives us multiple Activity instances and we start taking up more RAM than necessary?
 else: android_src += b"annotator=new %%JPACKAGE%%.Annotator();"
 android_src += br"""
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
@@ -2551,12 +2551,12 @@ java_src += br"""
 }
 }
 """
-android_loadData = br"""data=new byte[%%DLEN%%];
+android_loadData = br"""try { data=new byte[%%DLEN%%]; } catch (OutOfMemoryError e) { throw new java.io.IOException("Out of memory! Can't load annotator!"); }
 context.getAssets().open("annotate.dat").read(data);"""
 if zlib: android_loadData += br"""
 java.util.zip.Inflater i=new java.util.zip.Inflater();
 i.setInput(data);
-byte[] decompressed=new byte[%%ULEN%%];
+byte[] decompressed; try { decompressed=new byte[%%ULEN%%]; } catch (OutOfMemoryError e) { throw new java.io.IOException("Out of memory! Can't unpack annotator!"); }
 i.inflate(decompressed); i.end(); data = decompressed;
 """
 
