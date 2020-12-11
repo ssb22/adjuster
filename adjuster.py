@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.311 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.312 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -968,9 +968,9 @@ def preprocessOptions():
     global cores ; cores = 1
     if options.multicore:
         options.squashLogs = False
-        if not 'linux' in sys.platform:
+        if not 'linux' in sys.platform and not 'bsd' in sys.platform:
             errExit("multicore option not supported on this platform")
-            # --- it does work on BSD/Mac, but some incoming connections get 'lost' so it's not a good idea
+            # --- it does work on darwin (Mac), but as of 10.7 some incoming connections get 'lost' so it's not a good idea
         cores = options.num_cores
         if not cores:
             import tornado.process
@@ -1690,7 +1690,7 @@ def start_multicore(isChild=False):
         except: continue # interrupted system call OK
         if pid in children: children.remove(pid)
     except KeyboardInterrupt: pass
-    if not isChild:
+    if children:
         try: reason = interruptReason # from handleTerm
         except: reason = "keyboard interrupt"
         reason = "Adjuster multicore handler: "+reason+", stopping "+str(len(children))+" child processes"
@@ -2653,6 +2653,8 @@ def get_new_HeadlessFirefox(index,renewing):
     log_complaints = (index==0 and not renewing) ; op = None
     if options.js_reproxy:
         from selenium.webdriver.common.proxy import Proxy,ProxyType
+        import warnings
+        warnings.filterwarnings("ignore","This method has been deprecated. Please pass in the proxy object to the Driver Object") # set_proxy deprecated, but documentation unclear how it should be replaced
         profile.set_proxy(Proxy({'proxyType':ProxyType.MANUAL,'httpProxy':"127.0.0.1:%d" % proxyPort(index),'sslProxy':"127.0.0.1:%d" % proxyPort(index),'ftpProxy':'','noProxy':''}))
         profile.accept_untrusted_certs = True # needed for some older versions?
         caps = wd_DesiredCapabilities(log_complaints)
@@ -2674,6 +2676,7 @@ def get_new_HeadlessFirefox(index,renewing):
     cmdL = ('-headless','-no-remote')
     if "x" in options.js_size: cmdL += ("-width",options.js_size.split("x")[0],"-height",options.js_size.split("x")[1])
     elif options.js_size: cmdL += ("-width",options.js_size)
+    cmdL += ("about:blank",) # not Firefox start page
     binary.add_command_line_options(*cmdL) # cannot call this more than once
     if caps: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps)
     else: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary)
@@ -3002,7 +3005,7 @@ class RequestForwarder(RequestHandler):
       try: host, port = S(self.request.uri).split(':')
       except: host,port = None,None
       is_sshProxy = (host,port)==(allowConnectHost,allowConnectPort)
-      if host and (options.real_proxy or self.isPjsUpstream or self.isSslUpstream or is_sshProxy): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
+      if host and (options.real_proxy or self.isPjsUpstream or self.isSslUpstream or is_sshProxy) and not (self.isPjsUpstream and options.js_interpreter=="HeadlessFirefox" and host in ["push.services.mozilla.com","snippets.cdn.mozilla.net","firefox.settings.services.mozilla.com","location.services.mozilla.com","shavar.services.mozilla.com"]): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
         upstream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
         client = self.request.connection.stream
         # See note about Tornado versions in writeAndClose
@@ -5394,7 +5397,7 @@ def HTML_adjust_svc_LXML(htmlStr,adjustList):
                 r = l.handle_starttag(tag,att)
                 if r==True: return # suppress the tag
                 elif r: tag,att = r
-            self.out.insert(i,encodeTag(tag,dict((k,v.encode('utf-8')) for k,v in dict(att).items()))) # utf-8 so so latin1decode doesn't pick up on it
+            self.out.insert(i,encodeTag(tag,dict((k,u8(v)) for k,v in dict(att).items()))) # u8 so latin1decode doesn't pick up on it
         def end(self, tag):
             i = len(self.out)
             for l in adjustList:
@@ -5496,6 +5499,9 @@ def latin1decode(htmlStr):
     if type(htmlStr)==type(u""):
         return htmlStr.encode('latin1')
     else: return htmlStr
+def u8(x):
+    if type(x)==bytes: return x
+    else: return x.encode('utf-8')
 
 def js_process(body,url):
     # Change Javascript code on its way to the end-user
