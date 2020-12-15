@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.312 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.313 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -367,8 +367,9 @@ define("js_timeout1",default=30,help="When js_interpreter is in use, tell it to 
 define("js_timeout2",default=100,help="When js_interpreter is in use, this value in seconds is treated as a 'hard timeout': if a webdriver process does not respond at all within this time, it is assumed hung and emergency restarted.")
 define("js_retry",default=True,help="If a js_interpreter fails, restart it and try the same fetch again while the remote client is still waiting")
 define("js_fallback",default="X-Js-Fallback",help="If this is set to a non-empty string and a js_interpreter fails (even after js_retry if set), serve the page without Javascript processing instead of serving an error. The HTTP header specified by this option can tell the client whether or not Javascript was processed when a page is served.")
-define("js_reproxy",default=True,help="When js_interpreter is in use, have it send its upstream requests back through the adjuster on a different port. This allows js_interpreter to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and prefetches main pages to avoid holding up a js_interpreter instance if the remote server is down.")
+define("js_reproxy",default=True,help="When js_interpreter is in use, have it send its upstream requests back through the adjuster on a different port. This allows js_interpreter to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and enables the js_prefetch option.")
 # js_reproxy also works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with js_interpreter) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
+define("js_prefetch",default=True,help="When running with js_reproxy, prefetch main pages to avoid holding up a js_interpreter instance if the remote server is down.  Turn this off if you expect most remote servers to be up and you want to detect js_429 issues earlier.") # (Doing prefetch per-core can lead to load imbalances when running multicore with more than one interpreter per core, as several new pages could be in process of fetch when only one interpreter is ready to take them.  Might want to run non-multicore and have just the interpreters using other cores if prefetch is needed.)
 define("js_UA",help="Custom user-agent string for js_interpreter requests, if for some reason you don't want to use the JS browser's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--js_reproxy) so scripts running in the JS browser itself will see its original user-agent.")
 define("js_images",default=True,help="When js_interpreter is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.")
 # js_images=False may also cause some versions of Webkit to leak memory (PhantomJS issue 12903), TODO: return a fake image if js_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
@@ -517,7 +518,7 @@ define("skipLinkCheck",multiple=True,help="Comma-separated list of regular expre
 define("extensions",help="Name of a custom Python module to load to handle certain requests; this might be more efficient than setting up a separate Tornado-based server. The module's handle() function will be called with the URL and RequestHandler instance as arguments, and should return True if it processed the request, but anyway it should return as fast as possible. This module does NOT take priority over forwarding the request to fasterServer.")
 
 define("loadBalancer",default=False,help="Set this to True if you have a default_site set and you are behind any kind of \"load balancer\" that works by issuing a GET / with no browser string. This option will detect such requests and avoid passing them to the remote site.")
-define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on BSD/Mac due to unreliability (other cores can still be used for htmlFilter etc)")
+define("multicore",default=False,help="(Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on Mac due to unreliability (other cores can still be used for htmlFilter etc)")
 # --- and --ssl-fork if there's not TOO many instances taking up the RAM; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server)
 define("num_cores",default=0,help="Set the number of CPU cores for the multicore option (0 for auto-detect)")
 define("internalPort",default=0,help="The first port number to use for internal purposes when ssl_fork is in effect.  Internal ports needed by real_proxy (for SSL) and js_reproxy are normally allocated from the ephemeral port range, but if ssl_fork delegates to independent processes then some of them need to be at known numbers. The default of 0 means one higher than 'port'; several unused ports may be needed starting at this number. If your Tornado is modern enough to support reuse_port then you can have multiple Adjuster instances listening on the same port (e.g. for one_request_only) provided they have different internalPort settings when run with ssl_fork.  Note however that the --stop and --restart options will NOT distinguish between different internalPort settings, only 'port'.")
@@ -1999,7 +2000,9 @@ def reallyPauseOrRestartMainServer(shouldRun):
         if not (core == "all" or core == coreNo): continue
         for port,s in sList:
             if not port==options.port: continue
-            if not hasattr(s,"_sockets"): return # probably wrong Tornado version to do this (TODO: say something?)
+            if not hasattr(s,"_sockets"):
+                logging.error("Cannot pause server: wrong Tornado version?")
+                return
             if shouldRun: s.add_sockets(s._sockets.values())
             else:
                 for fd, sock in s._sockets.items():
@@ -2297,7 +2300,7 @@ class WebdriverWrapper:
           try:
             for e in self.theWebDriver.get_log('browser'):
                 print ("webdriver log: "+e['message'])
-          except: print ("webdriver log exception")
+          except Exception as e: print ("webdriver log exception: "+repr(e))
     def execute_script(self,script): self.theWebDriver.execute_script(S(script))
     def click_id(self,clickElementID): self.theWebDriver.find_element_by_id(S(clickElementID)).click()
     def click_xpath(self,xpath): self.theWebDriver.find_element_by_xpath(S(xpath)).click()
@@ -2486,13 +2489,13 @@ def wd_fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,m
             if options.js_fallback: r.headers.add(options.js_fallback,"OK")
         except: pass
     except TimeoutException:
-        r = errHandle("timeout","webdriver "+str(manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched) # "webdriver timeout" sent to browser (can't include url here: domain gets rewritten)
+        r = errHandle("timeout","webdriver "+str(manager.start+manager.index)+" timeout fetching "+url+find_adjuster_in_traceback()+"; no partial result, so",prefetched) # "webdriver timeout" sent to browser (can't include url here: domain gets rewritten)
     except SeriousTimeoutException:
-        r = errHandle("serious timeout","lost communication with webdriver "+str(manager.index)+" when fetching "+url+"; no partial result, so",prefetched)
+        r = errHandle("serious timeout","lost communication with webdriver "+str(manager.start+manager.index)+" when fetching "+url+"; no partial result, so",prefetched)
         need_restart = "serious"
     except:
         if options.js_retry and not tooLate():
-            logging.info("webdriver error fetching "+url+" ("+exc_logStr()+"); restarting webdriver "+str(manager.index)+" for retry") # usually a BadStatusLine
+            logging.info("webdriver error fetching "+url+" ("+exc_logStr()+"); restarting webdriver "+str(manager.start+manager.index)+" for retry") # usually a BadStatusLine
             manager.renew_webdriver_sameThread()
             if tooLate(): r = errHandle("err","too late")
             else:
@@ -2528,20 +2531,20 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
     currentUrl = S(manager.current_url())
     if prefetched or not re.sub('#.*','',currentUrl) == url:
         if prefetched:
-            debuglog("webdriver %d get about:blank" % manager.index)
+            debuglog("webdriver %d get about:blank" % (manager.start+manager.index))
             manager.get("about:blank") # ensure no race condition with current page's XMLHttpRequests
             webdriver_prefetched[manager.index] = prefetched
         webdriver_inProgress[manager.index].clear() # race condition with start of next 'get' if we haven't done about:blank, but worst case is we'll wait a bit too long for page to finish
-        debuglog(("webdriver %d get " % manager.index)+url)
+        debuglog(("webdriver %d get " % (manager.start+manager.index))+url)
         try: manager.get(url) # waits for onload
         except: # possibly a timeout; did we get some of it?
             currentUrl = manager.current_url()
             if not currentUrl==url: # didn't get any
-                debuglog("webdriver %d .get exception; currentUrl=%s so re-raising" % (manager.index,repr(currentUrl)))
+                debuglog("webdriver %d .get exception; currentUrl=%s so re-raising" % (manager.start+manager.index,repr(currentUrl)))
                 raise
             debuglog("Ignoring webdriver exception because it seems we did get something")
         # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well? TODO: abort this early if currentUrl has changed and we're just going to issue a redirect? but would then need to ensure it's finished if client comes back to same instance that's still running after it follows the redirect)
-        debuglog("webdriver %d loaded" % manager.index)
+        debuglog("webdriver %d loaded" % (manager.start+manager.index))
         if options.js_reproxy:
           wasActive = True
           for _ in xrange(40): # up to 8+ seconds in steps of 0.2 (on top of the inital load)
@@ -2569,7 +2572,7 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
     if S(currentUrl) == "about:blank":
         debuglog("got about:blank instead of "+S(url))
         return wrapResponse("webdriver failed to load") # don't return an actual redirect to about:blank, which breaks some versions of Lynx
-    debuglog("Getting data from webdriver %d (current_url=%s)" % (manager.index,S(currentUrl)))
+    debuglog("Getting data from webdriver %d (current_url=%s)" % (manager.start+manager.index,S(currentUrl)))
     if asScreenshot: return wrapResponse(manager.getpng(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
     elif not re.sub(B('#.*'),B(''),B(currentUrl)) == B(url): # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
         return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % S(manager.current_url()).replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+S(manager.current_url())),302)
@@ -3933,9 +3936,9 @@ document.forms[0].i.focus()
               return r
             if options.js_429 and len(webdriver_queue) >= 2*options.js_instances: # TODO: do we want to allow for 'number of requests currently in prefetch stage' as well?  (but what if we're about to get a large number of prefetch-failures anyway?)  + update comment by define("js_429") above
                 return self.serve429(retrySecs=10*len(webdriver_queue)/options.js_instances) # TODO: increase this if multiple clients?
-            if options.js_reproxy:
+            if options.js_reproxy and options.js_prefetch:
               def prefetch():
-                # prefetch the page, don't tie up a PJS until
+                # prefetch the page, don't tie up a browser until
                 # we have the page in hand
                 debuglog("prefetch "+self.urlToFetch)
                 httpfetch(self,self.urlToFetch,
@@ -3955,7 +3958,7 @@ document.forms[0].i.focus()
                   follow_redirects=False)
               def prefetch_when_ready(t0):
                 if len(webdriver_queue) < 2*options.js_instances: return prefetch()
-                # If too many PJS instances already tied up,
+                # If too many browser instances already tied up,
                 # don't start the prefetch yet
                 again = time.time()+1 # TODO: in extreme cases this can result in hundreds or thousands of calls to prefetch_when_ready per second; need a second queue? (tooLate() should mitigate it if client goes away, + won't get here unless --js_429=False)
                 global last_Qoverload_time, Qoverload_max
@@ -3967,7 +3970,7 @@ document.forms[0].i.focus()
                     last_Qoverload_time = time.time()
                 if not tooLate(): IOLoopInstance().add_timeout(again,lambda *args:prefetch_when_ready(t0))
               prefetch_when_ready(time.time())
-            else: # no reproxy: can't prefetch
+            else: # no reproxy: can't prefetch (or it's turned off)
                 webdriver_fetch(self.urlToFetch,None,ua,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
