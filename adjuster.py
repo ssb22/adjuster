@@ -2457,13 +2457,14 @@ def _renew_wd(wd,firstTime):
     wd.wd_threadStart = False
     IOLoopInstance().add_callback(webdriver_checkServe)
 def find_adjuster_in_traceback():
-    l = traceback.extract_tb(sys.exc_info()[2])
-    # (must do that BEFORE the following try, which will overwrite sys.exc_info: it doesn't nest)
-    try: p = sys.exc_info()[1].args[-1]
-    except: p = ""
-    if "adjuster line" in p: return p # for webdriverWrapper_receiver
+    ei = sys.exc_info()
+    try:
+        p = ei[1].args[-1]
+        if "adjuster line" in p: return p # for webdriverWrapper_receiver
+    except: pass
     try: __file__
     except: return "" # sometimes not defined ??
+    l = traceback.extract_tb(ei[2])
     for i in xrange(len(l)-1,-1,-1):
         if __file__ in l[i][0]: return ", adjuster line "+str(l[i][1])
     return ""
@@ -3997,7 +3998,7 @@ document.forms[0].i.focus()
         do_domain_process = do_html_process = do_js_process = True
         do_json_process = do_css_process = False
         charset = "utf-8" # by default
-        if response==None or not response.code or response.code==599:
+        if not hasattr(response,"code") or not response.code or response.code==599:
             # (some Tornado versions don't like us copying a 599 response without adding our own Reason code; just making it a 504 for now)
             try: error = str(response.error)
             except: error = str(response)
@@ -4300,6 +4301,8 @@ document.forms[0].i.focus()
                   method="HEAD", headers=self.request.headers, body=body,
                   callback=lambda r:self.headResponse(r,forPjs),follow_redirects=not forPjs)
     def headResponse(self,response,forPjs):
+        try: response.code
+        except Exception as e: response = wrapResponse(str(response))
         debuglog("headResponse "+repr(response.code)+self.debugExtras())
         if response.code == 503: # might be a cache error (check for things like X-Squid-Error ERR_DNS_FAIL 0 that can be due to a missing newline before the "never_direct allow all" after the "cache_peer" setting in Squid)
             for name,value in response.headers.get_all(): debuglog(name+": "+value)
