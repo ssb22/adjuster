@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.313 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v0.314 (c) 2012-20 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1212,6 +1212,12 @@ class CrossProcess429:
         threading.Thread(target=listener,args=()).start()
 
 def initLogging(): # MUST be after unixfork() if background
+    try:
+        import logging, tornado.log
+        class NoSSLWarnings:
+            def filter(self,record): return not (record.levelno==logging.WARNING and record.getMessage().startswith("SSL"))
+        tornado.log.gen_log.addFilter(NoSSLWarnings()) # Tornado 6
+    except: pass
     global CrossProcessLogging
     CrossProcessLogging = CrossProcessLogging()
     CrossProcessLogging.init()
@@ -2537,13 +2543,7 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
             webdriver_prefetched[manager.index] = prefetched
         webdriver_inProgress[manager.index].clear() # race condition with start of next 'get' if we haven't done about:blank, but worst case is we'll wait a bit too long for page to finish
         debuglog(("webdriver %d get " % (manager.start+manager.index))+url)
-        try: manager.get(url) # waits for onload
-        except: # possibly a timeout; did we get some of it?
-            currentUrl = manager.current_url()
-            if not currentUrl==url: # didn't get any
-                debuglog("webdriver %d .get exception; currentUrl=%s so re-raising" % (manager.start+manager.index,repr(currentUrl)))
-                raise
-            debuglog("Ignoring webdriver exception because it seems we did get something")
+        manager.get(url) # waits for onload, may throw exception (which may be a timeout in which case we might have got SOMEthing, but may also be "Received error page", so probably best to let it go to caller)
         # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well? TODO: abort this early if currentUrl has changed and we're just going to issue a redirect? but would then need to ensure it's finished if client comes back to same instance that's still running after it follows the redirect)
         debuglog("webdriver %d loaded" % (manager.start+manager.index))
         if options.js_reproxy:
@@ -3299,11 +3299,15 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         # We're handling SSL in a separate PID, so we have to
         # forward the request back to the original PID in
         # case it needs to do things with webdrivers etc.
-        self.request.headers["X-WA-FromSSLHelper"] = "1"
+        self.request.headers["X-From-Adjuster-Ssl-Helper"] = "1"
         self.forwardFor("127.0.0.1:%d" % (port_randomise.get(self.WA_origPort,self.WA_origPort)),"SSL helper:"+str(port_randomise.get(self.WA_connectPort,self.WA_connectPort)))
         return True
     def handleFullLocation(self):
         # HTTP 1.1 spec says ANY request can be of form http://...., not just a proxy request.  The differentiation of proxy/not-proxy depends on what host is requested.  So rewrite all http://... requests to HTTP1.0-style host+uri requests.
+        if options.ssl_fork and self.request.headers.get("X-From-Adjuster-Ssl-Helper",""):
+            debuglog("Setting isFromSslHelper"+self.debugExtras())
+            self.request.connection.stream.isFromSslHelper = True # it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it
+            del self.request.headers["X-From-Adjuster-Ssl-Helper"] # don't pass it to upstream servers
         if B(self.request.uri).startswith(B("http://")):
             self.request.original_uri = self.request.uri
             parsed = urlparse.urlparse(S(self.request.uri))
@@ -3312,9 +3316,6 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             if not self.request.uri: self.request.uri="/"
         elif not B(self.request.uri).startswith(B("/")): # invalid
             self.set_status(400) ; self.myfinish() ; return True
-        if options.ssl_fork and self.request.headers.get("X-WA-FromSSLHelper",""):
-            self.request.connection.stream.isFromSslHelper = True # it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it
-            del self.request.headers["X-WA-FromSSLHelper"] # don't pass it to upstream servers
         if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection,"stream") and hasattr(self.request.connection.stream,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, or we're on port+0 and forked SSL helper has forwarded it to us, so the host asked for must be a .0 host for https
             if self.request.host and not B(self.request.host).endswith(B(".0")): self.request.host = S(self.request.host)+".0"
             
@@ -3733,7 +3734,6 @@ document.forms[0].i.focus()
                 ruri,rest = self.request.uri.split(cssReload_cookieSuffix,1)
                 self.setCookie_with_dots(rest)
                 return self.redirect(ruri) # so can set another
-            if (self.request.host=="localhost" or self.request.host.startswith("localhost:")) and not "localhost" in options.host_suffix: return self.redirect("http://"+hostSuffix(0)+publicPortStr()+self.request.uri) # save confusion later (e.g. set 'HTML-only mode' cookie on 'localhost' but then redirect to host_suffix and cookie is lost)
         self.cookieViaURL = None
         if self.isPjsUpstream or self.isSslUpstream: realHost = self.request.host
         else: realHost = convert_to_real_host(self.request.host,self.cookie_host(checkReal=False)) # don't need checkReal if return value will be passed to convert_to_real_host anyway
@@ -3744,6 +3744,7 @@ document.forms[0].i.focus()
         if type(realHost)==bytes and not bytes==str:
             realHost = S(realHost)
         isProxyRequest = self.isPjsUpstream or self.isSslUpstream or (options.real_proxy and realHost == self.request.host)
+        if not isProxyRequest and not isPjsUpstream and not isSslUpstream and (self.request.host=="localhost" or self.request.host.startswith("localhost:")) and not "localhost" in options.host_suffix: return self.redirect("http://"+hostSuffix(0)+publicPortStr()+self.request.uri) # save confusion later (e.g. set 'HTML-only mode' cookie on 'localhost' but then redirect to host_suffix and cookie is lost).  Bugfix 0.314: do not do this redirect if we're a real proxy for another server on localhost
         self.request.valid_for_whois = True # (if options.whois, don't whois unless it gets this far, e.g. don't whois any that didn't even match "/(.*)" etc)
         maybeRobots = (not self.isPjsUpstream and not self.isSslUpstream and not options.robots and self.request.uri=="/robots.txt")
         # don't actually serveRobots yet, because MIGHT want to pass it to own_server (see below)
