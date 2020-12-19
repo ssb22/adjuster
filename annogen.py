@@ -1645,8 +1645,15 @@ if epub: android_manifest += br"""<uses-permission android:name="android.permiss
 # On an API 27 (Android 8) emulator, a content:// URI was sent instead of file://
 # so I would imagine the permission doesn't need activating on Android 8, but
 # for completeness we need to test Android 6 and Android 7 somehow (TODO)
+if pleco_hanping: android_manifest += br"""
+<queries>
+<package android:name="com.pleco.chinesesystem" />
+<package android:name="com.embermitre.hanping.cantodict.app.pro" />
+<package android:name="com.embermitre.hanping.app.pro" />
+<package android:name="com.embermitre.hanping.app.lite" />
+</queries>""" # likely needed to make those packages visible to getPackageInfo on targetSdkVersion=30
 android_manifest += br"""
-<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="29" />
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="30" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" android:networkSecurityConfig="@xml/network_security_config" >
 <service android:name=".BringToFront" android:exported="false"/>
@@ -5220,7 +5227,7 @@ def outputParser(rulesAndConds):
     outfile.write(b"*/\n")
 
 def update_android_manifest():
-  try: manifest = old_manifest = open(jSrc+"/../AndroidManifest.xml",'rb').read() # keep existing version codes (don't replace with 1 and 1.0) and existing targetSdkVersion, but do update android_urls (below)
+  try: manifest = old_manifest = open(jSrc+"/../AndroidManifest.xml",'rb').read()
   except IOError: manifest,old_manifest = android_manifest,None
   def readAttr(aName):
     allVals = re.findall(B(re.escape(aName)+r'\s*=\s*"([^"]*)"'),manifest)
@@ -5467,7 +5474,7 @@ if main:
      os.chdir(jSrc+"/..")
      dirName0 = S(getoutput("pwd|sed -e s,.*./,,"))
      dirName = shell_escape(dirName0)
-   if can_compile_android:
+   if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps after August 2021 ?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
      cmd_or_exit("$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
      cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      a = " -JXmx4g --force-jumbo" # -J option must go first
@@ -5511,6 +5518,12 @@ before the Annogen run (change the examples obviously) :
    export KEYSTORE_FILE=/path/to/keystore
    export KEYSTORE_USER='your user name'
    export KEYSTORE_PASS='your password'
+   # You can upload this to Google Play before August 2021
+   # (or after that for updates to older apps).  In August
+   # Google Play will enforce a different 'bundle' format
+   # for new apps, which I don't yet know how to make.  It
+   # should be possible to update existing apps in the old
+   # format for some time after though.
    # To upload the release to Google Play, additionally set:
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
    # and optionally:
