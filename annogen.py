@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.139 (c) 2012-20 Silas S. Brown"
+program_name = "Annotator Generator v3.14 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2251,13 +2251,15 @@ android_src += br"""
             theTimer.postDelayed(new Runnable() {
                 @Override public void run() {
                     final Runnable r = this;
-                    browser.evaluateJavascript(((needJsCommon>0)?js_common:"")+"AnnotIfLenChanged()",new android.webkit.ValueCallback<String>() {
+                    runOnUiThread(new Runnable() { @Override public void run() {
+                      browser.evaluateJavascript(((needJsCommon>0)?js_common:"")+"AnnotIfLenChanged()",new android.webkit.ValueCallback<String>() {
                         @Override
                         public void onReceiveValue(String s) {
                             theTimer.postDelayed(r,(s!=null && s.contains("sameLen"))?5000:1000); // s.equals("\"sameLen\"", is this true in all versions of the API?)
                         }
-                    });
-                    if(needJsCommon>0) --needJsCommon;
+                      });
+                      if(needJsCommon>0) --needJsCommon;
+                    } });
                 }
             },0);
         }
