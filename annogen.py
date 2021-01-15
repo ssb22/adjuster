@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.141 (c) 2012-21 Silas S. Brown"
+program_name = "Annotator Generator v3.1415 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2166,7 +2166,9 @@ if epub: android_src += br"""
                         return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
                     } finally { try { zin.close(); } catch(IOException e) {} }
                 }"""
-if epub and android_print: android_src = android_src.replace(b"Next</a>",br"""Next</a><script>if(ssb_local_annotator.canPrint())document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+br"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')</script>""")
+if android_print: android_print_script = br"""if(ssb_local_annotator.canPrint())document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+br"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')"""
+else: android_print_script = b""
+if epub and android_print: android_src = android_src.replace(b"Next</a>",b"Next</a><script>"+android_print_script+b"</script>")
 if not android_template: android_src += br"""
                 float scale = 0; boolean scaling = false;
                 public void onScaleChanged(final WebView view,float from,final float to) {
@@ -2212,7 +2214,7 @@ android_src += br"""
         if (Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
             sentText = intent.getStringExtra(Intent.EXTRA_TEXT);
             if (sentText == null) return false;
-            browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>'+ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/(https?:\\/\\/[-!#%&+,.0-9:;=?@A-Z\\/_|~]+)/gi,function r(m,p1) { return '<a href=\"'+p1.replace('&amp;','&')+'\">'+p1+'</a>'}).replace('\\n','<br>')+'</body>')");
+            browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>'+ssb_local_annotator.getSentText().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/(https?:\\/\\/[-!#%&+,.0-9:;=?@A-Z\\/_|~]+)/gi,function r(m,p1) { return '<a href=\"'+p1.replace('&amp;','&')+'\">'+p1+'</a>'}).replace('\\n','<br>'));"""+android_print_script+br"""");
         }
         else if (Intent.ACTION_VIEW.equals(intent.getAction())) {
             String url=intent.getData().toString();"""
@@ -2333,7 +2335,7 @@ public class BringToFront extends android.app.IntentService {
 """
 android_clipboard = br"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
 <script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('','',''+msg+' line '+line); return true}</script>
-    <h3>Clipboard</h3>
+    <h3 class="ssb_local_annotator_noprint">Clipboard</h3>
     <div id="clip">waiting for clipboard contents</div>
     <script>
 var curClip="";
@@ -2343,7 +2345,9 @@ if (newClip && newClip != curClip) {
   document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/(https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+)/gi,function r(m,p1) { return '<a href="'+p1.replace('&amp;','&')+'">'+p1+'</a>' });
   if(typeof annotScan!='undefined') annotScan();
   curClip = newClip; if(ssb_local_annotator.annotate(newClip)!=newClip) ssb_local_annotator.bringToFront(); // should work on Android 9 or below; Android Q (API 29) takes away background clipboard access and we'll just get newClip="" until we're brought to foreground manually
-} window.setTimeout(update,1000) } update(); </script>
+} window.setTimeout(update,1000) } update()"""
+if android_print: android_clipboard += b';'+android_print_script.replace(br'\"',b'"')
+android_clipboard += br"""</script>
 </body></html>"""
 java_src = br"""package %%JPACKAGE%%;
 public class Annotator {
