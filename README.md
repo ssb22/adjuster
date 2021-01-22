@@ -742,7 +742,7 @@ Options:
 
 `--words-omit=WORDS_OMIT
 `
- : File (or compressed .gz, .bz2 or .xz file or URL) containing words (one per line, without markup) to omit from the annotator.  Use this to make an annotator smaller if for example if you're working from a rules file that contains long lists of place names you don't need this particular annotator to recognise but you still want to keep them as rules for other annotators.
+ : File (or compressed .gz, .bz2 or .xz file or URL) containing words (one per line, without markup) to omit from the annotator.  Use this to make an annotator smaller if for example if you're working from a rules file that contains long lists of place names you don't need this particular annotator to recognise but you still want to keep them as rules for other annotators, but be careful because any word on such a list gets omitted even if it also has other meanings (some place names are also normal words).
 
 `--manualrules=MANUALRULES
 `
