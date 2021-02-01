@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.14159 (c) 2012-21 Silas S. Brown"
+program_name = "Annotator Generator v3.142 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1341,7 +1341,7 @@ c_end += br"""  while(!FINISHED) {
 annotation_font = [b"Times New Roman"] # Android has Droid Serif but it's not selected if you put "serif" or "Droid Serif", it's mapped from "Times New Roman" (tested in Android 4.4 and Android 10)
 # there's a more comprehensive list in the windows_clipboard code below, but those fonts are less likely found on Android
 jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{"
-jsAddRubyCss += b"user-select:none;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way.  Can still copy annotation via the popup box.  -webkit-user-select works on older Chrome but buggy (selection is invisible but Copy still copies).  Even on Android 10 this narrows things down only if Copy is in use, not extended popup options e.g. Translate. (and user-select:all on rb doesn't work)
+jsAddRubyCss += b"user-select:none;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way.  Can still copy annotation via the popup box.  -webkit-user-select works on older Chrome but buggy (selection is invisible but Copy still copies).  Even on Android 10 this narrows things down only if Copy is in use, not extended popup options e.g. Translate, and can in some small cases fail to work even with Copy. (Incidentally, user-select:all on rb doesn't work in Android 10 as of 2021-01)
 jsAddRubyCss += b"display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+b", ".join(annotation_font)+b" !important;}"
 jsAddRubyCss += b"rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}" # for 3line mode (assumes rt/rb and rt/rt/rb)
 jsAddRubyCss += b"rp{display:none!important}"+B(extra_css).replace(b'\\',br'\\').replace(b'"',br'\"').replace(b"'",br"\\'")+b"'"
@@ -1950,6 +1950,9 @@ android_src += br"""
             }
             @JavascriptInterface public String getClip() {
                 String r=readClipboard(); if(r.equals(copiedText)) return ""; else return r;
+            }
+            @JavascriptInterface public boolean isFocused() {
+                return _isFocused;
             }"""
 if android_template: android_src += br"""
             @JavascriptInterface public boolean canCustomZoom() {
@@ -2270,8 +2273,10 @@ android_src += br"""
             },0);
         }
     }
-    boolean nextBackHides = false; int needJsCommon=3;
-    @Override public void onPause() { super.onPause(); nextBackHides = false; } // but may still be visible on Android 7+, so don't pause the browser yet
+    boolean nextBackHides = false, _isFocused = true;
+    int needJsCommon=3;
+    @Override public void onPause() { super.onPause(); nextBackHides = _isFocused = false; } // but may still be visible on Android 7+, so don't pause the browser yet
+    @Override public void onResume() { _isFocused = true; super.onResume(); }
     @TargetApi(11) @Override public void onStop() { super.onStop(); if(browser!=null && AndroidSDK >= 11) browser.onPause(); } // NOW pause the browser (screen off or app not visible)
     @TargetApi(11) @Override public void onStart() { super.onStart(); if(browser!=null && AndroidSDK >= 11) browser.onResume(); }
     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -2342,14 +2347,23 @@ android_clipboard = br"""<html><head><meta name="mobileoptimized" content="0"><m
     <h3 class="ssb_local_annotator_noprint">Clipboard</h3>
     <div id="clip">waiting for clipboard contents</div>
     <script>
-var curClip="";
+var curClip="",isFocused=true,lastTime=new Date();
 function update() {
 var newClip = ssb_local_annotator.getClip();
+var isF2 = ssb_local_annotator.isFocused();
+var thisTime = new Date();
 if (newClip && newClip != curClip) {
+  if(curClip && isFocused && isF2 && thisTime-lastTime < 2000) {
+    // looks like they copied from clipboard view itself
+    // - no need to replace the whole thing with this part
+    curClip=newClip;
+  } else {
   document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/(https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+)/gi,function r(m,p1) { return '<a href="'+p1.replace('&amp;','&')+'">'+p1+'</a>' });
   if(typeof annotScan!='undefined') annotScan();
   curClip = newClip; if(ssb_local_annotator.annotate(newClip)!=newClip) ssb_local_annotator.bringToFront(); // should work on Android 9 or below; Android Q (API 29) takes away background clipboard access and we'll just get newClip="" until we're brought to foreground manually
-} window.setTimeout(update,1000) } update()"""
+  }
+} isFocused = isF2; lastTime = thisTime;
+window.setTimeout(update,1000) } update()"""
 if android_print: android_clipboard += b';'+android_print_script.replace(br'\"',b'"')
 android_clipboard += br"""</script>
 </body></html>"""
