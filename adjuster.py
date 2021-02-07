@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v0.314 (c) 2012-20 Silas S. Brown"
+program_name = "Web Adjuster v3.141 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -754,7 +754,7 @@ def cookie_domain_process(text,cookieHost=None):
         j = i
         while j<len(text) and not text[j]==';': j += 1
         newhost = S(convert_to_requested_host(text[i:j],cookieHost))
-        if ':' in newhost: newhost=newhost[:newhost.index(':')] # apparently you don't put the port number, see comment in authenticates_ok
+        if ':' in newhost: newhost=newhost[:newhost.index(':')] # don't put the port number, see comment in authenticates_ok
         if newhost==text[i:j] and cookieHost and S(cookieHost).endswith(text[i:j]): newhost = S(convert_to_requested_host(cookieHost,cookieHost)) # cookie set server.example.org instead of www.server.example.org; we can deal with that
         text = text[:i] + newhost + text[j:]
         j=i+len(newhost)
@@ -2971,6 +2971,8 @@ class RequestForwarder(RequestHandler):
                 return hs
         pp = ':'+str(options.publicPort)
         if host.endswith(pp): return host[:-len(pp)]
+        p = ':'+str(options.port) # possible for local connections, if publicPort is set to something else
+        if host.endswith(p): return host[:-len(p)]
         return host
     
     def authenticates_ok(self,host):
@@ -3744,7 +3746,7 @@ document.forms[0].i.focus()
         if type(realHost)==bytes and not bytes==str:
             realHost = S(realHost)
         isProxyRequest = self.isPjsUpstream or self.isSslUpstream or (options.real_proxy and realHost == self.request.host)
-        if not isProxyRequest and not isPjsUpstream and not isSslUpstream and (self.request.host=="localhost" or self.request.host.startswith("localhost:")) and not "localhost" in options.host_suffix: return self.redirect("http://"+hostSuffix(0)+publicPortStr()+self.request.uri) # save confusion later (e.g. set 'HTML-only mode' cookie on 'localhost' but then redirect to host_suffix and cookie is lost).  Bugfix 0.314: do not do this redirect if we're a real proxy for another server on localhost
+        if not isProxyRequest and not self.isPjsUpstream and not self.isSslUpstream and (self.request.host=="localhost" or self.request.host.startswith("localhost:")) and not "localhost" in options.host_suffix: return self.redirect("http://"+hostSuffix(0)+publicPortStr()+self.request.uri) # save confusion later (e.g. set 'HTML-only mode' cookie on 'localhost' but then redirect to host_suffix and cookie is lost).  Bugfix 0.314: do not do this redirect if we're a real proxy for another server on localhost
         self.request.valid_for_whois = True # (if options.whois, don't whois unless it gets this far, e.g. don't whois any that didn't even match "/(.*)" etc)
         maybeRobots = (not self.isPjsUpstream and not self.isSslUpstream and not options.robots and self.request.uri=="/robots.txt")
         # don't actually serveRobots yet, because MIGHT want to pass it to own_server (see below)
