@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-program_name = "Annotator Generator v3.142 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.142 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -393,7 +393,7 @@ ansi_escapes = is_xterm or term in ["screen","linux"]
 def isatty(f): return hasattr(f,"isatty") and f.isatty()
 if ansi_escapes and isatty(sys.stderr): clear_eol,reverse_on,reverse_off,bold_on,bold_off="\x1b[K\r","\x1b[7m","\x1b[0m","\x1b[1m","\x1b[0m"
 else: clear_eol,reverse_on,reverse_off,bold_on,bold_off="  \r"," **","** ","",""
-if main: sys.stderr.write(bold_on+program_name+bold_off+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
+if main: sys.stderr.write(bold_on+__doc__+bold_off+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
 # else (if not main), STILL parse options (if we're being imported for parallel processing)
 options, args = parser.parse_args()
 globals().update(options.__dict__)
@@ -1287,7 +1287,7 @@ if sharp_multi: c_preamble += b'#include <ctype.h>\n'
 if zlib: c_preamble += b'#include "zlib.h"\n'
 if sharp_multi: c_preamble += b"static int numSharps=0;\n"
 
-version_stamp = B(time.strftime("generated %Y-%m-%d by ")+program_name[:program_name.index("(c)")].strip())
+version_stamp = B(time.strftime("generated %Y-%m-%d by ")+__doc__[:__doc__.index("(c)")].strip())
 
 c_start = b"/* -*- coding: "+B(outcode)+b" -*- */\n/* C code "+version_stamp+b" */\n"
 c_start += c_preamble+br"""

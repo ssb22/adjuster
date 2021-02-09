@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.1415 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.14159 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -305,7 +305,7 @@ cssReload_cookieSuffix = "&&_adjuster_setCookie:"
 define("cssHtmlAttrs",help="Attributes to add to the BODY element of an HTML document when cssNameReload is in effect (or when it would be in effect if cssName were set). This is for old browsers that try to render the document first and apply CSS later. Example: 'text=\"yellow\" bgcolor=\"black\"' (not as flexible as CSS but can still make the rendering process less annoying). If headAppendCSS has \"fields\" then cssHtmlAttrs can list multiple sets of attributes separated by ; and each set corresponds with an option in the last field of headAppendCSS.") # e.g. IEMobile 7 (or Opera 10) on WM 6.1
 define("headAppendRuby",default=False,help="Convenience option which adds CSS and Javascript code to the HTML body that tries to ensure simple RUBY markup displays legibly across all modern browsers; this might be useful if you used Annotator Generator to make the htmlFilter program. (The option is named 'head' because it used to add markup to the HEAD; this was moved to the BODY to work around browser bugs.)")
 # headAppendRuby: IEMobile 6 drops whitespace after closing tags if document HEAD contains any STYLE element, even an empty one, except via link rel=Stylesheet. Style element works OK if placed at start of body.
-define("highlighting",multiple=True,help="Convenience option which adds CSS and Javascript code to add an experimental text-highlighting function to supported browsers (highlights are not yet saved between sessions). If set, this option should be set to a comma-separated list of colours that are to be used for highlighting (please ensure there's at least one for each stylesheet colour scheme available); won't work well with --render because images are not highlighted. Highlighting is NOT saved between sessions.")
+define("highlighting",multiple=True,help="Convenience option which adds CSS and Javascript code to add a text-highlighting option to some browsers. If set, this option should be set to a comma-separated list of available colours (please ensure there's at least one for each stylesheet colour scheme likely to be in use); won't work well with --render because images are not highlighted. Highlights are saved in the browser, but might load incorrectly if the page's text changes between sessions.")
 define("bodyAppend",help="Code to append to the BODY section of every HTML document that has one. Use for example to add a script that needs to be run after the rest of the body has been read, or to add a footer explaining how the page has been modified. See also prominentNotice.")
 # bodyAppend TODO: note that it will go at the bottom of IFRAMEs also, and suggest using something similar to prominentNotice's iframe-detection code?
 define("bodyAppendGoesAfter",help="If this is set to a regular expression matching some text or HTML code that appears verbatim in the body section, the code in bodyAppend will be inserted after the last instance of this regular expression (case sensitive) instead of at the end of the body. Use for example if a site styles its pages such that the end of the body is not a legible place for a footer.") # (e.g. it would overprint some position=fixed stuff)
@@ -5633,10 +5633,61 @@ if(!%s&&document.readyState!='complete')document.write('<a href="javascript:docu
         bodyPrepend += B("""<div id="adjust0_HL" style="display: none; position: fixed !important; background: white !important; color: black !important; right: 0px; top: 3em; size: 130% !important; border: thin red solid !important; cursor: pointer !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important;">""")
         for c in options.highlighting: bodyPrepend += B('<a href="#" style="background:'+c+'!important; padding: 1ex !important;" onclick="adjust0_HighlSel('+"'"+c+"'"+');return false">'+S(u"\u270f")+'</a>') # must be <a href> rather than <span> for selection to not be cleared
         bodyPrepend += B("""</div><script><!--
-var leaveTags=%s;function adjust0_HighlRange(n,range,colour) { for(var c=n.firstChild; c; c=c.nextSibling) if(range.intersectsNode(c)) switch(c.nodeType) { case 1: if(leaveTags.indexOf(c.nodeName)==-1) { if(c.getAttribute("style")) c.style.backgroundColor="inherit"; adjust0_HighlRange(c,range,colour); } break; case 3: var s=range.startContainer===c,e=range.endContainer===c, so=range.startOffset, eo=range.endOffset; if(s) c=c.splitText(so); if(e) c.splitText(eo-(s?so:0)); var d=document.createElement("span"); d.setAttribute("style","background-color: "+colour+" !important"); d.textContent=c.textContent; c.parentNode.replaceChild(d,c); c=d } }
-function adjust0_HighlSel(colour) { adjust0_HighlRange(document.body,window.getSelection().getRangeAt(0),colour); }
+var leaveTags=%s;function adjust0_HighlRange(n,range,colour,lastID,startStr,loading) {
+  for(var c=n.firstChild, count=0; c; c=c.nextSibling, ++count) {
+    if(c.id) { lastID=c.id; count=0; }
+    if(range.intersectsNode(c))
+      switch(c.nodeType) {
+        case 1:
+          if(leaveTags.indexOf(c.nodeName)==-1) {
+            if(c.getAttribute("style")) c.style.backgroundColor="inherit";
+            startStr = adjust0_HighlRange(c,range,colour,lastID+(count?"+"+count:"")+"/",startStr,loading)
+          } break;
+        case 3:
+          var s=range.startContainer===c,e=range.endContainer===c, so=range.startOffset, eo=range.endOffset;
+          if(s) {
+            startStr=lastID+(count?"+"+count:"")+"*"+so;
+            c=c.splitText(so);
+          } if(e) {
+            if(!loading && window.localStorage!=undefined) {
+              var k="adjustHL:"+(location.href+"#").split("#")[0];
+              var x=localStorage.getItem(k); if(x) x += "|";
+              localStorage.setItem(k,(x?x:"")+startStr+","+lastID+(count?"+"+count:"")+"*"+eo+","+colour) }
+            c.splitText(eo-(s?so:0));
+          }
+          var d=document.createElement("span"); d.setAttribute("style","background-color: "+colour+" !important"); d.textContent=c.textContent; c.parentNode.replaceChild(d,c); c=d }
+  } // for
+  return startStr
+} // adjust0_HighlRange
+function adjust0_HighlSel(colour) { adjust0_HighlRange(document.body,window.getSelection().getRangeAt(0),colour,"",""); }
 if(new Range().intersectsNode) document.addEventListener('selectionchange',function(){document.getElementById('adjust0_HL').style.display=window.getSelection().isCollapsed?'none':'block'})
 //--></script>""" % (repr([t.upper() for t in options.leaveTags]),))
+        bodyAppend += B("""<script><!--
+if(window.localStorage!=undefined) {
+  function findNode(dirs) {
+    dirs = dirs.split("/");
+    var p=dirs[0].split("+"),i,j;
+    var n=p[0].length?document.getElementById(p[0]):document.body;
+    if(!n) return null;
+    if(p.length==2) for(i=0; i < Number(p[1]); i++) n=n.nextSibling;
+    for(i=1; i<dirs.length; i++) {
+      n=n.firstChild;
+      if(dirs[i].length)for(j=0;j<Number(dirs[i]);j++) n=n.nextSibling;
+    } return n;
+  }
+  var i=localStorage.getItem("adjustHL:"+(location.href+"#").split("#")[0]),h;
+  if(i!=null) {
+    for(h of i.split("|")) {
+      var h2=h.split(","); var s=h2[0].split("*"),e=h2[1].split("*");
+      var r=document.createRange();
+      var ss=findNode(s[0]),ee=findNode(e[0]); if(!(ss&&ee)) continue;
+      r.setStart(findNode(s[0]),Number(s[1]));
+      r.setEnd(findNode(e[0]),Number(e[1]));
+      adjust0_HighlRange(document.body,r,h2[2],"","",true);
+    }
+  }
+}
+//--></script>""")
     if options.headAppendRuby and not is_password_domain=="PjsUpstream":
         bodyPrepend += B(rubyScript)
         if IsEdge: bodyPrepend += B("<table><tr><td>") # bug observed in Microsoft Edge 17, only when printing: inline-table with table-header-group gobbles whitespace before next inline-table, unless whole document is wrapped in a table cell
