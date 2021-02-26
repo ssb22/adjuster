@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.142 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.1428 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2004,7 +2004,8 @@ android_src += br"""
             }
             @JavascriptInterface public boolean canGoForward() { return browser.canGoForward(); }
             @JavascriptInterface public String getSentText() { return sentText; }
-            @JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */
+            @JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */"""
+if android_upload: android_src += br"""
             @JavascriptInterface public void openPlayStore() {
                 /* ssb_local_annotator.openPlayStore() opens the Google "Play Store" page
                    for the app (if you've deployed it there), for use in encouraging
@@ -2024,7 +2025,8 @@ android_src += br"""
                     }
                 }
                 getApplicationContext().startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://play.google.com/store/apps/details?id="+id))); // fallback
-            }
+            }"""
+android_src += br"""
             @JavascriptInterface @TargetApi(11) public void copy(String copiedText,boolean toast) {
                 this.copiedText = copiedText;
                 if(AndroidSDK < Build.VERSION_CODES.HONEYCOMB)
@@ -4844,8 +4846,11 @@ def analyse():
           coveredA,toCoverA = arr
           covered += coveredA ; toCover += toCoverA
         phraseNo += 1
-    for b in backgrounded: getNext(b) # flush
-    del backgrounded
+    if backgrounded:
+      sys.stderr.write("Collecting backgrounded results... "+clear_eol) ; sys.stderr.flush()
+      for b in backgrounded: getNext(b)
+      del backgrounded
+      sys.stderr.write("done\n")
     if rulesFile: accum.save()
     if diagnose_manual: test_manual_rules()
     return sorted(accum.rulesAndConds()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
@@ -5553,6 +5558,7 @@ before the Annogen run (change the examples obviously) :
    # and optionally:
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
    export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
+   # If the above variables including SERVICE_ACCOUNT_KEY are set (and you haven't set ANDROID_NO_UPLOAD, below), then you'll also get an openPlayStore() function added to the Javascript interface for use in 'check for updates' links.
    # After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK, and run with --compile-only.
 
 You may also wish to create some icons in res/drawable*
