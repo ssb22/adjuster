@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.14159 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.142 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -4699,7 +4699,7 @@ def bookmarkletMainScript(jsonPostUrl,forceSameWindow):
     return r"""var leaveTags=%s,stripTags=%s,mergeTags=['EM','I','B','STRONG'];
 function HTMLSizeChanged(callback) {
   if(typeof window.sizeChangedLoop=="undefined") window.sizeChangedLoop=0; var me=++window.sizeChangedLoop;
-  var getLen = function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r };
+  var getLen = function(w) { var r=0; try{w.document}catch(E){return r} if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r };
   var curLen=getLen(window),
     stFunc=function(){window.setTimeout(tFunc,1000)},
     tFunc=function(){if(window.sizeChangedLoop==me){if(getLen(window)==curLen) stFunc(); else callback()}};

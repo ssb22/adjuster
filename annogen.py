@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.1428 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.14285 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1426,7 +1426,7 @@ def jsAnnot():
           f(w.frames[i]) }
       c(w.document) };
     f(window) };
-  function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };
+  function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; try{w.document}catch(E){return r} if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };
   function tw0() { all_frames_docs(function(d){annotWalk(d,d,false,false)}) };"""
   
   r += br"""
@@ -2191,7 +2191,7 @@ android_src += br"""
                 public void onPageFinished(WebView view,String url) {
                     if(AndroidSDK < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.  Also handles displaying the forward button when needed (4.4+ uses different logic for this in onKeyDown, because API19+ reduces frequency of scans when same length, due to it being only a backup to MutationObserver)
                     browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();if(!document.doneFwd && ssb_local_annotator.canGoForward()){var e=document.getElementById('annogenFwdBtn');if(e){e.style.display='inline';document.doneFwd=1}}window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
-                    else browser.loadUrl("javascript:"+js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})");
+                    else browser.evaluateJavascript(js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})",null);
                 } });"""
 if android_template: android_src += br"""
         if(AndroidSDK >= 3 && AndroidSDK < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
