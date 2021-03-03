@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.14285 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.142857 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -143,7 +143,7 @@ cancelOpt("no-input")
 parser.add_option("--c-filename",default="",help="Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
 
 parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
-# If compiling an experimental annotator quickly, you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc.
+# If compiling an experimental annotator quickly (and don't want to use --data-driven for some reason), then you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc.
 # (BUT tcc can have problems on Raspberry Pi see http://www.raspberrypi.org/phpBB3/viewtopic.php?t=30036&p=263213; can be best to cross-compile, e.g. from a Mac use https://github.com/UnhandledException/ARMx/wiki/Sourcery-G---Lite-for-ARM-GNU-Linux-(2009q3-67)-for-Mac-OS-X and arm-none-linux-gnueabi-gcc)
 # In large rulesets with --max-or-length=0 and --nested-switch, gcc takes time and gcc -Os can take a LOT longer, and CINT, Ch and picoc run out of memory.  Without these options the overhead of gcc's -Os isn't so bad (and does save some room).
 # clang with --max-or-length=100 and --nested-switch=0 is not slowed much by -Os (slowed considerably by -O3). -Os and -Oz gave same size in my tests.
@@ -1686,7 +1686,7 @@ else: android_url_box += br"""
 """
 # In the URL-box below: as we're using forceDarkAllowed to allow 'force dark mode' on Android 10, we MUST specify background and color.  Left unspecified results in input elements that always have white backgrounds even in dark mode, in which case you get white on white = invisible text.  "inherit" works; background #ededed looks more shaded and does get inverted; background-image linear-gradient does NOT get inverted (so don't use it).
 android_url_box += br"""
-<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(typeof annotUrlTrans!='undefined'){var u=annotUrlTrans(v);if(typeof u!='undefined')v=u}if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="margin: 0em; padding: 0em"><input type=text style="width:100%;background:inherit;color:inherit" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%;background:#ededed;color:inherit"></td></tr></table></form>
+<form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(typeof annotUrlTrans!='undefined'){var u=annotUrlTrans(v);if(typeof u!='undefined')v=u}if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="width:1em;margin:0em;padding:0em;display:none" id=displayMe align=left><button style="width:100%;background:#ededed;color:inherit" onclick="document.forms[document.forms.length-1].url.value='';document.getElementById('displayMe').style.display='none';return false">X</button></td><td style="margin: 0em; padding: 0em"><input type=text style="width:100%;background:inherit;color:inherit" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%;background:#ededed;color:inherit"></td></tr></table></form>
 <script>
 function viewZoomCtrls() {
    window.setTimeout(function(){
@@ -1714,7 +1714,7 @@ if sharp_multi: android_url_box += br"""
 if(typeof modeNames!='undefined'){document.write('<div style="float:right; text-align: right">Mode: ');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)if(i==c)document.write('<button disabled style="background:#ededed;color:inherit"><input type=radio checked> '+modeNames[i]+'</button>');else document.write('<button style="background:#ededed;color:inherit" onclick="ssb_local_annotator.setAnnotNo('+i+');location.reload();return false"><input type=radio> '+modeNames[i]+'</button>');document.write('</div>')}"""
 android_url_box += br"""
 var m=navigator.userAgent.match(/Android ([0-9]+)\./); if(m && m[1]<5) document.write("<div id=insecure style=\"clear: both; background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be safer to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></div>");
-var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)) document.forms[document.forms.length-1].url.value=c</script>"""
+var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)){document.forms[document.forms.length-1].url.value=c;document.getElementById("displayMe").style.display="table-cell"}</script>"""
 # API 19 (4.4) and below has no browser updates.  API 17 (4.2) and below is even worse due to known shell exploits for CVE-2012-6636 which requires only that a site (or network access point) can inject arbitrary Javascript into the HTTP stream.  Not sure what context the resulting shell runs in, but there are probably escalation attacks available.  TODO: insist on working offline-only on old versions?
 android_url_box += b'<div style="clear:both"></div></div>' # make sure to clear the floats before ending the div if div#insecure is not displayed
 if android_template: android_template = android_template.replace(b"URL_BOX_GOES_HERE",android_url_box)
@@ -5532,8 +5532,10 @@ if main:
        v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
        open(jSrc+"/../.last-versionCode","w").write(str(v))
      else: v = int(open(jSrc+"/../.last-versionCode").read().strip()) # if this fails, you probably didn't run annogen v0.691+ to compile the APK before trying to change track (see instructions printed when GOOGLE_PLAY_TRACK environment variable is not set)
-     if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en",u"text":T(os.environ["GOOGLE_PLAY_CHANGELOG"])}],u'status':u'completed'}],u'track':trackToUse}).execute()
-     else: service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}],u'track':trackToUse}).execute()
+     if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":T(os.environ["GOOGLE_PLAY_CHANGELOG"])}],u'status':u'completed'}],u'track':trackToUse}).execute() # needs to be "en-US" as just "en" is dropped by the Store, although it does say you can "add as supported language in your app's Store Listing"
+     else:
+       service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}],u'track':trackToUse}).execute()
+       if not android_upload: sys.stderr.write("Warning: GOOGLE_PLAY_CHANGELOG not set, any release notes will be deleted\n")
      sys.stderr.write("Committing... ")
      sys.stderr.flush()
      sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse))
@@ -5559,7 +5561,7 @@ before the Annogen run (change the examples obviously) :
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
    export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
    # If the above variables including SERVICE_ACCOUNT_KEY are set (and you haven't set ANDROID_NO_UPLOAD, below), then you'll also get an openPlayStore() function added to the Javascript interface for use in 'check for updates' links.
-   # After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK, and run with --compile-only.
+   # After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK, and run with --compile-only.  You will need to set GOOGLE_PLAY_CHANGELOG again when doing this, as the Google API now discards changelogs on track-changes unless they are re-specified.
 
 You may also wish to create some icons in res/drawable*
    (using Android Studio or the earlier ADT tools).
