@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.142 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.1428 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -639,8 +639,8 @@ def convert_to_real_host(requested_host,cookie_host=None):
       if requested_host.endswith(port): requested_host=requested_host[:-len(port)]
       n=0
       for h in options.host_suffix.split("/"):
-        if requested_host.endswith(B("."+h)): return redot(requested_host[:-len(h)-1])
-        if requested_host == B(h):
+        if requested_host.endswith(B("."+h)) and options.wildcard_dns: return redot(requested_host[:-len(h)-1])
+        elif requested_host == B(h):
             d = defaultSite(n)
             if d: return B(d)
             elif B(cookie_host)==B(h): return 0 # special type of (false) value to tell the code that we're handling this request ourselves but possibly via ownServer_if_not_root
