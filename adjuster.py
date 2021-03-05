@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.1428 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.14285 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -3400,7 +3400,13 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         h = options.headAppendCSS
         if not h or not '%s' in h: return False
         for ckCount in range(len(h.split(';'))-1):
-            if not self.getCookie("adjustCss" + str(ckCount) + "s", ""): return True
+            if not self.getCookie("adjustCss" + str(ckCount) + "s", ""):
+                # Looks like we need to redirect back to the main page to get a CSS selection.  But just double-check it doesn't look like an XMLHttpRequest (which doesn't always send the cookies, TODO this may also affect the adjuster password cookie if relying on that, and that one shouldn't be handled like this one)
+                if any(h in S(self.request.headers.get("Referer","")) for h in options.host_suffix.split("/")):
+                    accept = S(self.request.headers.get("Accept",""))
+                    if "application/json" in accept or len(accept.split(","))==2:
+                        return False
+                return True
         return False
     def cssAndAttrsToAdd(self):
         h = options.headAppendCSS ; cha = options.cssHtmlAttrs
@@ -4096,6 +4102,9 @@ document.forms[0].i.focus()
           elif "set-cookie" in name.lower():
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host) # (never doing this if isProxyRequest, therefore don't have to worry about the upstream_rewrite_ssl exception that applies to normal domain_process isProxyRequest)
             for ckName in upstreamGuard: value=value.replace(ckName,ckName+"1")
+            value0 = value
+            value=re.sub("; *(Secure|SameSite[^;]*)(?=;|$)","",value) # if adjuster is not being served over HTTPS
+            if "samesite=none" in value0.lower() and not "domain=" in value0.lower() and options.wildcard_dns: self.setCookie_with_dots(value)
           headers_to_add.append((name,value))
           if name.lower()=="content-type":
             if do_epubtozip: value="application/zip"
