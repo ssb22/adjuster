@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.14285 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.142857 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -2308,7 +2308,7 @@ class WebdriverWrapper:
           try:
             for e in self.theWebDriver.get_log('browser'):
                 print ("webdriver log: "+e['message'])
-          except Exception as e: print ("webdriver log exception: "+repr(e))
+          except Exception as e: print ("webdriver get_log exception: "+repr(e))
     def execute_script(self,script): self.theWebDriver.execute_script(S(script))
     def click_id(self,clickElementID): self.theWebDriver.find_element_by_id(S(clickElementID)).click()
     def click_xpath(self,xpath): self.theWebDriver.find_element_by_xpath(S(xpath)).click()
@@ -2547,7 +2547,7 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         debuglog(("webdriver %d get " % (manager.start+manager.index))+url)
         manager.get(url) # waits for onload, may throw exception (which may be a timeout in which case we might have got SOMEthing, but may also be "Received error page", so probably best to let it go to caller)
         # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well? TODO: abort this early if currentUrl has changed and we're just going to issue a redirect? but would then need to ensure it's finished if client comes back to same instance that's still running after it follows the redirect)
-        debuglog("webdriver %d loaded" % (manager.start+manager.index))
+        debuglog(("webdriver %d loaded " % (manager.start+manager.index))+url)
         if options.js_reproxy:
           wasActive = True
           for _ in xrange(40): # up to 8+ seconds in steps of 0.2 (on top of the inital load)
@@ -2824,7 +2824,7 @@ def webdriver_checkRenew(*args):
     IOLoopInstance().add_timeout(time.time()+60,webdriver_checkRenew)
 def webdriver_fetch(url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
     if tooLate(): return # probably webdriver_queue overload (which will also be logged)
-    elif prefetched and prefetched.code >= 500: return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something
+    elif prefetched and (not hasattr(prefetched,"code") or prefetched.code >= 500): return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something
     elif wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # (can't reproxy in wsgi_mode, so can't use via and ua) TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do js_interpreter anyway; where else might we have threaded wsgi?  js_interpreter really is better run in non-wsgi mode anyway, so can js_reproxy)
     webdriver_queue.append((url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate))
     global webdriver_lambda ; webdriver_lambda += 1
@@ -3916,7 +3916,7 @@ document.forms[0].i.focus()
     def sendRequest(self,converterFlags,viewSource,isProxyRequest,follow_redirects):
         debuglog("sendRequest"+self.debugExtras())
         if self.isPjsUpstream and webdriver_prefetched[self.WA_PjsIndex]:
-            debuglog("sendRequest returning webdriver_prefetched["+str(self.WA_PjsIndex)+"]"+self.debugExtras())
+            debuglog("sendRequest returning webdriver_prefetched["+str(self.WA_PjsIndex)+"] ("+repr(webdriver_prefetched[self.WA_PjsIndex])+")"+self.debugExtras())
             r = webdriver_prefetched[self.WA_PjsIndex]
             webdriver_prefetched[self.WA_PjsIndex] = None
             return self.doResponse(r,converterFlags,viewSource,isProxyRequest)
@@ -4027,7 +4027,13 @@ document.forms[0].i.focus()
             error = """%s<h1>Error</h1>%s<br>Was trying to fetch <a href="%s">%s</a><hr>This is %s</body></html>""" % (htmlhead("Error"),error,ampEncode(tryFetch),ampEncode(tryFetch),serverName_html)
             self.set_status(504)
             return self.doResponse2(error,True,False)
+        if hasattr(response, "response"): # Tornado 6 errors can be wrapped
+            if hasattr(response.response,"headers"):
+                response.headers = response.response.headers
+            if hasattr(response.response,"body"):
+                response.body = response.response.body
         if not hasattr(response, "headers"): # HTTPError might not have them in Tornado 6
+            debuglog("Creating blank headers on "+repr(type(response))+" "+repr(response)+" "+repr(dir(response))+self.debugExtras())
             class H(dict):
                 def get_all(self): return []
             response.headers = H()
