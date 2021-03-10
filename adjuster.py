@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.142857 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.143 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -168,7 +168,10 @@ else: # normal run: go ahead with Tornado import
                 try: onChunk(r)
                 except: logging.error("readUntilClose onChunk unhandled exception")
                 readUntilClose(s,onLast,onChunk)
-            s.read_bytes(10240,True).add_done_callback(getResult)
+            try: s.read_bytes(10240,True).add_done_callback(getResult)
+            except tornado.iostream.StreamClosedError: # some Tornado versions can throw to here if was already closed at start ?
+                if debug_connections: print ("readUntilClose was immediately closed: calling onLast")
+                onLast("") ; return
         from tornado import gen
         def asynchronous(func):
             @gen.coroutine
@@ -2878,6 +2881,7 @@ class RequestForwarder(RequestHandler):
     
     def get_error_html(self,status,**kwargs): return htmlhead("Web Adjuster error")+options.errorHTML+"</body></html>" # Tornado 2.0
     def write_error(self,status,**kwargs): # Tornado 2.1+
+        if hasattr(self,"_finished") and self._finished: return
         msg = self.get_error_html(status,**kwargs)
         if "{traceback}" in msg and 'exc_info' in kwargs:
             msg = msg.replace("{traceback}","<pre>"+ampEncode("".join(traceback.format_exception(*kwargs["exc_info"])))+"</pre>")
