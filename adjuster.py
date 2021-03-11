@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.143 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.144 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -356,15 +356,15 @@ define("submitBookmarkletDomain",help="If set, specifies a domain to which the '
 define("submitBookmarkletRemoveExistingRuby",default=True,help="Specifies that 'bookmarklets' added to the 'Upload text' page should remove all existing ruby on a page before running.  Use this for example if you expect to replace the text with ruby of a different kind of annotation.")
 
 heading("Javascript execution options")
-define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome or HeadlessFirefox, and must have the appropriate one installed along with an appropriate version of Selenium (and ChromeDriver if you're using HeadlessChrome).  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
+define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome, HeadlessFirefox, Chrome or Firefox, and must have the appropriate one installed along with an appropriate version of Selenium (and ChromeDriver or GeckoDriver if appropriate).  Non-headless Chrome or Firefox requires a display (and might not respond to manual window close) but may help work around bugs in some headless versions.  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
 define("js_upstream",default=False,help="Handle --headAppend, --bodyPrepend, --bodyAppend and --codeChanges upstream of our Javascript interpreter instead of making these changes as code is sent to the client, and make --staticDocs available to our interpreter as well as to the client.  This is for running experimental 'bookmarklets' etc with browsers like Lynx.")
 # js_upstream TODO: what of delay? (or wait for XHRs to finish, call executeJavascript instead?)
 define("js_frames",default=False,help="When using js_interpreter, append the content of all frames and iframes to the main document. This might help with bandwidth reduction and with sites that have complex cross-frame dependencies that can be broken by sending separate requests through the adjuster.")
 define("js_instances",default=1,help="The number of virtual browsers to load when js_interpreter is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.")
 define("js_429",default=True,help="Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances.")
 # js_429 + multicore: closes even though some of those new requests might not immediately require js_interpreter work.  But it's better than having an excessively uneven distribution under load.  HTTP 429 is from RFC 6585, April 2012.  Without multicore, 'too long' = 'longer than 2*js_instances', but the queue can grow longer due to items already in prefetch: not all prefetches end up being queued for JS interpretation, so we can't count them prematurely. TODO: close even *before* reached full share of js_instances? as there may be other pages in prefetch, which will then have to wait for instances on this core even though there might already be spare instances on other cores.
-define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive PhantomJS processes. If you have Headless Chrome you can probably set this to 0.")
-# (js-restartAfter=1 precludes a faster response when a js_interpreter instance is already loaded with the page requested, although faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load, and is in any event unlikely to work if running multicore with many cores); TODO: check if PhantomJS 2.1.1 RAM usage is a regression from 2.0.1 ? but it's getting less relevant now there's Headless Chrome
+define("js_restartAfter",default=10,help="When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive PhantomJS processes.")
+# (js-restartAfter=1 precludes a faster response when a js_interpreter instance is already loaded with the page requested, although faster response is checked for only AFTER selecting an instance and is therefore less likely to work with multiple instances under load, and is in any event unlikely to work if running multicore with many cores); TODO: check if PhantomJS 2.1.1 RAM usage is a regression from 2.0.1 ? but it's getting less relevant now there's non-PhantomJS options.
 define("js_restartMins",default=10,help="Restart an idle js_interpreter instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --js-restartAfter=1.")
 # js_restartMins: setting it low does have the disadvantage of not being able to use an already-loaded page, see above
 define("js_timeout1",default=30,help="When js_interpreter is in use, tell it to allow this number of seconds for initial page load. More time is allowed for XMLHttpRequest etc to finish (unless our client cuts the connection in the meantime).")
@@ -499,7 +499,7 @@ define("pimote",help="Use an Energenie Pi-mote home control system to power-cycl
 heading("Speedup options")
 define("useLXML",default=False,help="Use the LXML library for parsing HTML documents. This is usually faster, but it can fail if your system does not have a good installation of LXML and its dependencies. Use of LXML libraries may also result in more changes to all HTML markup: this should be harmless for browsers, but beware when using options like bodyAppendGoesAfter then you might or might not be dealing with the original HTML depending on which filters are switched on.")
 # useLXML: (hence bodyAppendGoesAfter now takes regexps as of adjuster 0.1836) / dependencies: did have ", or if the websites you visit are badly broken" but it turns out some breakages are actually better handled by LXML than by HTMLParser, e.g. <div id=something">
-define("usepycurl",default=True,help="Use the pycurl library if available (setting this to False might save a little RAM at the expense of remote-server tolerance)")
+define("usepycurl",default=True,help="Use the pycurl library if a suitable version is available (setting this to False might save a little RAM at the expense of remote-server tolerance)")
 define("renderBlocks",default=False,help="Treat all characters rendered by the character-set renderer as \"blocks\" that are guaranteed to have the same dimensions (true for example if you are using the renderer for Chinese characters only). This is faster than checking words individually, but it may produce incorrect HEIGHT and WIDTH attributes if given a range of characters whose dimensions do differ.")
 # renderBlocks TODO: blocksRange option for if want to render some that do and some that don't? (but profile it: PIL's getsize just might turn out to be quicker than the high-level range-check code)
 define("fasterServer",help="Address:port of another instance of Web Adjuster to which we forward all traffic whenever it is available. When the other instance is not available, traffic will be handled by this one. Use for example if you have a slower always-on machine and a faster not-always-on machine and you want the slower machine to delegate to the faster machine when available. See also ipTrustReal.")
@@ -940,7 +940,7 @@ def preprocessOptions():
       global webdriver
       try: from selenium import webdriver
       except: errExit("js_interpreter requires selenium")
-      if not options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox"]: errExit("js_interpreter (if set) must be PhantomJS, HeadlessChrome or HeadlessFirefox")
+      if not options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox","Chrome","Firefox"]: errExit("js_interpreter (if set) must be PhantomJS, HeadlessChrome, HeadlessFirefox, Chrome or Firefox")
       if not multiprocessing: options.js_multiprocess = False
       if options.js_429 and options.multicore and not multiprocessing: errExit("js_429 with multicore requires the multiprocessing module to be available (Python 2.6+)")
     elif options.js_upstream: errExit("js_upstream requires a js_interpreter to be set")
@@ -986,11 +986,11 @@ def preprocessOptions():
             old = options.js_instances
             options.js_instances += (cores - (options.js_instances % cores))
             sys.stderr.write("multicore: changing js_instances %d -> %d (%d per core x %d cores)\n" % (old,options.js_instances,int(options.js_instances/cores),cores))
-    if options.js_interpreter=="HeadlessChrome":
+    if options.js_interpreter in ["HeadlessChrome","Chrome"]:
         try: # check inotify limit (Linux only)
             maxI=int(open("/proc/sys/fs/inotify/max_user_instances").read())
         except: maxI = -1
-        if not maxI==-1 and options.js_instances > maxI*20: warn("This system might run out of inotify instances with that number of Headless Chrome processes.  Try:\nsudo sysctl -n -w fs.inotify.max_user_watches=%d\nsudo sysctl -n -w fs.inotify.max_user_instances=%d" % (options.js_instances*40,options.js_instances*20))
+        if not maxI==-1 and options.js_instances > maxI*20: warn("This system might run out of inotify instances with that number of Chrome processes.  Try:\nsudo sysctl -n -w fs.inotify.max_user_watches=%d\nsudo sysctl -n -w fs.inotify.max_user_instances=%d" % (options.js_instances*40,options.js_instances*20))
     global js_per_core
     js_per_core = int(options.js_instances/cores)
     if options.upstream_proxy:
@@ -2128,7 +2128,9 @@ def setupCurl(maxCurls,error=None):
   global pycurl
   try:
     import pycurl # check it's there
-    if not ('c-ares' in pycurl.version or 'threaded' in pycurl.version):
+    curl_async = pycurl.version_info()[4] & (1 << 7) # CURL_VERSION_ASYNCHDNS
+    if not curl_async: curl_async = ('c-ares' in pycurl.version or 'threaded' in pycurl.version) # older
+    if not curl_async:
         if error: warn("The libcurl on this system might hold up our main thread while it resolves DNS (try building curl with ./configure --enable-ares)")
         else:
             del pycurl ; return # TODO: and say 'not using'?
@@ -2584,18 +2586,19 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % S(manager.current_url()).replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+S(manager.current_url())),302)
     else: return wrapResponse(get_and_remove_httpequiv_charset(manager.getu8())[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
 def get_new_webdriver(index,renewing=False):
-    if options.js_interpreter == "HeadlessChrome":
-        return get_new_HeadlessChrome(index,renewing)
-    elif options.js_interpreter == "HeadlessFirefox":
-        return get_new_HeadlessFirefox(index,renewing)
+    if options.js_interpreter in ["HeadlessChrome","Chrome"]:
+        return get_new_Chrome(index,renewing,options.js_interpreter=="HeadlessChrome")
+    elif options.js_interpreter in ["HeadlessFirefox","Firefox"]:
+        return get_new_Firefox(index,renewing,options.js_interpreter=="HeadlessFirefox")
     else: return get_new_PhantomJS(index,renewing)
-def get_new_HeadlessChrome(index,renewing):
+def get_new_Chrome(index,renewing,headless):
     log_complaints = (index==0 and not renewing)
     from selenium.webdriver.chrome.options import Options
     opts = Options() ; dc = None
     # TODO: can set opts.binary_location if needed (e.g. for chromium, if distro's linking doesn't work)
-    opts.add_argument("--headless")
-    opts.add_argument("--disable-gpu")
+    if headless:
+        opts.add_argument("--headless")
+        opts.add_argument("--disable-gpu")
     # Specify user-data-dir ourselves, further to Chromium bug 795 comment 12.  Include username and port (in case others are running or have run adjuster) as well as index.
     global myUsername
     try: myUsername
@@ -2632,16 +2635,16 @@ def get_new_HeadlessChrome(index,renewing):
         # Oops: how can we put in a Via: header if we don't
         # have an upstream proxy to do so?  unless you want
         # to implement a Chrome extension to do it (TODO?)
-        warn("--via ignored when running HeadlessChrome without --js-reproxy")
+        warn("--via ignored when running Chrome without --js-reproxy")
     if "x" in options.js_size:
         w,h = options.js_size.split("x",1)
     else: w,h = options.js_size,768
     try: w,h = int(w),int(h)
     except: w,h = 0,0
-    if not (w and h):
+    if headless and not (w and h):
         if log_complaints: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.js_size)
         w,h = 1024,768
-    opts.add_argument("--window-size=%d,%d" % (w,h))
+    if w and h: opts.add_argument("--window-size=%d,%d" % (w,h))
     if dc: p = wd_instantiateLoop(webdriver.Chrome,index,renewing,chrome_options=opts,desired_capabilities=dc)
     else: p = wd_instantiateLoop(webdriver.Chrome,index,renewing,chrome_options=opts)
     if options.js_reproxy:
@@ -2654,8 +2657,9 @@ def get_new_HeadlessChrome(index,renewing):
     try: p.set_page_load_timeout(options.js_timeout1)
     except: logging.info("Couldn't set HeadlessChrome page load timeout")
     return p
-def get_new_HeadlessFirefox(index,renewing):
-    os.environ['MOZ_HEADLESS'] = '1' # in case -headless not yet working
+def get_new_Firefox(index,renewing,headless):
+    if headless:
+        os.environ['MOZ_HEADLESS'] = '1' # in case -headless not yet working
     from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
     from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
     profile = FirefoxProfile() ; caps = None
@@ -2678,11 +2682,12 @@ def get_new_HeadlessFirefox(index,renewing):
         # Oops: how can we put in a Via: header if we don't
         # have an upstream proxy to do so?  unless you want
         # to implement a Firefox extension to do it (TODO?)
-        warn("--via ignored when running HeadlessFirefox without --js-reproxy")
+        warn("--via ignored when running Firefox without --js-reproxy")
     # TODO: do any other options need to be set?  disable plugins, Firefox-update prompts, new windows/tabs with JS, etc?  or does Selenium do that?
     if options.logDebug: binary=FirefoxBinary(log_file=sys.stderr) # TODO: support logDebug to a file as well
     else: binary=FirefoxBinary()
-    cmdL = ('-headless','-no-remote')
+    if headless: cmdL = ('-headless','-no-remote')
+    else: cmdL = ('-no-remote',)
     if "x" in options.js_size: cmdL += ("-width",options.js_size.split("x")[0],"-height",options.js_size.split("x")[1])
     elif options.js_size: cmdL += ("-width",options.js_size)
     cmdL += ("about:blank",) # not Firefox start page
@@ -2690,8 +2695,15 @@ def get_new_HeadlessFirefox(index,renewing):
     if caps: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps)
     else: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary)
     try: p.set_page_load_timeout(options.js_timeout1)
-    except: logging.info("Couldn't set HeadlessFirefox page load timeout")
+    except: logging.info("Couldn't set Firefox page load timeout")
     return p
+block_headless_firefox = [
+    # servers that Firefox tries to CONNECT to on startup
+    "push.services.mozilla.com","snippets.cdn.mozilla.net","firefox.settings.services.mozilla.com","location.services.mozilla.com","shavar.services.mozilla.com",
+    "aus5.mozilla.org","ftp.mozilla.org",
+    "fonts.googleapis.com", # Fedora version of Firefox connects to this
+    # "start.fedoraproject.org","fedoraproject.org", # Fedora version of Firefox does this (but what if user actually wants to view one of those pages?)
+]
 def wd_DesiredCapabilities(log_complaints):
     try:
         from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
@@ -3017,7 +3029,7 @@ class RequestForwarder(RequestHandler):
       try: host, port = S(self.request.uri).split(':')
       except: host,port = None,None
       is_sshProxy = (host,port)==(allowConnectHost,allowConnectPort)
-      if host and (options.real_proxy or self.isPjsUpstream or self.isSslUpstream or is_sshProxy) and not (self.isPjsUpstream and options.js_interpreter=="HeadlessFirefox" and host in ["push.services.mozilla.com","snippets.cdn.mozilla.net","firefox.settings.services.mozilla.com","location.services.mozilla.com","shavar.services.mozilla.com"]): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
+      if host and (options.real_proxy or self.isPjsUpstream or self.isSslUpstream or is_sshProxy) and not (self.isPjsUpstream and options.js_interpreter in ["HeadlessFirefox","Firefox"] and host in block_headless_firefox): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
         upstream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
         client = self.request.connection.stream
         # See note about Tornado versions in writeAndClose
@@ -3028,6 +3040,7 @@ class RequestForwarder(RequestHandler):
             # This should result in a huge "no cert" warning
             host,port = "127.0.0.1",port_randomise.get(self.WA_connectPort,self.WA_connectPort)
             debuglog("Rerouting CONNECT to "+host+":"+str(port))
+            self.request.suppress_logging = True # no need to log the CONNECT if our other port will be logging the GET
         def callback(*args):
           readUntilClose(client,lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,"upstream "+host+":"+str(port)+self.debugExtras(),upstream,data)) # (DO say 'upstream', as if host==localhost it can be confusing (TODO: say 'upstream' only if it's 127.0.0.1?))
           if self.isPjsUpstream: clientErr=None # we won't mind if our js_interpreter client gives up on an upstream fetch
