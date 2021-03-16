@@ -583,7 +583,7 @@ Speedup options
 : Set this to True if you have a default_site set and you are behind any kind of "load balancer" that works by issuing a GET / with no browser string. This option will detect such requests and avoid passing them to the remote site.
 
 `--multicore`  (default False)
-: (Linux only) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on Mac due to unreliability (other cores can still be used for htmlFilter etc)
+: (Linux and BSD) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on Mac due to unreliability (other cores can still be used for htmlFilter etc)
 
 `--num_cores`  (default 0)
 : Set the number of CPU cores for the multicore option (0 for auto-detect)
