@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.144 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.145 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -2294,7 +2294,21 @@ class WebdriverWrapper:
             # No coredump, for emergency_zap_pid_and_children
             import resource ; resource.setrlimit(resource.RLIMIT_CORE,(0,0))
         except: pass # oh well, have coredumps then :-(
+        if options.js_multiprocess:
+            # we have a whole process to ourselves (not just a thread)
+            # so we can set the environment here.
+            # Selenium doesn't always clean up temporary files on exit
+            # (especially with Firefox), so let's set TMPDIR uniquely so we
+            # can clean them ourselves.
+            tmp = os.environ.get("TMPDIR",None)
+            self.tempDirToDelete=os.environ['TMPDIR']=os.environ.get("TMPDIR","/tmp")+"/"+str(os.getpid())+"."+str(args[0])
+            try: os.mkdir(self.tempDirToDelete)
+            except: pass
+        else: tmp = self.tempDirToDelete = None
         self.theWebDriver = get_new_webdriver(*args)
+        if tmp: os.environ["TMPDIR"] = tmp
+        elif options.js_multiprocess: del os.environ["TMPDIR"]
+    def getTmp(self,*args): return self.tempDirToDelete
     def quit(self,*args):
         if not self.theWebDriver: return
         try: pid = self.theWebDriver.service.process.pid
@@ -2304,6 +2318,7 @@ class WebdriverWrapper:
         # Try zapping the process ourselves anyway (even if theWebDriver.quit DIDN'T return error: seems it's sometimes still left around.  TODO: this could have unexpected consequences if the system's pid-reuse rate is excessively high.)
         self.theWebDriver = None
         emergency_zap_pid_and_children(pid)
+        if self.tempDirToDelete: emergency_zap_tempdir(self.tempDirToDelete)
     def current_url(self):
         try: return self.theWebDriver.current_url
         except: return "" # PhantomJS Issue #13114: unconditional reload for now
@@ -2347,6 +2362,11 @@ def emergency_zap_pid_and_children(pid):
     except: pass # no psutil, or process already gone
     try: os.kill(pid,9),os.waitpid(pid, 0) # waitpid is necessary to clear it from the process table, but we should NOT use os.WNOHANG, as if we do, there's a race condition with the os.kill taking effect (even -9 isn't instant)
     except OSError: pass # maybe pid already gone
+def emergency_zap_tempdir(d):
+    try:
+        for f in os.listdir(d): emergency_zap_tempdir(d+os.sep+f)
+        os.rmdir(d)
+    except: unlink(d)
 try: from selenium.common.exceptions import TimeoutException
 except: # no Selenium or wrong version
     class TimeoutException(Exception): pass # placeholder
@@ -2410,7 +2430,9 @@ class WebdriverWrapperController:
         if ret==exc=="INT": return self.pipe.close()
         if exc: raise exc
         else: return ret
-    def new(self,*args): self.send("new",args)
+    def new(self,*args):
+        self.send("new",args)
+        self.tempDirToDelete=self.send("getTmp")
     def quit(self,final=False):
         if final: self.timeoutLock = None # quit_wd_atexit could plausibly run while another thread's still processing its last command, so allow these commands to be queued in the pipe from another thread without worrying about timeout when that happens
         self.send("quit")
@@ -2435,6 +2457,7 @@ class WebdriverRunner:
         self.renew_webdriver_newThread(True) # sets wd_threadStart
     def renew_controller(self): # SeriousTimeoutException
         emergency_zap_pid_and_children(self.wrapper.process.pid)
+        emergency_zap_tempdir(self.wrapper.tempDirToDelete)
         self.wrapper = WebdriverWrapperController()
     def renew_webdriver_sameThread(self,firstTime=False):
         self.usageCount = 0 ; self.maybe_stuck = False
@@ -4341,6 +4364,11 @@ document.forms[0].i.focus()
         try: response.code
         except Exception as e: response = wrapResponse(str(response))
         debuglog("headResponse "+repr(response.code)+self.debugExtras())
+        if hasattr(response, "response"): # Tornado 6 errors can be wrapped
+            if hasattr(response.response,"headers"):
+                response.headers = response.response.headers
+            if hasattr(response.response,"body"):
+                response.body = response.response.body
         if response.code == 503: # might be a cache error (check for things like X-Squid-Error ERR_DNS_FAIL 0 that can be due to a missing newline before the "never_direct allow all" after the "cache_peer" setting in Squid)
             for name,value in response.headers.get_all(): debuglog(name+": "+value)
         curlFinished()
@@ -5133,7 +5161,7 @@ def get_httpequiv_charset(htmlStr):
 def get_and_remove_httpequiv_charset(body):
     charset,tagStart,tagEnd = get_httpequiv_charset(body)
     if charset: body = body[:tagStart]+body[tagEnd:]
-    if body.startswith(B('<?xml version="1.0" encoding')): body = B('<?xml version="1.0"')+body[body.find("?>"):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
+    if body.startswith(B('<?xml version="1.0" encoding')): body = B('<?xml version="1.0"')+body[body.find(B("?>")):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
     return charset, body
 
 #@file: run-browser.py
