@@ -2888,7 +2888,7 @@ rmServerHeaders = set([
     
     "x-host","x-http-reason", # won't necessarily be the same
     
-    "content-security-policy","x-webkit-csp","x-content-security-policy", # sorry but if we're adjusting the site by adding our own scripts/styles we are likely to be broken by a CSP that restricts which of these we're allowed to do. (Even if we adjust the domains listed on those headers, what if our scripts rely on injecting inline code?)  Sites shouldn't *depend* on CSP to prevent XSS: it's just a belt-and-braces that works only in recent browsers.  Hopefully our added styles etc will break the XSS-introduced ones if we hit a lazy site.
+    "content-security-policy","x-webkit-csp","x-content-security-policy","x-frame-options", # sorry but if we're adjusting the site by adding our own scripts/styles we are likely to be broken by a CSP that restricts which of these we're allowed to do. (Even if we adjust the domains listed on those headers, what if our scripts rely on injecting inline code?)  Sites shouldn't *depend* on CSP to prevent XSS: it's just a belt-and-braces that works only in recent browsers.  Hopefully our added styles etc will break the XSS-introduced ones if we hit a lazy site.
     
     "vary", # we modify this (see code)
     
