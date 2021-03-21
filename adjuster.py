@@ -5200,6 +5200,7 @@ def runRun(*args):
             time.sleep(options.runWait)
             if exitting: break
             logging.info("Restarting run command after %dsec (last exit = %d)" % (options.runWait,ret))
+        logging.info("run command stopped due to normal exit")
         helper_threads.remove('runRun')
     threading.Thread(target=runner_thread,args=()).start()
 def setupRunAndBrowser():
