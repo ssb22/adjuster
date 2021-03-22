@@ -1847,6 +1847,7 @@ def announceShutdown():
     if coreNo or options.multicore: return # silent helper process (coreNo=="unknown"), or we announce interrupts differently in multicore (see start_multicore)
     announceShutdown0()
 def announceShutdown0():
+    global exitting ; exitting = True # so not restarted if options.runWait == 0 and the run process was given the same signal (it can be confusing if get a restart message from the other thread AFTER shutdown has been announced)
     if options.background:
         logging.info("Server shutdown")
         if options.pidfile: unlink(options.pidfile)
@@ -1904,7 +1905,6 @@ def stop_threads():
 def stop_threads0():
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     if options.run:
-        global exitting ; exitting = True # so not restarted if options.runWait == 0
         try: os.kill(runningPid,signal.SIGTERM)
         except NameError: pass # runningPid not set
         except OSError: pass # already exitted
@@ -5200,7 +5200,6 @@ def runRun(*args):
             time.sleep(options.runWait)
             if exitting: break
             logging.info("Restarting run command after %dsec (last exit = %d)" % (options.runWait,ret))
-        logging.info("run command stopped due to normal exit")
         helper_threads.remove('runRun')
     threading.Thread(target=runner_thread,args=()).start()
 def setupRunAndBrowser():
