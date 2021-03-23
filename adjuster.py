@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.145 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.146 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -2288,7 +2288,7 @@ redirectFiles_Extensions=set("pdf epub mp3 aac zip gif png jpeg jpg exe tar tgz 
 
 class WebdriverWrapper:
     "Wrapper for webdriver that might or might not be in a separate process without shared memory"
-    def __init__(self): self.theWebDriver = None
+    def __init__(self): self.theWebDriver = self.tmpDirToDelete = None
     def new(self,*args):
         try:
             # No coredump, for emergency_zap_pid_and_children
@@ -2566,6 +2566,7 @@ def exc_logStr():
 def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot): # single-user only! (and relies on being called only in htmlOnlyMode so leftover Javascript is removed and doesn't double-execute on JS-enabled browsers)
     import tornado.httputil ; url = S(url)
     currentUrl = S(manager.current_url())
+    timed_out = False
     if prefetched or not re.sub('#.*','',currentUrl) == url:
         if prefetched:
             debuglog("webdriver %d get about:blank" % (manager.start+manager.index))
@@ -2573,19 +2574,27 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
             webdriver_prefetched[manager.index] = prefetched
         webdriver_inProgress[manager.index].clear() # race condition with start of next 'get' if we haven't done about:blank, but worst case is we'll wait a bit too long for page to finish
         debuglog(("webdriver %d get " % (manager.start+manager.index))+url)
-        manager.get(url) # waits for onload, may throw exception (which may be a timeout in which case we might have got SOMEthing, but may also be "Received error page", so probably best to let it go to caller)
-        # + we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well? TODO: abort this early if currentUrl has changed and we're just going to issue a redirect? but would then need to ensure it's finished if client comes back to same instance that's still running after it follows the redirect)
-        debuglog(("webdriver %d loaded " % (manager.start+manager.index))+url)
-        if options.js_reproxy:
+        try: manager.get(url) # waits for onload
+        except TimeoutException:
+            # we might have got SOMEthing (e.g. on a page bringing in hundreds of scripts from a slow server, but still running some of them before the timeout)
+            # May also be "Received error page"
+            if currentUrl == S(manager.current_url()):
+                debuglog(("webdriver %d get() timeout " % (manager.start+manager.index))+url+" - URL unchanged at "+currentUrl)
+                raise # treat as "no partial result"
+            debuglog(("webdriver %d get() timeout " % (manager.start+manager.index))+url+" - extracting partial")
+        if not timed_out:
+         debuglog(("webdriver %d loaded " % (manager.start+manager.index))+url)
+         # we want to double-check XMLHttpRequests have gone through (TODO: low-value setTimeout as well? TODO: abort this early if currentUrl has changed and we're just going to issue a redirect? but would then need to ensure it's finished if client comes back to same instance that's still running after it follows the redirect)
+         if options.js_reproxy:
           wasActive = True
           for _ in xrange(40): # up to 8+ seconds in steps of 0.2 (on top of the inital load)
             time.sleep(0.2) # unconditional first-wait hopefully long enough to catch XMLHttpRequest delayed-send, very-low-value setTimeout etc, but we don't want to wait a whole second if the page isn't GOING to make any requests (TODO: monitor the js going through the upstream proxy to see if it contains any calls to this? but we'll have to deal with js_interpreter's cache, unless set it to not cache and we cache upstream)
             active = webdriver_inProgress[manager.index]
             if not active and not wasActive: break # TODO: wait longer than 0.2-0.4 to see if it restarts another request?
             wasActive = active
-        else: time.sleep(1) # can't do much if we're not reproxying, so just sleep 1sec and hope for the best
+         else: time.sleep(1) # can't do much if we're not reproxying, so just sleep 1sec and hope for the best
         currentUrl = None
-    if clickElementID or clickLinkText:
+    if (clickElementID or clickLinkText) and not timed_out:
       try:
         manager.execute_script("window.open = window.confirm = function(){return true;}") # in case any link has a "Do you really want to follow this link?" confirmation (webdriver default is usually Cancel), or has 'pop-under' window (TODO: switch to pop-up?)
         if clickElementID: manager.click_id(clickElementID)
@@ -2605,9 +2614,16 @@ def _wd_fetch(manager,url,prefetched,clickElementID,clickLinkText,asScreenshot):
         return wrapResponse("webdriver failed to load") # don't return an actual redirect to about:blank, which breaks some versions of Lynx
     debuglog("Getting data from webdriver %d (current_url=%s)" % (manager.start+manager.index,S(currentUrl)))
     if asScreenshot: return wrapResponse(manager.getpng(),tornado.httputil.HTTPHeaders.parse("Content-type: image/png"),200)
-    elif not re.sub(B('#.*'),B(''),B(currentUrl)) == B(url): # redirected (but no need to update local browser URL if all they want is a screenshot, TODO: or view source; we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop)
-        return wrapResponse('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % S(manager.current_url()).replace('&','&amp;').replace('"','&quot;'),tornado.httputil.HTTPHeaders.parse("Location: "+S(manager.current_url())),302)
-    else: return wrapResponse(get_and_remove_httpequiv_charset(manager.getu8())[1],tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
+    body = get_and_remove_httpequiv_charset(manager.getu8())[1]
+    if timed_out: manager.get("about:blank") # as the timeout might have been due to a hard-locked script, so interrupting it should save some CPU
+    if not re.sub(B('#.*'),B(''),B(currentUrl)) == B(url): # we have to ignore anything after a # in this comparison because we have no way of knowing (here) whether the user's browser already includes the # or not: might send it into a redirect loop
+        # If we redirect, and if we have more than one user session active (and especially if we're multicore) then the second request might not come back to the same webdriver instance (or even the same adjuster process, so we can't even cache it unless shared), and reload is bad, so try to avoid redirect if possible.
+        # We could set 'base href' instead, seeing as 'document.location' does not have to be right on the user's side as we've already executed the site's scripts here (unless the user has any extensions that require it to be right).  Don't use Content-Location header: not all browsers support + might cause caches to tread POST requests as invariant.
+        # Any in-document "#" links will cause a reload if 'base href' is set, but at least we won't have to reload UNLESS the user follows such a link.
+        if htmlFind(body,"<base href=") >= 0:
+            pass # if it already has a <base href> we can leave it as-is, since it won't matter from which URL it was served
+        else: return wrapResponse(addToHead(body,B('<base href="')+re.sub(B('#.*'),B(''),B(currentUrl))+B('">')),tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
+    return wrapResponse(body,tornado.httputil.HTTPHeaders.parse("Content-type: text/html; charset=utf-8"),200)
 def get_new_webdriver(index,renewing=False):
     if options.js_interpreter in ["HeadlessChrome","Chrome"]:
         return get_new_Chrome(index,renewing,options.js_interpreter=="HeadlessChrome")
@@ -3994,7 +4010,7 @@ document.forms[0].i.focus()
                 # we have the page in hand
                 debuglog("prefetch "+self.urlToFetch)
                 httpfetch(self,self.urlToFetch,
-                  connect_timeout=60,request_timeout=120,
+                  connect_timeout=60,request_timeout=120, # Tornado's default is usually something like 20 seconds each; be more generous to slow servers (TODO: customise?  TODO: Tornado 6 sometimes logs "timeout in request queue" as well as "timeout while connecting", are we exceeding max_clients? but we set maxCurls amply; is it somehow using SimpleAsyncHTTPClient instead, which contains the "in request queue" string?  but curl is set up in preprocessOptions, which runs before openPortsEtc / start_multicore)
                   proxy_host=ph, proxy_port=pp,
                   # TODO: use_gzip=enable_gzip, # but will need to retry without it if it fails
                   method=self.request.method,
@@ -4030,7 +4046,7 @@ document.forms[0].i.focus()
         else:
             if options.js_interpreter and self.isPjsUpstream and webdriver_via[self.WA_PjsIndex]: self.request.headers["Via"],self.request.headers["X-Forwarded-For"] = webdriver_via[self.WA_PjsIndex]
             httpfetch(self,self.urlToFetch,
-                  connect_timeout=60,request_timeout=120, # Tornado's default is usually something like 20 seconds each; be more generous to slow servers (TODO: customise?)
+                  connect_timeout=60,request_timeout=120, # same TODO as above
                   proxy_host=ph, proxy_port=pp,
                   use_gzip=enable_gzip and not hasattr(self,"avoid_gzip"),
                   method=self.request.method, headers=self.request.headers, body=B(body),
@@ -4258,8 +4274,8 @@ document.forms[0].i.focus()
         if self.isPjsUpstream:
           if do_html_process:
             # add a CSS rule to help with js_interpreter screenshots (especially if the image-display program shows transparent as a headache-inducing chequer board) - this rule MUST go first for the cascade to work
-            i = htmlFind(body,B("<head"))
-            if i==-1: i=htmlFind(body,B("<html"))
+            i = htmlFind(body,"<head")
+            if i==-1: i=htmlFind(body,"<html")
             if not i==-1: i = body.find(B('>'),i)+1
             if i: body=body[:i]+B("<style>html{background:#fff}</style>")+body[i:] # setting on 'html' rather than 'body' allows body bgcolor= to override.  (body background= is not supported in HTML5 and PhantomJS will ignore it anyway.)
             if options.js_upstream: body = html_additions(body,(None,None),False,"","",False,"","PjsUpstream",False,False,"") # just headAppend,bodyPrepend,bodyAppend (no css,ruby,render,UI etc, nor htmlFilter from below)
@@ -5614,6 +5630,7 @@ def htmlFind(html,markup):
     # basically html.lower().find(markup), but we need to be
     # aware of things like Tencent's <!--headTrap<body></body><head></head><html></html>-->
     # preferably without running a slow full parser
+    markup = B(markup)
     r = html.lower().find(markup)
     if r<0: return r
     c = html.find(B("<!--"))
@@ -5784,21 +5801,11 @@ if(document.getElementById) {
     if options.headAppendRuby and not is_password_domain=="PjsUpstream":
         if IsEdge: bodyAppend += B("</td></tr></table>")
         bodyAppend += B(rubyEndScript)
-    if headAppend:
-        i=htmlFind(html,B("</head"))
-        if i==-1: # no head section?
-            headAppend = B("<head>")+headAppend+B("</head>")
-            i=htmlFind(html,B("<body"))
-            if i==-1: # no body section either?
-                i=htmlFind(html,B("<html"))
-                if i > -1: i = html.find(B('>'),i)
-                if i==-1: i=html.find(B('>'))
-                i += 1 # 0 if we're still -1, else past the '>'
-        html = html[:i]+headAppend+html[i:]
+    if headAppend: html=addToHead(html,headAppend)
     if bodyPrepend:
-        i=htmlFind(html,B("<body"))
-        if i==-1: i = htmlFind(html,B("</head"))
-        if i==-1: i = htmlFind(html,B("<html"))
+        i=htmlFind(html,"<body")
+        if i==-1: i = htmlFind(html,"</head")
+        if i==-1: i = htmlFind(html,"<html")
         if i>-1:
             i=html.find(B(">"),i)
             if i>-1: html=html[:i+1]+bodyPrepend+html[i+1:]
@@ -5821,6 +5828,18 @@ if(document.getElementById) {
 try: next # Python 2.6+
 except:
     def next(i): return i.next() # Python 2.5 (.next() renamed .__next__() in 3.x, but that has a built-in next() anyway)
+
+def addToHead(html,headAppend):
+    i=htmlFind(html,"</head")
+    if i==-1: # no head section?
+        headAppend = B("<head>")+headAppend+B("</head>")
+        i=htmlFind(html,"<body")
+        if i==-1: # no body section either?
+            i=htmlFind(html,"<html")
+            if i > -1: i = html.find(B('>'),i)
+            if i==-1: i=html.find(B('>'))
+            i += 1 # 0 if we're still -1, else past the '>'
+    return html[:i]+headAppend+html[i:]
 
 #@file: js-links.py
 # --------------------------------------------------
@@ -5958,7 +5977,7 @@ def detect_renderCheck(): return r"""(document.getElementsByTagName && function(
 # Works even in Opera Mini, which must somehow communicate the client's font metrics to the proxy
 
 def addCssHtmlAttrs(html,attrsToAdd):
-   i=htmlFind(html,B("<body"))
+   i=htmlFind(html,"<body")
    if i==-1: return html # TODO: what of HTML documents that lack <body> (and frameset), do we add one somewhere? (after any /head ??)
    i += 5 # after the "<body"
    j = html.find(B('>'), i)
