@@ -2151,7 +2151,7 @@ def setupCurl(maxCurls,error=None):
     curl_max_clients = min(max(maxCurls,10),1000) # constrain curl_max_clients to between 10 and 1000 to work around Tornado issue 2127, and we'll warn about the issue ourselves if we go over:
     curl_inUse_clients = 0
     try: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient",max_clients=curl_max_clients)
-    except: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # will try in MyAsyncHTTPClient too (different versions of Tornado and all that...)
+    except: AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient") # will try in MyAsyncHTTPClient too (different versions of Tornado and all that...) (TODO: if that one also falls back to no max_clients, we might be reduced to 10 and should set curl_max_clients accordingly in order to get appropriate warning messages)
     def MyAsyncHTTPClient():
         try: problem = not len(AsyncHTTPClient()._free_list)
         except:
