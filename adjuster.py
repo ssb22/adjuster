@@ -494,7 +494,7 @@ define("ip_check_interval",default=8000,help="Number of seconds between checks o
 define("ip_check_interval2",default=60,help="Number of seconds between checks of ip_query_url2 (if set), for the ip_change_command option")
 define("ip_query_aggressive",default=False,help="If a query to ip_query_url fails with a connection error or similar, keep trying again until we get a response. This is useful if the most likely reason for the error is that our ISP is down: we want to get the new IP just as soon as we're back online. However, if the error is caused by a problem with ip_query_url itself then this option can lead to excessive traffic, so use with caution. (Log entries are written when this option takes effect, and checking the logs is advisable.)")
 define("ip_force_interval",default=7*24*3600,help="Number of seconds before ip_change_command (if set) is run even if there was no IP change.  This is to let Dynamic DNS services know that we are still around.  Set to 0 to disable forced updates (a forced update will occur on server startup anyway), otherwise an update will occur on the next IP check after ip_force_interval has elapsed.")
-define("pimote",help="Use an Energenie Pi-mote home control system to power-cycle the router when its Internet connection appears to be stuck in a bad state.  This option works only if Web Adjuster is running on the Raspberry Pi, and it must be set to R,S,I,D where R is the internal IP address of your router, S is the domain of your Internet service provider (assumed to be quick to look up), I is the IP provided by your router's built-in DNS when it's having trouble (e.g. Post Office Broadband's AMG1302-derived router responds with 219.87.158.116 which is presumably Zyxel's office in Taiwan), and D is the Pi-mote device ID (1 to 4 or all) used to switch it off and on again.  Power-cycling will be initiated if two queries to the router's DNS for its ISP domain either fail or return internalResponse, and it's assumed router caching will let us check status frequently without causing traffic.")
+define("pimote",help="Use an Energenie Pi-mote home control system to power-cycle the router when its Internet connection appears to be stuck in a bad state.  This option works only if Web Adjuster is running on the Raspberry Pi and as a user in the \"gpio\" group.  It must be set to R,S,I,D where R is the internal IP address of your router, S is the domain of your Internet service provider (assumed to be quick to look up), I is the IP provided by your router's built-in DNS when it's having trouble (e.g. Post Office Broadband's AMG1302-derived router responds with 219.87.158.116 which is presumably Zyxel's office in Taiwan), and D is the Pi-mote device ID (1 to 4 or all) used to switch it off and on again.  Power-cycling will be initiated if two queries to the router's DNS for its ISP domain either fail or return internalResponse, and it's assumed router caching will let us check status frequently without causing traffic.")
 
 heading("Speedup options")
 define("useLXML",default=False,help="Use the LXML library for parsing HTML documents. This is usually faster, but it can fail if your system does not have a good installation of LXML and its dependencies. Use of LXML libraries may also result in more changes to all HTML markup: this should be harmless for browsers, but beware when using options like bodyAppendGoesAfter then you might or might not be dealing with the original HTML depending on which filters are switched on.")
@@ -1669,22 +1669,22 @@ def makePjsApplication(x,y):
     if options.js_upstream and options.staticDocs: handlers.insert(0,static_handler())
     return Application(handlers,log_function=nullLog,gzip=False)
 
-def start_multicore(isChild=False):
-    "Fork child processes, set coreNo unless isChild; parent waits and exits.  Call to this must come after unixfork if want to run in the background."
+def start_multicore(isSSLEtcChild=False):
+    "Fork child processes, set coreNo unless isSSLEtcChild; parent waits and exits.  Call to this must come after unixfork if want to run in the background."
     global coreNo
     if not options.multicore:
-        if not isChild: coreNo = 0
+        if not isSSLEtcChild: coreNo = 0
         return
     # Simplified version of Tornado fork_processes with
     # added setupRunAndBrowser (must have the terminal)
     children = set()
     for i in range(cores):
         pid = os.fork()
-        if not pid:
-            if not isChild: coreNo = i
+        if not pid: # child
+            if not isSSLEtcChild: coreNo = i
             return CrossProcessLogging.initChild()
         children.add(pid)
-    if not isChild:
+    if not isSSLEtcChild:
         # Do the equivalent of setupRunAndBrowser() but without the IOLoop.  This can start threads, so must be after the above fork() calls.
         if options.browser: runBrowser()
         if options.run: runRun()
@@ -1714,7 +1714,7 @@ def start_multicore(isChild=False):
         except KeyboardInterrupt: logging.error("KeyboardInterrupt received while waiting for child-processes to terminate: "+" ".join(str(s) for s in children))
         except: continue
         if pid in children: children.remove(pid)
-    if not isChild: announceShutdown0()
+    if not isSSLEtcChild: announceShutdown0()
     stop_threads() # must be last thing, except
     raise SystemExit # (in case weren't any threads to stop)
 
@@ -1743,17 +1743,17 @@ def openPortsEtc():
         if not options.ssl_fork: initLogging() # as we hadn't done it before (must be after unixfork)
         init429()
         if not options.background: notifyReady()
-        start_multicore()
+        start_multicore() # if multicore, returns iff we're one of the cores
         if not options.multicore or profile_forks_too: open_profile()
         else: open_profile_pjsOnly()
         if options.js_interpreter: init_webdrivers(coreNo*js_per_core,js_per_core)
-        if not options.multicore: setupRunAndBrowser()
-        if options.pimote: pimote_thread()
+        if not options.multicore: setupRunAndBrowser() # (equivalent is done by start_multicore if multicore)
         watchdog.start() # ALL cores if multicore (since only one needs to be up for us to be still working) although TODO: do we want this only if not coreNo so as to ensure Dynamic_DNS_updater is still up?
         checkServer.setup() # (TODO: if we're multicore, can we propagate to other processes ourselves instead of having each core check the fasterServer?  Low priority because how often will a multicore box need a fasterServer)
         if not coreNo:
             CrossProcess429.startThread()
             Dynamic_DNS_updater()
+            if options.pimote: pimote_thread() # must be on same core as Dynamic_DNS_updater so it can set pimote_may_need_override
         if options.multicore: stopFunc = lambda *_:stopServer("SIG*")
         else: stopFunc = lambda *_:stopServer("SIGTERM received")
         if options.seconds: IOLoopInstance().add_timeout(time.time()+options.seconds,lambda *args:stopServer("Uptime limit reached"))
@@ -6251,7 +6251,10 @@ def pimote_thread():
         # Takes 2 minutes (because we have no direct way to verify
         # the sockets have received our signal, so just have to make
         # the hopefully-worst-case assumptions)
-        def w(g,v): open("/sys/class/gpio/gpio%d/value" % g).write(str(v)+"\n") # TODO: check if \n really needed
+        def w(g,v):
+            f = "/sys/class/gpio/gpio%d/value" % g
+            try: open(f,'w').write(str(v)+"\n") # not sure if \n really needed
+            except: logging.error("PiMote: unable to write to "+f)
         for OnOff in [0, 1]:
             w(25,0) # stop TX, just in case
             w(17,p17), w(22,p22), w(23,p23), w(27,OnOff)
