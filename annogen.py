@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.142857 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.143 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -229,7 +229,7 @@ parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (SDK 24 or higher is required on the build machine, but the resulting app will be compatible with all versions of Android back to 1.x); if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
 # SDK 24 was released mid-2016.  If your main OS cannot be upgraded, you should be able to install a newer SDK on a virtual machine, e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless'
 parser.add_option("--android-template",
-                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use --sharp-multi and set the Javascript array 'modeNames', and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  annotUrlTrans returns undefined = uses original
+                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use --annotation-names, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  annotUrlTrans returns undefined = uses original
 parser.add_option("-L","--pleco-hanping",
                   action="store_true",default=False,
                   help="In the Android app, make popup definitions link to Pleco or Hanping if installed")
@@ -315,6 +315,7 @@ parser.add_option("--sharp-multi",
                   action="store_true",default=False,
                   help="Assume annotation (or reannotator output) contains multiple alternatives separated by # (e.g. pinyin#Yale) and include code to select one by number at runtime (starting from 0). This is to save on total space when shipping multiple annotators that share the same word grouping and gloss data, differing only in the transcription of each word.")
 cancelOpt("sharp-multi")
+parser.add_option("--annotation-names",help="Comma-separated list of annotation types supplied to sharp-multi (e.g. Pinyin,Yale), if you want the Android app etc to be able to name them.  You can also set just one annotation names here if you are not using sharp-multi.")
 
 #  =========== ANALYSIS OPTIONS ==============
 
@@ -1336,12 +1337,12 @@ c_end += br"""  while(!FINISHED) {
   }
 }"""
 
-# jsAddRubyCss will be in a quoted string in ObjC / Java source, so all " and \ must be escaped:
+# jsAddRubyCss will be in a quoted string in Java source, so all " and \ must be escaped:
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
 annotation_font = [b"Times New Roman"] # Android has Droid Serif but it's not selected if you put "serif" or "Droid Serif", it's mapped from "Times New Roman" (tested in Android 4.4 and Android 10)
 # there's a more comprehensive list in the windows_clipboard code below, but those fonts are less likely found on Android
 jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{"
-jsAddRubyCss += b"user-select:none;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way.  Can still copy annotation via the popup box.  -webkit-user-select works on older Chrome but buggy (selection is invisible but Copy still copies).  Even on Android 10 this narrows things down only if Copy is in use, not extended popup options e.g. Translate, and can in some small cases fail to work even with Copy. (Incidentally, user-select:all on rb doesn't work in Android 10 as of 2021-01)
+if android_template: jsAddRubyCss += b"user-select:'+(ssb_local_annotator.getIncludeAll()?'text':'none')+' !important;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way, but other users want the annotations (and copying one word at a time via the popup box is slow).  -webkit-user-select works on older Chrome but buggy (selection is invisible but Copy still copies).  Even on Android 10 this narrows things down only if Copy is in use, not extended popup options e.g. Translate, and can in some small cases fail to work even with Copy. (Incidentally, user-select:all on rb doesn't work in Android 10 as of 2021-01, so better use 'text' or 'auto')
 jsAddRubyCss += b"display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+b", ".join(annotation_font)+b" !important;}"
 jsAddRubyCss += b"rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}" # for 3line mode (assumes rt/rb and rt/rt/rb)
 jsAddRubyCss += b"rp{display:none!important}"+B(extra_css).replace(b'\\',br'\\').replace(b'"',br'\"').replace(b"'",br"\\'")+b"'"
@@ -1710,10 +1711,16 @@ function zoomIn() {
    viewZoomCtrls();
 }
 if(ssb_local_annotator.canCustomZoom()) document.write('<div style="float:left">Text size: <button id=zO onclick="zoomOut()" style="background:#ededed;color:inherit">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()" style="background:#ededed;color:inherit">+</button></div>');"""
-if sharp_multi: android_url_box += br"""
-if(typeof modeNames!='undefined'){document.write('<div style="float:right; text-align: right">Mode: ');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)if(i==c)document.write('<button disabled style="background:#ededed;color:inherit"><input type=radio checked> '+modeNames[i]+'</button>');else document.write('<button style="background:#ededed;color:inherit" onclick="ssb_local_annotator.setAnnotNo('+i+');location.reload();return false"><input type=radio> '+modeNames[i]+'</button>');document.write('</div>')}"""
+if sharp_multi and annotation_names: android_url_box += br"""
+modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+br"""];document.write('<div style="float:right; text-align: right">Mode: ');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)if(i==c)document.write('<button disabled style="background:#ededed;color:inherit"><input type=radio checked> '+modeNames[i]+'</button>');else document.write('<button style="background:#ededed;color:inherit" onclick="ssb_local_annotator.setAnnotNo('+i+');location.reload();return false"><input type=radio> '+modeNames[i]+'</button>');document.write('</div>');"""
 android_url_box += br"""
 var m=navigator.userAgent.match(/Android ([0-9]+)\./); if(m && m[1]<5) document.write("<div id=insecure style=\"clear: both; background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be safer to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></div>");
+else { m=navigator.userAgent.match(/Chrome\/([0-9]+)/); if(m && Number(m[1]) >= 54) document.write('<button style="float:left;background:#ededed;color:inherit" onclick="ssb_local_annotator.setIncludeAll(!ssb_local_annotator.getIncludeAll());location.reload();return false"><input type=checkbox'+(ssb_local_annotator.getIncludeAll()?' checked':'')+'>Include """
+if annotation_names:
+  if sharp_multi: android_url_box += br"'+modeNames[ssb_local_annotator.getAnnotNo()].replace(/^.*? ([^ ]+)( [(].*)?$/g,'$1')+'" # so e.g. "Cantonese Sidney Lau (with numbers)" -> "Lau" (as we want this shorter than the buttons)
+  else: android_url_box += B(annotation_names) # assume it's just one name
+else: android_url_box += br"annotation"
+android_url_box += br""" with Copy</button>') }
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)){document.forms[document.forms.length-1].url.value=c;document.getElementById("displayMe").style.display="table-cell"}</script>"""
 # API 19 (4.4) and below has no browser updates.  API 17 (4.2) and below is even worse due to known shell exploits for CVE-2012-6636 which requires only that a site (or network access point) can inject arbitrary Javascript into the HTTP stream.  Not sure what context the resulting shell runs in, but there are probably escalation attacks available.  TODO: insist on working offline-only on old versions?
 android_url_box += b'<div style="clear:both"></div></div>' # make sure to clear the floats before ending the div if div#insecure is not displayed
@@ -1801,10 +1808,11 @@ android_src += br"""
 if sharp_multi: android_src += br"""
                 annotNo = Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("annotNo", "0")); setPattern();"""
 if android_template: android_src += br"""
-                if(canCustomZoom()) setZoomLevel(Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("zoom", "4")));"""
+                if(canCustomZoom()) setZoomLevel(Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("zoom", "4")));
+                setIncludeAll(getSharedPreferences("ssb_local_annotator",0).getString("includeAll", "f").equals("t"));"""
 android_src += br"""
             }
-            MainActivity act; String copiedText=""; int zoomLevel;"""
+            MainActivity act; String copiedText="";"""
 if existing_ruby_shortcut_yarowsky: android_src += br"""
             @JavascriptInterface public void setYShortcut(boolean v) { if(annotator!=null) annotator.shortcut_nearTest=v; }"""
 if sharp_multi: android_src += br""" int annotNo;
@@ -1821,6 +1829,7 @@ if sharp_multi: android_src += br""" int annotNo;
             java.util.regex.Pattern smPat=java.util.regex.Pattern.compile("<rt>([^#]*?)(#.*?)?</rt>");
             @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
 if android_template: android_src += br"""
+            int zoomLevel; boolean includeAllSetting;
             @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
             final int[] zoomPercents = new int[] {"""+B(','.join(str(x) for x in (list(reversed([int((0.9**x)*100) for x in range(5)][1:]))+[int((1.1**x)*100) for x in range(15)])))+br"""};
             @JavascriptInterface public int getZoomPercent() { return zoomPercents[zoomLevel]; }
@@ -1837,6 +1846,14 @@ if android_template: android_src += br"""
                      e.putString("zoom",String.valueOf(level));
                 } while(!e.commit());
                 zoomLevel = level;
+            }
+            @JavascriptInterface public boolean getIncludeAll() { return includeAllSetting; }
+            @JavascriptInterface public void setIncludeAll(boolean i) {
+                android.content.SharedPreferences.Editor e;
+                do { e = getSharedPreferences("ssb_local_annotator",0).edit();
+                     e.putString("includeAll",i?"t":"f");
+                } while(!e.commit());
+                includeAllSetting = i;
             }"""
 android_src += br"""
             @JavascriptInterface public String annotate(String t) """

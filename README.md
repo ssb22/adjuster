@@ -635,7 +635,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.142857
+Options for Annotator Generator v3.143
 ===========================
 
 Usage: annogen.py [options]
@@ -869,7 +869,7 @@ Options:
 
 `--android-template=ANDROID_TEMPLATE
 `
- : File to use as a template for Android start HTML.  This option implies `--android`=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use `--sharp-multi` and set the Javascript array 'modeNames', and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but **not** Amazon AppStore as they don't want 'competition' to their Silk browser.
+ : File to use as a template for Android start HTML.  This option implies `--android`=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use `--annotation-names`, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but **not** Amazon AppStore as they don't want 'competition' to their Silk browser.
 
 `-L, --pleco-hanping`
  : In the Android app, make popup definitions link to Pleco or Hanping if installed
@@ -994,6 +994,10 @@ Options:
 
 `--no-sharp-multi`
  : Cancels any earlier `--sharp-multi` option in Makefile variables etc
+
+`--annotation-names=ANNOTATION_NAMES
+`
+ : Comma-separated list of annotation types supplied to sharp-multi (e.g. Pinyin,Yale), if you want the Android app etc to be able to name them.  You can also set just one annotation names here if you are not using sharp-multi.
 
 `-o, --allow-overlaps`
  : Normally, the analyser avoids generating rules that could overlap with each other in a way that would leave the program not knowing which one to apply.  If a short rule would cause overlaps, the analyser will prefer to generate a longer rule that uses more context, and if even the entire phrase cannot be made into a rule without causing overlaps then the analyser will give up on trying to cover that phrase.  This option allows the analyser to generate rules that could overlap, as long as none of the overlaps would cause actual problems in the example phrases. Thus more of the examples can be covered, at the expense of a higher risk of ambiguity problems when applying the rules to other texts.  See also the -y option.
