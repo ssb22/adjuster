@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.143 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.144 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1403,21 +1403,35 @@ jsAddRubyCss += b";if(!window.doneHash){var h=window.location.hash.slice(1);if(h
 jsAddRubyCss += b"tw0()" # perform the first annotation scan after adding the ruby (calls all_frames_docs w.annotWalk)
 jsAddRubyCss += b";if(!window.doneHash && window.hash0){window.hCount=10*2;window.doneHash=function(){var e=document.getElementById(window.location.hash.slice(1)); if(e.offsetTop==window.hash0 && --window.hCount) setTimeout(window.doneHash,500); e.scrollIntoView()};window.doneHash()}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs), but don't redo this every time doc length changes on Android. setTimeout loop because rendering might take a while with large documents on slow devices.
 
-def jsAnnot():
-  # Android JS-based DOM annotator.  Return value becomes the js_common string in the Android Java: must be escaped as if in single-quoted Java string
+def jsAnnot(for_android=True):
+  # Android or browser JS-based DOM annotator.  Return value becomes the js_common string in the Android Java: must be escaped as if in single-quoted Java string.
+  # for_android True: provides AnnotIfLenChanged, annotScan, all_frames_docs etc
+  # for_android False: just provides annotWalk, assumed to be called as-needed by user JS (doesn't install timers etc) and calls JS annotator instead of Java one
+  if sharp_multi:
+    if for_android: annotNo = b"ssb_local_annotator.getAnnotNo()"
+    else: annotNo = b"aType" # will be in JS context
+  else: annotNo = "0" # TODO: could take out relevant code altogether
+  if for_android: annotateFunc = b"ssb_local_annotator.annotate"
+  elif not sharp_multi and not glossfile:
+    annotateFunc = b"Annotator.annotate" # just takes str
+  else:
+    annotateFunc = b"function(s){return Annotator.annotate(s"
+    if sharp_multi: annotateFunc += b",aType"
+    if glossfile: annotateFunc += b",numLines"
+    annotateFunc += b")}"
+  
   r = br"""var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
   
-  mergeTags=['EM','I','B','STRONG']; /* we'll merge 2 of these the same if they're leaf elements */
-  
+  mergeTags=['EM','I','B','STRONG']; /* we'll merge 2 of these the same if they're leaf elements */"""
+
+  if for_android: r += br"""
   function annotPopAll(e){
     /* click handler: alert box for glosses etc. Now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers. */
     if(e.currentTarget) e=e.currentTarget;
     function f(c){ /* scan all text under c */
       var i=0,r='',cn=c.childNodes;
       for(;i < cn.length;i++) r+=(cn[i].firstChild?f(cn[i]):(cn[i].nodeValue?cn[i].nodeValue:''));
-      return r } ssb_local_annotator.alert(f(e.firstChild),' '+f(e.firstChild.nextSibling),e.title||'') };"""
-  
-  r += br"""
+      return r } ssb_local_annotator.alert(f(e.firstChild),' '+f(e.firstChild.nextSibling),e.title||'') };
   function all_frames_docs(c) {
     /* Call function c on all documents in the window */
     var f=function(w) {
@@ -1428,9 +1442,7 @@ def jsAnnot():
       c(w.document) };
     f(window) };
   function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; try{w.document}catch(E){return r} if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };
-  function tw0() { all_frames_docs(function(d){annotWalk(d,d,false,false)}) };"""
-  
-  r += br"""
+  function tw0() { all_frames_docs(function(d){annotWalk(d,d,false,false)}) };
   function annotScan() {"""+B(extra_js).replace(b'\\',br'\\').replace(b'"',br'\"')+jsAddRubyCss+b"};"
   
   r += br"""
@@ -1442,7 +1454,7 @@ def jsAnnot():
     var nReal = n; if(nf) {"""
   r += b"n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
   if delete_existing_ruby:
-    if existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"if(!ssb_local_annotator.getAnnotNo()){%s} else " % (B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
+    if existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"if(!"+annotNo+b"){%s} else " % (B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
     r += br"""n.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'')"""
   else: r += B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"')
   r += br"""
@@ -1469,21 +1481,23 @@ def jsAnnot():
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
             if("""
   if not delete_existing_ruby: r += b"!nf &&"
-  elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!ssb_local_annotator.getAnnotNo()) &&" # TODO: or just leave it as "!nf &&" in all 'MAY have existing ruby' cases?  check the 'fix' would still work if we go down this branch even if nf, i.e. is !nf just an optimisation?
+  elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!"+annotNo+") &&" # TODO: or just leave it as "!nf &&" in all 'MAY have existing ruby' cases?  check the 'fix' would still work if we go down this branch even if nf, i.e. is !nf just an optimisation?
   r += br"""!inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
-  if existing_ruby_shortcut_yarowsky: r += br"""
+  if existing_ruby_shortcut_yarowsky and for_android: r += br"""
             var setR=false; if(!inRuby) {setR=(c.nodeName=='RUBY');if(setR)ssb_local_annotator.setYShortcut(true)}
             annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||setR);
             if(setR)ssb_local_annotator.setYShortcut(false)"""
   else: r += br"annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY'));"
   r += br"""
           } break;
-        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'').replace(/\\B +\\B/g,'');var nv=ssb_local_annotator.annotate(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) } if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} }}
+        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'').replace(/\\B +\\B/g,'');var nv="""+annotateFunc+br"""(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) }"""
+  if for_android: r += br"""if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)}"""
+  r += br"""}}
       }
       cP=c; c=cNext;
       if("""
   if not delete_existing_ruby: r += b"!nf &&"
-  elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!ssb_local_annotator.getAnnotNo()) &&" # TODO: same as above
+  elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!"+annotNo+b") &&" # TODO: same as above
   r += br"""!inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling); /* space after the inline link or em etc */
     }"""
   if delete_existing_ruby and not (existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky): r += b"if(nf) nReal.parentNode.replaceChild(n,nReal);"
@@ -1496,15 +1510,16 @@ def jsAnnot():
        so our padding CSS overrides don't give inconsistent results */
     if(nf) {"""
     if delete_existing_ruby: r += b"""
-        if(!ssb_local_annotator.getAnnotNo()) {"""
+        if(!"""+annotNo+b""") {"""
     r += br"""
-        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';
+        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';"""
+    if for_android: r += br"""
         if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}"""
     if delete_existing_ruby: r += b"""} else nReal.parentNode.replaceChild(n,nReal)"""
     r += b"}" # if nf
   r += b"}"
   r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
-  assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot param'
+  assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot o/p'
   return r
 
 if windows_clipboard: c_end += br"""
@@ -3259,7 +3274,21 @@ Usage:
  - You could just include this code and then call the
    annotate() function i.e. var result = annotate(input"""
 if sharp_multi: js_start += b", annotation_type_number"
-js_start += br""")
+if glossfile: js_start += b", lines=2"
+js_start += ")"
+if not os.environ.get("JS_OMIT_DOM",""):
+  js_start += br"""
+
+   or, if you're in a browser and have loaded a page,
+   annotate_page("""
+  if sharp_multi:
+    js_start += b"annotation_type_number"
+    if glossfile: js_start += b","
+  if glossfile: js_start += b"lines=2"
+  js_start += br""")
+   (run annogen with JS_OMIT_DOM environment variable set
+   if you want to omit the annotate_page code)"""
+js_start += br"""
 
  - Or you could use (and perhaps extend) the Annotator
    object, and call its annotate() method.  If you have
@@ -3287,7 +3316,8 @@ else: js_start += b"*/"
 js_start += br"""
 
 var Annotator={
-version: '"""+version_stamp+b"',\nnumLines: 2 /* override to 1 or 3 if you must, but not recommended for learning */,\n"
+version: '"""+version_stamp+b"',\n"
+if glossfile: js_start += b"numLines: 2 /* override to 1 or 3 if you must, but not recommended for learning */,\n"
 if sharp_multi: js_end = b"annotate: function(input,aType) { if(aType==undefined) aType=0;"
 else: js_end = b"annotate: function(input) {"
 if removeSpace: js_end += br" input=input.replace(/\B +\B/g,'');" # TODO: document that we do this (currently only in JS annotator here, and Android app via jsAnnot, although Web Adjuster does it separately in Python before calling the filter).  It deals with software that adds ASCII spaces between Chinese characters of the same word, without deleting spaces between embedded English words (TODO: this 'JS + app' version may still delete spaces between punctuation characters, which may be an issue for consecutive quoted words e.g. 'so-called "word1" "word2"').  If doing it at the nextbyte level, we'd have to update prevbyte; if this or doing it at switchbyte level (e.g. recurse) we'd have to do something about the copy pointer (skip the spaces?) and the near-call distance (and associated buffer sizes in C) so they're best pre-removed, but only from between characters we annotate.
@@ -3296,7 +3326,9 @@ js_end += br"""
    (e.g. from annoclip and/or adjuster), and hope there's
    no stuff that's not to be annotated (form fields...) */
 input = unescape(encodeURIComponent(input)); // to UTF-8
-var data = this.data, numLines = this.numLines;
+var data = this.data"""
+if glossfile: js_end += b", numLines = this.numLines"
+js_end += br""";
 var addrLen = data.charCodeAt(0);
 var dPtr, inputLength = input.length;
 var p = 0; // read-ahead pointer
@@ -3376,7 +3408,8 @@ js_end += br"""
               var numBytes = (data.charCodeAt(dPtr++)-34)&0xFF;
               var annot = readRefStr();
               var base = input.slice(copyP, copyP + numBytes); copyP += numBytes;
-              s();
+              s();"""
+if glossfile: js_end += br"""
               switch (numLines) {
                 case 1:
                   output.push("<ruby><rb>");
@@ -3389,13 +3422,18 @@ js_end += br"""
                   output.push(base);
                   output.push("</rb></ruby>");
                   break;
-                default:
+                default:"""
+js_end += br"""
                   output.push("<ruby><rb>");
                   output.push(base);
                   output.push("</rb><rt>");
                   output.push(annot);
-                  output.push("</rt></ruby>");
-              } if(c==75) return; break; }
+                  output.push("</rt></ruby>")"""
+if glossfile: js_end += b"}"
+else: js_end += b";"
+js_end += br"""
+              if(c==75) return; break; }"""
+if glossfile: js_end += br"""
             case 73: case 76: {
               var numBytes = (data.charCodeAt(dPtr++)-34)&0xFF;
               var annot = readRefStr();
@@ -3429,9 +3467,9 @@ js_end += br"""
                   output.push(base);
                   output.push("</rb><rt>");
                   output.push(annot);
-                  output.push("</rt></ruby>");
-              }
-              if(c==76) return; break; }
+                  output.push("</rt></ruby>") }
+              if(c==76) return; break; }"""
+js_end += br"""
             case 80: sPos.push(p); break;
             case 81: p=sPos.pop(); break;
             case 90: {
@@ -3463,9 +3501,25 @@ if sharp_multi: js_end += br""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".
 js_end += br"""; // from UTF-8 back to Unicode
 } // end of annotate function
 };
-"""
-if sharp_multi: js_end += b"function annotate(input,aType,numLines) { if(numLines==undefined) numLines=2; Annotator.numLines=numLines; return Annotator.annotate(input,aType) }"
-else: js_end += b"function annotate(input,numLines) { if(numLines==undefined) numLines=2; Annotator.numLines=numLines; return Annotator.annotate(input) }"
+function annotate(input"""
+if sharp_multi: js_end += b",aType"
+if glossfile: js_end += b",numLines"
+js_end += b") { "
+if glossfile: js_end += b"if(numLines==undefined) numLines=2; Annotator.numLines=numLines; "
+js_end += b"return Annotator.annotate(input"
+if sharp_multi: js_end += b",aType"
+js_end += ")}"
+if not os.environ.get("JS_OMIT_DOM",""):
+  js_end += br"""
+function annotate_page("""
+  if sharp_multi:
+    js_end += b"aType"
+    if glossfile: js_end += b","
+  if glossfile: js_end += b"numLines"
+  js_end += b") { "
+  if glossfile: js_end += b"if(numLines==undefined) numLines=2; Annotator.numLines=numLines; "
+  js_end += jsAnnot(False) + br"""return annotWalk(document,document,false,false)
+}"""
 js_end += br"""
 
 if (typeof Backbone != "undefined" && Backbone.Model) {
