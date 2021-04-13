@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.146 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.147 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -5708,17 +5708,20 @@ if(!%s&&document.readyState!='complete')document.write('<a href="javascript:docu
     if options.headAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): headAppend += B(options.headAppend)
     if options.highlighting and not options.js_upstream:
         bodyPrepend += B("""<div id="adjust0_HL" style="display: none; position: fixed !important; background: white !important; color: black !important; right: 0px; top: 3em; size: 130% !important; border: thin red solid !important; cursor: pointer !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important;">""")
-        for c in options.highlighting: bodyPrepend += B('<a href="#" style="background:'+c+'!important; padding: 1ex !important;" onclick="adjust0_HighlSel('+"'"+c+"'"+');return false">'+S(u"\u270f")+'</a>') # must be <a href> rather than <span> for selection to not be cleared
+        for c in options.highlighting: bodyPrepend += B('<a href="#" style="background:'+c+'!important; padding: 1ex !important;" onclick="adjust0_HighlSel('+"'"+c+"'"+');return false">'+S(u"\u270f")+'</a>') # must be <a href> rather than <span> for selection to not be cleared (but on some browsers it's cleared anyway, hence setTimeout etc below)
         bodyPrepend += B("""</div><script><!--
 var leaveTags=%s;function adjust0_HighlRange(n,range,colour,lastID,startStr,loading) {
+  var docRange=0;
   for(var c=n.firstChild, count=0; c; c=c.nextSibling, ++count) {
-    if(c.id) { lastID=c.id; count=0; }
+    if(c.id) { lastID=c.id; count=0; if(c.id=="adjust0_HL") continue}
     if(range.intersectsNode(c))
       switch(c.nodeType) {
         case 1:
           if(leaveTags.indexOf(c.nodeName)==-1) {
+            var w=lastID+(count?"+"+count:"")+"/";
             if(c.getAttribute("style")) c.style.backgroundColor="inherit";
-            startStr = adjust0_HighlRange(c,range,colour,lastID+(count?"+"+count:"")+"/",startStr,loading)
+            if(c.nodeName=="RUBY"){if(!docRange){docRange=new Range();docRange.selectNodeContents(document.body)}startStr = adjust0_HighlRange(c,docRange,colour,w,startStr,loading)} // highlight whole of any ruby intersected
+            else startStr = adjust0_HighlRange(c,range,colour,w,startStr,loading)
           } break;
         case 3:
           var s=range.startContainer===c,e=range.endContainer===c, so=range.startOffset, eo=range.endOffset;
@@ -5736,9 +5739,9 @@ var leaveTags=%s;function adjust0_HighlRange(n,range,colour,lastID,startStr,load
   } // for
   return startStr
 } // adjust0_HighlRange
-function adjust0_HighlSel(colour) { adjust0_HighlRange(document.body,window.getSelection().getRangeAt(0),colour,"",""); }
-if(new Range().intersectsNode) document.addEventListener('selectionchange',function(){document.getElementById('adjust0_HL').style.display=window.getSelection().isCollapsed?'none':'block'})
-//--></script>""" % (repr([t.upper() for t in options.leaveTags]),))
+function adjust0_HighlSel(colour) { adjust0_HighlRange(document.body,document.oldRange,colour,"",""); }
+if(new Range().intersectsNode) document.addEventListener('selectionchange',function(){var e=document.getElementById('adjust0_HL');if(window.getSelection().isCollapsed) window.setTimeout(function(){e.style.display='none'},100);else{e.style.display='block';document.oldRange=window.getSelection().getRangeAt(0)}})
+//--></script>""" % (repr([t.upper() for t in options.leaveTags]),)) # (need to save to oldRange because some browsers collapse selection before highlighter-button's click event is processed, even if it's an href)
         bodyAppend += B("""<script><!--
 if(window.localStorage!=undefined) {
   function findNode(dirs) {
@@ -5897,7 +5900,7 @@ class AddClickCodes:
 # Options for allowing user to switch stylesheets etc
 # --------------------------------------------------
 
-detect_iframe = """(window.frameElement && window.frameElement.nodeName.toLowerCase()=="iframe" && function(){var i=window.location.href.indexOf("/",7); return (i>-1 && window.top.location.href.slice(0,i)==window.location.href.slice(0,i))}())""" # expression that's true if we're in an iframe that belongs to the same site, so can omit reminders etc
+detect_iframe = """(window.frameElement && window.frameElement.nodeName=="IFRAME" && function(){var i=window.location.href.indexOf("/",7); return (i>-1 && window.top.location.href.slice(0,i)==window.location.href.slice(0,i))}())""" # expression that's true if we're in an iframe that belongs to the same site, so can omit reminders etc
 def reloadSwitchJS(cookieName,jsCookieString,flipLogic,readableName,cookieHostToSet,cookieExpires,extraCondition=None):
     # writes a complete <script> to switch something on/off by cookie and reload (TODO: non-JS version would be nice, but would mean intercepting more URLs)
     # if flipLogic, "cookie=1" means OFF, default ON
