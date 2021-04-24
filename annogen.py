@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.144 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.145 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -540,7 +540,7 @@ if data_driven:
   if c_sharp or golang: errExit("--data-driven and --zlib are not yet implemented in C# or Go")
   elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java? (in which case also update the 'compress' errExit above so it doesn't check for android before suggesting zlib)
 elif javascript or python or dart: data_driven = True
-compact_opcodes = data_driven and not fast_assemble and not python # currently implemented only in the C, Java and Javascript versions of the data-driven runtime
+compact_opcodes = data_driven and not fast_assemble
 if java or javascript or python or c_sharp or golang or dart: c_compiler = None
 try: xrange # Python 2
 except: xrange,unichr,unicode = range,chr,str # Python 3
@@ -3197,7 +3197,7 @@ class BytecodeAssembler:
                             src[count+2]=b''.join(mv(ord(x)) for x in S(src[count+2]))
                             i = B(chr(ord(src[count+1])+91)) # and a printable opcode
                           else: i = B(chr(ord(src[count+1])+108)) # can't make the match bytes printable, but at least we can have a printable opcode 108-127 for short switchbyte in Javascript or Dart
-                        else: i = B(src[count+1]) # 0-19 for short switchbyte in C,Java (Python doesn't yet use opcode compaction)
+                        else: i = B(src[count+1]) # 0-19 for short switchbyte in C,Java,Python
                         src[count] = i = i+src[count+2]+b''.join(B(chr(LGet(src[count+N],origOperandsLen)+js_6bit_offset)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
                         for ctd in xrange(count+1,count+3+numLabels): counts_to_del.add(ctd)
                         newOperandsLen = numItems*2 # for each byte, the byte itself and an offset, + 1 more offset as default, - 1 because first is not given
@@ -3776,14 +3776,20 @@ class Annotator:
       func = self.readAddr() ; dO = self.dPtr
       self.dPtr = func ; self.readData() ; self.dPtr = dO
     elif d==52: return
-    elif d==60:
-      nBytes = ord(data[self.dPtr:self.dPtr+1])+1
-      self.dPtr += 1
+    elif d==60 or d<20:
+      if d<20: nBytes=d+1
+      else:
+        nBytes = ord(data[self.dPtr:self.dPtr+1])+1
+        self.dPtr += 1
       if self.p>=len(self.inStr): i = -1
       else: i = data[self.dPtr:self.dPtr+nBytes].find(self.inStr[self.p:self.p+1]) ; self.p += 1
       if i==-1: i = nBytes
-      self.dPtr += (nBytes + i * self.addrLen)
-      self.dPtr = self.readAddr()
+      if d<20:
+        if i>0: self.dPtr += ord(data[self.dPtr+nBytes+i-1:self.dPtr+nBytes+i])
+        self.dPtr += nBytes * 2
+      else:
+        self.dPtr += (nBytes + i * self.addrLen)
+        self.dPtr = self.readAddr()
     elif d==70:
       if self.needSpace:
         out.append(b' ') ; self.needSpace=0
@@ -3838,6 +3844,7 @@ class Annotator:
           found = True ; break
       if found: self.dPtr = tPtr
       else: self.dPtr = fPtr
+    elif d>0x80: self.dPtr += d-0x80
     else: raise Exception("corrupt data table at "+str(self.dPtr-1)+" ("+str(ord(data[self.dPtr-1:self.dPtr]))+")")
 
 def annotate(inStr,p="ruby"): return Annotator()(inStr,p)
@@ -5173,7 +5180,7 @@ def outputParser(rulesAndConds):
         byteSeq_to_action_dict[byteSeq] = []
       elif post_normalise:
         if (action,conds) in byteSeq_to_action_dict[byteSeq]: return # exact duplicate after post-normalisation
-        elif any(x[1]==conds for x in byteSeq_to_action_dict[byteSeq]): # near-duplicate: same conds, different action
+        elif any((x[0]==action or x[1]==conds) for x in byteSeq_to_action_dict[byteSeq]): # near-duplicate: same conds, different action (will definitely need to prioritise one, can't do both), or same action, different conds (will probably need to prioritise one, especially if one of the conds of the non-normalised action is IN the normalised action, which could short-circuit the conds)
           if md==md2: # this is the rule that DIDN'T have to be post-normalised, so its action should take priority
             byteSeq_to_action_dict[byteSeq] = [x for x in byteSeq_to_action_dict[byteSeq] if not x[1]==conds]
           else: return # other one probably has priority
