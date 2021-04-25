@@ -6250,7 +6250,9 @@ def pimote_thread():
                 if options.pimote and not pimote_may_need_override: time.sleep(1)
                 else: break
             lastOK = ok ; continue
-        logging.info("PiMote: power-cycling the router")
+        if pimote_may_need_override: reason = "" # will be evident from previous log line
+        else: reason = " (%s lookup fail)" % ispDomain
+        logging.info("PiMote: power-cycling the router"+reason)
         # Takes 2 minutes (because we have no direct way to verify
         # the sockets have received our signal, so just have to make
         # the hopefully-worst-case assumptions)
@@ -6266,7 +6268,7 @@ def pimote_thread():
                 time.sleep(4)
                 w(25,0) # stop TX
                 time.sleep(1)
-        time.sleep(99) # give it time to start up before we test it again
+        time.sleep(199) # give it time to start up before we test it again, plus time to ssh in and fix if we're in a reboot cycle due to ISP being taken over and deleting their old domain or something
         pimote_may_need_override = False
       helper_threads.remove('PiMote')
     threading.Thread(target=t,args=()).start()
