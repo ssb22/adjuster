@@ -635,7 +635,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.145
+Options for Annotator Generator v3.146
 ===========================
 
 Usage: annogen.py [options]
@@ -958,6 +958,10 @@ Options:
 
 `--no-js-utf8`
  : Cancels any earlier `--js-utf`8 option in Makefile variables etc
+
+`--browser-extension=BROWSER_EXTENSION
+`
+ : Name of a Chrome or Firefox browser extension to generate
 
 `--dart`
  : Instead of generating C code, generate Dart.  This might be useful if you want to run an annotator in a Flutter application.

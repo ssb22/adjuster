@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.145 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.146 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -286,6 +286,8 @@ parser.add_option("-u","--js-utf8",
                   help="When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites.")
 cancelOpt("js-utf8")
 
+parser.add_option("--browser-extension", help="Name of a Chrome or Firefox browser extension to generate")
+
 parser.add_option("--dart",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate Dart.  This might be useful if you want to run an annotator in a Flutter application.")
@@ -429,6 +431,10 @@ def errExit(msg):
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
+if browser_extension:
+  javascript = js_utf8 = js_6bit = ignore_ie8 = True
+  if sharp_multi: errExit("sharp-multi not yet implemented in browser-extension mode") # TODO: would need a UI selector, and a way of undoing the existing annotation (reload page might not be sufficient).  delete-existing-ruby switchable would also be nice, as well as being able to switch the whole thing off without needing to go into the browser's own settings.  manifest.json can have "browser_action": { "default_title": "Annotate" } which puts up an icon but still need to respond to it.
+  if zlib: errExit("--zlib not yet implemented for --browser-extension") # TODO: but it can be quite easily (the zlib part of js_start would need taking out of the not browser_extension branch)
 if android_template:
   android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
@@ -441,7 +447,8 @@ if android_audio:
     android_audio,android_audio_maxWords = android_audio.split()
     android_audio_maxWords = int(android_audio_maxWords)
   else: android_audio_maxWords=None
-if (extra_js or extra_css or existing_ruby_js_fixes or delete_existing_ruby) and not android: errExit("--extra-js, --extra-css, --existing-ruby-js-fixes and --delete-existing-ruby requires --android")
+if (extra_js or extra_css or existing_ruby_js_fixes) and not android: errExit("--extra-js, --extra-css and --existing-ruby-js-fixes requires --android")
+if delete_existing_ruby and not (android or javascript): errExit("--delete-existing-ruby requires --android or --javascript")
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
@@ -1403,10 +1410,11 @@ jsAddRubyCss += b";if(!window.doneHash){var h=window.location.hash.slice(1);if(h
 jsAddRubyCss += b"tw0()" # perform the first annotation scan after adding the ruby (calls all_frames_docs w.annotWalk)
 jsAddRubyCss += b";if(!window.doneHash && window.hash0){window.hCount=10*2;window.doneHash=function(){var e=document.getElementById(window.location.hash.slice(1)); if(e.offsetTop==window.hash0 && --window.hCount) setTimeout(window.doneHash,500); e.scrollIntoView()};window.doneHash()}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs), but don't redo this every time doc length changes on Android. setTimeout loop because rendering might take a while with large documents on slow devices.
 
-def jsAnnot(for_android=True):
+def jsAnnot(for_android=True,for_async=False):
   # Android or browser JS-based DOM annotator.  Return value becomes the js_common string in the Android Java: must be escaped as if in single-quoted Java string.
   # for_android True: provides AnnotIfLenChanged, annotScan, all_frames_docs etc
   # for_android False: just provides annotWalk, assumed to be called as-needed by user JS (doesn't install timers etc) and calls JS annotator instead of Java one
+  assert not (for_android and for_async), "options are mutually exclusive"
   if sharp_multi:
     if for_android: annotNo = b"ssb_local_annotator.getAnnotNo()"
     else: annotNo = b"aType" # will be in JS context
@@ -1446,20 +1454,25 @@ def jsAnnot(for_android=True):
   function annotScan() {"""+B(extra_js).replace(b'\\',br'\\').replace(b'"',br'\"')+jsAddRubyCss+b"};"
   
   r += br"""
-  function annotWalk(n,document,inLink,inRuby) {
+  function annotWalk(n,document"""
+  if for_android: r += b",inLink,inRuby"
+  r += br""") {
     /* Our main DOM-walking code */
-
-    var c,nf=false; /* "need to fix" as there was already ruby on the page */
-    if(!inRuby) for(c=n.firstChild; c; c=c.nextSibling) if(c.nodeType==1 && c.nodeName=='RUBY') { nf=true; break; }
-    var nReal = n; if(nf) {"""
-  r += b"n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
-  if delete_existing_ruby:
-    if existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"if(!"+annotNo+b"){%s} else " % (B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
-    r += br"""n.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'')"""
-  else: r += B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"')
+  var c;"""
+  if not for_async or delete_existing_ruby:
+    r += br"""
+    var nf=false; /* "need to fix" as there was already ruby on the page */"""
+    if for_android: r += b"if(!inRuby)"
+    r += b""" for(c=n.firstChild; c; c=c.nextSibling) if(c.nodeType==1 && c.nodeName=='RUBY') { nf=true; break; }"""
+    if not for_async: r += b"var nReal = n;"
+    r += b"if(nf) {"
+    if not for_async: r += b"n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
+    if delete_existing_ruby:
+      if existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"if(!"+annotNo+b"){%s} else " % (B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
+      r += br"""n.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'')"""
+    else: r += B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"')
+    r += b"}"
   r += br"""
-    }
-    
     /* 1. check for WBR and mergeTags */
     function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^\\s*$/)};
     c=n.firstChild; while(c) {
@@ -1474,34 +1487,59 @@ def jsAnnot(for_android=True):
       c=cNext}
     
     /* 2. recurse into nodes, or annotate new text */
-    c=n.firstChild; var cP=null; while(c){
+    c=n.firstChild; """
+  if not for_async: r += b"var cP=null;"
+  r += br"""while(c){
       var cNext=c.nextSibling;
       switch(c.nodeType) {
         case 1:
-          if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {
-            if("""
-  if not delete_existing_ruby: r += b"!nf &&"
-  elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!"+annotNo+") &&" # TODO: or just leave it as "!nf &&" in all 'MAY have existing ruby' cases?  check the 'fix' would still work if we go down this branch even if nf, i.e. is !nf just an optimisation?
-  r += br"""!inRuby && cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
+          if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {"""
+  if not for_async:
+    r += b"if("
+    if not delete_existing_ruby: r += b"!nf &&"
+    elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!"+annotNo+") &&" # TODO: or just leave it as "!nf &&" in all 'MAY have existing ruby' cases?  check the 'fix' would still work if we go down this branch even if nf, i.e. is !nf just an optimisation?
+    if for_android: r += b"!inRuby &&"
+    r += br"""cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
   if existing_ruby_shortcut_yarowsky and for_android: r += br"""
             var setR=false; if(!inRuby) {setR=(c.nodeName=='RUBY');if(setR)ssb_local_annotator.setYShortcut(true)}
             annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||setR);
             if(setR)ssb_local_annotator.setYShortcut(false)"""
-  else: r += br"annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY'));"
+  else:
+    r += b"annotWalk(c,document"
+    if for_android: r += b",inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY')"
+    r += b");"
   r += br"""
           } break;
-        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'').replace(/\\B +\\B/g,'');var nv="""+annotateFunc+br"""(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) }"""
-  if for_android: r += br"""if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)}"""
-  r += br"""}}
-      }
-      cP=c; c=cNext;
-      if("""
-  if not delete_existing_ruby: r += b"!nf &&"
-  elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!"+annotNo+b") &&" # TODO: same as above
-  r += br"""!inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling); /* space after the inline link or em etc */
-    }"""
-  if delete_existing_ruby and not (existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky): r += b"if(nf) nReal.parentNode.replaceChild(n,nReal);"
+        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'').replace(/\\B +\\B/g,'');"""
+  if for_async: r += br"""
+            if(!cnv.match(/^\\s*$/)) {
+                ((n,c,cnv)=>{
+                    var newNode=document.createElement('span');
+                    newNode.className='_adjust0';
+                    chrome.runtime.sendMessage(cnv).then((nv)=>{
+                        if(nv!=cnv) {
+                            try {newNode.innerHTML=' '+nv+' ' }
+                            catch(err) { console.log(err.message) }
+                            n.replaceChild(newNode, c)
+                        }
+                    })})(n,c,cnv)
+            }"""
   else:
+    r += "var nv="+annotateFunc+br"""(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) }"""
+    if for_android: r += br"""if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)}"""
+    r += "}" # if nv != cnv
+  r += b"}}" # case 3, switch
+  if not for_async: r += b"cP=c;"
+  r += b"c=cNext;"
+  if not for_async:
+    r += b"if("
+    if not delete_existing_ruby: r += b"!nf &&"
+    elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!"+annotNo+b") &&" # TODO: same as above
+    r += br"""!inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling) /* space after the inline link or em etc */"""
+  r += b"}" # while c
+  if not for_async:
+   if delete_existing_ruby and not (existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky): r += b"if(nf) nReal.parentNode.replaceChild(n,nReal);"
+   else:
     r += br"""
     /* 3. Batch-fix any damage we did to existing ruby.
        Keep new titles; normalise the markup so our 3-line option still works.
@@ -1512,12 +1550,12 @@ def jsAnnot(for_android=True):
     if delete_existing_ruby: r += b"""
         if(!"""+annotNo+b""") {"""
     r += br"""
-        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>';"""
-    if for_android: r += br"""
+        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'"""
+    if for_android: r += br""";
         if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}"""
     if delete_existing_ruby: r += b"""} else nReal.parentNode.replaceChild(n,nReal)"""
     r += b"}" # if nf
-  r += b"}"
+  r += b"}" # function annotWalk
   r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot o/p'
   return r
@@ -3267,28 +3305,29 @@ class BytecodeAssembler:
         except TooNarrow: pass
     assert 0, "can't even assemble it with 255-byte addressing !?!"
 
-js_start = b'/* Javascript '+version_stamp+br"""
+if not browser_extension:
+  js_start = b'/* Javascript '+version_stamp+br"""
 
 Usage:
 
  - You could just include this code and then call the
    annotate() function i.e. var result = annotate(input"""
-if sharp_multi: js_start += b", annotation_type_number"
-if glossfile: js_start += b", lines=2"
-js_start += ")"
-if not os.environ.get("JS_OMIT_DOM",""):
-  js_start += br"""
+  if sharp_multi: js_start += b", annotation_type_number"
+  if glossfile: js_start += b", lines=2"
+  js_start += ")"
+  if not os.environ.get("JS_OMIT_DOM",""):
+    js_start += br"""
 
    or, if you're in a browser and have loaded a page,
    annotate_page("""
-  if sharp_multi:
-    js_start += b"annotation_type_number"
-    if glossfile: js_start += b","
-  if glossfile: js_start += b"lines=2"
-  js_start += br""")
+    if sharp_multi:
+      js_start += b"annotation_type_number"
+      if glossfile: js_start += b","
+    if glossfile: js_start += b"lines=2"
+    js_start += br""")
    (run annogen with JS_OMIT_DOM environment variable set
    if you want to omit the annotate_page code)"""
-js_start += br"""
+  js_start += br"""
 
  - Or you could use (and perhaps extend) the Annotator
    object, and call its annotate() method.  If you have
@@ -3301,8 +3340,8 @@ js_start += br"""
  - On Unix systems with Node.JS, you can run this file in
    "node" to annotate standard input as a simple test.
 """
-if zlib:
-  js_start += br"""
+  if zlib:
+    js_start += br"""
    zlib'd version uses Uint8Array so has minimum browser requirements
    (Chrome 7, Ffx 4, IE10, Op11.6, Safari5.1, 4.2 on iOS)
    - generate without --zlib to support older browsers.
@@ -3312,7 +3351,8 @@ if zlib:
 */
 function inflate(r,e){var t,n=new Uint8Array(e);t="undefined"!=typeof window&&window.atob?function(r){for(var e=new Uint8Array(r.length),t=0,n=e.length;t<n;t++)e[t]=r.charCodeAt(t);return e}(atob(r)):"undefined"!=typeof Buffer?new Buffer(r,"base64"):function(r){var e,t,n={},f=65,a=0,o=0,i=new Uint8Array(r.length),d=0,l=String.fromCharCode,v=r.length;for(e="";f<91;)e+=l(f++);for(e+=e.toLowerCase()+"0123456789+/",f=0;f<64;f++)n[e.charAt(f)]=f;for(e=0;e<v;e++)for(a=(a<<6)+(f=n[r.charAt(e)]),o+=6;8<=o;)((t=a>>>(o-=8)&255)||e<v-2)&&(i[d++]=t);return i}(r);var f=new Uint8Array(t.buffer,t.byteOffset+2,t.length-6),h={_decodeTiny:function(r,e,t,n,f,a){for(var o=f,i=h._bitsE,d=h._get17,l=t<<1,v=0,s=0;v<l;){var u=r[d(n,f)&e];f+=15&u;var p=u>>>4;if(p<=15)a[v]=0,s<(a[v+1]=p)&&(s=p),v+=2;else{var w=0,y=0;16==p?(y=3+i(n,f,2)<<1,f+=2,w=a[v-1]):17==p?(y=3+i(n,f,3)<<1,f+=3):18==p&&(y=11+i(n,f,7)<<1,f+=7);for(var U=v+y;v<U;)a[v]=0,a[v+1]=w,v+=2}}for(var c=a.length;v<c;)a[v+1]=0,v+=2;return s<<24|f-o},makeCodes:function(r,e){for(var t,n,f,a,o=h.U,i=r.length,d=o.bl_count,l=0;l<=e;l++)d[l]=0;for(l=1;l<i;l+=2)d[r[l]]++;var v=o.next_code;for(d[t=0]=0,n=1;n<=e;n++)t=t+d[n-1]<<1,v[n]=t;for(f=0;f<i;f+=2)0!=(a=r[f+1])&&(r[f]=v[a],v[a]++)},codes2map:function(r,e,t){var n=r.length,f=h.U.rev15;for(C=0;C<n;C+=2)if(0!=r[C+1])for(var a=C>>1,o=r[C+1],i=a<<4|o,d=e-o,l=r[C]<<d,v=l+(1<<d);l!=v;){t[f[l]>>>15-e]=i,l++}},revCodes:function(r,e){for(var t=h.U.rev15,n=15-e,f=0;f<r.length;f+=2){var a=r[f]<<e-r[f+1];r[f]=t[a]>>>n}},_bitsE:function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8)>>>(7&e)&(1<<t)-1},_get17:function(r,e){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)}};h.U={next_code:new Uint16Array(16),bl_count:new Uint16Array(16),ordr:[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15],of0:[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258,999,999,999],exb:[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0,0,0,0],ldef:new Uint16Array(32),df0:[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,65535,65535],dxb:[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,0,0],ddef:new Uint32Array(32),flmap:new Uint16Array(512),fltree:[],fdmap:new Uint16Array(32),fdtree:[],lmap:new Uint16Array(32768),ltree:[],dmap:new Uint16Array(32768),dtree:[],imap:new Uint16Array(512),itree:[],rev15:new Uint16Array(32768),lhst:new Uint32Array(286),dhst:new Uint32Array(30),ihst:new Uint32Array(19),lits:new Uint32Array(15e3),strt:new Uint16Array(65536),prev:new Uint16Array(32768)},function(){for(var r=h.U,e=0;e<32768;e++){var t=e;t=(4278255360&(t=(4042322160&(t=(3435973836&(t=(2863311530&t)>>>1|(1431655765&t)<<1))>>>2|(858993459&t)<<2))>>>4|(252645135&t)<<4))>>>8|(16711935&t)<<8,r.rev15[e]=(t>>>16|t<<16)>>>17}for(e=0;e<32;e++)r.ldef[e]=r.of0[e]<<3|r.exb[e],r.ddef[e]=r.df0[e]<<4|r.dxb[e];for(e=0;e<=143;e++)r.fltree.push(0,8);for(;e<=255;e++)r.fltree.push(0,9);for(;e<=279;e++)r.fltree.push(0,7);for(;e<=287;e++)r.fltree.push(0,8);for(h.makeCodes(r.fltree,9),h.codes2map(r.fltree,9,r.flmap),h.revCodes(r.fltree,9),e=0;e<32;e++)r.fdtree.push(0,5);h.makeCodes(r.fdtree,5),h.codes2map(r.fdtree,5,r.fdmap),h.revCodes(r.fdtree,5);for(e=0;e<19;e++)r.itree.push(0,0);for(e=0;e<286;e++)r.ltree.push(0,0);for(e=0;e<30;e++)r.dtree.push(0,0)}();for(var a,o,i=function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)&(1<<t)-1},d=h._bitsE,l=h._decodeTiny,v=h.makeCodes,s=h.codes2map,u=h._get17,p=h.U,w=0,y=0,U=0,c=0,A=0,m=0,b=0,g=0,_=0;0==w;)if(w=i(f,_,1),y=i(f,_+1,2),_+=3,0!=y){if(1==y&&(a=p.flmap,o=p.fdmap,m=511,b=31),2==y){U=d(f,_,5)+257,c=d(f,_+5,5)+1,A=d(f,_+10,4)+4;_+=14;for(var C=0;C<38;C+=2)p.itree[C]=0,p.itree[C+1]=0;var x=1;for(C=0;C<A;C++){var k=d(f,_+3*C,3);x<(p.itree[1+(p.ordr[C]<<1)]=k)&&(x=k)}_+=3*A,v(p.itree,x),s(p.itree,x,p.imap),a=p.lmap,o=p.dmap;var E=l(p.imap,(1<<x)-1,U,f,_,p.ltree);m=(1<<(E>>>24))-1,_+=16777215&E,v(p.ltree,E>>>24),s(p.ltree,E>>>24,a);var B=l(p.imap,(1<<x)-1,c,f,_,p.dtree);b=(1<<(B>>>24))-1,_+=16777215&B,v(p.dtree,B>>>24),s(p.dtree,B>>>24,o)}for(;;){var O=a[u(f,_)&m];_+=15&O;var T=O>>>4;if(T>>>8==0)n[g++]=T;else{if(256==T)break;var L=g+T-254;if(264<T){var S=p.ldef[T-257];L=g+(S>>>3)+d(f,_,7&S),_+=7&S}var j=o[u(f,_)&b];_+=15&j;var q=j>>>4,z=p.ddef[q],D=(z>>>4)+i(f,_,15&z);for(_+=15&z;g<L;)n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D];g=L}}}else{0!=(7&_)&&(_+=8-(7&_));var F=4+(_>>>3),G=f[F-4]|f[F-3]<<8;n.set(new Uint8Array(f.buffer,f.byteOffset+F,G),g),_=F+G<<3,g+=G}return n.length==g?n:n.slice(0,g)}
 """
-else: js_start += b"*/"
+  else: js_start += b"*/"
+else: js_start = b"" # browser_extension
 js_start += br"""
 
 var Annotator={
@@ -3322,11 +3362,8 @@ if sharp_multi: js_end = b"annotate: function(input,aType) { if(aType==undefined
 else: js_end = b"annotate: function(input) {"
 if removeSpace: js_end += br" input=input.replace(/\B +\B/g,'');" # TODO: document that we do this (currently only in JS annotator here, and Android app via jsAnnot, although Web Adjuster does it separately in Python before calling the filter).  It deals with software that adds ASCII spaces between Chinese characters of the same word, without deleting spaces between embedded English words (TODO: this 'JS + app' version may still delete spaces between punctuation characters, which may be an issue for consecutive quoted words e.g. 'so-called "word1" "word2"').  If doing it at the nextbyte level, we'd have to update prevbyte; if this or doing it at switchbyte level (e.g. recurse) we'd have to do something about the copy pointer (skip the spaces?) and the near-call distance (and associated buffer sizes in C) so they're best pre-removed, but only from between characters we annotate.
 js_end += br"""
-/* TODO: if input is a whole html doc, insert css in head
-   (e.g. from annoclip and/or adjuster), and hope there's
-   no stuff that's not to be annotated (form fields...) */
 input = unescape(encodeURIComponent(input)); // to UTF-8
-var data = this.data"""
+var data = this.data""" # TODO: if input is a whole html doc, insert css in head (e.g. from annoclip and/or adjuster), and hope there's no stuff that's not to be annotated (form fields etc).  But really want them to be using browser_extension or annotate_page if doing this (TODO add css to annotate_page, already there in browser_extension)
 if glossfile: js_end += b", numLines = this.numLines"
 js_end += br""";
 var addrLen = data.charCodeAt(0);
@@ -3508,8 +3545,14 @@ js_end += b") { "
 if glossfile: js_end += b"if(numLines==undefined) numLines=2; Annotator.numLines=numLines; "
 js_end += b"return Annotator.annotate(input"
 if sharp_multi: js_end += b",aType"
-js_end += ")}"
-if not os.environ.get("JS_OMIT_DOM",""):
+js_end += b")}"
+if browser_extension:
+  js_end += b"""
+function handleMessage(request, sender, sendResponse) {
+  sendResponse(annotate(request));
+}
+browser.runtime.onMessage.addListener(handleMessage)"""
+elif not os.environ.get("JS_OMIT_DOM",""):
   js_end += br"""
 function annotate_page("""
   if sharp_multi:
@@ -3518,17 +3561,18 @@ function annotate_page("""
   if glossfile: js_end += b"numLines"
   js_end += b") { "
   if glossfile: js_end += b"if(numLines==undefined) numLines=2; Annotator.numLines=numLines; "
-  js_end += jsAnnot(False) + br"""return annotWalk(document,document,false,false)
+  js_end += jsAnnot(False) + br"""return annotWalk(document,document)
 }"""
-js_end += br"""
+if not browser_extension:
+  js_end += br"""
 
 if (typeof Backbone != "undefined" && Backbone.Model) {
   Annotator = Backbone.Model.extend(Annotator);"""
-if sharp_multi: js_end += br"""
+  if sharp_multi: js_end += br"""
   annotate=function(input,aType) { return new Annotator().annotate(input,aType) }"""
-else: js_end += br"""
+  else: js_end += br"""
   annotate=function(input) { return new Annotator().annotate(input) }"""
-js_end += br"""
+  js_end += br"""
 }
 if (typeof require != "undefined" && typeof module != "undefined" && require.main === module) {
   // Node.js command-line test
@@ -5357,6 +5401,23 @@ def update_android_manifest():
     open(jSrc+"/../AndroidManifest.xml","wb").write(manifest)
   else: assert not android_upload, "Couldn't bump version code in "+repr(manifest)
 
+def setup_browser_extension():
+  dirToUse = browser_extension.replace(' ','')
+  sys.stderr.write("Writing to "+dirToUse+"\n")
+  try: os.mkdir(dirToUse)
+  except: pass
+  open(dirToUse+"/manifest.json","wb").write(br"""{
+  "manifest_version": 2,
+  "name": "%s",
+  "version": "0.0",
+  "background": { "scripts": ["background.js"] },
+  "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
+  "permissions": ["activeTab"] }""" % B(browser_extension))
+  open(dirToUse+"/content.js","wb").write(jsAnnot(False,True)+b"annotWalk(document,document)")
+  open(dirToUse+"/ruby.css","wb").write(b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;}")
+  global c_filename
+  c_filename = dirToUse+"/background.js"
+
 def write_glossMiss(glossMiss):
   if not glossmiss: return
   sys.stderr.write("Writing glossmiss (norefs=%s) to %s...\n" % (repr(norefs),glossmiss))
@@ -5456,7 +5517,7 @@ if isatty(sys.stdout):
     if summary_only:
         warn("Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'")
         c_filename = None
-    elif not java and main and not priority_list and not normalise_only: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
+    elif not java and main and not priority_list and not normalise_only and not browser_extension: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
 def openfile(fname,mode='r'):
     lzma = bz2 = None
@@ -5566,6 +5627,7 @@ def cmd_or_exit(cmd):
   sys.exit(r)
 
 if main and not compile_only:
+ if browser_extension: setup_browser_extension()
  if c_filename: outfile = openfile(c_filename,'w')
  else: outfile = getBuf(sys.stdout)
  if summary_only: outputRulesSummary(rulesAndConds)
