@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.146 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.147 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -433,8 +433,8 @@ if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
 if browser_extension:
   javascript = js_utf8 = js_6bit = ignore_ie8 = True
-  if sharp_multi: errExit("sharp-multi not yet implemented in browser-extension mode") # TODO: would need a UI selector, and a way of undoing the existing annotation (reload page might not be sufficient).  delete-existing-ruby switchable would also be nice, as well as being able to switch the whole thing off without needing to go into the browser's own settings.  manifest.json can have "browser_action": { "default_title": "Annotate" } which puts up an icon but still need to respond to it.
-  if zlib: errExit("--zlib not yet implemented for --browser-extension") # TODO: but it can be quite easily (the zlib part of js_start would need taking out of the not browser_extension branch)
+  if sharp_multi and not annotation_names: errExit("--sharp-multi requires --annotation-names to be set if --browser-extension")
+  if zlib: errExit("--zlib not yet implemented for --browser-extension") # TODO: it can be implemented quite easily (the zlib part of js_start would need taking out of the not browser_extension branch)
 if android_template:
   android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
@@ -1414,19 +1414,12 @@ def jsAnnot(for_android=True,for_async=False):
   # Android or browser JS-based DOM annotator.  Return value becomes the js_common string in the Android Java: must be escaped as if in single-quoted Java string.
   # for_android True: provides AnnotIfLenChanged, annotScan, all_frames_docs etc
   # for_android False: just provides annotWalk, assumed to be called as-needed by user JS (doesn't install timers etc) and calls JS annotator instead of Java one
+  # for_async (browser_extension): provides MutationObserver (assumed capable browser if running the extension)
   assert not (for_android and for_async), "options are mutually exclusive"
   if sharp_multi:
     if for_android: annotNo = b"ssb_local_annotator.getAnnotNo()"
     else: annotNo = b"aType" # will be in JS context
   else: annotNo = "0" # TODO: could take out relevant code altogether
-  if for_android: annotateFunc = b"ssb_local_annotator.annotate"
-  elif not sharp_multi and not glossfile:
-    annotateFunc = b"Annotator.annotate" # just takes str
-  else:
-    annotateFunc = b"function(s){return Annotator.annotate(s"
-    if sharp_multi: annotateFunc += b",aType"
-    if glossfile: annotateFunc += b",numLines"
-    annotateFunc += b")}"
   
   r = br"""var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
   
@@ -1516,6 +1509,7 @@ def jsAnnot(for_android=True,for_async=False):
                 ((n,c,cnv)=>{
                     var newNode=document.createElement('span');
                     newNode.className='_adjust0';
+                    newNode.oldOHTML=cnv;
                     chrome.runtime.sendMessage(cnv).then((nv)=>{
                         if(nv!=cnv) {
                             try {newNode.innerHTML=' '+nv+' ' }
@@ -1524,7 +1518,15 @@ def jsAnnot(for_android=True,for_async=False):
                         }
                     })})(n,c,cnv)
             }"""
-  else:
+  else: # not for_async
+    if for_android: annotateFunc = b"ssb_local_annotator.annotate"
+    elif not sharp_multi and not glossfile:
+      annotateFunc = b"Annotator.annotate" # just takes str
+    else:
+      annotateFunc = b"function(s){return Annotator.annotate(s"
+      if sharp_multi: annotateFunc += b",aType"
+      if glossfile: annotateFunc += b",numLines"
+      annotateFunc += b")}"
     r += "var nv="+annotateFunc+br"""(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) }"""
     if for_android: r += br"""if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)}"""
     r += "}" # if nv != cnv
@@ -1556,6 +1558,10 @@ def jsAnnot(for_android=True,for_async=False):
     if delete_existing_ruby: r += b"""} else nReal.parentNode.replaceChild(n,nReal)"""
     r += b"}" # if nf
   r += b"}" # function annotWalk
+  if for_async: r += br"""
+  annotWalk(document,document);
+  new window.MutationObserver(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document)}}).observe(document.body,{childList:true,subtree:true});
+"""
   r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
   assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot o/p'
   return r
@@ -3548,10 +3554,15 @@ if sharp_multi: js_end += b",aType"
 js_end += b")}"
 if browser_extension:
   js_end += b"""
+var aType=0,numLines=2;
 function handleMessage(request, sender, sendResponse) {
-  sendResponse(annotate(request));
-}
-browser.runtime.onMessage.addListener(handleMessage)"""
+  if(typeof request=='number') {
+    if(request<0) numLines=-request; else aType=request;
+    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},(T)=>{for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldOHTML)c.outerHTML=c.oldOHTML; annotWalk(document,document)'})})
+  } else sendResponse(numLines>1?annotate(request"""
+  if sharp_multi: js_end += b",aType"
+  if glossfile: js_end += b",numLines"
+  js_end += b"):request)} chrome.runtime.onMessage.addListener(handleMessage)"
 elif not os.environ.get("JS_OMIT_DOM",""):
   js_end += br"""
 function annotate_page("""
@@ -3582,6 +3593,23 @@ if (typeof require != "undefined" && typeof module != "undefined" && require.mai
   module.exports = Annotator;
 }
 """
+
+extension_config=br"""<html><head><meta charset="utf-8"></head><body>
+<nobr><button id="-1">Off</button> <button id="-2">2-line</button>"""
+# -ve = num lines (if glossfile), +ve = annotNo (if sharp-multi)
+if glossfile:
+  extension_config += b' <button id="-3">3-line</button>'
+  rangeStart = -3
+else:
+  rangeStart = -2
+  extension_config=extension_config.replace(b'2-line',b'On')
+extension_config += b'</nobr>'
+if sharp_multi and annotation_names and ',' in annotation_names:
+  extension_config += b"".join((b'<br><button id="%d">%s</button>' % (num,B(name))) for num,name in enumerate(annotation_names.split(',')))
+  rangeEnd = len(annotation_names.split(','))
+else: rangeEnd = 0
+extension_config += b'<script src="config.js"></script></body></html>'
+extension_confjs=b';'.join((b'document.getElementById("%d").addEventListener("click",function(){chrome.runtime.sendMessage(%d)})' % (n,n)) for n in xrange(rangeStart,rangeEnd))
 
 dart_src = br"""
 
@@ -5412,8 +5440,11 @@ def setup_browser_extension():
   "version": "0.0",
   "background": { "scripts": ["background.js"] },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
-  "permissions": ["activeTab"] }""" % B(browser_extension))
-  open(dirToUse+"/content.js","wb").write(jsAnnot(False,True)+b"annotWalk(document,document)")
+  "browser_action":{"default_title":"Annotate","default_popup":"config.html","browser_style": true},
+  "permissions": ["<all_urls>"] }""" % B(browser_extension))
+  open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
+  open(dirToUse+"/config.html","wb").write(extension_config)
+  open(dirToUse+"/config.js","wb").write(extension_confjs)
   open(dirToUse+"/ruby.css","wb").write(b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;}")
   global c_filename
   c_filename = dirToUse+"/background.js"
