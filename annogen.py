@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.147 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.1471 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -286,7 +286,7 @@ parser.add_option("-u","--js-utf8",
                   help="When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites.")
 cancelOpt("js-utf8")
 
-parser.add_option("--browser-extension", help="Name of a Chrome or Firefox browser extension to generate")
+parser.add_option("--browser-extension", help="Name of a Chrome or Firefox browser extension to generate.  The extension will be placed in a directory of the same name (without spaces), which may optionally already exist and contain icons like 32.png and 48.png to be used.")
 
 parser.add_option("--dart",
                   action="store_true",default=False,
@@ -5434,14 +5434,18 @@ def setup_browser_extension():
   sys.stderr.write("Writing to "+dirToUse+"\n")
   try: os.mkdir(dirToUse)
   except: pass
+  def icons(key,sizes):
+    if any(os.path.isfile(dirToUse+os.sep+s+".png") for s in sizes):
+      return b',"'+B(key)+'":{'+b",".join(('"%s":"%s.png"' % (s,s)) for s in sizes if os.path.isfile(dirToUse+os.sep+s+".png"))+b"}"
+    else: return b""
   open(dirToUse+"/manifest.json","wb").write(br"""{
   "manifest_version": 2,
   "name": "%s",
   "version": "0.0",
   "background": { "scripts": ["background.js"] },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
-  "browser_action":{"default_title":"Annotate","default_popup":"config.html","browser_style": true},
-  "permissions": ["<all_urls>"] }""" % B(browser_extension))
+  "browser_action":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
+  "permissions": ["<all_urls>"]%s}""" % (B(browser_extension),icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
   open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
   open(dirToUse+"/config.html","wb").write(extension_config)
   open(dirToUse+"/config.js","wb").write(extension_confjs)
