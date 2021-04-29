@@ -635,7 +635,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.1471
+Options for Annotator Generator v3.1472
 ===========================
 
 Usage: annogen.py [options]
@@ -836,7 +836,7 @@ Options:
  : Cancels any earlier `--fast-assemble` option in Makefile variables etc
 
 `-Z, --zlib`
- : Enable `--data-driven` and compress the embedded data table using zlib (or pyzopfli if available), and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike `--compress` which, although giving less compression, at least works 'in place').  Once `--zlib` is in use, specifying `--compress` too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator, the decompression code is inlined so there's no runtime zlib dependency, but startup can be ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source (unless you're running on Node.js in which case loading is faster due to the use of Node's "Buffer" class).
+ : Enable `--data-driven` and compress the embedded data table using zlib (or pyzopfli if available), and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike `--compress` which, although giving less compression, at least works 'in place').  Once `--zlib` is in use, specifying `--compress` too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator with zlib, test it carefully because there are hard-to-resolve issues with string corruption with some annotation types.  The decompression code is inlined so there's no runtime zlib dependency, but startup can be ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source (unless you're running on Node.js in which case loading is faster due to the use of Node's "Buffer" class).
 
 `--no-zlib`
  : Cancels any earlier `--zlib` option in Makefile variables etc
@@ -954,7 +954,7 @@ Options:
  : Cancels any earlier `--ignore-ie`8 option in Makefile variables etc
 
 `-u, `--js-utf`8`
- : When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites.
+ : When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites, and/or if your annotation can be expressed without the use of Unicode combining characters.
 
 `--no-js-utf8`
  : Cancels any earlier `--js-utf`8 option in Makefile variables etc

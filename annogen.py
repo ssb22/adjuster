@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.1471 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.1472 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -28,7 +28,7 @@
 
 from optparse import OptionParser
 parser = OptionParser()
-import sys,os,os.path,tempfile,time,re,subprocess
+import sys,os,os.path,tempfile,time,re,subprocess,unicodedata
 try: from subprocess import getoutput
 except: from commands import getoutput
 if not "mac" in sys.platform and not "darwin" in sys.platform and ("win" in sys.platform or "mingw32" in sys.platform): exe=".exe" # Windows, Cygwin, etc
@@ -205,7 +205,7 @@ cancelOpt("fast-assemble")
 
 parser.add_option("-Z","--zlib",
                   action="store_true",default=False,
-                  help="Enable --data-driven and compress the embedded data table using zlib (or pyzopfli if available), and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator, the decompression code is inlined so there's no runtime zlib dependency, but startup can be ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source (unless you're running on Node.js in which case loading is faster due to the use of Node's \"Buffer\" class).") # compact_opcodes typically still helps no matter what the other options are
+                  help="Enable --data-driven and compress the embedded data table using zlib (or pyzopfli if available), and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator with zlib, test it carefully because there are hard-to-resolve issues with string corruption with some annotation types.  The decompression code is inlined so there's no runtime zlib dependency, but startup can be ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source (unless you're running on Node.js in which case loading is faster due to the use of Node's \"Buffer\" class).") # compact_opcodes typically still helps no matter what the other options are
 cancelOpt("zlib")
 
 parser.add_option("-l","--library",
@@ -283,7 +283,7 @@ cancelOpt("ignore-ie8")
 
 parser.add_option("-u","--js-utf8",
                   action="store_true",default=False,
-                  help="When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites.")
+                  help="When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites, and/or if your annotation can be expressed without the use of Unicode combining characters.")
 cancelOpt("js-utf8")
 
 parser.add_option("--browser-extension", help="Name of a Chrome or Firefox browser extension to generate.  The extension will be placed in a directory of the same name (without spaces), which may optionally already exist and contain icons like 32.png and 48.png to be used.")
@@ -432,9 +432,8 @@ def errExit(msg):
 if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
 if browser_extension:
-  javascript = js_utf8 = js_6bit = ignore_ie8 = True
+  javascript = True
   if sharp_multi and not annotation_names: errExit("--sharp-multi requires --annotation-names to be set if --browser-extension")
-  if zlib: errExit("--zlib not yet implemented for --browser-extension") # TODO: it can be implemented quite easily (the zlib part of js_start would need taking out of the not browser_extension branch)
 if android_template:
   android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
@@ -530,6 +529,7 @@ if dart:
   if dart_datafile and any(x in dart_datafile for x in "'\\$"): errExit("Current implementation cannot cope with ' or \\ or $ in dart_datafile")
 elif dart_datafile: errExit("--dart-datafile requires --dart")
 if zlib:
+  if javascript: warn("--zlib with --javascript has been known to cause string corruption on some browsers and is deprecated")
   js_6bit = js_utf8 = False
   del zlib
   try:
@@ -2990,8 +2990,8 @@ class BytecodeAssembler:
     # 128-255 RESERVED for short jumps
   }
   def __init__(self):
-    self.l = []
-    self.d2l = {}
+    self.l = [] # code list
+    self.d2l = {} # definition to label
     self.lastLabelNo = 0
     self.addingPosStack = []
   def addOpcode(self,opcode): self.l.append((opcode,))
@@ -3106,26 +3106,31 @@ class BytecodeAssembler:
       self.l.append(-labelNo)
   def addRefToString(self,string):
     assert type(string)==bytes, repr(string)
+    l = len(string)
     if python or java or javascript or dart:
       # prepends with a length hint if possible (or if not
       # prepends with 0 and null-terminates it)
-      if js_6bit and not js_utf8: string = re.sub(b"%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape'
-      elif js_utf8: string = string.decode('utf-8')
-      if js_6bit:
-        if 1 <= len(string) <= 91: # use 32-122 inclusive
-          if type(string)==type(u""): string = chr(len(string)+31)+string
-          else: string = B(chr(len(string)+31))+string
+      if js_utf8:
+        string = unicodedata.normalize("NFC",string.decode('utf-8')) # NFC very important for browser_extension: some browsers seem to do it anyway, throwing off data addresses if we haven't accounted for that
+        l = len(string) # we count in UCS-2 characters
+        assert all((ord(c) <= 0xFFFF) for c in string), "js_utf8 addressing will be confused by non UCS-2: "+repr(string) # TODO: put surrogate pairs? (and increase l by num pairs; ensure Python will emit separate UTF-8 sequences for each part of the surrogate, if needed by JS; might need to escape the pairs after all addresses computed)
+        assert not(any(unicodedata.combining(c) for c in string)), "js_utf8 addressing may be confused by combining characters: "+repr(string)
+        if 1 <= l < 0x02B0: # avoid combining and modifier marks just in case; also avoid 0xD800+ surrogates
+          string = unichr(l) + string
+        else: string = unichr(0)+string+unichr(0)
+      elif js_6bit:
+        string = re.sub(b"%(?=[0-9A-Fa-f])|[\x7f-\xff]",lambda m:urllib.quote(m.group()),string) # for JS 'unescape' in readRefStr, which is applied (without encodeURIComponent) if js_6bit and not js_utf8 so we can use %-encoding
+        l = len(string) # length is needed BEFORE %-decode
+        if 1 <= l <= 91: # use 32-122 inclusive
+          string = B(chr(l+31))+string
         else: # try to avoid using \x00 for termination
           for termChar in '{|}~\x00': # 123-126 + nul
-            if type(string)==bytes: termChar=B(termChar)
+            termChar=B(termChar)
             if not termChar in string:
               string = termChar + string + termChar
               break
-      elif js_utf8 and 1 <= len(string) < 0x02B0: # avoid combining and modifier marks just in case; also avoid 0xD800+ surrogates
-        string = unichr(len(string)) + string
-      elif 1 <= len(string) < 256:
-        string = B(chr(len(string)))+string
-      elif js_utf8: string = chr(0)+string+chr(0)
+      elif 1 <= l < 256: # length byte + string
+        string = B(chr(l))+string
       else: string = B(chr(0))+string+B(chr(0))
     else: string += b'\x00' # just null-termination for C
     if not string in self.d2l:
@@ -3262,7 +3267,7 @@ class BytecodeAssembler:
           lDic = {} # label dictionary: labelNo -> address
           for P in [1,2]:
             r = [B(chr(addrSize))] # List to hold the output bytecode, initialised with a byte indicating how long our addresses will be.
-            ll = 1 # cumulative length of output list
+            ll = 1 # cumulative length of output list, normally in bytes, but if js_utf8 then we count in Javascript (UCS-2) characters
             count = 0 # reading through src opcodes etc
             while count < len(src):
                 i = src[count] ; count += 1
@@ -3291,14 +3296,14 @@ class BytecodeAssembler:
                     else: # ref to as-yet unknown label
                         assert P==1, "undefined label %d" % -i
                         i = B("-"*addrSize) # placeholder (well we could just advance ll, but setting this makes things easier if you ever want to inspect partial results)
-                if len(i):
+                if len(i): # bytes or Unicode
                   r.append(i) ; ll += len(i)
             sys.stderr.write(".") ; sys.stderr.flush()
-          if js_utf8: # some "bytes" will actually be Unicode characters, so normalise all before join
+          if js_utf8: # normalise all before join
             for i in xrange(len(r)):
               if type(r[i])==bytes:
                 r[i]=unicode(r[i],'latin1')
-            r = "".join(r)
+            r = u"".join(r)
           else: r = b"".join(r)
           if zlib:
             self.origLen = ll # needed for efficient malloc in the C code later
@@ -3351,12 +3356,7 @@ Usage:
    zlib'd version uses Uint8Array so has minimum browser requirements
    (Chrome 7, Ffx 4, IE10, Op11.6, Safari5.1, 4.2 on iOS)
    - generate without --zlib to support older browsers.
-
-  Inflate code taken from UZip.js (c) 2018 "Photopea" (MIT-licensed),
-  cut down with small modifications and JSCompress'd:
-*/
-function inflate(r,e){var t,n=new Uint8Array(e);t="undefined"!=typeof window&&window.atob?function(r){for(var e=new Uint8Array(r.length),t=0,n=e.length;t<n;t++)e[t]=r.charCodeAt(t);return e}(atob(r)):"undefined"!=typeof Buffer?new Buffer(r,"base64"):function(r){var e,t,n={},f=65,a=0,o=0,i=new Uint8Array(r.length),d=0,l=String.fromCharCode,v=r.length;for(e="";f<91;)e+=l(f++);for(e+=e.toLowerCase()+"0123456789+/",f=0;f<64;f++)n[e.charAt(f)]=f;for(e=0;e<v;e++)for(a=(a<<6)+(f=n[r.charAt(e)]),o+=6;8<=o;)((t=a>>>(o-=8)&255)||e<v-2)&&(i[d++]=t);return i}(r);var f=new Uint8Array(t.buffer,t.byteOffset+2,t.length-6),h={_decodeTiny:function(r,e,t,n,f,a){for(var o=f,i=h._bitsE,d=h._get17,l=t<<1,v=0,s=0;v<l;){var u=r[d(n,f)&e];f+=15&u;var p=u>>>4;if(p<=15)a[v]=0,s<(a[v+1]=p)&&(s=p),v+=2;else{var w=0,y=0;16==p?(y=3+i(n,f,2)<<1,f+=2,w=a[v-1]):17==p?(y=3+i(n,f,3)<<1,f+=3):18==p&&(y=11+i(n,f,7)<<1,f+=7);for(var U=v+y;v<U;)a[v]=0,a[v+1]=w,v+=2}}for(var c=a.length;v<c;)a[v+1]=0,v+=2;return s<<24|f-o},makeCodes:function(r,e){for(var t,n,f,a,o=h.U,i=r.length,d=o.bl_count,l=0;l<=e;l++)d[l]=0;for(l=1;l<i;l+=2)d[r[l]]++;var v=o.next_code;for(d[t=0]=0,n=1;n<=e;n++)t=t+d[n-1]<<1,v[n]=t;for(f=0;f<i;f+=2)0!=(a=r[f+1])&&(r[f]=v[a],v[a]++)},codes2map:function(r,e,t){var n=r.length,f=h.U.rev15;for(C=0;C<n;C+=2)if(0!=r[C+1])for(var a=C>>1,o=r[C+1],i=a<<4|o,d=e-o,l=r[C]<<d,v=l+(1<<d);l!=v;){t[f[l]>>>15-e]=i,l++}},revCodes:function(r,e){for(var t=h.U.rev15,n=15-e,f=0;f<r.length;f+=2){var a=r[f]<<e-r[f+1];r[f]=t[a]>>>n}},_bitsE:function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8)>>>(7&e)&(1<<t)-1},_get17:function(r,e){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)}};h.U={next_code:new Uint16Array(16),bl_count:new Uint16Array(16),ordr:[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15],of0:[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258,999,999,999],exb:[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0,0,0,0],ldef:new Uint16Array(32),df0:[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,65535,65535],dxb:[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,0,0],ddef:new Uint32Array(32),flmap:new Uint16Array(512),fltree:[],fdmap:new Uint16Array(32),fdtree:[],lmap:new Uint16Array(32768),ltree:[],dmap:new Uint16Array(32768),dtree:[],imap:new Uint16Array(512),itree:[],rev15:new Uint16Array(32768),lhst:new Uint32Array(286),dhst:new Uint32Array(30),ihst:new Uint32Array(19),lits:new Uint32Array(15e3),strt:new Uint16Array(65536),prev:new Uint16Array(32768)},function(){for(var r=h.U,e=0;e<32768;e++){var t=e;t=(4278255360&(t=(4042322160&(t=(3435973836&(t=(2863311530&t)>>>1|(1431655765&t)<<1))>>>2|(858993459&t)<<2))>>>4|(252645135&t)<<4))>>>8|(16711935&t)<<8,r.rev15[e]=(t>>>16|t<<16)>>>17}for(e=0;e<32;e++)r.ldef[e]=r.of0[e]<<3|r.exb[e],r.ddef[e]=r.df0[e]<<4|r.dxb[e];for(e=0;e<=143;e++)r.fltree.push(0,8);for(;e<=255;e++)r.fltree.push(0,9);for(;e<=279;e++)r.fltree.push(0,7);for(;e<=287;e++)r.fltree.push(0,8);for(h.makeCodes(r.fltree,9),h.codes2map(r.fltree,9,r.flmap),h.revCodes(r.fltree,9),e=0;e<32;e++)r.fdtree.push(0,5);h.makeCodes(r.fdtree,5),h.codes2map(r.fdtree,5,r.fdmap),h.revCodes(r.fdtree,5);for(e=0;e<19;e++)r.itree.push(0,0);for(e=0;e<286;e++)r.ltree.push(0,0);for(e=0;e<30;e++)r.dtree.push(0,0)}();for(var a,o,i=function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)&(1<<t)-1},d=h._bitsE,l=h._decodeTiny,v=h.makeCodes,s=h.codes2map,u=h._get17,p=h.U,w=0,y=0,U=0,c=0,A=0,m=0,b=0,g=0,_=0;0==w;)if(w=i(f,_,1),y=i(f,_+1,2),_+=3,0!=y){if(1==y&&(a=p.flmap,o=p.fdmap,m=511,b=31),2==y){U=d(f,_,5)+257,c=d(f,_+5,5)+1,A=d(f,_+10,4)+4;_+=14;for(var C=0;C<38;C+=2)p.itree[C]=0,p.itree[C+1]=0;var x=1;for(C=0;C<A;C++){var k=d(f,_+3*C,3);x<(p.itree[1+(p.ordr[C]<<1)]=k)&&(x=k)}_+=3*A,v(p.itree,x),s(p.itree,x,p.imap),a=p.lmap,o=p.dmap;var E=l(p.imap,(1<<x)-1,U,f,_,p.ltree);m=(1<<(E>>>24))-1,_+=16777215&E,v(p.ltree,E>>>24),s(p.ltree,E>>>24,a);var B=l(p.imap,(1<<x)-1,c,f,_,p.dtree);b=(1<<(B>>>24))-1,_+=16777215&B,v(p.dtree,B>>>24),s(p.dtree,B>>>24,o)}for(;;){var O=a[u(f,_)&m];_+=15&O;var T=O>>>4;if(T>>>8==0)n[g++]=T;else{if(256==T)break;var L=g+T-254;if(264<T){var S=p.ldef[T-257];L=g+(S>>>3)+d(f,_,7&S),_+=7&S}var j=o[u(f,_)&b];_+=15&j;var q=j>>>4,z=p.ddef[q],D=(z>>>4)+i(f,_,15&z);for(_+=15&z;g<L;)n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D];g=L}}}else{0!=(7&_)&&(_+=8-(7&_));var F=4+(_>>>3),G=f[F-4]|f[F-3]<<8;n.set(new Uint8Array(f.buffer,f.byteOffset+F,G),g),_=F+G<<3,g+=G}return n.length==g?n:n.slice(0,g)}
-"""
+*/"""
   else: js_start += b"*/"
 else: js_start = b"" # browser_extension
 js_start += br"""
@@ -3364,14 +3364,14 @@ js_start += br"""
 var Annotator={
 version: '"""+version_stamp+b"',\n"
 if glossfile: js_start += b"numLines: 2 /* override to 1 or 3 if you must, but not recommended for learning */,\n"
-if sharp_multi: js_end = b"annotate: function(input,aType) { if(aType==undefined) aType=0;"
-else: js_end = b"annotate: function(input) {"
-if removeSpace: js_end += br" input=input.replace(/\B +\B/g,'');" # TODO: document that we do this (currently only in JS annotator here, and Android app via jsAnnot, although Web Adjuster does it separately in Python before calling the filter).  It deals with software that adds ASCII spaces between Chinese characters of the same word, without deleting spaces between embedded English words (TODO: this 'JS + app' version may still delete spaces between punctuation characters, which may be an issue for consecutive quoted words e.g. 'so-called "word1" "word2"').  If doing it at the nextbyte level, we'd have to update prevbyte; if this or doing it at switchbyte level (e.g. recurse) we'd have to do something about the copy pointer (skip the spaces?) and the near-call distance (and associated buffer sizes in C) so they're best pre-removed, but only from between characters we annotate.
-js_end += br"""
+if sharp_multi: js_start += b"annotate: function(input,aType) { if(aType==undefined) aType=0;"
+else: js_start += b"annotate: function(input) {"
+if removeSpace: js_start += br" input=input.replace(/\B +\B/g,'');" # TODO: document that we do this (currently only in JS annotator here, and Android app via jsAnnot, although Web Adjuster does it separately in Python before calling the filter).  It deals with software that adds ASCII spaces between Chinese characters of the same word, without deleting spaces between embedded English words (TODO: this 'JS + app' version may still delete spaces between punctuation characters, which may be an issue for consecutive quoted words e.g. 'so-called "word1" "word2"').  If doing it at the nextbyte level, we'd have to update prevbyte; if this or doing it at switchbyte level (e.g. recurse) we'd have to do something about the copy pointer (skip the spaces?) and the near-call distance (and associated buffer sizes in C) so they're best pre-removed, but only from between characters we annotate.
+js_start += br"""
 input = unescape(encodeURIComponent(input)); // to UTF-8
 var data = this.data""" # TODO: if input is a whole html doc, insert css in head (e.g. from annoclip and/or adjuster), and hope there's no stuff that's not to be annotated (form fields etc).  But really want them to be using browser_extension or annotate_page if doing this (TODO add css to annotate_page, already there in browser_extension)
-if glossfile: js_end += b", numLines = this.numLines"
-js_end += br""";
+if glossfile: js_start += b", numLines = this.numLines"
+js_start += br""";
 var addrLen = data.charCodeAt(0);
 var dPtr, inputLength = input.length;
 var p = 0; // read-ahead pointer
@@ -3381,30 +3381,30 @@ var output = new Array(), needSpace = 0;
 function readAddr() {
   var i,addr=0;
   for (i=addrLen; i; i--) addr=(addr << """
-if js_6bit: js_end += b"6) | (data.charCodeAt(dPtr++)-"+B(str(js_6bit_offset))+b");"
-else: js_end += b"8) | data.charCodeAt(dPtr++);"
-js_end += br"""
+if js_6bit: js_start += b"6) | (data.charCodeAt(dPtr++)-"+B(str(js_6bit_offset))+b");"
+else: js_start += b"8) | data.charCodeAt(dPtr++);"
+js_start += br"""
   
   return addr;
 }
 
 function readRefStr() {
   var a = readAddr(); var l=data.charCodeAt(a);"""
-if js_6bit:
-  js_end += br"""
+if js_6bit and not js_utf8:
+  js_start += br"""
   if(l && l<123) a = data.slice(a+1,a+l-30);
   else a = data.slice(a+1,data.indexOf(data.charAt(a),a+1));"""
-elif zlib: js_end += br"""
+elif zlib: js_start += br"""
   if (l != 0) a = data.slice(a+1,a+l+1);
   else a = data.slice(a+1,data.indexOf(0,a+1));"""
-else: js_end += br"""
+else: js_start += br"""
   if (l != 0) a = data.slice(a+1,a+l+1);
   else a = data.slice(a+1,data.indexOf('\x00',a+1));"""
-if zlib: js_end += b"return String.fromCharCode.apply(null,a)"
-elif js_utf8: js_end += b"return unescape(encodeURIComponent(a))" # Unicode to UTF-8 (TODO: or keep as Unicode? but copyP things will be in UTF-8, as will the near tests)
-elif js_6bit: js_end += b"return unescape(a)" # %-encoding
-else: js_end += b"return a"
-js_end += br"""}
+if zlib: js_start += b"return String.fromCharCode.apply(null,a)" # gets UTF-8 from Uint8array
+elif js_utf8: js_start += b"return unescape(encodeURIComponent(a))" # Unicode to UTF-8 (TODO: or keep as Unicode? but copyP things will be in UTF-8, as will the near tests)
+elif js_6bit: js_start += b"return unescape(a)" # %-encoding
+else: js_start += b"return a"
+js_start += br"""}
 function s() {
   if (needSpace) output.push(" ");
   else needSpace=1; // for after the word we're about to write (if no intervening bytes cause needSpace=0)
@@ -3415,13 +3415,13 @@ function readData() {
     while(1) {
         c = data.charCodeAt(dPtr++);
         if (c & 0x80) dPtr += (c&0x7F);"""
-if js_6bit: js_end += br"""
+if js_6bit: js_start += br"""
         else if (c > 90) { c-=90; 
             var i=-1;if(p<input.length){var cc=input.charCodeAt(p++)-93; if(cc>118)cc-=20; i=data.slice(dPtr,dPtr+c).indexOf(String.fromCharCode(cc))}
             if (i==-1) i = c;
             if(i) dPtr += data.charCodeAt(dPtr+c+i-1)-"""+str(js_6bit_offset)+br""";
             dPtr += c+c }"""
-js_end += br"""
+js_start += br"""
         else if (c > 107) { c-=107;
             var i = ((p>=input.length)?-1:data.slice(dPtr,dPtr+c).indexOf(input.charAt(p++)));
             if (i==-1) i = c;
@@ -3452,7 +3452,7 @@ js_end += br"""
               var annot = readRefStr();
               var base = input.slice(copyP, copyP + numBytes); copyP += numBytes;
               s();"""
-if glossfile: js_end += br"""
+if glossfile: js_start += br"""
               switch (numLines) {
                 case 1:
                   output.push("<ruby><rb>");
@@ -3466,17 +3466,17 @@ if glossfile: js_end += br"""
                   output.push("</rb></ruby>");
                   break;
                 default:"""
-js_end += br"""
+js_start += br"""
                   output.push("<ruby><rb>");
                   output.push(base);
                   output.push("</rb><rt>");
                   output.push(annot);
                   output.push("</rt></ruby>")"""
-if glossfile: js_end += b"}"
-else: js_end += b";"
-js_end += br"""
+if glossfile: js_start += b"}"
+else: js_start += b";"
+js_start += br"""
               if(c==75) return; break; }"""
-if glossfile: js_end += br"""
+if glossfile: js_start += br"""
             case 73: case 76: {
               var numBytes = (data.charCodeAt(dPtr++)-34)&0xFF;
               var annot = readRefStr();
@@ -3512,7 +3512,8 @@ if glossfile: js_end += br"""
                   output.push(annot);
                   output.push("</rt></ruby>") }
               if(c==76) return; break; }"""
-js_end += br"""
+if not js_6bit: js_start = js_start.replace(b"(data.charCodeAt(dPtr++)-34)&0xFF",b"data.charCodeAt(dPtr++)")
+js_start += br"""
             case 80: sPos.push(p); break;
             case 81: p=sPos.pop(); break;
             case 90: {
@@ -3539,11 +3540,13 @@ dPtr=1;readData();
 if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
 }
 return decodeURIComponent(escape(output.join("")))"""
-if js_6bit: js_end = js_end.replace(b"var numBytes = data.charCodeAt(dPtr++);",b"var numBytes = (data.charCodeAt(dPtr++)-"+B(str(js_6bit_offset-1))+b")&0xFF;")
-if sharp_multi: js_end += br""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
-js_end += br"""; // from UTF-8 back to Unicode
-} // end of annotate function
-};
+if js_6bit: js_start = js_start.replace(b"var numBytes = data.charCodeAt(dPtr++);",b"var numBytes = (data.charCodeAt(dPtr++)-"+B(str(js_6bit_offset-1))+b")&0xFF;")
+if sharp_multi: js_start += br""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
+js_start += br"""; // from UTF-8 back to Unicode
+}, // end of annotate method
+"""
+# data: ... \n goes here
+js_end = br"""};
 function annotate(input"""
 if sharp_multi: js_end += b",aType"
 if glossfile: js_end += b",numLines"
@@ -3559,7 +3562,7 @@ function handleMessage(request, sender, sendResponse) {
   if(typeof request=='number') {
     if(request<0) numLines=-request; else aType=request;
     (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},(T)=>{for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldOHTML)c.outerHTML=c.oldOHTML; annotWalk(document,document)'})})
-  } else sendResponse(numLines>1?annotate(request"""
+  } else sendResponse(numLines>1?annotate(request""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
   if sharp_multi: js_end += b",aType"
   if glossfile: js_end += b",numLines"
   js_end += b"):request)} chrome.runtime.onMessage.addListener(handleMessage)"
@@ -3593,6 +3596,15 @@ if (typeof require != "undefined" && typeof module != "undefined" && require.mai
   module.exports = Annotator;
 }
 """
+
+js_inflate = br""" /* Inflate code taken from UZip.js (c) 2018 "Photopea" (MIT-licensed),
+  cut down, slightly modified and JSCompress'd: */
+"""
+if browser_extension:
+  # we can assume window.atob
+  js_inflate += br"""((r,e)=>{var n=new Uint8Array(e),t=((r)=>{for(var e=new Uint8Array(r.length),t=0,n=e.length;t<n;t++)e[t]=r.charCodeAt(t);return e})(atob(r));var f=new Uint8Array(t.buffer,t.byteOffset+2,t.length-6),h={_decodeTiny:function(r,e,t,n,f,a){for(var o=f,i=h._bitsE,d=h._get17,l=t<<1,v=0,s=0;v<l;){var u=r[d(n,f)&e];f+=15&u;var p=u>>>4;if(p<=15)a[v]=0,s<(a[v+1]=p)&&(s=p),v+=2;else{var w=0,y=0;16==p?(y=3+i(n,f,2)<<1,f+=2,w=a[v-1]):17==p?(y=3+i(n,f,3)<<1,f+=3):18==p&&(y=11+i(n,f,7)<<1,f+=7);for(var U=v+y;v<U;)a[v]=0,a[v+1]=w,v+=2}}for(var c=a.length;v<c;)a[v+1]=0,v+=2;return s<<24|f-o},makeCodes:function(r,e){for(var t,n,f,a,o=h.U,i=r.length,d=o.bl_count,l=0;l<=e;l++)d[l]=0;for(l=1;l<i;l+=2)d[r[l]]++;var v=o.next_code;for(d[t=0]=0,n=1;n<=e;n++)t=t+d[n-1]<<1,v[n]=t;for(f=0;f<i;f+=2)0!=(a=r[f+1])&&(r[f]=v[a],v[a]++)},codes2map:function(r,e,t){var n=r.length,f=h.U.rev15;for(C=0;C<n;C+=2)if(0!=r[C+1])for(var a=C>>1,o=r[C+1],i=a<<4|o,d=e-o,l=r[C]<<d,v=l+(1<<d);l!=v;){t[f[l]>>>15-e]=i,l++}},revCodes:function(r,e){for(var t=h.U.rev15,n=15-e,f=0;f<r.length;f+=2){var a=r[f]<<e-r[f+1];r[f]=t[a]>>>n}},_bitsE:function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8)>>>(7&e)&(1<<t)-1},_get17:function(r,e){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)}};h.U={next_code:new Uint16Array(16),bl_count:new Uint16Array(16),ordr:[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15],of0:[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258,999,999,999],exb:[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0,0,0,0],ldef:new Uint16Array(32),df0:[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,65535,65535],dxb:[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,0,0],ddef:new Uint32Array(32),flmap:new Uint16Array(512),fltree:[],fdmap:new Uint16Array(32),fdtree:[],lmap:new Uint16Array(32768),ltree:[],dmap:new Uint16Array(32768),dtree:[],imap:new Uint16Array(512),itree:[],rev15:new Uint16Array(32768),lhst:new Uint32Array(286),dhst:new Uint32Array(30),ihst:new Uint32Array(19),lits:new Uint32Array(15e3),strt:new Uint16Array(65536),prev:new Uint16Array(32768)},function(){for(var r=h.U,e=0;e<32768;e++){var t=e;t=(4278255360&(t=(4042322160&(t=(3435973836&(t=(2863311530&t)>>>1|(1431655765&t)<<1))>>>2|(858993459&t)<<2))>>>4|(252645135&t)<<4))>>>8|(16711935&t)<<8,r.rev15[e]=(t>>>16|t<<16)>>>17}for(e=0;e<32;e++)r.ldef[e]=r.of0[e]<<3|r.exb[e],r.ddef[e]=r.df0[e]<<4|r.dxb[e];for(e=0;e<=143;e++)r.fltree.push(0,8);for(;e<=255;e++)r.fltree.push(0,9);for(;e<=279;e++)r.fltree.push(0,7);for(;e<=287;e++)r.fltree.push(0,8);for(h.makeCodes(r.fltree,9),h.codes2map(r.fltree,9,r.flmap),h.revCodes(r.fltree,9),e=0;e<32;e++)r.fdtree.push(0,5);h.makeCodes(r.fdtree,5),h.codes2map(r.fdtree,5,r.fdmap),h.revCodes(r.fdtree,5);for(e=0;e<19;e++)r.itree.push(0,0);for(e=0;e<286;e++)r.ltree.push(0,0);for(e=0;e<30;e++)r.dtree.push(0,0)}();for(var a,o,i=function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)&(1<<t)-1},d=h._bitsE,l=h._decodeTiny,v=h.makeCodes,s=h.codes2map,u=h._get17,p=h.U,w=0,y=0,U=0,c=0,A=0,m=0,b=0,g=0,_=0;0==w;)if(w=i(f,_,1),y=i(f,_+1,2),_+=3,0!=y){if(1==y&&(a=p.flmap,o=p.fdmap,m=511,b=31),2==y){U=d(f,_,5)+257,c=d(f,_+5,5)+1,A=d(f,_+10,4)+4;_+=14;for(var C=0;C<38;C+=2)p.itree[C]=0,p.itree[C+1]=0;var x=1;for(C=0;C<A;C++){var k=d(f,_+3*C,3);x<(p.itree[1+(p.ordr[C]<<1)]=k)&&(x=k)}_+=3*A,v(p.itree,x),s(p.itree,x,p.imap),a=p.lmap,o=p.dmap;var E=l(p.imap,(1<<x)-1,U,f,_,p.ltree);m=(1<<(E>>>24))-1,_+=16777215&E,v(p.ltree,E>>>24),s(p.ltree,E>>>24,a);var B=l(p.imap,(1<<x)-1,c,f,_,p.dtree);b=(1<<(B>>>24))-1,_+=16777215&B,v(p.dtree,B>>>24),s(p.dtree,B>>>24,o)}for(;;){var O=a[u(f,_)&m];_+=15&O;var T=O>>>4;if(T>>>8==0)n[g++]=T;else{if(256==T)break;var L=g+T-254;if(264<T){var S=p.ldef[T-257];L=g+(S>>>3)+d(f,_,7&S),_+=7&S}var j=o[u(f,_)&b];_+=15&j;var q=j>>>4,z=p.ddef[q],D=(z>>>4)+i(f,_,15&z);for(_+=15&z;g<L;)n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D];g=L}}}else{0!=(7&_)&&(_+=8-(7&_));var F=4+(_>>>3),G=f[F-4]|f[F-3]<<8;n.set(new Uint8Array(f.buffer,f.byteOffset+F,G),g),_=F+G<<3,g+=G}return n.length==g?n:n.slice(0,g)})"""
+else: js_inflate += br"""(function(r,e){var t,n=new Uint8Array(e);t="undefined"!=typeof window&&window.atob?function(r){for(var e=new Uint8Array(r.length),t=0,n=e.length;t<n;t++)e[t]=r.charCodeAt(t);return e}(atob(r)):"undefined"!=typeof Buffer?new Buffer(r,"base64"):function(r){var e,t,n={},f=65,a=0,o=0,i=new Uint8Array(r.length),d=0,l=String.fromCharCode,v=r.length;for(e="";f<91;)e+=l(f++);for(e+=e.toLowerCase()+"0123456789+/",f=0;f<64;f++)n[e.charAt(f)]=f;for(e=0;e<v;e++)for(a=(a<<6)+(f=n[r.charAt(e)]),o+=6;8<=o;)((t=a>>>(o-=8)&255)||e<v-2)&&(i[d++]=t);return i}(r);var f=new Uint8Array(t.buffer,t.byteOffset+2,t.length-6),h={_decodeTiny:function(r,e,t,n,f,a){for(var o=f,i=h._bitsE,d=h._get17,l=t<<1,v=0,s=0;v<l;){var u=r[d(n,f)&e];f+=15&u;var p=u>>>4;if(p<=15)a[v]=0,s<(a[v+1]=p)&&(s=p),v+=2;else{var w=0,y=0;16==p?(y=3+i(n,f,2)<<1,f+=2,w=a[v-1]):17==p?(y=3+i(n,f,3)<<1,f+=3):18==p&&(y=11+i(n,f,7)<<1,f+=7);for(var U=v+y;v<U;)a[v]=0,a[v+1]=w,v+=2}}for(var c=a.length;v<c;)a[v+1]=0,v+=2;return s<<24|f-o},makeCodes:function(r,e){for(var t,n,f,a,o=h.U,i=r.length,d=o.bl_count,l=0;l<=e;l++)d[l]=0;for(l=1;l<i;l+=2)d[r[l]]++;var v=o.next_code;for(d[t=0]=0,n=1;n<=e;n++)t=t+d[n-1]<<1,v[n]=t;for(f=0;f<i;f+=2)0!=(a=r[f+1])&&(r[f]=v[a],v[a]++)},codes2map:function(r,e,t){var n=r.length,f=h.U.rev15;for(C=0;C<n;C+=2)if(0!=r[C+1])for(var a=C>>1,o=r[C+1],i=a<<4|o,d=e-o,l=r[C]<<d,v=l+(1<<d);l!=v;){t[f[l]>>>15-e]=i,l++}},revCodes:function(r,e){for(var t=h.U.rev15,n=15-e,f=0;f<r.length;f+=2){var a=r[f]<<e-r[f+1];r[f]=t[a]>>>n}},_bitsE:function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8)>>>(7&e)&(1<<t)-1},_get17:function(r,e){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)}};h.U={next_code:new Uint16Array(16),bl_count:new Uint16Array(16),ordr:[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15],of0:[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258,999,999,999],exb:[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0,0,0,0],ldef:new Uint16Array(32),df0:[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,65535,65535],dxb:[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,0,0],ddef:new Uint32Array(32),flmap:new Uint16Array(512),fltree:[],fdmap:new Uint16Array(32),fdtree:[],lmap:new Uint16Array(32768),ltree:[],dmap:new Uint16Array(32768),dtree:[],imap:new Uint16Array(512),itree:[],rev15:new Uint16Array(32768),lhst:new Uint32Array(286),dhst:new Uint32Array(30),ihst:new Uint32Array(19),lits:new Uint32Array(15e3),strt:new Uint16Array(65536),prev:new Uint16Array(32768)},function(){for(var r=h.U,e=0;e<32768;e++){var t=e;t=(4278255360&(t=(4042322160&(t=(3435973836&(t=(2863311530&t)>>>1|(1431655765&t)<<1))>>>2|(858993459&t)<<2))>>>4|(252645135&t)<<4))>>>8|(16711935&t)<<8,r.rev15[e]=(t>>>16|t<<16)>>>17}for(e=0;e<32;e++)r.ldef[e]=r.of0[e]<<3|r.exb[e],r.ddef[e]=r.df0[e]<<4|r.dxb[e];for(e=0;e<=143;e++)r.fltree.push(0,8);for(;e<=255;e++)r.fltree.push(0,9);for(;e<=279;e++)r.fltree.push(0,7);for(;e<=287;e++)r.fltree.push(0,8);for(h.makeCodes(r.fltree,9),h.codes2map(r.fltree,9,r.flmap),h.revCodes(r.fltree,9),e=0;e<32;e++)r.fdtree.push(0,5);h.makeCodes(r.fdtree,5),h.codes2map(r.fdtree,5,r.fdmap),h.revCodes(r.fdtree,5);for(e=0;e<19;e++)r.itree.push(0,0);for(e=0;e<286;e++)r.ltree.push(0,0);for(e=0;e<30;e++)r.dtree.push(0,0)}();for(var a,o,i=function(r,e,t){return(r[e>>>3]|r[1+(e>>>3)]<<8|r[2+(e>>>3)]<<16)>>>(7&e)&(1<<t)-1},d=h._bitsE,l=h._decodeTiny,v=h.makeCodes,s=h.codes2map,u=h._get17,p=h.U,w=0,y=0,U=0,c=0,A=0,m=0,b=0,g=0,_=0;0==w;)if(w=i(f,_,1),y=i(f,_+1,2),_+=3,0!=y){if(1==y&&(a=p.flmap,o=p.fdmap,m=511,b=31),2==y){U=d(f,_,5)+257,c=d(f,_+5,5)+1,A=d(f,_+10,4)+4;_+=14;for(var C=0;C<38;C+=2)p.itree[C]=0,p.itree[C+1]=0;var x=1;for(C=0;C<A;C++){var k=d(f,_+3*C,3);x<(p.itree[1+(p.ordr[C]<<1)]=k)&&(x=k)}_+=3*A,v(p.itree,x),s(p.itree,x,p.imap),a=p.lmap,o=p.dmap;var E=l(p.imap,(1<<x)-1,U,f,_,p.ltree);m=(1<<(E>>>24))-1,_+=16777215&E,v(p.ltree,E>>>24),s(p.ltree,E>>>24,a);var B=l(p.imap,(1<<x)-1,c,f,_,p.dtree);b=(1<<(B>>>24))-1,_+=16777215&B,v(p.dtree,B>>>24),s(p.dtree,B>>>24,o)}for(;;){var O=a[u(f,_)&m];_+=15&O;var T=O>>>4;if(T>>>8==0)n[g++]=T;else{if(256==T)break;var L=g+T-254;if(264<T){var S=p.ldef[T-257];L=g+(S>>>3)+d(f,_,7&S),_+=7&S}var j=o[u(f,_)&b];_+=15&j;var q=j>>>4,z=p.ddef[q],D=(z>>>4)+i(f,_,15&z);for(_+=15&z;g<L;)n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D],n[g]=n[g++-D];g=L}}}else{0!=(7&_)&&(_+=8-(7&_));var F=4+(_>>>3),G=f[F-4]|f[F-3]<<8;n.set(new Uint8Array(f.buffer,f.byteOffset+F,G),g),_=F+G<<3,g+=G}return n.length==g?n:n.slice(0,g)})"""
+js_inflate += b"\n"
 
 extension_config=br"""<html><head><meta charset="utf-8"></head><body>
 <nobr><button id="-1">Off</button> <button id="-2">2-line</button>"""
@@ -5324,7 +5336,7 @@ def outputParser(rulesAndConds):
     if javascript:
       if zlib:
         import base64
-        return outfile.write(js_start+b"data: inflate(\""+base64.b64encode(ddrivn)+b"\","+B(str(origLen))+b"),\n"+re.sub(br"data\.charCodeAt\(([^)]*)\)",br"data[\1]",js_end).replace(b"indexOf(input.charAt",b"indexOf(input.charCodeAt")+b"\n")
+        return outfile.write(re.sub(br"data\.charCodeAt\(([^)]*)\)",br"data[\1]",js_start).replace(b"indexOf(input.charAt",b"indexOf(input.charCodeAt")+b"data: "+js_inflate+b"(\""+base64.b64encode(ddrivn)+b"\","+B(str(origLen))+b")\n"+js_end+b"\n")
       else: return outfile.write(js_start+b"data: \""+js_escapeRawBytes(ddrivn)+b"\",\n"+js_end+b"\n") # not Uint8Array (even if browser compatibility is known): besides taking more source space, it's typically ~25% slower to load than string, even from RAM
     elif dart:
       if dart_datafile:
