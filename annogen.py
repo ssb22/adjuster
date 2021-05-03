@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.148 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.149 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1512,7 +1512,7 @@ def jsAnnot(for_android=True,for_async=False):
                     newNode.oldOHTML=cnv;
                     chrome.runtime.sendMessage(cnv).then((nv)=>{
                         if(nv!=cnv) {
-                            try {newNode.innerHTML=' '+nv+' ' }
+                            try {newNode.innerHTML=' '+nv+' '; var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) a[i].addEventListener('click',Function('alert(this.title)')) }
                             catch(err) { console.log(err.message) }
                             n.replaceChild(newNode, c)
                         }
@@ -3557,12 +3557,15 @@ if sharp_multi: js_end += b",aType"
 js_end += b")}"
 if browser_extension:
   js_end += b"""
-var aType=0,numLines=2;
+if(localStorage.aType===undefined) localStorage.aType=0;
+if(localStorage.numLines===undefined) localStorage.numLines=2;
+var aType=localStorage.aType,numLines=localStorage.numLines;
 function handleMessage(request, sender, sendResponse) {
   if(typeof request=='number') {
-    if(request<0) numLines=-request; else aType=request;
+    if(request<0) localStorage.numLines=numLines=-request; else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
     (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},(T)=>{for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldOHTML)c.outerHTML=c.oldOHTML; annotWalk(document,document)'})})
-  } else sendResponse(numLines>1?annotate(request""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
+  } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // popup status query
+  else sendResponse(numLines>1?annotate(request""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
   if sharp_multi: js_end += b",aType"
   if glossfile: js_end += b",numLines"
   js_end += b"):request)} chrome.runtime.onMessage.addListener(handleMessage)"
@@ -3627,7 +3630,13 @@ if sharp_multi and annotation_names and ',' in annotation_names:
   rangeEnd = len(annotation_names.split(','))
 else: rangeEnd = 0
 extension_config += b'<script src="config.js"></script></body></html>'
-extension_confjs=b';'.join((b'document.getElementById("%d").addEventListener("click",function(){chrome.runtime.sendMessage(%d)})' % (n,n)) for n in xrange(rangeStart,rangeEnd))
+extension_confjs = br"""var runtime=typeof browser!='undefined' && browser.runtime?browser.runtime:chrome.runtime;
+function update() {
+runtime.sendMessage(false).then(function(r) {var i;for(i=%d;i;i++){var e=document.getElementById(""+i);if(i==-r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeStart
+if rangeEnd: extension_confjs += br""";
+runtime.sendMessage(true).then(function(r) {for(var i=0;i<%d;i++){var e=document.getElementById(""+i);if(i==r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeEnd
+extension_confjs += b"} update();\n"
+extension_confjs += b';'.join((b'document.getElementById("%d").addEventListener("click",function(){runtime.sendMessage(%d).then(update)})' % (n,n)) for n in xrange(rangeStart,rangeEnd))
 
 dart_src = br"""
 
