@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.149 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.15 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -286,7 +286,11 @@ parser.add_option("-u","--js-utf8",
                   help="When generating a Javascript annotator, assume the script can use UTF-8 encoding directly and not via escape sequences. In some browsers this might work only on UTF-8 websites, and/or if your annotation can be expressed without the use of Unicode combining characters.")
 cancelOpt("js-utf8")
 
-parser.add_option("--browser-extension", help="Name of a Chrome or Firefox browser extension to generate.  The extension will be placed in a directory of the same name (without spaces), which may optionally already exist and contain icons like 32.png and 48.png to be used.") # about:debugging - 'this firefox' - load temporary add-on - manifest.json
+parser.add_option("--browser-extension", help="Name of a Chrome or Firefox browser extension to generate.  The extension will be placed in a directory of the same name (without spaces), which may optionally already exist and contain icons like 32.png and 48.png to be used.")
+# To test the resulting extension locally:
+# Firefox: about:debugging - 'this firefox' - load temporary add-on - manifest.json
+# Chrome: chrome://extensions - Developer mode - Load unpacked - select the directory
+# Chrome bug: browser_style true gives unreadable text in Chromium 89 with enable-force-dark set to "Enabled with selective inversion of everything" (and possibly other settings)
 
 parser.add_option("--dart",
                   action="store_true",default=False,
@@ -1510,13 +1514,13 @@ def jsAnnot(for_android=True,for_async=False):
                     var newNode=document.createElement('span');
                     newNode.className='_adjust0';
                     newNode.oldOHTML=cnv;
-                    chrome.runtime.sendMessage(cnv).then((nv)=>{
+                    chrome.runtime.sendMessage(cnv,((nv)=>{
                         if(nv!=cnv) {
                             try {newNode.innerHTML=' '+nv+' '; var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) a[i].addEventListener('click',Function('alert(this.title)')) }
                             catch(err) { console.log(err.message) }
                             n.replaceChild(newNode, c)
                         }
-                    })})(n,c,cnv)
+                    }))})(n,c,cnv)
             }"""
   else: # not for_async
     if for_android: annotateFunc = b"ssb_local_annotator.annotate"
@@ -3630,13 +3634,12 @@ if sharp_multi and annotation_names and ',' in annotation_names:
   rangeEnd = len(annotation_names.split(','))
 else: rangeEnd = 0
 extension_config += b'<script src="config.js"></script></body></html>'
-extension_confjs = br"""var runtime=typeof browser!='undefined' && browser.runtime?browser.runtime:chrome.runtime;
-function update() {
-runtime.sendMessage(false).then(function(r) {var i;for(i=%d;i;i++){var e=document.getElementById(""+i);if(i==-r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeStart
+extension_confjs = br"""function update() {
+chrome.runtime.sendMessage(false,function(r) {var i;for(i=%d;i;i++){var e=document.getElementById(""+i);if(i==-r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeStart
 if rangeEnd: extension_confjs += br""";
-runtime.sendMessage(true).then(function(r) {for(var i=0;i<%d;i++){var e=document.getElementById(""+i);if(i==r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeEnd
+chrome.runtime.sendMessage(true,function(r) {for(var i=0;i<%d;i++){var e=document.getElementById(""+i);if(i==r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeEnd
 extension_confjs += b"} update();\n"
-extension_confjs += b';'.join((b'document.getElementById("%d").addEventListener("click",function(){runtime.sendMessage(%d).then(update)})' % (n,n)) for n in xrange(rangeStart,rangeEnd))
+extension_confjs += b';'.join((b'document.getElementById("%d").addEventListener("click",function(){chrome.runtime.sendMessage(%d,update)})' % (n,n)) for n in xrange(rangeStart,rangeEnd))
 
 dart_src = br"""
 
@@ -5468,7 +5471,7 @@ def setup_browser_extension():
   open(dirToUse+"/manifest.json","wb").write(br"""{
   "manifest_version": 2,
   "name": "%s",
-  "version": "0.0",
+  "version": "0.1",
   "background": { "scripts": ["background.js"] },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
   "browser_action":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
@@ -5476,7 +5479,7 @@ def setup_browser_extension():
   open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
   open(dirToUse+"/config.html","wb").write(extension_config)
   open(dirToUse+"/config.js","wb").write(extension_confjs)
-  open(dirToUse+"/ruby.css","wb").write(b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;}")
+  open(dirToUse+"/ruby.css","wb").write(b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important;}")
   global c_filename
   c_filename = dirToUse+"/background.js"
 
