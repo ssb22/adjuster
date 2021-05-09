@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.15 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.152 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -438,6 +438,7 @@ if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option req
 if browser_extension:
   javascript = True
   if sharp_multi and not annotation_names: errExit("--sharp-multi requires --annotation-names to be set if --browser-extension")
+  if zlib: errExit("--zlib not currently supported with --browser-extension") # would need to ensure it's decompressed after being read in from data.txt
 if android_template:
   android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
@@ -1513,11 +1514,13 @@ def jsAnnot(for_android=True,for_async=False):
                 ((n,c,cnv)=>{
                     var newNode=document.createElement('span');
                     newNode.className='_adjust0';
-                    newNode.oldOHTML=cnv;
+                    newNode.oldTxt=cnv;
                     chrome.runtime.sendMessage(cnv,((nv)=>{
                         if(nv!=cnv) {
-                            try {newNode.innerHTML=' '+nv+' '; var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) a[i].addEventListener('click',Function('alert(this.title)')) }
-                            catch(err) { console.log(err.message) }
+                            try {
+                                for(const t of new DOMParser().parseFromString('<span> '+nv+' </span>','text/html').body.firstChild.childNodes) newNode.appendChild(t.cloneNode(true));
+                                var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) ((e)=>{e.addEventListener('click',(()=>{alert(e.title)}))})(a[i])
+                            } catch(err) { console.log(err.message) }
                             n.replaceChild(newNode, c)
                         }
                     }))})(n,c,cnv)
@@ -1566,8 +1569,9 @@ def jsAnnot(for_android=True,for_async=False):
   annotWalk(document,document);
   new window.MutationObserver(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document)}}).observe(document.body,{childList:true,subtree:true});
 """
-  r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
-  assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot o/p'
+  if not for_async:
+    r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
+    assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot o/p'
   return r
 
 if windows_clipboard: c_end += br"""
@@ -3362,12 +3366,12 @@ Usage:
    - generate without --zlib to support older browsers.
 */"""
   else: js_start += b"*/"
+  js_start += b"\n\n"
 else: js_start = b"" # browser_extension
-js_start += br"""
-
-var Annotator={
-version: '"""+version_stamp+b"',\n"
-if glossfile: js_start += b"numLines: 2 /* override to 1 or 3 if you must, but not recommended for learning */,\n"
+js_start += b"var Annotator={\n"
+if not browser_extension:
+  js_start += b" version: '"+version_stamp+b"',\n"
+  if glossfile: js_start += b"numLines: 2 /* override to 1 or 3 if you must, but not recommended for learning */,\n"
 if sharp_multi: js_start += b"annotate: function(input,aType) { if(aType==undefined) aType=0;"
 else: js_start += b"annotate: function(input) {"
 if removeSpace: js_start += br" input=input.replace(/\B +\B/g,'');" # TODO: document that we do this (currently only in JS annotator here, and Android app via jsAnnot, although Web Adjuster does it separately in Python before calling the filter).  It deals with software that adds ASCII spaces between Chinese characters of the same word, without deleting spaces between embedded English words (TODO: this 'JS + app' version may still delete spaces between punctuation characters, which may be an issue for consecutive quoted words e.g. 'so-called "word1" "word2"').  If doing it at the nextbyte level, we'd have to update prevbyte; if this or doing it at switchbyte level (e.g. recurse) we'd have to do something about the copy pointer (skip the spaces?) and the near-call distance (and associated buffer sizes in C) so they're best pre-removed, but only from between characters we annotate.
@@ -3547,9 +3551,8 @@ return decodeURIComponent(escape(output.join("")))"""
 if js_6bit: js_start = js_start.replace(b"var numBytes = data.charCodeAt(dPtr++);",b"var numBytes = (data.charCodeAt(dPtr++)-"+B(str(js_6bit_offset-1))+b")&0xFF;")
 if sharp_multi: js_start += br""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
 js_start += br"""; // from UTF-8 back to Unicode
-}, // end of annotate method
-"""
-# data: ... \n goes here
+}"""
+if not browser_extension: b", // end of annotate method\n" # data: ... \n goes here
 js_end = br"""};
 function annotate(input"""
 if sharp_multi: js_end += b",aType"
@@ -3567,12 +3570,13 @@ var aType=localStorage.aType,numLines=localStorage.numLines;
 function handleMessage(request, sender, sendResponse) {
   if(typeof request=='number') {
     if(request<0) localStorage.numLines=numLines=-request; else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
-    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},(T)=>{for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldOHTML)c.outerHTML=c.oldOHTML; annotWalk(document,document)'})})
+    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},(T)=>{for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c); annotWalk(document,document)'})})
   } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // popup status query
   else sendResponse(numLines>1?annotate(request""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
   if sharp_multi: js_end += b",aType"
   if glossfile: js_end += b",numLines"
-  js_end += b"):request)} chrome.runtime.onMessage.addListener(handleMessage)"
+  js_end += br"""):request)}
+fetch(chrome.extension.getURL("data.txt")).then((r)=>{r.text().then((r)=>{Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
 elif not os.environ.get("JS_OMIT_DOM",""):
   js_end += br"""
 function annotate_page("""
@@ -5083,7 +5087,7 @@ def c_escapeRawBytes(s): # as it won't be valid outcode; don't want to crash any
 
 def js_escapeRawBytes(s):
   assert not zlib # js_utf8 etc not relevant if base64
-  if js_utf8: # typeof(s)==typeof(u"")
+  if js_utf8: # type(s)==type(u"")
     s = s.replace("\\",r"\\").replace('"',r'\"').replace(chr(8),r"\b").replace(chr(9),r"\t").replace(chr(10),r"\n").replace(chr(12),r"\f").replace(chr(13),r"\r")
     if ignore_ie8: s = s.replace(chr(11),r"\v")
     if js_octal: s = re.sub("[\x00-\x1f](?![0-9])",lambda m:r"\%o"%ord(m.group()),s)
@@ -5095,6 +5099,10 @@ def js_escapeRawBytes(s):
   if js_octal: s = re.sub(b"[\x00-\x1f](?![0-9])",lambda m:br"\%o"%ord(m.group()),s)
   else: s = re.sub(b'\x00'+br"(?![0-9])",br"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
   return re.sub(b"[\x00-\x1f\x7f-\xff]",lambda m:br"\x%02x"%ord(m.group()),s)
+
+def txt_escapeRawBytes(s): # for browser_extension
+  if js_utf8: return s.encode('utf-8')
+  else: return s.decode('latin1').encode('utf-8')
 
 def dart_escapeRawBytes(s):
   if js_utf8: return re.sub(b"[\x00-\x1f\"\\\\$\x7f]",lambda m:br"\u{%x}"%ord(m.group()),s.encode('utf-8'))
@@ -5355,6 +5363,7 @@ def outputParser(rulesAndConds):
       if zlib:
         import base64
         return outfile.write(re.sub(br"data\.charCodeAt\(([^)]*)\)",br"data[\1]",js_start).replace(b"indexOf(input.charAt",b"indexOf(input.charCodeAt")+b"data: "+js_inflate+b"(\""+base64.b64encode(ddrivn)+b"\","+B(str(origLen))+b")\n"+js_end+b"\n")
+      elif browser_extension: return outfile.write(txt_escapeRawBytes(ddrivn))
       else: return outfile.write(js_start+b"data: \""+js_escapeRawBytes(ddrivn)+b"\",\n"+js_end+b"\n") # not Uint8Array (even if browser compatibility is known): besides taking more source space, it's typically ~25% slower to load than string, even from RAM
     elif dart:
       if dart_datafile:
@@ -5476,12 +5485,13 @@ def setup_browser_extension():
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
   "browser_action":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
   "permissions": ["<all_urls>"]%s}""" % (B(browser_extension),icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
+  open(dirToUse+"/background.js","wb").write(js_start+js_end)
   open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
   open(dirToUse+"/config.html","wb").write(extension_config)
   open(dirToUse+"/config.js","wb").write(extension_confjs)
   open(dirToUse+"/ruby.css","wb").write(b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important;}")
   global c_filename
-  c_filename = dirToUse+"/background.js"
+  c_filename = dirToUse+"/data.txt"
 
 def write_glossMiss(glossMiss):
   if not glossmiss: return
