@@ -438,7 +438,7 @@ if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option req
 if browser_extension:
   javascript = True
   if sharp_multi and not annotation_names: errExit("--sharp-multi requires --annotation-names to be set if --browser-extension")
-  if zlib: errExit("--zlib not currently supported with --browser-extension") # would need to ensure it's decompressed after being read in from data.txt
+  if zlib: errExit("--zlib not currently supported with --browser-extension") # would need to ensure it's decompressed after being read in from annotate-dat.txt
 if android_template:
   android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
@@ -1452,7 +1452,7 @@ def jsAnnot(for_android=True,for_async=False):
   function annotScan() {"""+B(extra_js).replace(b'\\',br'\\').replace(b'"',br'\"')+jsAddRubyCss+b"};"
   
   r += br"""
-  function annotWalk(n,document"""
+function annotWalk(n,document"""
   if for_android: r += b",inLink,inRuby"
   r += br""") {
     /* Our main DOM-walking code */
@@ -1566,8 +1566,8 @@ def jsAnnot(for_android=True,for_async=False):
     r += b"}" # if nf
   r += b"}" # function annotWalk
   if for_async: r += br"""
-  annotWalk(document,document);
-  new window.MutationObserver(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document)}}).observe(document.body,{childList:true,subtree:true});
+annotWalk(document,document);
+new window.MutationObserver(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document)}}).observe(document.body,{childList:true,subtree:true});
 """
   if not for_async:
     r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
@@ -3576,7 +3576,7 @@ function handleMessage(request, sender, sendResponse) {
   if sharp_multi: js_end += b",aType"
   if glossfile: js_end += b",numLines"
   js_end += br"""):request)}
-fetch(chrome.extension.getURL("data.txt")).then((r)=>{r.text().then((r)=>{Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
+fetch(chrome.extension.getURL("annotate-dat.txt")).then((r)=>{r.text().then((r)=>{Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
 elif not os.environ.get("JS_OMIT_DOM",""):
   js_end += br"""
 function annotate_page("""
@@ -5491,7 +5491,7 @@ def setup_browser_extension():
   open(dirToUse+"/config.js","wb").write(extension_confjs)
   open(dirToUse+"/ruby.css","wb").write(b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important;}")
   global c_filename
-  c_filename = dirToUse+"/data.txt"
+  c_filename = dirToUse+"/annotate-dat.txt"
 
 def write_glossMiss(glossMiss):
   if not glossmiss: return
