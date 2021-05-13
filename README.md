@@ -51,7 +51,7 @@ Annotator Generator is an examples-driven generator of fast text annotators. “
 
 * If you have no backup annotator then try setting the `-y` option, which makes Annotator Generator try harder to find context-independent rules with context-dependent exceptions, so as to annotate as much text as possible.
 
-* Generated annotators can act as filters for Web Adjuster; options are also provided for generating client-side annotators for Android, clipboard annotators for Windows and Windows Mobile, or you could format the annotations on a Unix terminal
+* Generated annotators can act as filters for Web Adjuster; options are also provided for generating Android apps, browser extensions, and clipboard annotators for Windows and Windows Mobile, or you could format the annotations on a Unix terminal
 
 Legal considerations
 --------------------
