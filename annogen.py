@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.152 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.153 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5477,14 +5477,20 @@ def setup_browser_extension():
     if any(os.path.isfile(dirToUse+os.sep+s+".png") for s in sizes):
       return b',"'+B(key)+'":{'+b",".join(('"%s":"%s.png"' % (s,s)) for s in sizes if os.path.isfile(dirToUse+os.sep+s+".png"))+b"}"
     else: return b""
+  try: # increment existing version if present
+    versionName = re.search(b'"version": *"([^"]*)"',open(dirToUse+"/manifest.json","rb").read()).group(1)
+    versionName = versionName.split(b'.')
+    versionName[-1] = B(str(int(versionName[-1])+1))
+    versionName = b'.'.join(versionName)
+  except: versionName = b"0.1"
   open(dirToUse+"/manifest.json","wb").write(br"""{
   "manifest_version": 2,
   "name": "%s",
-  "version": "0.1",
+  "version": "%s",
   "background": { "scripts": ["background.js"] },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
   "browser_action":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
-  "permissions": ["<all_urls>"]%s}""" % (B(browser_extension),icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
+  "permissions": ["<all_urls>"]%s}""" % (B(browser_extension),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
   open(dirToUse+"/background.js","wb").write(js_start+js_end)
   open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
   open(dirToUse+"/config.html","wb").write(extension_config)
