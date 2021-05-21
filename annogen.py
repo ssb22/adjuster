@@ -451,7 +451,7 @@ if android_audio:
     android_audio,android_audio_maxWords = android_audio.split()
     android_audio_maxWords = int(android_audio_maxWords)
   else: android_audio_maxWords=None
-if (extra_js or extra_css or existing_ruby_js_fixes) and not android: errExit("--extra-js, --extra-css and --existing-ruby-js-fixes requires --android")
+if (extra_js or extra_css or existing_ruby_js_fixes) and not android: errExit("--extra-js, --extra-css and --existing-ruby-js-fixes requires --android") # browser-extension: delete_existing_ruby could do (may help with context), but adding existing_ruby_js_fixes as well would require aType to be known by content.js (cn do via handleMessage) + oldTxt no longer sufficient for restoring page for reannot (ouch)
 if delete_existing_ruby and not (android or javascript): errExit("--delete-existing-ruby requires --android or --javascript")
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
@@ -1419,7 +1419,7 @@ def jsAnnot(for_android=True,for_async=False):
   # Android or browser JS-based DOM annotator.  Return value becomes the js_common string in the Android Java: must be escaped as if in single-quoted Java string.
   # for_android True: provides AnnotIfLenChanged, annotScan, all_frames_docs etc
   # for_android False: just provides annotWalk, assumed to be called as-needed by user JS (doesn't install timers etc) and calls JS annotator instead of Java one
-  # for_async (browser_extension): provides MutationObserver (assumed capable browser if running the extension)
+  # for_async (browser_extension): provides MutationObserver (assumed capable browser if running the extension).  TODO: ask background.js if we are Off b4 doing annotWalk and observer?  (but then if turn on, will need to install mutation observer if not already installed.  so need to track it's been installed on the tab / doc / somewhere.)
   assert not (for_android and for_async), "options are mutually exclusive"
   if sharp_multi:
     if for_android: annotNo = b"ssb_local_annotator.getAnnotNo()"
