@@ -3122,9 +3122,9 @@ class BytecodeAssembler:
       if js_utf8:
         string = unicodedata.normalize("NFC",string.decode('utf-8')) # NFC very important for browser_extension: some browsers seem to do it anyway, throwing off data addresses if we haven't accounted for that
         l = len(string) # we count in UCS-2 characters
-        assert all((ord(c) <= 0xFFFF) for c in string), "js_utf8 addressing will be confused by non UCS-2: "+repr(string) # TODO: put surrogate pairs? (and increase l by num pairs; ensure Python will emit separate UTF-8 sequences for each part of the surrogate, if needed by JS; might need to escape the pairs after all addresses computed)
-        assert not(any(unicodedata.combining(c) for c in string)), "js_utf8 addressing may be confused by combining characters: "+repr(string)
-        if 1 <= l < 0x02B0: # avoid combining and modifier marks just in case; also avoid 0xD800+ surrogates
+        assert all((ord(c) <= 0xFFFF) for c in string), "js_utf8 addressing will be confused by non UCS-2: "+repr(string) # TODO: put surrogate pairs? (and increase l by num pairs; ensure Python will emit separate UTF-8 sequences for each part of the surrogate, if needed by JS; might need to escape the pairs after all addresses computed) + what if we're in dart ?
+        # Have checked browsers + Node count combining characters separately, so len(string) should be correct (e.g. u'Moc\u0306nik')
+        if 1 <= l < 0x02B0: # can use length-first unichr (avoid combining and modifier marks just in case; also avoid 0xD800+ surrogates)
           string = unichr(l) + string
         else: string = unichr(0)+string+unichr(0)
       elif js_6bit:
