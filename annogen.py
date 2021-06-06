@@ -1476,7 +1476,7 @@ function annotWalk(n,document"""
     function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^\\s*$/)};
     c=n.firstChild; while(c) {
       var ps = c.previousSibling, cNext = c.nextSibling;
-      if (c.nodeType==1) { if((c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\\s*$/))))) && isTxt(cNext) && isTxt(ps)) {
+      if (c.nodeType==1) { if((c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\\s*$/))))) && isTxt(cNext) && isTxt(ps) /* e.g. <span id="page8" class="pageNum">&#160;</span> in mid-word; rm ONLY if non-whitespace text immediately before/after: beware of messing up JS applications */ ) {
         n.removeChild(c);
         cNext.previousSibling.nodeValue+=cNext.nodeValue;
         n.removeChild(cNext); cNext=ps}
