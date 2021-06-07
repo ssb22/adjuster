@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.153 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.154 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -4165,7 +4165,7 @@ def normalise():
       # normalise trailing hyphens e.g. from OCR'd scans:
       cu0 = corpus_unistr ; ff = 0
       for hTry in [1,2]:
-        for w in allWords:
+        for w in allWords.keys():
           if '-'+aoEnd in w:
             idx = w.index('-'+aoEnd)
             if w[:idx].endswith(aoStart) or w[:idx].endswith("-"): continue # ignore this one (a mess of some kind)
@@ -4208,8 +4208,12 @@ def normalise():
       if not capitalisation:
         wl = w.lower() # (as long as it's all Unicode strings, .lower() and .upper() work with accents etc)
         if not w==wl and wl in allWords:
-            # This word is NOT always capitalised, just
-            # sometimes at the start of a sentence.
+            # This word is NOT always capitalised.
+            # Could be 'caps if at start of sentence'
+            # (or title-case etc), but might also be
+            # a corpus error, so check numbers.
+            if allWords[wl]*5 < allWords[w] and allWords[wl] <= yarowsky_debug: # not really "Yarowsky" here in the normaliser, but similar principle
+              yarowsky_debug_write(wl,(u"%s (%d instances) is normally %s (%d instances) but normalising to lower-case due to the %d instances" % (wl,allWords[wl],w,allWords[w],allWords[wl])))
             # To simplify rules, make it always lower.
             w = wl
             if hTry: hTry.add(w.replace('-',''))
@@ -4249,7 +4253,7 @@ def normalise():
           # TODO: is there ANY time where we want multiword to take priority over the nowsp (no-whitespace) version above?  or even REPLACE multiword occurrences in the corpus with the 1-word nowsp version?? (must be VERY CAREFUL doing that)
       # TODO: anything else?
       return w,hTry
-    for w in allWords:
+    for w in allWords.keys():
       w2,hTry = normWord(w)
       if hTry:
         hTry.add(w2.replace('-','')) # in case not already there
@@ -4265,9 +4269,9 @@ def normalise():
     capitalisation = old_caps
     checkpoint_exit()
 def getAllWords():
-  allWords = set()
+  allWords = {}
   for phrase in splitWords(corpus_unistr,phrases=True):
-    allWords.update(splitWords(phrase))
+    for w in splitWords(phrase): allWords[w]=allWords.setdefault(w,0)+1
   return allWords # do NOT cache (is called either side of the normaliser)
 def orRegexes(escaped_keys):
   escaped_keys = list(escaped_keys) # don't just iterate
@@ -4468,20 +4472,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     may_take_time = canBackground and len(okStarts) > 1000
     if may_take_time:
       getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),cond(run_in_background,"backgrounding","could take some time"))).encode(terminal_charset,'replace'))
-      if len(badStarts) <= yarowsky_debug:
-       global yarowsky_debug_ok,yarowsky_debug_file
-       try: yarowsky_debug_ok
-       except:
-        try: yarowsky_debug_ok=set(splitWords(openfile("allow-exceptions.txt").read().decode(terminal_charset)))
-        except IOError: yarowsky_debug_ok=set()
-       if withAnnot_unistr not in yarowsky_debug_ok:
-        try: yarowsky_debug_file
-        except:
-          yarowsky_debug_file = openfile('yarowsky-debug.txt','w')
-          getBuf(sys.stderr).write(bold_on+"yarowsky-debug: writing copy to yarowsky-debug.txt"+bold_off+"\n")
-          yarowsky_debug_file.write("Put any of the following first-of-line words into allow-exceptions.txt to avoid being alerted here next time.\n\n")
-        yarowsky_debug_file.write((u"%s has %d matches + %s\n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))).encode(terminal_charset,'replace'))
-        yarowsky_debug_file.flush() # in case interrupted
+      if len(badStarts) <= yarowsky_debug: yarowsky_debug_write(withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
     if run_in_background:
       job = executor.submit(yarowsky_indicators_wrapped,withAnnot_unistr) # recalculate the above on the other CPU in preference to passing, as memory might not be shared
       yield "backgrounded" ; yield job.result() ; return
@@ -4510,6 +4501,20 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     else:
       if not distance: distance = ybytes_max
       yield negate,ret,distance
+def yarowsky_debug_write(withAnnot_unistr,msg_unistr):
+  global yarowsky_debug_ok,yarowsky_debug_file
+  try: yarowsky_debug_ok
+  except:
+    try: yarowsky_debug_ok=set(splitWords(openfile("allow-exceptions.txt").read().decode(terminal_charset)))
+    except IOError: yarowsky_debug_ok=set()
+  if withAnnot_unistr not in yarowsky_debug_ok:
+    try: yarowsky_debug_file
+    except:
+      yarowsky_debug_file = openfile('yarowsky-debug.txt','w')
+      getBuf(sys.stderr).write(bold_on+"yarowsky-debug: writing copy to yarowsky-debug.txt"+bold_off+"\n")
+      yarowsky_debug_file.write("Put any of the following first-of-line words into allow-exceptions.txt to avoid being alerted here next time.\n\n")
+    yarowsky_debug_file.write((msg_unistr+u"\n").encode(terminal_charset,'replace'))
+    yarowsky_debug_file.flush() # in case interrupted
 def yarowsky_indicators_wrapped(withAnnot_unistr):
     check_globals_are_set_up()
     return getNext(yarowsky_indicators(withAnnot_unistr,False))
