@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.154 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.155 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -354,6 +354,8 @@ parser.add_option("-K","--yarowsky-all",
 cancelOpt("yarowsky-all")
 parser.add_option("--yarowsky-debug",default=1,
                   help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
+parser.add_option("--normalise-debug",default=1,
+                  help="When --capitalisation is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default %default) for investigation of possible typos in the corpus")
 
 parser.add_option("-1","--single-words",
                   action="store_true",default=False,
@@ -422,6 +424,8 @@ if ybytes_max: ybytes_max=int(ybytes_max)
 else: ybytes_max = ybytes
 if yarowsky_debug: yarowsky_debug=int(yarowsky_debug)
 else: yarowsky_debug = 0
+if normalise_debug: normalise_debug=int(normalise_debug)
+else: normalise_debug = 0
 ybytes_step = int(ybytes_step)
 maxrefs = int(maxrefs)
 ymax_threshold = int(ymax_threshold)
@@ -4212,8 +4216,8 @@ def normalise():
             # Could be 'caps if at start of sentence'
             # (or title-case etc), but might also be
             # a corpus error, so check numbers.
-            if allWords[wl]*5 < allWords[w] and allWords[wl] <= yarowsky_debug: # not really "Yarowsky" here in the normaliser, but similar principle
-              yarowsky_debug_write(wl,(u"%s (%d instances) is normally %s (%d instances) but normalising to lower-case due to the %d instances" % (wl,allWords[wl],w,allWords[w],allWords[wl])))
+            if allWords[wl]*5 < allWords[w] and allWords[wl] <= normalise_debug: # not really "Yarowsky" here in the normaliser, but similar principle
+              typo_report("normalise-debug.txt","allow-caps-exceptions.txt",wl,(u"%s (%d instances) overrides %s (%d instances)" % (wl,allWords[wl],w,allWords[w])))
             # To simplify rules, make it always lower.
             w = wl
             if hTry: hTry.add(w.replace('-',''))
@@ -4472,7 +4476,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     may_take_time = canBackground and len(okStarts) > 1000
     if may_take_time:
       getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),cond(run_in_background,"backgrounding","could take some time"))).encode(terminal_charset,'replace'))
-      if len(badStarts) <= yarowsky_debug: yarowsky_debug_write(withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
+      if len(badStarts) <= yarowsky_debug: typo_report("yarowsky-debug.txt","allow-exceptions.txt",withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
     if run_in_background:
       job = executor.submit(yarowsky_indicators_wrapped,withAnnot_unistr) # recalculate the above on the other CPU in preference to passing, as memory might not be shared
       yield "backgrounded" ; yield job.result() ; return
@@ -4501,20 +4505,18 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     else:
       if not distance: distance = ybytes_max
       yield negate,ret,distance
-def yarowsky_debug_write(withAnnot_unistr,msg_unistr):
-  global yarowsky_debug_ok,yarowsky_debug_file
-  try: yarowsky_debug_ok
-  except:
-    try: yarowsky_debug_ok=set(splitWords(openfile("allow-exceptions.txt").read().decode(terminal_charset)))
-    except IOError: yarowsky_debug_ok=set()
-  if withAnnot_unistr not in yarowsky_debug_ok:
-    try: yarowsky_debug_file
-    except:
-      yarowsky_debug_file = openfile('yarowsky-debug.txt','w')
-      getBuf(sys.stderr).write(bold_on+"yarowsky-debug: writing copy to yarowsky-debug.txt"+bold_off+"\n")
-      yarowsky_debug_file.write("Put any of the following first-of-line words into allow-exceptions.txt to avoid being alerted here next time.\n\n")
-    yarowsky_debug_file.write((msg_unistr+u"\n").encode(terminal_charset,'replace'))
-    yarowsky_debug_file.flush() # in case interrupted
+typo_data = {}
+def typo_report(debugFile,exceptionFile,withAnnot_unistr,msg_unistr):
+  if not exceptionFile in typo_data:
+    try: typo_data[exceptionFile]=set(splitWords(openfile(exceptionFile).read().decode(terminal_charset)))
+    except IOError: typo_data[exceptionFile]=set()
+  if withAnnot_unistr not in typo_data[exceptionFile]:
+    if not debugFile in typo_data:
+      typo_data[debugFile] = openfile(debugFile,'w')
+      getBuf(sys.stderr).write(bold_on+"Writing to "+debugFile+bold_off+"\n")
+      typo_data[debugFile].write("Put any of the following first-of-line words into allow-exceptions.txt to avoid being alerted here next time.\n\n")
+    typo_data[debugFile].write((msg_unistr+u"\n").encode(terminal_charset,'replace'))
+    typo_data[debugFile].flush() # in case interrupted
 def yarowsky_indicators_wrapped(withAnnot_unistr):
     check_globals_are_set_up()
     return getNext(yarowsky_indicators(withAnnot_unistr,False))

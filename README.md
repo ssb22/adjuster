@@ -635,7 +635,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.154
+Options for Annotator Generator v3.155
 ===========================
 
 Usage: annogen.py [options]
@@ -1046,6 +1046,10 @@ Options:
 `--yarowsky-debug=YAROWSKY_DEBUG
 `
  : Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default 1). Occasionally these might be due to typos in the corpus, so it might be worth a check.
+
+`--normalise-debug=NORMALISE_DEBUG
+`
+ : When `--capitalisation` is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default 1) for investigation of possible typos in the corpus
 
 `-1, --single-words`
  : Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.
