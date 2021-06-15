@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.155 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.156 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1521,7 +1521,7 @@ function annotWalk(n,document"""
                     newNode.className='_adjust0';
                     newNode.oldTxt=cnv;
                     chrome.runtime.sendMessage(cnv,((nv)=>{
-                        if(nv!=cnv) {
+                        if(nv && nv!=cnv) {
                             try {
                                 for(const t of new DOMParser().parseFromString('<span> '+nv+' </span>','text/html').body.firstChild.childNodes) newNode.appendChild(t.cloneNode(true));
                                 var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) ((e)=>{e.addEventListener('click',(()=>{alert(e.title)}))})(a[i])
