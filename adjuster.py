@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.147 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.1471 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -2780,6 +2780,7 @@ def wd_instantiateLoop(wdClass,index,renewing,**kw):
     return p
 def _get_new_PhantomJS(index,renewing):
     log_complaints = (index==0 and not renewing)
+    os.environ["QT_QPA_PLATFORM"]="offscreen"
     sa = ['--ssl-protocol=any']
     # if options.logDebug: sa.append("--debug=true") # doesn't work: we don't see the debug output on stdout or stderr
     if options.js_reproxy:
@@ -4019,11 +4020,12 @@ document.forms[0].i.focus()
                   headers=self.request.headers, body=B(body),
                   validate_cert=False,
                   callback=lambda prefetched_response:
+                    (debuglog("Calling webdriver_fetch from prefetch callback: "+self.urlToFetch),
                     webdriver_fetch(self.urlToFetch,
                                     prefetched_response,ua,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
-                        lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,js=True),tooLate),
+                        lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,js=True),tooLate)),
                   follow_redirects=False)
               def prefetch_when_ready(t0):
                 if len(webdriver_queue) < 2*options.js_instances: return prefetch()
