@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.1471 (c) 2012-21 Silas S. Brown"
+program_name = "Web Adjuster v3.148 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -946,6 +946,17 @@ def preprocessOptions():
       try: from selenium import webdriver
       except: errExit("js_interpreter requires selenium")
       if not options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox","Chrome","Firefox"]: errExit("js_interpreter (if set) must be PhantomJS, HeadlessChrome, HeadlessFirefox, Chrome or Firefox")
+      if "x" in options.js_size:
+        w,h = options.js_size.split("x",1)
+      else: w,h = options.js_size,768
+      try: w,h = int(w),int(h)
+      except: w,h = 0,0
+      if not (w and h) and options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox"]:
+        warn("Unrecognised size '%s', using 1024x768\n" % options.js_size)
+        w,h = 1024,768
+      global js_size
+      if w and h: js_size = (w,h)
+      else: js_size = None # for non-headless and not specified
       if not multiprocessing: options.js_multiprocess = False
       if options.js_429 and options.multicore and not multiprocessing: errExit("js_429 with multicore requires the multiprocessing module to be available (Python 2.6+)")
     elif options.js_upstream: errExit("js_upstream requires a js_interpreter to be set")
@@ -2351,7 +2362,11 @@ class WebdriverWrapper:
             return src
         return B(f([]))
     def getpng(self):
+        if options.js_interpreter=="HeadlessChrome": # resize not needed for PhantomJS (but PhantomJS is worse at font configuration and is no longer maintained)
+            self.theWebDriver.set_window_size(js_size[0],min(16000,int(self.theWebDriver.execute_script("return document.body.parentNode.scrollHeight")))) # TODO: check the 16000: what is Selenium's limit? (confirmed over 8000)
+            time.sleep(1)
         png = self.theWebDriver.get_screenshot_as_png()
+        if options.js_interpreter=="HeadlessChrome": self.theWebDriver.set_window_size(*js_size)
         try: # can we optimise the screenshot image size?
             from PIL import Image
             s = BytesIO() ; Image.open(StringIO(png)).save(s,'png',optimize=True)
@@ -2680,15 +2695,7 @@ def get_new_Chrome(index,renewing,headless):
         # have an upstream proxy to do so?  unless you want
         # to implement a Chrome extension to do it (TODO?)
         warn("--via ignored when running Chrome without --js-reproxy")
-    if "x" in options.js_size:
-        w,h = options.js_size.split("x",1)
-    else: w,h = options.js_size,768
-    try: w,h = int(w),int(h)
-    except: w,h = 0,0
-    if headless and not (w and h):
-        if log_complaints: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.js_size)
-        w,h = 1024,768
-    if w and h: opts.add_argument("--window-size=%d,%d" % (w,h))
+    if js_size: opts.add_argument("--window-size=%d,%d" % js_size)
     if dc: p = wd_instantiateLoop(webdriver.Chrome,index,renewing,chrome_options=opts,desired_capabilities=dc)
     else: p = wd_instantiateLoop(webdriver.Chrome,index,renewing,chrome_options=opts)
     if options.js_reproxy:
@@ -2732,8 +2739,7 @@ def get_new_Firefox(index,renewing,headless):
     else: binary=FirefoxBinary()
     if headless: cmdL = ('-headless','-no-remote')
     else: cmdL = ('-no-remote',)
-    if "x" in options.js_size: cmdL += ("-width",options.js_size.split("x")[0],"-height",options.js_size.split("x")[1])
-    elif options.js_size: cmdL += ("-width",options.js_size)
+    if js_size: cmdL += ("-width",str(js_size[0]),"-height",str(js_size[1]))
     cmdL += ("about:blank",) # not Firefox start page
     binary.add_command_line_options(*cmdL) # cannot call this more than once
     if caps: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps)
@@ -2807,15 +2813,7 @@ def get_new_PhantomJS(index,renewing=False):
      try: is_v2 = wd.capabilities['version'].startswith("2.")
      except: is_v2 = False
      if is_v2: warn("You may be affected by PhantomJS issue #13114.\nRelative links may be wrong after a redirect if the site sets Content-Security-Policy.\nTry --js_reproxy, or downgrade your PhantomJS to version 1.9.8")
-    if "x" in options.js_size:
-        w,h = options.js_size.split("x",1)
-    else: w,h = options.js_size,768
-    try: w,h = int(w),int(h)
-    except: w,h = 0,0
-    if not (w and h):
-        if log_complaints: sys.stderr.write("Unrecognised size '%s', using 1024x768\n" % options.js_size)
-        w,h = 1024,768
-    try: wd.set_window_size(w, h)
+    try: wd.set_window_size(*js_size)
     except: logging.info("Couldn't set PhantomJS window size")
     try: wd.set_page_load_timeout(options.js_timeout1)
     except: logging.info("Couldn't set PhantomJS page load timeout")
