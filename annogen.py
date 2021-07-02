@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.156 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.157 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3577,10 +3577,12 @@ function handleMessage(request, sender, sendResponse) {
     if(request<0) localStorage.numLines=numLines=-request; else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
     (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},(T)=>{for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c); annotWalk(document,document)'})})
   } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // popup status query
-  else sendResponse(numLines>1?annotate(request""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
+  else { if(typeof request=='undefined') request=getClip();
+  sendResponse(numLines>1?annotate(request""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
   if sharp_multi: js_end += b",aType"
   if glossfile: js_end += b",numLines"
-  js_end += br"""):request)}
+  js_end += br"""):request)} }
+theClip=document.createElement("textarea"); document.body.appendChild(theClip); theClip.focus(); function getClip(){theClip.value='';document.execCommand("Paste");return theClip.value}
 fetch(chrome.extension.getURL("annotate-dat.txt")).then((r)=>{r.text().then((r)=>{Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
 elif not os.environ.get("JS_OMIT_DOM",""):
   js_end += br"""
@@ -3628,7 +3630,11 @@ function inflate(e,r){var t,n,E={iR:function(e,r){return E.F.inflate(e,r)},infla
 return inflate(dat,buf) })
 """
 
-extension_config=br"""<html><head><meta charset="utf-8"></head><body>
+extension_rubycss = b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important;}"
+extension_config=br"""<html><head><meta charset="utf-8">
+<style>#cr{width:100%;border:thin dotted grey;max-width:15em;max-height:10em;overflow:auto} #cr:empty{padding:0.5ex}
+"""+extension_rubycss.replace(b"span._adjust0 ",b"")+br"""</style>
+</head><body>
 <nobr><button id="-1">Off</button> <button id="-2">2-line</button>"""
 # -ve = num lines (if glossfile), +ve = annotNo (if sharp-multi)
 if glossfile:
@@ -3642,13 +3648,26 @@ if sharp_multi and annotation_names and ',' in annotation_names:
   extension_config += b"".join((b'<br><button id="%d">%s</button>' % (num,B(name))) for num,name in enumerate(annotation_names.split(',')))
   rangeEnd = len(annotation_names.split(','))
 else: rangeEnd = 0
-extension_config += b'<script src="config.js"></script></body></html>'
-extension_confjs = br"""function update() {
+extension_config += b'<div id="cr"></div><button id="c">Clipboard</button><script src="config.js"></script></body></html>'
+extension_confjs = br"""function updateClip() {
+    chrome.runtime.sendMessage(undefined,((cr)=>{
+        var v=document.getElementById("cr");
+        v.textContent = ''; // clear
+        if(cr) {
+            try {
+                for(const t of new DOMParser().parseFromString('<span> '+cr+' </span>','text/html').body.firstChild.childNodes) v.appendChild(t.cloneNode(true));
+                var a=v.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) ((e)=>{e.addEventListener('click',(()=>{alert(e.title)}))})(a[i])
+            } catch(err) { console.log(err.message) }
+        }
+    }))}
+function update() {
 chrome.runtime.sendMessage(false,function(r) {var i;for(i=%d;i;i++){var e=document.getElementById(""+i);if(i==-r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeStart
 if rangeEnd: extension_confjs += br""";
 chrome.runtime.sendMessage(true,function(r) {for(var i=0;i<%d;i++){var e=document.getElementById(""+i);if(i==r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeEnd
+extension_confjs += b';\nif(document.getElementById("cr").firstChild) updateClip()\n'
 extension_confjs += b"} update();\n"
 extension_confjs += b';'.join((b'document.getElementById("%d").addEventListener("click",function(){chrome.runtime.sendMessage(%d,update)})' % (n,n)) for n in xrange(rangeStart,rangeEnd))
+extension_confjs += b';document.getElementById("c").addEventListener("click",updateClip)'
 
 dart_src = br"""
 
@@ -5498,12 +5517,12 @@ def setup_browser_extension():
   "background": { "scripts": ["background.js"] },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
   "browser_action":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
-  "permissions": ["<all_urls>"]%s}""" % (B(browser_extension),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
+  "permissions": ["<all_urls>","clipboardRead"]%s}""" % (B(browser_extension),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
   open(dirToUse+"/background.js","wb").write(js_start+js_end)
   open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
   open(dirToUse+"/config.html","wb").write(extension_config)
   open(dirToUse+"/config.js","wb").write(extension_confjs)
-  open(dirToUse+"/ruby.css","wb").write(b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important;}")
+  open(dirToUse+"/ruby.css","wb").write(extension_rubycss)
   global c_filename
   c_filename = dirToUse+"/annotate-dat.txt"
 
