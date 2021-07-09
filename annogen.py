@@ -3649,6 +3649,7 @@ if sharp_multi and annotation_names and ',' in annotation_names:
   rangeEnd = len(annotation_names.split(','))
 else: rangeEnd = 0
 extension_config += b'<div id="cr"></div><button id="c">Clipboard</button><script src="config.js"></script></body></html>'
+# Don't want Clipboard button to auto-refresh (and hide the button) in the desktop extension version, since would need to stop the refresh when view is no longer visible + is it really a good idea to timer-paste the clipboard on a desktop when conversion to text could be costly etc + many desktops would dismiss the extension box before letting you switch to another window to change the clipboard (unless it's in a VM)
 extension_confjs = br"""function updateClip() {
     chrome.runtime.sendMessage(undefined,((cr)=>{
         var v=document.getElementById("cr");
