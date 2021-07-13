@@ -394,6 +394,17 @@ define("stop",default=False,help="(Unix only) Like 'restart', but don't replace 
 # "stop" overrides "restart", so if "restart" is set in a configuration file then you can still use "stop" on the command line
 define("install",default=False,help="Try to install the program in the current user's Unix crontab as an @reboot entry, unless it's already there.  The arguments of the cron entry will be the same as the command line, with no directory changes, so make sure you are in the home directory before doing this.  The program will continue to run normally after the installation attempt.  (If you are on Cygwin then you might need to run cron-config also.)")
 define("pidfile",default="",help="Write our process ID to this file when running in the background, so you can set up a systemd service with Type=forking and PIDFile=this instead of using crontab. (Alternatively use 'pip install sdnotify' and run in the foreground with Type=notify.)")
+# [Unit]
+# Description=Web Adjuster
+# [Install]
+# Alias=adjuster.service  # ensure it's unique
+# [Service]
+# Type=notify  # or Type=forking if we have no sdnotify module
+# ExecStart=/usr/bin/python adjuster.py --config=etc
+# PIDFile=/path/to/pidfile (if Type=forking)
+# WorkingDirectory= and User= need to be set
+# can also set Environment=LD_PRELOAD=... if needed
+# then do: sudo systemctl enable --now /path/to/adjuster.service
 define("watchdog",default=0,help="(Linux only) Ping the system's watchdog every this number of seconds, so the watchdog can reboot the system if for any reason Web Adjuster stops functioning. The default value of 0 means do not ping the watchdog. If your machine's unattended boot is no longer reliable, beware of unnecessary reboot if you remotely stop the adjuster and are unable to restart it.")
 # watchdog beware: e.g. some old Raspberry Pis no longer boot 100% of the time and have watchdogs that cannot be cleanly closed with 'V'
 define("watchdogWait",default=0,help="When the watchdog option is set, wait this number of seconds before stopping the watchdog pings. This causes the watchdog pings to be sent from a separate thread and therefore not stopped when the main thread is busy; they are stopped only when the main thread has not responded for watchdogWait seconds. This can be used to work around the limitations of a hardware watchdog that cannot be set to wait that long.")
