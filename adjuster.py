@@ -34,7 +34,7 @@ program_name = "Web Adjuster v3.148 (c) 2012-21 Silas S. Brown"
 # and on GitLab at https://gitlab.com/ssb22/adjuster
 # and on BitBucket https://bitbucket.org/ssb22/adjuster
 # and at https://gitlab.developers.cam.ac.uk/ssb22/adjuster
-# and in China at https://gitee.com/ssb22/adjuster
+# and in China: https://gitee.com/ssb22/adjuster
 # although some early ones are missing.
 
 import sys,os,re
