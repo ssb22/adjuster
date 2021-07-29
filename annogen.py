@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.158 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.159 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3581,12 +3581,12 @@ function handleMessage(request, sender, sendResponse) {
     if(request<0) localStorage.numLines=numLines=-request; else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
     (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},(T)=>{for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c); annotWalk(document,document)'})})
   } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // popup status query
-  else { if(typeof request=='undefined') request=getClip();
+  else { if(request==null) request=getClip();
   sendResponse(numLines>1?annotate(request""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
   if sharp_multi: js_end += b",aType"
   if glossfile: js_end += b",numLines"
   js_end += br"""):request)} }
-theClip=document.createElement("textarea"); document.body.appendChild(theClip); theClip.focus(); function getClip(){theClip.value='';document.execCommand("Paste");return theClip.value}
+function getClip(){var area=document.createElement("textarea"); document.body.appendChild(area); area.focus();area.value='';document.execCommand("Paste");var txt=area.value; document.body.removeChild(area); return txt?txt:"Failed to read clipboard"}
 fetch(chrome.extension.getURL("annotate-dat.txt")).then((r)=>{r.text().then((r)=>{Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
 elif not os.environ.get("JS_OMIT_DOM",""):
   js_end += br"""
@@ -3637,6 +3637,7 @@ return inflate(dat,buf) })
 extension_rubycss = b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important;}"
 extension_config=br"""<html><head><meta charset="utf-8">
 <style>#cr{width:100%;border:thin dotted grey;max-width:15em;max-height:10em;overflow:auto} #cr:empty{padding:0.5ex}
+button{background:#ededed;color:inherit}
 """+extension_rubycss.replace(b"span._adjust0 ",b"")+br"""</style>
 </head><body>
 <nobr><button id="-1">Off</button> <button id="-2">2-line</button>"""
@@ -3655,7 +3656,7 @@ else: rangeEnd = 0
 extension_config += b'<div id="cr"></div><button id="c">Clipboard</button><script src="config.js"></script></body></html>'
 # Don't want Clipboard button to auto-refresh (and hide the button) in the desktop extension version, since would need to stop the refresh when view is no longer visible + is it really a good idea to timer-paste the clipboard on a desktop when conversion to text could be costly etc + many desktops would dismiss the extension box before letting you switch to another window to change the clipboard (unless it's in a VM)
 extension_confjs = br"""function updateClip() {
-    chrome.runtime.sendMessage(undefined,((cr)=>{
+    chrome.runtime.sendMessage(null,((cr)=>{
         var v=document.getElementById("cr");
         v.textContent = ''; // clear
         if(cr) {
