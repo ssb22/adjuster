@@ -635,7 +635,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.159
+Options for Annotator Generator v3.16
 ===========================
 
 Usage: annogen.py [options]
@@ -910,7 +910,7 @@ Options:
 
 `--delete-existing-ruby
 `
- : Set the Android browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply `--existing-ruby-js-fixes` and/or `--existing-ruby-shortcut-yarowsky`, then `--delete-existing-ruby` specifies that only the first `--sharp-multi` option should have existing ruby preserved.
+ : Set the Android app or browser extension to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply `--existing-ruby-js-fixes` and/or `--existing-ruby-shortcut-yarowsky`, then `--delete-existing-ruby` specifies that only the first `--sharp-multi` option should have existing ruby preserved.
 
 `--existing-ruby-shortcut-yarowsky
 `

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.159 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.16 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -251,7 +251,7 @@ parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).")
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
-parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android browser app to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply --existing-ruby-js-fixes and/or --existing-ruby-shortcut-yarowsky, then --delete-existing-ruby specifies that only the first --sharp-multi option should have existing ruby preserved.")
+parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android app or browser extension to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply --existing-ruby-js-fixes and/or --existing-ruby-shortcut-yarowsky, then --delete-existing-ruby specifies that only the first --sharp-multi option should have existing ruby preserved.")
 parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
 parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android browser app. You may also specify a file to read --extra-css=@file.css")
 parser.add_option("--app-name",default="Annotating browser",
@@ -456,8 +456,8 @@ if android_audio:
     android_audio,android_audio_maxWords = android_audio.split()
     android_audio_maxWords = int(android_audio_maxWords)
   else: android_audio_maxWords=None
-if (extra_js or extra_css or existing_ruby_js_fixes) and not android: errExit("--extra-js, --extra-css and --existing-ruby-js-fixes requires --android") # browser-extension: delete_existing_ruby could do (may help with context), but adding existing_ruby_js_fixes as well would require aType to be known by content.js (cn do via handleMessage) + oldTxt no longer sufficient for restoring page for reannot (ouch)
-if delete_existing_ruby and not (android or javascript): errExit("--delete-existing-ruby requires --android or --javascript")
+if (extra_js or extra_css or existing_ruby_js_fixes) and not android: errExit("--extra-js, --extra-css and --existing-ruby-js-fixes requires --android") # browser-extension: existing_ruby_js_fixes would require aType to be known by content.js (cn do via handleMessage) + oldTxt no longer sufficient for restoring page for reannotate.  TODO: even with delete_existing_ruby, oldTxt is not sufficient to restore page for annotation off (it currently needs reload after turn off if it had existing ruby, and we don't do that automatically, nor should we as they might have unsaved changes), due to nfOld/nfNew further up the DOM, and it's no good replacing it with a list of DOM objects to replaceChild on, because anything more than text does not persist in the DOM after content.js runs, nor does it persist in the content.js variable space.
+if delete_existing_ruby and not (android or javascript): errExit("--delete-existing-ruby requires --android or --javascript") # (or --browser-extension, which implies --javascript)
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
@@ -1457,24 +1457,27 @@ def jsAnnot(for_android=True,for_async=False):
   function annotScan() {"""+B(extra_js).replace(b'\\',br'\\').replace(b'"',br'\"')+jsAddRubyCss+b"};"
   
   r += br"""
-function annotWalk(n,document"""
+function annotWalk(n"""
+  if not for_async: r += b",document" # multiple frames
   if for_android: r += b",inLink,inRuby"
+  elif for_async and delete_existing_ruby: r += b",nfOld,nfNew" # as the callback 'need to fix [replace]' element is not necessarily at current level, see below
   r += br""") {
     /* Our main DOM-walking code */
   var c;"""
   if not for_async or delete_existing_ruby:
-    r += br"""
+    if for_async: r += b"var nf=!!nfOld,nReal=n; if(!nf){"
+    else: r += br"""
     var nf=false; /* "need to fix" as there was already ruby on the page */"""
     if for_android: r += b"if(!inRuby)"
     r += b""" for(c=n.firstChild; c; c=c.nextSibling) if(c.nodeType==1 && c.nodeName=='RUBY') { nf=true; break; }"""
-    if not for_async: r += b"var nReal = n;"
-    r += b"if(nf) {"
-    if not for_async: r += b"n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
+    if for_async: r += b"if(nf) { nfOld=nReal;nfNew=n=n.cloneNode(true);" # so no effect on DOM if annotate returns no-op because it's switched off
+    else: r += b"var nReal = n; if(nf) { n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
     if delete_existing_ruby:
       if existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"if(!"+annotNo+b"){%s} else " % (B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
       r += br"""n.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'')"""
     else: r += B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"')
     r += b"}"
+    if for_async: r += b"}"
   r += br"""
     /* 1. check for WBR and mergeTags */
     function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^\\s*$/)};
@@ -1508,15 +1511,20 @@ function annotWalk(n,document"""
             annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||setR);
             if(setR)ssb_local_annotator.setYShortcut(false)"""
   else:
-    r += b"annotWalk(c,document"
+    r += b"annotWalk(c"
+    if not for_async: r += b",document"
     if for_android: r += b",inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY')"
+    if for_async and delete_existing_ruby: r += b",nfOld,nfNew"
     r += b");"
   r += br"""
           } break;
         case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'').replace(/\\B +\\B/g,'');"""
-  if for_async: r += br"""
+  if for_async:
+    r += br"""
             if(!cnv.match(/^\\s*$/)) {
-                ((n,c,cnv)=>{
+                ((n"""
+    if delete_existing_ruby: r += b",nfOld,nfNew"
+    r += br""",c,cnv)=>{
                     var newNode=document.createElement('span');
                     newNode.className='_adjust0';
                     newNode.oldTxt=cnv;
@@ -1526,10 +1534,14 @@ function annotWalk(n,document"""
                                 for(const t of new DOMParser().parseFromString('<span> '+nv+' </span>','text/html').body.firstChild.childNodes) newNode.appendChild(t.cloneNode(true));
                                 var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) ((e)=>{e.addEventListener('click',(()=>{alert(e.title)}))})(a[i])
                             } catch(err) { console.log(err.message) }
-                            n.replaceChild(newNode, c)
+                            try{n.replaceChild(newNode, c)}catch(err){ /* already done */ }"""
+    if delete_existing_ruby: r += br"""
+                            if(nfOld) {try{nfOld.parentNode.replaceChild(nfNew,nfOld)}catch(err){ /* already done */ } }"""
+    r += br"""
                         }
-                    }))})(n,c,cnv)
-            }"""
+                    }))})(n"""
+    if delete_existing_ruby: r += b",nfOld,nfNew"
+    r += b",c,cnv)}"
   else: # not for_async
     if for_android: annotateFunc = b"ssb_local_annotator.annotate"
     elif not sharp_multi and not glossfile:
@@ -1571,8 +1583,8 @@ function annotWalk(n,document"""
     r += b"}" # if nf
   r += b"}" # function annotWalk
   if for_async: r += br"""
-annotWalk(document,document);
-new window.MutationObserver(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document)}}).observe(document.body,{childList:true,subtree:true});
+annotWalk(document);
+new window.MutationObserver(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}}).observe(document.body,{childList:true,subtree:true});
 """
   if not for_async:
     r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
