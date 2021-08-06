@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.16 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.161 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3450,13 +3450,14 @@ if js_6bit: js_start += br"""
             if (i==-1) i = c;
             if(i) dPtr += data.charCodeAt(dPtr+c+i-1)-"""+str(js_6bit_offset)+br""";
             dPtr += c+c }"""
-js_start += br"""
+else: js_start += br"""
         else if (c > 107) { c-=107;
             var i = ((p>=input.length)?-1:data.slice(dPtr,dPtr+c).indexOf(input.charAt(p++)));
             if (i==-1) i = c;
             if(i) dPtr += data.charCodeAt(dPtr+c+i-1);
             dPtr += c+c;
-        } else switch(c) {
+        }"""
+js_start += br""" else switch(c) {
             case 50: dPtr = readAddr(); break;
             case 51: {
               var f = readAddr(); var dO=dPtr;
