@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.162 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.17 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1527,8 +1527,27 @@ function annotWalk(n"""
     r += br""",c,cnv)=>{
                     var newNode=document.createElement('span');
                     newNode.className='_adjust0';
-                    newNode.oldTxt=cnv;
-                    chrome.runtime.sendMessage(cnv,((nv)=>{
+                    newNode.oldTxt=cnv;"""
+    if ybytes: r += br"""
+    var inline=["SPAN","STRONG","EM","B","I","U","FONT","A","RUBY","RB","RP","RT"]; function cStop(p){return !p||(p.nodeType==1&&inline.indexOf(p.nodeName)==-1)} function cNorm(p){return p.nodeValue.replace(/\s+/g,'').replace(/^[+*0-9]*$/,'')} /* omit simple footnote link */
+    function contextLeft(p) {
+      var accum=""; while(accum.length<MAX_CONTEXT) {
+        while(!p.previousSibling){p=p.parentNode;if(cStop(p))return accum}
+        p=p.previousSibling;if(cStop(p))return accum;
+        while(p.nodeType==1&&p.lastChild){if(inline.indexOf(p.nodeName)==-1)return accum; else if(p.nodeName=="RT"||p.nodeName=="RP") break; p=p.lastChild}
+        if(p.nodeType==3) accum=cNorm(p)+accum
+      } return accum }
+    function contextRight(p) {
+      var accum=""; while(accum.length<MAX_CONTEXT) {
+        while(!p.nextSibling){p=p.parentNode;if(cStop(p))return accum}
+        p=p.nextSibling;if(cStop(p))return accum;
+        while(p.nodeType==1&&p.firstChild){if(inline.indexOf(p.nodeName)==-1)return accum; else if(p.nodeName=="RT"||p.nodeName=="RP") break; p=p.firstChild}
+        if(p.nodeType==3) accum+=cNorm(p)
+      } return accum }
+                    chrome.runtime.sendMessage({'t':cnv,'l':contextLeft(c),'r':contextRight(c)},((nv)=>{""".replace(b"MAX_CONTEXT",(b"%d"%ybytes_max))
+    else: r += br"""
+                    chrome.runtime.sendMessage({'t':cnv},((nv)=>{ """
+    r += br"""
                         if(nv && nv!=cnv) {
                             try {
                                 for(const t of new DOMParser().parseFromString('<span> '+nv+' </span>','text/html').body.firstChild.childNodes) newNode.appendChild(t.cloneNode(true));
@@ -3401,10 +3420,12 @@ input = unescape(encodeURIComponent(input)); // to UTF-8
 var data = this.data""" # TODO: if input is a whole html doc, insert css in head (e.g. from annoclip and/or adjuster), and hope there's no stuff that's not to be annotated (form fields etc).  But really want them to be using browser_extension or annotate_page if doing this (TODO add css to annotate_page, already there in browser_extension)
 if glossfile: js_start += b", numLines = this.numLines"
 js_start += br""";
-var addrLen = data.charCodeAt(0);
-var dPtr, inputLength = input.length;
+var addrLen = data.charCodeAt(0), dPtr;
 var p = 0; // read-ahead pointer
-var copyP = 0; // copy pointer
+if(this.contextL) { var cL=unescape(encodeURIComponent(this.contextL)); input = cL+input; p=cL.length }
+var inputLength = input.length;
+if(this.contextR) input += unescape(encodeURIComponent(this.contextR));
+var copyP = p; // copy pointer
 var output = new Array(), needSpace = 0;
 
 function readAddr() {
@@ -3446,13 +3467,13 @@ function readData() {
         if (c & 0x80) dPtr += (c&0x7F);"""
 if js_6bit: js_start += br"""
         else if (c > 90) { c-=90; 
-            var i=-1;if(p<input.length){var cc=input.charCodeAt(p++)-93; if(cc>118)cc-=20; i=data.slice(dPtr,dPtr+c).indexOf(String.fromCharCode(cc))}
+            var i=-1;if(p<inputLength){var cc=input.charCodeAt(p++)-93; if(cc>118)cc-=20; i=data.slice(dPtr,dPtr+c).indexOf(String.fromCharCode(cc))}
             if (i==-1) i = c;
             if(i) dPtr += data.charCodeAt(dPtr+c+i-1)-"""+str(js_6bit_offset)+br""";
             dPtr += c+c }"""
 else: js_start += br"""
         else if (c > 107) { c-=107;
-            var i = ((p>=input.length)?-1:data.slice(dPtr,dPtr+c).indexOf(input.charAt(p++)));
+            var i = ((p>=inputLength)?-1:data.slice(dPtr,dPtr+c).indexOf(input.charAt(p++)));
             if (i==-1) i = c;
             if(i) dPtr += data.charCodeAt(dPtr+c+i-1);
             dPtr += c+c;
@@ -3466,7 +3487,7 @@ js_start += br""" else switch(c) {
             case 52: return;
             case 60: {
               var nBytes = data.charCodeAt(dPtr++)+1;
-              var i = ((p>=input.length)?-1:data.slice(dPtr,dPtr+nBytes).indexOf(input.charAt(p++)));
+              var i = ((p>=inputLength)?-1:data.slice(dPtr,dPtr+nBytes).indexOf(input.charAt(p++)));
               if (i==-1) i = nBytes;
               dPtr += (nBytes + i * addrLen);
               dPtr = readAddr(); break; }
@@ -3553,7 +3574,7 @@ js_start += br"""
   var o=p;
   if (o > nearbytes) o -= nearbytes; else o = 0;
   var max = p + nearbytes;
-  if (max > inputLength) max = inputLength;
+  if (max > input.length) max = input.length; // not inputLength: we include contextR
   var tStr = input.slice(o,max);
                 var found = 0;
                 while (dPtr < tPtr && dPtr < fPtr) if (tStr.indexOf(readRefStr()) != -1) { found = 1; break; }
@@ -3579,7 +3600,9 @@ js_end = br"""};
 function annotate(input"""
 if sharp_multi: js_end += b",aType"
 if glossfile: js_end += b",numLines"
-js_end += b") { "
+js_end += b""",contextL,contextR) {
+Annotator.contextL=contextL; Annotator.contextR=contextR;
+"""
 if glossfile: js_end += b"if(numLines==undefined) numLines=2; Annotator.numLines=numLines; "
 js_end += b"return Annotator.annotate(input"
 if sharp_multi: js_end += b",aType"
@@ -3594,11 +3617,11 @@ function handleMessage(request, sender, sendResponse) {
     if(request<0) localStorage.numLines=numLines=-request; else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
     (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},(T)=>{for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c); annotWalk(document,document)'})})
   } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // popup status query
-  else { if(request==null) request=getClip();
-  sendResponse(numLines>1?annotate(request""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
+  else { if(request==null) request={'t':getClip()};
+  sendResponse(numLines>1?annotate(request['t']""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
   if sharp_multi: js_end += b",aType"
   if glossfile: js_end += b",numLines"
-  js_end += br"""):request)} }
+  js_end += br""",request['l'],request['r']):request['t'])} }
 function getClip(){var area=document.createElement("textarea"); document.body.appendChild(area); area.focus();area.value='';document.execCommand("Paste");var txt=area.value; document.body.removeChild(area); return txt?txt:"Failed to read clipboard"}
 fetch((typeof browser!=undefined&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.extension.getURL)("annotate-dat.txt")).then((r)=>{r.text().then((r)=>{Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
 elif not os.environ.get("JS_OMIT_DOM",""):
