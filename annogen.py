@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.17 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.171 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1529,7 +1529,7 @@ function annotWalk(n"""
                     newNode.className='_adjust0';
                     newNode.oldTxt=cnv;"""
     if ybytes: r += br"""
-    var inline=["SPAN","STRONG","EM","B","I","U","FONT","A","RUBY","RB","RP","RT"]; function cStop(p){return !p||(p.nodeType==1&&inline.indexOf(p.nodeName)==-1)} function cNorm(p){return p.nodeValue.replace(/\s+/g,'').replace(/^[+*0-9]*$/,'')} /* omit simple footnote link */
+    var inline=["SPAN","STRONG","EM","B","I","U","FONT","A","RUBY","RB","RP","RT"]; function cStop(p){return !p||(p.nodeType==1&&inline.indexOf(p.nodeName)==-1)} function cNorm(p){return unescape(encodeURIComponent(p.nodeValue.replace(/\s+/g,'').replace(/^[+*0-9]*$/,'')))} /* omit simple footnote link */
     function contextLeft(p) {
       var accum=""; while(accum.length<MAX_CONTEXT) {
         while(!p.previousSibling){p=p.parentNode;if(cStop(p))return accum}
@@ -3422,9 +3422,9 @@ if glossfile: js_start += b", numLines = this.numLines"
 js_start += br""";
 var addrLen = data.charCodeAt(0), dPtr;
 var p = 0; // read-ahead pointer
-if(this.contextL) { var cL=unescape(encodeURIComponent(this.contextL)); input = cL+input; p=cL.length }
+if(this.contextL_u8) { var cL=this.contextL_u8; input = cL+input; p=cL.length }
 var inputLength = input.length;
-if(this.contextR) input += unescape(encodeURIComponent(this.contextR));
+if(this.contextR_u8) input += this.contextR_u8;
 var copyP = p; // copy pointer
 var output = new Array(), needSpace = 0;
 
@@ -3574,7 +3574,7 @@ js_start += br"""
   var o=p;
   if (o > nearbytes) o -= nearbytes; else o = 0;
   var max = p + nearbytes;
-  if (max > input.length) max = input.length; // not inputLength: we include contextR
+  if (max > input.length) max = input.length; // not inputLength: we include contextR_u8
   var tStr = input.slice(o,max);
                 var found = 0;
                 while (dPtr < tPtr && dPtr < fPtr) if (tStr.indexOf(readRefStr()) != -1) { found = 1; break; }
@@ -3600,8 +3600,8 @@ js_end = br"""};
 function annotate(input"""
 if sharp_multi: js_end += b",aType"
 if glossfile: js_end += b",numLines"
-js_end += b""",contextL,contextR) {
-Annotator.contextL=contextL; Annotator.contextR=contextR;
+js_end += b""",contextL_u8,contextR_u8) {
+Annotator.contextL_u8=contextL_u8; Annotator.contextR_u8=contextR_u8;
 """
 if glossfile: js_end += b"if(numLines==undefined) numLines=2; Annotator.numLines=numLines; "
 js_end += b"return Annotator.annotate(input"
