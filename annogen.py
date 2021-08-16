@@ -3674,6 +3674,7 @@ extension_rubycss = b"span._adjust0 ruby{display:inline-table !important;vertica
 extension_config=br"""<html><head><meta charset="utf-8">
 <style>#cr{width:100%;border:thin dotted grey;max-width:15em;max-height:10em;overflow:auto} #cr:empty{padding:0.5ex}
 button{background:#ededed;color:inherit}
+button:disabled{border:thin red solid}
 """+extension_rubycss.replace(b"span._adjust0 ",b"")+br"""</style>
 </head><body>
 <nobr><button id="-1">Off</button> <button id="-2">2-line</button>"""
