@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.171 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.172 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5369,10 +5369,13 @@ def outputParser(rulesAndConds):
     def dryRun(clearReannotator=True): # to prime the reannotator or compressor
       global toReannotateSet, reannotateDict
       toReannotateSet = set()
-      if clearReannotator: reannotateDict = {} # (not if we've run the reannotator and are just doing it for the compressor)
-      dummyDict = {}
-      for rule,conds in rulesAndConds: addRule(rule,conds,dummyDict)
-      for l in read_manual_rules(): addRule(l,[],dummyDict)
+      if clearReannotator: reannotateDict = {} # so set gets completely repopulated (don't do this if we've run the reannotator and this dryRun is for the compressor)
+      # To call squash() and populate toReannotateSet,
+      # we don't need the whole of addRule, just matchingAction
+      for rule,conds in rulesAndConds:
+        matchingAction(rule,glossDic,glossMiss,glosslist,omitlist)
+      for l in read_manual_rules():
+        matchingAction(l,glossDic,glossMiss,glosslist,omitlist)
     if reannotator:
       global stderr_newline ; stderr_newline = False
       sys.stderr.write("Reannotating... ")
