@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.172 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.173 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3672,7 +3672,7 @@ return inflate(dat,buf) })
 
 extension_rubycss = b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;white-space:nowrap !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important;}"
 extension_config=br"""<html><head><meta charset="utf-8">
-<style>#cr{width:100%;border:thin dotted grey;max-width:15em;max-height:10em;overflow:auto} #cr:empty{padding:0.5ex}
+<style>#cr{width:100%;border:thin dotted grey;max-width:15em;max-height:10em;overflow:auto;user-select:text} #cr:empty{padding:0.5ex}
 button{background:#ededed;color:inherit}
 button:disabled{border:thin red solid}
 """+extension_rubycss.replace(b"span._adjust0 ",b"")+br"""</style>
