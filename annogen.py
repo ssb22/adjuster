@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.173 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.1731 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1429,7 +1429,7 @@ def jsAnnot(for_android=True,for_async=False):
   if sharp_multi:
     if for_android: annotNo = b"ssb_local_annotator.getAnnotNo()"
     else: annotNo = b"aType" # will be in JS context
-  else: annotNo = "0" # TODO: could take out relevant code altogether
+  else: annotNo = b"0" # TODO: could take out relevant code altogether
   
   r = br"""var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
   
@@ -1503,7 +1503,7 @@ function annotWalk(n"""
   if not for_async:
     r += b"if("
     if not delete_existing_ruby: r += b"!nf &&"
-    elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!"+annotNo+") &&" # TODO: or just leave it as "!nf &&" in all 'MAY have existing ruby' cases?  check the 'fix' would still work if we go down this branch even if nf, i.e. is !nf just an optimisation?
+    elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!"+annotNo+b") &&" # TODO: or just leave it as "!nf &&" in all 'MAY have existing ruby' cases?  check the 'fix' would still work if we go down this branch even if nf, i.e. is !nf just an optimisation?
     if for_android: r += b"!inRuby &&"
     r += br"""cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
   if existing_ruby_shortcut_yarowsky and for_android: r += br"""
@@ -1570,9 +1570,9 @@ function annotWalk(n"""
       if sharp_multi: annotateFunc += b",aType"
       if glossfile: annotateFunc += b",numLines"
       annotateFunc += b")}"
-    r += "var nv="+annotateFunc+br"""(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) }"""
+    r += b"var nv="+annotateFunc+br"""(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) }"""
     if for_android: r += br"""if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)}"""
-    r += "}" # if nv != cnv
+    r += b"}" # if nv != cnv
   r += b"}}" # case 3, switch
   if not for_async: r += b"cP=c;"
   r += b"c=cNext;"
@@ -3373,7 +3373,7 @@ Usage:
    annotate() function i.e. var result = annotate(input"""
   if sharp_multi: js_start += b", annotation_type_number"
   if glossfile: js_start += b", lines=2"
-  js_start += ")"
+  js_start += b")"
   if not os.environ.get("JS_OMIT_DOM",""):
     js_start += br"""
 
