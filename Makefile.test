@@ -1,0 +1,11 @@
+# -*- mode: Makefile -*-
+test:
+	# at least check it compiles in both 2 and 3
+	echo | python2 annogen.py >/dev/null
+	echo | python3 annogen.py >/dev/null
+	echo | python2 annogen.py -l >/dev/null
+	echo | python3 annogen.py -l >/dev/null
+	python2 -c 'import annogen as a;a.jsAnnot(False,True)'
+	python3 -c 'import annogen as a;a.jsAnnot(False,True)'
+	python2 -c 'import annogen as a;a.delete_existing_ruby=True;a.jsAnnot(False,True)'
+	python3 -c 'import annogen as a;a.delete_existing_ruby=True;a.jsAnnot(False,True)'
