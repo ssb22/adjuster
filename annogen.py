@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.1731 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.1732 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -902,7 +902,7 @@ _annotateRL.argtypes = [c_char_p"""
   if sharp_multi: c_preamble += b",aType=0"
   c_preamble += br""",aMode=1):
     "aMode: 0 = raw, 1 = ruby (default), 2 = braces"
-    if type(txt)==type(u''): txt = txt.encode('"""+outcode+r"""')
+    if type(txt)==type(u''): txt = txt.encode('"""+B(outcode)+br"""')
     r = _annotate(txt"""
   if sharp_multi: c_preamble += b",aType"
   c_preamble += br""",aMode)
@@ -4576,7 +4576,7 @@ def typo_report(debugFile,exceptionFile,withAnnot_unistr,msg_unistr):
     if not debugFile in typo_data:
       typo_data[debugFile] = openfile(debugFile,'w')
       getBuf(sys.stderr).write(bold_on+"Writing to "+debugFile+bold_off+"\n")
-      typo_data[debugFile].write("Put any of the following first-of-line words into allow-exceptions.txt to avoid being alerted here next time.\n\n")
+      typo_data[debugFile].write("Put any of the following first-of-line words into %s to avoid being alerted here next time.\n\n" % exceptionFile)
     typo_data[debugFile].write((msg_unistr+u"\n").encode(terminal_charset,'replace'))
     typo_data[debugFile].flush() # in case interrupted
 def yarowsky_indicators_wrapped(withAnnot_unistr):
