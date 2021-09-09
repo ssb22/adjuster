@@ -1,7 +1,7 @@
 PORTNAME=		adjuster
 DISTVERSIONPREFIX=	v
-DISTVERSION=		3.148-19
-DISTVERSIONSUFFIX=  -g381d316
+DISTVERSION=		3.148-20
+DISTVERSIONSUFFIX=	-g261c397
 CATEGORIES=		www
 
 MAINTAINER=	ssb22@cam.ac.uk
@@ -25,7 +25,7 @@ INSTALL_TARGET=	install
 PLIST_FILES=	bin/adjuster bin/annogen bin/termlayout
 
 post-patch:
-	cp Makefile.tmp ${WRKSRC}/Makefile
-	for N in ${WRKSRC}/*.py ; do sed -I '' -e 's|#!/usr/bin/env python$$|#!/usr/bin/env '${PYTHON_FLAVOR}'|' "$$N"; done
+	${CP} {WRKSRC}/freebsd/Makefile.tmp ${WRKSRC}/Makefile # temporary line until we get the commit id of THIS commit
+	for N in ${WRKSRC}/*.py ; do ${SED} -I '' -e 's|#!/usr/bin/env python$$|#!/usr/bin/env '${PYTHON_FLAVOR}'|' "$$N"; done
 
 .include <bsd.port.mk>
