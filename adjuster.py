@@ -4775,6 +4775,7 @@ def bookmarklet(submit_url,local_submit_url):
     # 'resetting the current page': so you lose anything you typed in text boxes etc
     # (DO hide bookmarklets by default, because don't want to confuse users if they're named the same as the immediate-action filter selections at the bottom of the page)
     # TODO: we append '+' to the names of the 'advanced' versions of the bookmarklets, but we don't do so on the Android/iOS title pages; is that OK?
+    # TODO: "browser toolbar" detect which browser and name it accordingly?  (Safari calls it the "Favourites" bar)
 def quote_for_JS_doublequotes(s): return s.replace("\\","\\\\").replace('"',"\\\"").replace("\n","\\n").replace('</','<"+"/') # for use inside document.write("") etc
 def bookmarkletMainScript(jsonPostUrl,forceSameWindow):
     if forceSameWindow: case1Extra = "if(c.target=='_blank') c.removeAttribute('target'); " # (used by the "plus" bookmarklets)
