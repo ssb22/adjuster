@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-program_name = "Web Adjuster v3.148 (c) 2012-21 Silas S. Brown"
+"Web Adjuster v3.149 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ program_name = "Web Adjuster v3.148 (c) 2012-21 Silas S. Brown"
 # although some early ones are missing.
 
 import sys,os,re
-twoline_program_name = program_name+"\nLicensed under the Apache License, Version 2.0"
+twoline_program_name = __doc__+"\nLicensed under the Apache License, Version 2.0"
 
 #@file: split-files.py
 # --------------------------------------------------
@@ -102,8 +102,8 @@ elif '--html-options' in sys.argv or '--markdown-options' in sys.argv:
     # for updating the website
     # (these options are not included in the help text)
     tornado=inDL=False ; html = '--html-options' in sys.argv
-    if html: print ("<h3>Options for "+program_name[:program_name.index("(c)")].strip()+"</h3>")
-    else: print ("Options for "+program_name[:program_name.index("(c)")].strip()+"\n============\n")
+    if html: print ("<h3>Options for "+__doc__[:__doc__.index("(c)")].strip()+"</h3>")
+    else: print ("Options for "+__doc__[:__doc__.index("(c)")].strip()+"\n============\n")
     def heading(h):
         global inDL
         if html:
@@ -991,7 +991,7 @@ def preprocessOptions():
     if type(options.prohibitUA)==type(""): options.prohibitUA=options.prohibitUA.split(',')
     if type(options.skipLinkCheck)==type(""): options.skipLinkCheck=options.skipLinkCheck.split(',')
     global viaName,serverName,serverName_html
-    viaName = program_name[:program_name.index("(c)")].strip() # Web Adjuster vN.NN
+    viaName = __doc__[:__doc__.index("(c)")].strip() # Web Adjuster vN.NN
     if options.machineName: serverName = viaName + " on "+options.machineName
     else: serverName = viaName
     serverName_html = re.sub(r"([0-9])([0-9])",r"\1<span></span>\2",serverName) # stop mobile browsers interpreting the version number as a telephone number
