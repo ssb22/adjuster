@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.1732 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.18 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -390,7 +390,7 @@ cancelOpt("time-estimate")
 
 parser.add_option("-0","--single-core",
                   action="store_true",default=False,
-                  help="Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is currently used only for large collocation checks in limited circumstances. Single-core saves on CPU power consumption, but if the computer is set to switch itself off at the end of the run then TOTAL energy used is generally less if you allow it to run multicore and reach that switchoff sooner.") # limited circumstances: namely, words that occur in length-1 phrases. TODO: Linux cpusets can reduce the number of CPUs actually available, so we might start too many processes unless run with -0 (especially in a virtual environment).
+                  help="Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is used only for some parts of the code. Single-core saves on CPU power consumption, but if the computer is set to switch itself off at the end of the run then TOTAL energy used is generally less if you allow it to run multicore and reach that switchoff sooner.") # limited circumstances: namely, words that occur in length-1 phrases. TODO: Linux cpusets can reduce the number of CPUs actually available, so we might start too many processes unless run with -0 (especially in a virtual environment).
 # Consider a Mac Mini that idles at 15W and maxes-out at 85W when running 2-core 4-thread i5.  The 70W difference is probably 35W for the CPU at 50% power-supply efficiency, give or take some extras.  Running 1-core should very roughly halve that 70W (below half if non-use of SMT saves a bit of power, but above if there's constant overheads and/or TurboBoost adding up to 25% to the clock when running single-core), so maybe about 50W.  One corpus ran multicore for about 40mins of its total runtime, and changing it to single-core added about 30mins to that total runtime.  So if the machine is set to halt at the end of the run, the single-core option saves 35W x 40mins at the expense of 50W x 30mins.  That's a negative saving.  On the other hand if the computer is NOT to be powered off at the end of the run then single-core does save power.
 cancelOpt("single-core")
 
@@ -401,15 +401,15 @@ term = os.environ.get("TERM","")
 is_xterm = "xterm" in term
 ansi_escapes = is_xterm or term in ["screen","linux"]
 def isatty(f): return hasattr(f,"isatty") and f.isatty()
-if ansi_escapes and isatty(sys.stderr): clear_eol,reverse_on,reverse_off,bold_on,bold_off="\x1b[K\r","\x1b[7m","\x1b[0m","\x1b[1m","\x1b[0m"
-else: clear_eol,reverse_on,reverse_off,bold_on,bold_off="  \r"," **","** ","",""
+if ansi_escapes and isatty(sys.stderr): clear_eol,reverse_on,reverse_off,bold_on,bold_off="\x1b[K","\x1b[7m","\x1b[0m","\x1b[1m","\x1b[0m"
+else: clear_eol,reverse_on,reverse_off,bold_on,bold_off="  "," **","** ","",""
 if main: sys.stderr.write(bold_on+__doc__+bold_off+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
 # else (if not main), STILL parse options (if we're being imported for parallel processing)
 options, args = parser.parse_args()
 globals().update(options.__dict__)
 
-if type("")==type(u""): sys.setcheckinterval=lambda x:x # don't bother doing this on Python 3 (TODO: setswitchinterval?)
-sys.setcheckinterval(32767) # won't be using threads or signals, so don't have to check for them very often
+try: import thread
+except: import _thread as thread # Python 3
 import gc ; gc.disable() # should be OK if we don't create cycles (TODO: run gc.collect() manually after init, just in case?)
 
 def warn(msg):
@@ -4197,12 +4197,91 @@ def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,la
     # (including the + because this is liable to be an underestimate; see comment after the --time-estimate option)
     if len(progress) + 14 < screenWidth:
      progress += " (at %02d:%02d:%02d" % time.localtime()[3:6] # clock time: might be useful for checking if it seems stuck
-     if len(progress) + 20 < screenWidth and not clear_eol == "  \r": # (being able to fit this in can be intermittent)
+     if len(progress) + 20 < screenWidth and not clear_eol == "  ": # (being able to fit this in can be intermittent)
       elapsed = time.time() - startTime
       progress += ", analyse=%d:%02d:%02d" % (elapsed/3600,(elapsed%3600)/60,elapsed%60)
      progress += ")"
-  sys.stderr.write(progress+clear_eol)
+  sys.stderr.write(progress+clear_eol+"\r")
   sys.stderr.flush()
+
+def read_and_normalise():
+  global infile, corpus_unistr, executor
+  if infile: infile=openfile(infile)
+  else:
+    infile = sys.stdin
+    if isatty(infile): sys.stderr.write("Reading from standard input\n(If that's not what you wanted, press Ctrl-C and run again with --help)\n")
+  corpus_unistr = getBuf(infile).read().decode(incode)
+  if diagnose and not diagnose in corpus_unistr:
+    diagnose_write(diagnose+" is not present in the corpus, even before normalisation")
+    suppress = True
+  else: suppress = False
+  loaded_from_checkpoint = normalise() # will change corpus_unistr
+  if diagnose and not suppress and not diagnose in corpus_unistr:
+    diagnose_write(diagnose+" was in the corpus before normalisation, but not after")
+    if loaded_from_checkpoint: diagnose_write("You might want to remove "+checkpoint+os.sep+'normalised* and redo the diagnose')
+  if executor and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8')) # normalise won't have done it and the other nodes will need it (TODO: unless we're doing concurrent.futures with fork)
+  if normalise_only: sys.exit()
+
+def normWord(w,allWords,cu_nosp):
+  hTry = typo = None
+  if '-' in w: hTry=set([w.replace('-','')]) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
+  if not capitalisation:
+    wl = w.lower() # (as long as it's all Unicode strings, .lower() and .upper() work with accents etc)
+    if not w==wl and wl in allWords:
+      # This word is NOT always capitalised.
+      # Could be 'caps if at start of sentence'
+      # (or title-case etc), but might also be
+      # a corpus error, so check numbers.
+      if allWords[wl]*5 < allWords[w] and allWords[wl] <= normalise_debug: typo = (wl,(u"%s (%d instances) overrides %s (%d instances)" % (wl,allWords[wl],w,allWords[w])))
+      # To simplify rules, make it always lower.
+      w = wl
+      if hTry: hTry.add(w.replace('-',''))
+  if annot_whitespace or (keep_whitespace and markDown(w) in keep_whitespace): return w,None,typo
+  if not re.search(wspPattern,w): return w,hTry,typo
+  nowsp = re.sub(wspPattern,"",w)
+  if not capitalisation and not nowsp.lower()==nowsp and nowsp.lower() in allWords: nowsp = nowsp.lower()
+  if nowsp in allWords: return nowsp,hTry,typo # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set the relative authority of the reference (TODO)
+  ao,md = annotationOnly(w),markDown(w)
+  aoS = ao.split()
+  if len(md.split())==1 and len(md) <= 5 and len(aoS) <= len(md): # TODO: 5 configurable?  don't want different_ways_of_splitting to take too long
+    # if not too many chars, try different ways of
+    # assigning each word to chars, and see if any
+    # of these exist in the corpus; if any does,
+    # assume we have "ABC|a bc" <= "A|a BC|bc" type
+    # situations - the latter shouldn't necessarily be
+    # converted into the former, but the former might
+    # be convertible into the latter to simplify rules
+    if capitalisation: aoS2 = aoS
+    else: aoS2 = [w0.lower() for w0 in aoS]
+    for charBunches in different_ways_of_splitting(md,len(aoS)):
+      mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS2)]
+      if "".join(mw) in cu_nosp:
+        # we're about to return a split version of the words, but we now have to pretend it went through the initial capitalisation logic that way (otherwise could get unnecessarily large collocation checks)
+        if not capitalisation:
+          mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS)] # the original capitalisation. for selective .lower()
+          for i in range(len(mw)):
+            w0 = mw[i]
+            wl = w0.lower()
+            if not w0==wl and wl in allWords:
+              mw[i] = wl
+        return "".join(mw),hTry,typo
+      # TODO: is there ANY time where we want multiword to take priority over the nowsp (no-whitespace) version above?  or even REPLACE multiword occurrences in the corpus with the 1-word nowsp version?? (must be VERY CAREFUL doing that)
+  return w,hTry,typo
+def normBatch(params):
+  words,allWords,cu_nosp = params
+  if allWords==None: allWords = _allWords
+  if cu_nosp==None: cu_nosp = _cu_nosp
+  # TODO: else (if can't propagate via globals), might using filesystem save traffic over parameters in the case of separate multicore helper machine with large filesystem cache and large corpus?  (but at least the duplication is limited to 1 per core)
+  r,typoR = [],[]
+  for w in words:
+    w2,hTry,typo = normWord(w,allWords,cu_nosp)
+    if hTry:
+      hTry.add(w2.replace('-','')) # in case not already there
+      for h in hTry:
+        if h in allWords: r.append((h,w2))
+    if not w==w2: r.append((w,w2))
+    if typo: typoR.append(typo)
+  return r,typoR
 
 def normalise():
     if normalised_file == infile: return
@@ -4245,90 +4324,41 @@ def normalise():
             ff = 1
         if ff: allWords = getAllWords() # re-generate
       del cu0
+    cu_nosp = re.sub(wspPattern,"",corpus_unistr)
+    if not capitalisation: cu_nosp = cu_nosp.lower()
     sys.stderr.write(":") ; sys.stderr.flush()
-    KeywordProcessor = None
-    # try: from flashtext.keyword import KeywordProcessor # pip install flashtext
-    # except: pass
-    # # commenting out the above because the fallback code below was ~20% faster than flashtext in my test (perhaps their benchmark figures rely on a non-empty non_word_boundaries set)
-    if not KeywordProcessor:
-     class KeywordProcessor:
-      def __init__(self,*a,**k): self.dic = {}
-      def __len__(self): return len(self.dic)
-      def add_keyword(self,x,y):
-        if diagnose and diagnose in x: diagnose_write("Replacer.add(%s,%s)" % (x,y))
-        self.dic[x] = y
-        if not (len(self.dic)%1500):
-          sys.stderr.write('.') ; sys.stderr.flush()
-      def replace_keywords(self,unistr):
-        if not self.dic: return
-        for exp in orRegexes(re.escape(k) for k in iterkeys(self.dic)):
-          sys.stderr.write(';') ; sys.stderr.flush()
-          unistr = re.sub(exp,lambda k:self.dic[k.group(0)],unistr)
-        return unistr
-    rpl = KeywordProcessor(case_sensitive=True)
-    rpl.non_word_boundaries = set()
-    cu_nosp = [None]
-    def normWord(w):
-      if '-' in w: hTry=set([w.replace('-','')]) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
-      else: hTry=None
-      if not capitalisation:
-        wl = w.lower() # (as long as it's all Unicode strings, .lower() and .upper() work with accents etc)
-        if not w==wl and wl in allWords:
-            # This word is NOT always capitalised.
-            # Could be 'caps if at start of sentence'
-            # (or title-case etc), but might also be
-            # a corpus error, so check numbers.
-            if allWords[wl]*5 < allWords[w] and allWords[wl] <= normalise_debug: # not really "Yarowsky" here in the normaliser, but similar principle
-              typo_report("normalise-debug.txt","allow-caps-exceptions.txt",wl,(u"%s (%d instances) overrides %s (%d instances)" % (wl,allWords[wl],w,allWords[w])))
-            # To simplify rules, make it always lower.
-            w = wl
-            if hTry: hTry.add(w.replace('-',''))
-      if annot_whitespace or (keep_whitespace and markDown(w) in keep_whitespace): return w,None
-      if not re.search(wspPattern,w): return w,hTry
-      nowsp = re.sub(wspPattern,"",w)
-      if not capitalisation and not nowsp.lower()==nowsp and nowsp.lower() in allWords: nowsp = nowsp.lower()
-      if nowsp in allWords: return nowsp,hTry # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set the relative authority of the reference (TODO)
-      ao,md = annotationOnly(w),markDown(w)
-      aoS = ao.split()
-      if len(md.split())==1 and len(md) <= 5 and len(aoS) <= len(md): # TODO: 5 configurable?  don't want different_ways_of_splitting to take too long
-        # if not too many chars, try different ways of
-        # assigning each word to chars, and see if any
-        # of these exist in the corpus; if any does,
-        # assume we have "ABC|a bc" <= "A|a BC|bc" type
-        # situations - the latter shouldn't necessarily be
-        # converted into the former, but the former might
-        # be convertible into the latter to simplify rules
-        if cu_nosp[0] == None:
-          cu_nosp[0] = re.sub(wspPattern,"",corpus_unistr)
-          if not capitalisation: cu_nosp[0] = cu_nosp[0].lower() # ignore capitalisation when searching for this
-        if capitalisation: aoS2 = aoS
-        else: aoS2 = [w0.lower() for w0 in aoS]
-        for charBunches in different_ways_of_splitting(md,len(aoS)):
-            mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS2)]
-            multiword = "".join(mw)
-            if multiword in cu_nosp[0]:
-              # we're about to return a split version of the words, but we now have to pretend it went through the initial capitalisation logic that way (otherwise could get unnecessarily large collocation checks)
-              if not capitalisation:
-                mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS)] # the original capitalisation. for selective .lower()
-                for i in range(len(mw)):
-                  w0 = mw[i]
-                  wl = w0.lower()
-                  if not w0==wl and wl in allWords:
-                    mw[i] = wl
-              return "".join(mw),hTry
-          # TODO: is there ANY time where we want multiword to take priority over the nowsp (no-whitespace) version above?  or even REPLACE multiword occurrences in the corpus with the 1-word nowsp version?? (must be VERY CAREFUL doing that)
-      # TODO: anything else?
-      return w,hTry
-    for w in allWords.keys():
-      w2,hTry = normWord(w)
-      if hTry:
-        hTry.add(w2.replace('-','')) # in case not already there
-        for h in hTry:
-          if h in allWords: rpl.add_keyword(h,w2)
-      if not w==w2: rpl.add_keyword(w,w2)
-    if len(rpl):
-      corpus_unistr = rpl.replace_keywords(corpus_unistr)
-    del rpl
+    tmp = corpus_unistr ; del corpus_unistr # since if parallelism involves fork then we don't want the other processes to treat pre-normalised as normalised later if it didn't manage to restart (see check_globals_are_set_up)
+    global executor,_allWords,_cu_nosp ; _allWords,_cu_nosp = allWords,cu_nosp
+    executor,numCores = setup_parallelism()
+    corpus_unistr = tmp
+    if parallelism_type=="fork": allWords=cu_nosp=None
+    perCore = int(len(_allWords)/numCores)+1
+    allWL = list(_allWords.keys()) ; jobs = []
+    for c in xrange(numCores-1):
+      jobs.append(executor.submit(normBatch,(allWL[c*perCore:(c+1)*perCore],allWords,cu_nosp))) # TODO: allWords + cu_nosp to global or via-checkpoint (or re-compute, with stdin via checkpoint if necessary) ?  but wouldn't save too much as this is per-core, not per-word or anything
+    if numCores>1: allWL=allWL[(numCores-1)*perCore:]
+    results = [normBatch((allWL,allWords,cu_nosp))]
+    del _allWords,_cu_nosp
+    for j in jobs: results.append(j.result())
+    sys.stderr.write(".") ; sys.stderr.flush()
+    dic = {}
+    for SR,typos in results:
+      for x,y in SR:
+        if diagnose and diagnose in x: diagnose_write("Changing %s to %s" % (x,y))
+        dic[x] = y
+      for wl,msg in typos: typo_report("normalise-debug.txt","allow-caps-exceptions.txt",wl,msg)
+    for k in list(dic.keys()):
+      seen = set()
+      while dic[k] in dic:
+        v = dic[dic[k]]
+        assert not v in seen, "normalisation loop!"
+        if v in seen: break
+        seen.add(v)
+        dic[k] = v
+    sys.stderr.write(":") ; sys.stderr.flush()
+    if dic:
+     for exp in orRegexes(re.escape(k) for k in iterkeys(dic)):
+      corpus_unistr = re.sub(exp,lambda k:dic[k.group(0)],corpus_unistr)
     sys.stderr.write(" done\n")
     if normalised_file: openfile(normalised_file,'w').write(corpus_unistr.encode(incode))
     if checkpoint and capitalisation==old_caps: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8'))
@@ -4338,7 +4368,7 @@ def getAllWords():
   allWords = {}
   for phrase in splitWords(corpus_unistr,phrases=True):
     for w in splitWords(phrase): allWords[w]=allWords.setdefault(w,0)+1
-  return allWords # do NOT cache (is called either side of the normaliser)
+  return allWords # do NOT cache (call = regenerate)
 def orRegexes(escaped_keys):
   escaped_keys = list(escaped_keys) # don't just iterate
   try: yield re.compile('|'.join(escaped_keys))
@@ -4357,7 +4387,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
     votes = {} ; lastT = time.time()
     for pi in xrange(len(markedDown_Phrases)):
       if time.time() > lastT+2:
-        sys.stderr.write("PairPriorities: %d%%%s" % (pi*100/len(markedDown_Phrases),clear_eol)) ; sys.stderr.flush()
+        sys.stderr.write("PairPriorities: %d%%%s\r" % (pi*100/len(markedDown_Phrases),clear_eol)) ; sys.stderr.flush()
         lastT = time.time()
       p=markedDown_Phrases[pi]
       for x in xrange(len(p)-1):
@@ -4426,7 +4456,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
     r = [] ; _cmpT,_cmpW=time.time(),False
     for w in mdwList: # lower priorities first
         if time.time() > _cmpT + 2:
-          sys.stderr.write("Finalising: %d/%d%s" % (len(r),len(mdwList),clear_eol)) ; sys.stderr.flush()
+          sys.stderr.write("Finalising: %d/%d%s\r" % (len(r),len(mdwList),clear_eol)) ; sys.stderr.flush()
           _cmpT=time.time()
           _cmpW=True
         if w in tcA:
@@ -4997,26 +5027,55 @@ def generate_map():
     if checkpoint: pickle.Pickler(open_try_bz2(checkpoint+os.sep+'map','w'),-1).dump((m2c_map,precalc_sets,yPriorityDic))
     checkpoint_exit()
 
-def setup_parallelism():
-    if single_core or not checkpoint: return # parallelise only if checkpoint (otherwise could have trouble sharing the normalised corpus and map etc)
+def find_parallelism_type():
+    if single_core or not checkpoint: return # parallelise only if checkpoint (otherwise could have trouble sharing the normalised corpus and map etc, although TODO can still parallelise the normalisation part without checkpoint, and can still parallelise the rest if can establish copy_globals_to_helpers worked (via submitting a query task))
     args = getoutput("ps -p " + str(os.getpid()) + " -o args")
+    if "-m mpi4py.futures" in args: return "mpi"
+    elif "-m scoop" in args: return "scoop"
     try:
-      args.index("-m mpi4py.futures") # ValueError if not found
-      import mpi4py.futures # mpi4py v2.1+
-      import mpi4py.MPI, mpi4py ; assert mpi4py.MPI.COMM_WORLD.size > 1, "mpi4py says world size is 1: likely a symptom of incorrectly-configured MPI.  Did you compile mpi4py using the same setup (e.g. MPICH or OpenMPI) as you are running?  mpi4py's config is: "+repr(mpi4py.get_config())
-      return mpi4py.futures.MPIPoolExecutor()
-    except ValueError: pass # but raise all other exceptions: if we're being run within mpi4py.futures then we want to know about MPI problems
-    try:
-      args.index("-m scoop") # ValueError if not found
-      import scoop.futures
-      return scoop.futures # submit() is at module level
-    except ValueError: pass
-    try:
+      global concurrent,multiprocessing
       import concurrent.futures # sudo pip install futures (2.7 backport of 3.2 standard library)
       import multiprocessing
-      num_cpus = multiprocessing.cpu_count()
-      if num_cpus > 1: return concurrent.futures.ProcessPoolExecutor(num_cpus-1) # leave one for the CPU-heavy control task
+      if multiprocessing.cpu_count() > 1:
+        return "concurrent" # to be replaced with "fork" if we establish globals work once we set it up
     except: pass
+executor,parallelism_type = None,"unknown"
+def setup_parallelism():
+    global parallelism_type
+    parallelism_type = find_parallelism_type()
+    if not parallelism_type: return None,1
+    elif parallelism_type=="mpi":
+      import mpi4py.futures # mpi4py v2.1+
+      import mpi4py.MPI, mpi4py ; assert mpi4py.MPI.COMM_WORLD.size > 1, "mpi4py says world size is 1: likely a symptom of incorrectly-configured MPI.  Did you compile mpi4py using the same setup (e.g. MPICH or OpenMPI) as you are running?  mpi4py's config is: "+repr(mpi4py.get_config())
+      return mpi4py.futures.MPIPoolExecutor(), mpi4py.MPI.COMM_WORLD.size
+    elif parallelism_type=="scoop":
+      import scoop.futures
+      return scoop.futures, 4 # submit() is at module level (TODO: how do we get the correct number of workers?  affects only normalise, not yarowsky background checks)
+    elif parallelism_type=="concurrent":
+      num_cpus = multiprocessing.cpu_count()
+      x = concurrent.futures.ProcessPoolExecutor(num_cpus-1) # leave one for the CPU-heavy control task (note: do NOT reduce Python 2's sys.setcheckinterval() (or Python 3's setswitchinterval) if using ProcessPoolExecutor, or job starts can be delayed)
+      global our_test_value ; our_test_value = True
+      if x.submit(test_global,None).result():
+        parallelism_type = "fork" # verified it propagated the globals at time of fork
+      return x, num_cpus
+    return None,1
+def test_global(*_):
+  try: return our_test_value
+  except: return False
+def copy_globals_to_helpers():
+  global executor
+  if parallelism_type=="unknown": # normalise didn't set it up, e.g. because loaded from cache
+    executor, _ = setup_parallelism()
+    need_refork = False
+  else: need_refork = True
+  if parallelism_type=="fork":
+    if need_refork:
+      executor.shutdown(True) # MUST wait for the shutdown to finish before creating a new instance: some implementations seem to have a race condition
+      executor = concurrent.futures.ProcessPoolExecutor(multiprocessing.cpu_count()-1)
+    else: pass # globals work, but we've JUST set it up
+  elif parallelism_type and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8')) # normalise won't have written it and the other nodes will need it
+  # TODO: MPIPoolExecutor can take a 'globals' dict, but can we re-initialise a second time, and will the globals be propagated once and not per-job?
+  # TODO: scoop.shared.getConst(name, timeout=0.1) ("the maximum time to wait in seconds for the propagation of the constant") and setConst might avoid need for a shared filespace, but test it very carefully
 
 def get_phrases():
     # Returns a list of phrases in processing order, with length-numbers inserted in the list.  Caches its result.
@@ -5073,19 +5132,17 @@ def analyse():
     while phraseNo < len(phrases):
         if type(phrases[phraseNo])==int:
           wordLen = phrases[phraseNo]
-          for b in backgrounded: # flush (TODO: duplicate code)
-            coveredA,toCoverA = getNext(b)
-            covered += coveredA ; toCover += toCoverA
-          backgrounded = []
+          if wordLen > 1:
+            # we currently use background jobs only for wordLen=1; other workers won't be needed after these jobs finish
+            try: executor.shutdown(False)
+            except: pass
+          covered,toCover = flush_background(backgrounded," for #w change",covered,toCover)
           phraseNo += 1 ; continue
         if toCover:
           if checkpoint and (checkpoint_exit(0) or (checkpoint_period and time.time() >= lastCheckpoint + checkpoint_period)):
-            sys.stderr.write("Checkpointing..."+clear_eol)
+            covered,toCover = flush_background(backgrounded," for checkpoint",covered,toCover)
+            sys.stderr.write("Checkpointing..."+clear_eol+"\r")
             sys.stderr.flush()
-            for b in backgrounded: # flush (TODO: duplicate code)
-              coveredA,toCoverA = getNext(b)
-              covered += coveredA ; toCover += toCoverA
-            backgrounded = []
             write_checkpoint((phraseNo,wordLen,covered,toCover,accum.__dict__))
             lastCheckpoint = time.time() ; phraseLastCheckpoint = phraseNo
         if time.time() >= lastUpdate + 2:
@@ -5093,21 +5150,34 @@ def analyse():
           else: cov = 0
           status_update(phraseNo,len(phrases),wordLen,len(accum.rules),phraseLastUpdate,lastUpdate,phraseLastCheckpoint,lastCheckpoint,cov,len(accum.rejectedRules),startTime)
           lastUpdate = time.time() ; phraseLastUpdate = phraseNo
-        aRules = accum.addRulesForPhrase(phrases[phraseNo],wordLen==1) # TODO: we're saying canBackground only if wordLen==1 because longer phrases can be backgrounded only if they're guaranteed not to have mutual effects; do we want to look into when we can do that?  (and update the help text for --single-core if changing)
+        aRules = accum.addRulesForPhrase(phrases[phraseNo],wordLen==1) # We're saying canBackground only if wordLen==1 because longer phrases can be backgrounded only if they're guaranteed not to have mutual effects.  Could look into when we can do that (or a separate pass through adding all len-1 rules 1st) and remove the executor.shutdown above, but test corpus is showing NO large collocation checks needed at #w=2+ anyway, so this work would not actually save generation time.
         arr = getNext(aRules)
         if arr=="backgrounded": backgrounded.append(aRules)
         else:
           coveredA,toCoverA = arr
           covered += coveredA ; toCover += toCoverA
         phraseNo += 1
-    if backgrounded:
-      sys.stderr.write("Collecting backgrounded results... "+clear_eol) ; sys.stderr.flush()
-      for b in backgrounded: getNext(b)
-      del backgrounded
-      sys.stderr.write("done\n")
+    flush_background(backgrounded)
     if rulesFile: accum.save()
     if diagnose_manual: test_manual_rules()
     return sorted(accum.rulesAndConds()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
+def flush_background(backgrounded,why="",covered=0,toCover=0):
+  origLen = len(backgrounded)
+  if origLen:
+    sys.stderr.write("Collecting backgrounded results%s... (0/%d)%s" % (why,origLen,clear_eol))
+    sys.stderr.flush()
+    count = 0 ; t0=t=time.time()
+    backgrounded.reverse() # so pop() in order of submit
+    while backgrounded:
+      coveredA,toCoverA = getNext(backgrounded.pop())
+      covered += coveredA ; toCover += toCoverA
+      count += 1
+      if time.time() >= t+1:
+        sys.stderr.write("\rCollecting backgrounded results%s... (%d/%d)%s" % (why,count,origLen,clear_eol))
+        sys.stderr.flush()
+        t = time.time()
+    sys.stderr.write("\rCollecting backgrounded results%s... (%d/%d), secs=%d\n" % (why,count,origLen,int(time.time()-t0)))
+  return covered,toCover
 
 def read_manual_rules():
   if not manualrules: return
@@ -5394,7 +5464,6 @@ def outputParser(rulesAndConds):
       if reannotator.startswith('##'): cmd=reannotator[2:]
       elif reannotator[0]=='#': cmd=reannotator[1:]
       else: cmd = reannotator
-      import thread ; sys.setcheckinterval(100)
       sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,close_fds=True)
       global cout ; cin,cout = sp.stdin,sp.stdout
       comms = [False,False]
@@ -5404,7 +5473,6 @@ def outputParser(rulesAndConds):
       cin.write("\n".join(l).encode(outcode)+b"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
       while comms[1] == False: time.sleep(1)
       l2 = comms[1]
-      sys.setcheckinterval(32767)
       del cin,cout,cmd,comms,sp
       while len(l2)>len(l) and not l2[-1]: del l2[-1] # don't mind extra blank line(s) at end of output
       if not len(l)==len(l2):
@@ -5730,20 +5798,7 @@ if main and not compile_only:
  if no_input:
    rulesAndConds = RulesAccumulator().rulesAndConds() # should load rulesFile
  if read_input:
-  if infile: infile=openfile(infile)
-  else:
-    infile = sys.stdin
-    if isatty(infile): sys.stderr.write("Reading from standard input\n(If that's not what you wanted, press Ctrl-C and run again with --help)\n")
-  corpus_unistr = getBuf(infile).read().decode(incode)
-  if diagnose and not diagnose in corpus_unistr:
-    diagnose_write(diagnose+" is not present in the corpus, even before normalisation")
-    suppress = True
-  else: suppress = False
-  loaded_from_checkpoint = normalise()
-  if diagnose and not suppress and not diagnose in corpus_unistr:
-    diagnose_write(diagnose+" was in the corpus before normalisation, but not after")
-    if loaded_from_checkpoint: diagnose_write("You might want to remove "+checkpoint+os.sep+'normalised* and redo the diagnose')
-  if normalise_only: sys.exit()
+  read_and_normalise()
   if priority_list:
     if os.path.exists(priority_list):
       sys.stderr.write("Reading "+priority_list+"\n")
@@ -5767,8 +5822,7 @@ if main and not compile_only:
     sys.exit()
   generate_map() ; setup_other_globals()
   if not no_input:
-    executor = setup_parallelism()
-    if executor and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8')) # normalise won't have done it and the other nodes will need it (TODO: unless we're doing concurrent.futures with fork)
+    copy_globals_to_helpers()
     try: rulesAndConds = analyse()
     finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
   del _gp_cache
@@ -5797,7 +5851,7 @@ if main:
      os.chdir(jSrc+"/..")
      dirName0 = S(getoutput("pwd|sed -e s,.*./,,"))
      dirName = shell_escape(dirName0)
-   if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
+   if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps after August 2021 ?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
      cmd_or_exit("$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
      cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      a = " -JXmx4g --force-jumbo" # -J option must go first
@@ -5843,9 +5897,12 @@ before the Annogen run (change the examples obviously) :
    export KEYSTORE_FILE=/path/to/keystore
    export KEYSTORE_USER='your user name'
    export KEYSTORE_PASS='your password'
-   # You can upload this to Google Play to update older apps.
-   # For new apps they now enforce a different 'bundle'
-   # format that I don't yet know how to make.
+   # You can upload this to Google Play before August 2021
+   # (or after that for updates to older apps).  In August
+   # Google Play will enforce a different 'bundle' format
+   # for new apps, which I don't yet know how to make.  It
+   # should be possible to update existing apps in the old
+   # format for some time after though.
    # To upload the release to Google Play, additionally set:
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
    # and optionally:

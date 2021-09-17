@@ -635,7 +635,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.1732
+Options for Annotator Generator v3.18
 ===========================
 
 Usage: annogen.py [options]
@@ -1101,7 +1101,7 @@ Options:
  : Cancels any earlier `--time-estimate` option in Makefile variables etc
 
 `-0, --single-core`
- : Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires `--checkpoint` + shared filespace, and is currently used only for large collocation checks in limited circumstances. Single-core saves on CPU power consumption, but if the computer is set to switch itself off at the end of the run then **total** energy used is generally less if you allow it to run multicore and reach that switchoff sooner.
+ : Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires `--checkpoint` + shared filespace, and is used only for some parts of the code. Single-core saves on CPU power consumption, but if the computer is set to switch itself off at the end of the run then **total** energy used is generally less if you allow it to run multicore and reach that switchoff sooner.
 
 `--no-single-core`
  : Cancels any earlier `--single-core` option in Makefile variables etc
