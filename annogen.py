@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.18 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.181 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -4356,8 +4356,7 @@ def normalise():
         seen.add(v)
         dic[k] = v
     sys.stderr.write(":") ; sys.stderr.flush()
-    if dic:
-     for exp in orRegexes(re.escape(k) for k in iterkeys(dic)):
+    for exp in orRegexes(re.escape(k) for k in iterkeys(dic)):
       corpus_unistr = re.sub(exp,lambda k:dic[k.group(0)],corpus_unistr)
     sys.stderr.write(" done\n")
     if normalised_file: openfile(normalised_file,'w').write(corpus_unistr.encode(incode))
@@ -4371,6 +4370,7 @@ def getAllWords():
   return allWords # do NOT cache (call = regenerate)
 def orRegexes(escaped_keys):
   escaped_keys = list(escaped_keys) # don't just iterate
+  if not escaped_keys: return # don't yield ""
   try: yield re.compile('|'.join(escaped_keys))
   except OverflowError: # regex too big (e.g. default Python on Mac OS 10.7 i.e. Python 2.7.1 (r271:86832, Jul 31 2011, 19:30:53); probably some Windows versions also; does not affect Mac HomeBrew's Python 2.7.12)
     ek = escaped_keys[:int(len(escaped_keys)/2)]
@@ -5049,15 +5049,18 @@ def setup_parallelism():
       import mpi4py.MPI, mpi4py ; assert mpi4py.MPI.COMM_WORLD.size > 1, "mpi4py says world size is 1: likely a symptom of incorrectly-configured MPI.  Did you compile mpi4py using the same setup (e.g. MPICH or OpenMPI) as you are running?  mpi4py's config is: "+repr(mpi4py.get_config())
       return mpi4py.futures.MPIPoolExecutor(), mpi4py.MPI.COMM_WORLD.size
     elif parallelism_type=="scoop":
-      import scoop.futures
-      return scoop.futures, 4 # submit() is at module level (TODO: how do we get the correct number of workers?  affects only normalise, not yarowsky background checks)
+      import scoop,scoop.futures
+      try: size = scoop.SIZE
+      except: size = 4 # undocumented API may have changed
+      return scoop.futures, size
     elif parallelism_type=="concurrent":
-      num_cpus = multiprocessing.cpu_count()
-      x = concurrent.futures.ProcessPoolExecutor(num_cpus-1) # leave one for the CPU-heavy control task (note: do NOT reduce Python 2's sys.setcheckinterval() (or Python 3's setswitchinterval) if using ProcessPoolExecutor, or job starts can be delayed)
+      x = concurrent.futures.ProcessPoolExecutor()
+      # Do not set max_workers to 1 less than cpu_count: although the control task is initially CPU-heavy, it then has to wait for tasks to complete at the wordLen change, during which time we'd like all CPUs to be allocated work (and there's no API to change max_workers in-flight).
+      # Do not reduce Python 2's sys.setcheckinterval() (or Python 3's setswitchinterval) if using ProcessPoolExecutor, or job starts can be delayed.
       global our_test_value ; our_test_value = True
       if x.submit(test_global,None).result():
         parallelism_type = "fork" # verified it propagated the globals at time of fork
-      return x, num_cpus
+      return x, multiprocessing.cpu_count()
     return None,1
 def test_global(*_):
   try: return our_test_value
@@ -5071,7 +5074,7 @@ def copy_globals_to_helpers():
   if parallelism_type=="fork":
     if need_refork:
       executor.shutdown(True) # MUST wait for the shutdown to finish before creating a new instance: some implementations seem to have a race condition
-      executor = concurrent.futures.ProcessPoolExecutor(multiprocessing.cpu_count()-1)
+      executor = concurrent.futures.ProcessPoolExecutor()
     else: pass # globals work, but we've JUST set it up
   elif parallelism_type and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8')) # normalise won't have written it and the other nodes will need it
   # TODO: MPIPoolExecutor can take a 'globals' dict, but can we re-initialise a second time, and will the globals be propagated once and not per-job?
@@ -5164,19 +5167,13 @@ def analyse():
 def flush_background(backgrounded,why="",covered=0,toCover=0):
   origLen = len(backgrounded)
   if origLen:
-    sys.stderr.write("Collecting backgrounded results%s... (0/%d)%s" % (why,origLen,clear_eol))
+    sys.stderr.write("Collecting %d backgrounded results%s...%s" % (origLen,why,clear_eol))
     sys.stderr.flush()
-    count = 0 ; t0=t=time.time()
-    backgrounded.reverse() # so pop() in order of submit
+    t=time.time()
     while backgrounded:
-      coveredA,toCoverA = getNext(backgrounded.pop())
+      coveredA,toCoverA = getNext(backgrounded.pop()) # completes the suspended addRulesForPhrase when result avail.  Unlikely to finish in submit order, might as well just pop() in reverse order, unless want to rewrite to track progress as they finish in any order
       covered += coveredA ; toCover += toCoverA
-      count += 1
-      if time.time() >= t+1:
-        sys.stderr.write("\rCollecting backgrounded results%s... (%d/%d)%s" % (why,count,origLen,clear_eol))
-        sys.stderr.flush()
-        t = time.time()
-    sys.stderr.write("\rCollecting backgrounded results%s... (%d/%d), secs=%d\n" % (why,count,origLen,int(time.time()-t0)))
+    sys.stderr.write("\rCollected %d backgrounded results%s in %d seconds\n" % (origLen,why,int(time.time()-t)))
   return covered,toCover
 
 def read_manual_rules():
