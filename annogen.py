@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.181 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.182 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -393,6 +393,11 @@ parser.add_option("-0","--single-core",
                   help="Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is used only for some parts of the code. Single-core saves on CPU power consumption, but if the computer is set to switch itself off at the end of the run then TOTAL energy used is generally less if you allow it to run multicore and reach that switchoff sooner.") # limited circumstances: namely, words that occur in length-1 phrases. TODO: Linux cpusets can reduce the number of CPUs actually available, so we might start too many processes unless run with -0 (especially in a virtual environment).
 # Consider a Mac Mini that idles at 15W and maxes-out at 85W when running 2-core 4-thread i5.  The 70W difference is probably 35W for the CPU at 50% power-supply efficiency, give or take some extras.  Running 1-core should very roughly halve that 70W (below half if non-use of SMT saves a bit of power, but above if there's constant overheads and/or TurboBoost adding up to 25% to the clock when running single-core), so maybe about 50W.  One corpus ran multicore for about 40mins of its total runtime, and changing it to single-core added about 30mins to that total runtime.  So if the machine is set to halt at the end of the run, the single-core option saves 35W x 40mins at the expense of 50W x 30mins.  That's a negative saving.  On the other hand if the computer is NOT to be powered off at the end of the run then single-core does save power.
 cancelOpt("single-core")
+
+parser.add_option("--debug-multicore",
+                  action="store_true",default=False,
+                  help="Output extra messages to show how multicore load is being distributed")
+cancelOpt("debug-multicore")
 
 parser.add_option("-p","--status-prefix",help="Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running")
 
@@ -4571,7 +4576,8 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
       if len(badStarts) <= yarowsky_debug: typo_report("yarowsky-debug.txt","allow-exceptions.txt",withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
     if run_in_background:
       job = executor.submit(yarowsky_indicators_wrapped,withAnnot_unistr) # recalculate the above on the other CPU in preference to passing, as memory might not be shared
-      yield "backgrounded" ; yield job.result() ; return
+      yield "backgrounded" ; yield job
+      yield job.result() ; return
     if ybytes_max > ybytes and (not ymax_threshold or len(nonAnnot) <= ymax_threshold):
       retList = [] ; append=retList.append
       for nbytes in range(ybytes,ybytes_max+1,ybytes_step):
@@ -4611,7 +4617,10 @@ def typo_report(debugFile,exceptionFile,withAnnot_unistr,msg_unistr):
     typo_data[debugFile].flush() # in case interrupted
 def yarowsky_indicators_wrapped(withAnnot_unistr):
     check_globals_are_set_up()
-    return getNext(yarowsky_indicators(withAnnot_unistr,False))
+    if debug_multicore: diagnose_write(u"%s: %d starting %s" % ((u"%02d:%02d:%02d" % time.localtime()[3:6]),os.getpid(),withAnnot_unistr))
+    r = getNext(yarowsky_indicators(withAnnot_unistr,False))
+    if debug_multicore: diagnose_write(u"%s: %d finishing %s" % ((u"%02d:%02d:%02d" % time.localtime()[3:6]),os.getpid(),withAnnot_unistr))
+    return r
 def getOkStarts(withAnnot_unistr):
     if withAnnot_unistr in precalc_sets: return precalc_sets[withAnnot_unistr]
     walen = len(withAnnot_unistr)
@@ -4799,14 +4808,15 @@ def test_rule(withAnnot_unistr,yBytesRet,canBackground=None):
     # marked-up version.
     # (If we deal only in rules that ALWAYS work, we can
     # build them up incrementally without "cross-talk")
-    # yield "backgrounded" = task has been backgrounded; getNext collects result (nb we default to NOT canBackground, as test_rule is called from several places of which ONE can handle backgrounding)
+    # yield "backgrounded" = task has been backgrounded; getNext collects job handle, then getNext collects result (nb we default to NOT canBackground, as test_rule is called from several places of which ONE can handle backgrounding)
     if primitive: yield True
     elif ybytes:
         # Doesn't have to be always right, but put the indicators in yBytesRet
         ybrG = yarowsky_indicators(withAnnot_unistr,canBackground)
         ybr = getNext(ybrG)
         if ybr == "backgrounded":
-          yield ybr ; ybr = getNext(ybrG)
+          yield ybr ; yield getNext(ybrG)
+          ybr = getNext(ybrG)
         if ybr==True or not ybr:
           yield ybr ; return
         yBytesRet.append(ybr) # (negate, list of indicators, nbytes)
@@ -4952,7 +4962,8 @@ class RulesAccumulator:
         rGen = test_rule(rule,yBytesRet,canBackground)
         r = getNext(rGen)
         if r=="backgrounded":
-          yield r ; r = getNext(rGen)
+          yield r ; yield getNext(rGen)
+          r = getNext(rGen)
         del rGen
         if not r or potentially_bad_overlap(self.rulesAsWordlists,ruleAsWordlist):
             self.rejectedRules.add(rule) # so we don't waste time evaluating it again (TODO: make sure rejectedRules doesn't get too big?)
@@ -5035,6 +5046,7 @@ def find_parallelism_type():
     try:
       global concurrent,multiprocessing
       import concurrent.futures # sudo pip install futures (2.7 backport of 3.2 standard library)
+      concurrent.futures.ProcessPoolExecutor # check we're not just being given ThreadPoolExecutor
       import multiprocessing
       if multiprocessing.cpu_count() > 1:
         return "concurrent" # to be replaced with "fork" if we establish globals work once we set it up
@@ -5054,8 +5066,7 @@ def setup_parallelism():
       except: size = 4 # undocumented API may have changed
       return scoop.futures, size
     elif parallelism_type=="concurrent":
-      x = concurrent.futures.ProcessPoolExecutor()
-      # Do not set max_workers to 1 less than cpu_count: although the control task is initially CPU-heavy, it then has to wait for tasks to complete at the wordLen change, during which time we'd like all CPUs to be allocated work (and there's no API to change max_workers in-flight).
+      x = concurrent.futures.ProcessPoolExecutor(multiprocessing.cpu_count()-1)
       # Do not reduce Python 2's sys.setcheckinterval() (or Python 3's setswitchinterval) if using ProcessPoolExecutor, or job starts can be delayed.
       global our_test_value ; our_test_value = True
       if x.submit(test_global,None).result():
@@ -5074,7 +5085,7 @@ def copy_globals_to_helpers():
   if parallelism_type=="fork":
     if need_refork:
       executor.shutdown(True) # MUST wait for the shutdown to finish before creating a new instance: some implementations seem to have a race condition
-      executor = concurrent.futures.ProcessPoolExecutor()
+      executor = concurrent.futures.ProcessPoolExecutor(multiprocessing.cpu_count()-1)
     else: pass # globals work, but we've JUST set it up
   elif parallelism_type and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8')) # normalise won't have written it and the other nodes will need it
   # TODO: MPIPoolExecutor can take a 'globals' dict, but can we re-initialise a second time, and will the globals be propagated once and not per-job?
@@ -5164,16 +5175,20 @@ def analyse():
     if rulesFile: accum.save()
     if diagnose_manual: test_manual_rules()
     return sorted(accum.rulesAndConds()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
+try: import Queue as queue # Python 2
+except: import queue # Python 3
 def flush_background(backgrounded,why="",covered=0,toCover=0):
+  q = queue.Queue()
   origLen = len(backgrounded)
-  if origLen:
-    sys.stderr.write("Collecting %d backgrounded results%s...%s" % (origLen,why,clear_eol))
-    sys.stderr.flush()
-    t=time.time()
-    while backgrounded:
-      coveredA,toCoverA = getNext(backgrounded.pop()) # completes the suspended addRulesForPhrase when result avail.  Unlikely to finish in submit order, might as well just pop() in reverse order, unless want to rewrite to track progress as they finish in any order
-      covered += coveredA ; toCover += toCoverA
-    sys.stderr.write("\rCollected %d backgrounded results%s in %d seconds\n" % (origLen,why,int(time.time()-t)))
+  if origLen: sys.stderr.write("Collecting backgrounded results%s: 0/%d%s" % (why,origLen,clear_eol))
+  while backgrounded:
+    b = backgrounded.pop()
+    getNext(b).add_done_callback(lambda _,b=b:q.put(b))
+  for count in xrange(origLen):
+    coveredA,toCoverA = getNext(q.get())
+    covered += coveredA ; toCover += toCoverA
+    sys.stderr.write("\rCollecting backgrounded results%s: %d/%d" % (why,count+1,origLen))
+  if origLen: sys.stderr.write("\n")
   return covered,toCover
 
 def read_manual_rules():
