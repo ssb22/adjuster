@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.182 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.183 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -141,7 +141,7 @@ parser.add_option("-n","--no-input",
                   help="Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.")
 cancelOpt("no-input")
 
-parser.add_option("--c-filename",default="",help="Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.") # because the main program might not be running on the launch node
+parser.add_option("--c-filename",default="",help="Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota).") # because the main program might not be running on the launch node
 
 parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
 # If compiling an experimental annotator quickly (and don't want to use --data-driven for some reason), then you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc.
@@ -339,9 +339,11 @@ cancelOpt("primitive")
 parser.add_option("-y","--ybytes",default=0,
                   help="Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed when seed collocations can be used to distinguish between them, and the analysis is likely to be faster.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of (non-whitespace) bytes between them.")
 parser.add_option("--ybytes-max",default=0,
-                  help="Extend the Yarowsky seed-collocation search to check over larger ranges up to this maximum.  If this is set then several ranges will be checked in an attempt to determine the best one for each word, but see also ymax-threshold.")
+                  help="Extend the Yarowsky seed-collocation search to check over larger ranges up to this maximum.  If this is set then several ranges will be checked in an attempt to determine the best one for each word, but see also ymax-threshold and ymax-limitwords.")
 parser.add_option("--ymax-threshold",default=1,
                   help="Limits the length of word that receives the narrower-range Yarowsky search when ybytes-max is in use. For words longer than this, the search will go directly to ybytes-max. This is for languages where the likelihood of a word's annotation being influenced by its immediate neighbours more than its distant collocations increases for shorter words, and less is to be gained by comparing different ranges when processing longer words. Setting this to 0 means no limit, i.e. the full range will be explored on ALL Yarowsky checks.") # TODO: see TODO below re temporary recommendation of --ymax-threshold=0
+parser.add_option("--ymax-limitwords",
+                  help="Comma-separated list of words (without annotation markup) for which the ybytes expansion loop should run at most two iterations.  This may be useful to reduce compile times for very common ambiguous words that depend only on their immediate neighbours.  Annogen may suggest words for this option if it finds they take inordinate time to process.") # two iterations rather than one increases the rate of correctly handling things like 'yi/bu sandhi before duoyinzi' in Chinese, where the next TWO characters matter because the sandhi tone depends on how the duoyinzi resolves (which is often determined by the 3rd character, although this shortcut may not catch some rare cases where it's determined by one further on)
 parser.add_option("--ybytes-step",default=3,
                   help="The increment value for the loop between ybytes and ybytes-max")
 parser.add_option("-k","--warn-yarowsky",
@@ -390,18 +392,12 @@ cancelOpt("time-estimate")
 
 parser.add_option("-0","--single-core",
                   action="store_true",default=False,
-                  help="Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires --checkpoint + shared filespace, and is used only for some parts of the code. Single-core saves on CPU power consumption, but if the computer is set to switch itself off at the end of the run then TOTAL energy used is generally less if you allow it to run multicore and reach that switchoff sooner.") # limited circumstances: namely, words that occur in length-1 phrases. TODO: Linux cpusets can reduce the number of CPUs actually available, so we might start too many processes unless run with -0 (especially in a virtual environment).
-# Consider a Mac Mini that idles at 15W and maxes-out at 85W when running 2-core 4-thread i5.  The 70W difference is probably 35W for the CPU at 50% power-supply efficiency, give or take some extras.  Running 1-core should very roughly halve that 70W (below half if non-use of SMT saves a bit of power, but above if there's constant overheads and/or TurboBoost adding up to 25% to the clock when running single-core), so maybe about 50W.  One corpus ran multicore for about 40mins of its total runtime, and changing it to single-core added about 30mins to that total runtime.  So if the machine is set to halt at the end of the run, the single-core option saves 35W x 40mins at the expense of 50W x 30mins.  That's a negative saving.  On the other hand if the computer is NOT to be powered off at the end of the run then single-core does save power.
+                  help="Use only one CPU core even when others are available on Unix")
 cancelOpt("single-core")
-
-parser.add_option("--debug-multicore",
-                  action="store_true",default=False,
-                  help="Output extra messages to show how multicore load is being distributed")
-cancelOpt("debug-multicore")
 
 parser.add_option("-p","--status-prefix",help="Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running")
 
-main = (__name__ == "__main__" and not os.environ.get("OMPI_COMM_WORLD_RANK","0").replace("0",""))
+main = (__name__ == "__main__")
 term = os.environ.get("TERM","")
 is_xterm = "xterm" in term
 ansi_escapes = is_xterm or term in ["screen","linux"]
@@ -498,7 +494,7 @@ if java:
   if '.' in jRest: errExit("--java must be ...src//org/example/package not ...src//org.example.package") # (TODO: fix it automatically in both jRest and java? only on the right-hand side of the //)
   jPackage = jRest.replace('/','.')
   if 'NewFunc' in jPackage: errExit("Currently unable to include the string 'NewFunc' in your package due to an implementation detail in annogen's search/replace operations")
-if not c_filename and isatty(sys.stdout): # assumed false when run under MPI
+if not c_filename and isatty(sys.stdout):
   c_filename = tempfile.gettempdir()+os.sep+"annotator.c"
 def shell_escape(arg):
   if re.match("^[A-Za-z0-9_=/.%+,:@-]*$",arg): return arg
@@ -516,7 +512,7 @@ if java or javascript or python or c_sharp or golang or dart:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
     if java:
       if android and not "/src//" in java: errExit("When using --android, the last thing before the // in --java must be 'src' e.g. --java=/workspace/MyProject/src//org/example/package")
-      if main and not compile_only: # (delete previous files, only if we're not an MPI-etc subprocess)
+      if main and not compile_only: # (delete previous files, only if we're not a subprocess)
        os.system("mkdir -p "+shell_escape(java))
        for f in os.listdir(java):
         if f.endswith(".java") and f.startswith("z"): os.remove(java+os.sep+f)
@@ -600,6 +596,7 @@ def T(s):
   if type(s)==type(u""): return s # Python 3
   return s.decode(terminal_charset)
 if keep_whitespace: keep_whitespace = set(T(keep_whitespace).split(','))
+if ymax_limitwords: ymax_limitwords = set(T(ymax_limitwords).split(','))
 if glossmiss_hide: glossmiss_hide = set(T(glossmiss_hide).split(','))
 if status_prefix: status_prefix += ": "
 else: status_prefix = ""
@@ -4224,7 +4221,6 @@ def read_and_normalise():
   if diagnose and not suppress and not diagnose in corpus_unistr:
     diagnose_write(diagnose+" was in the corpus before normalisation, but not after")
     if loaded_from_checkpoint: diagnose_write("You might want to remove "+checkpoint+os.sep+'normalised* and redo the diagnose')
-  if executor and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8')) # normalise won't have done it and the other nodes will need it (TODO: unless we're doing concurrent.futures with fork)
   if normalise_only: sys.exit()
 
 def normWord(w,allWords,cu_nosp):
@@ -4272,11 +4268,7 @@ def normWord(w,allWords,cu_nosp):
         return "".join(mw),hTry,typo
       # TODO: is there ANY time where we want multiword to take priority over the nowsp (no-whitespace) version above?  or even REPLACE multiword occurrences in the corpus with the 1-word nowsp version?? (must be VERY CAREFUL doing that)
   return w,hTry,typo
-def normBatch(params):
-  words,allWords,cu_nosp = params
-  if allWords==None: allWords = _allWords
-  if cu_nosp==None: cu_nosp = _cu_nosp
-  # TODO: else (if can't propagate via globals), might using filesystem save traffic over parameters in the case of separate multicore helper machine with large filesystem cache and large corpus?  (but at least the duplication is limited to 1 per core)
+def normBatch(words):
   r,typoR = [],[]
   for w in words:
     w2,hTry,typo = normWord(w,allWords,cu_nosp)
@@ -4292,7 +4284,7 @@ def normalise():
     if normalised_file == infile: return
     global capitalisation # might want to temp change it
     if (capitalisation or priority_list) and annot_whitespace: return
-    global corpus_unistr
+    global corpus_unistr,allWords,cu_nosp
     if checkpoint:
       try:
         f=open_try_bz2(checkpoint+os.sep+'normalised','r')
@@ -4332,18 +4324,15 @@ def normalise():
     cu_nosp = re.sub(wspPattern,"",corpus_unistr)
     if not capitalisation: cu_nosp = cu_nosp.lower()
     sys.stderr.write(":") ; sys.stderr.flush()
-    tmp = corpus_unistr ; del corpus_unistr # since if parallelism involves fork then we don't want the other processes to treat pre-normalised as normalised later if it didn't manage to restart (see check_globals_are_set_up)
-    global executor,_allWords,_cu_nosp ; _allWords,_cu_nosp = allWords,cu_nosp
-    executor,numCores = setup_parallelism()
+    tmp = corpus_unistr ; del corpus_unistr
+    numCores = setup_parallelism()
     corpus_unistr = tmp
-    if parallelism_type=="fork": allWords=cu_nosp=None
-    perCore = int(len(_allWords)/numCores)+1
-    allWL = list(_allWords.keys()) ; jobs = []
-    for c in xrange(numCores-1):
-      jobs.append(executor.submit(normBatch,(allWL[c*perCore:(c+1)*perCore],allWords,cu_nosp))) # TODO: allWords + cu_nosp to global or via-checkpoint (or re-compute, with stdin via checkpoint if necessary) ?  but wouldn't save too much as this is per-core, not per-word or anything
+    perCore = int(len(allWords)/numCores)+1
+    allWL = list(allWords.keys()) ; jobs = []
+    for c in xrange(numCores-1): jobs.append(executor.submit(normBatch,allWL[c*perCore:(c+1)*perCore]))
     if numCores>1: allWL=allWL[(numCores-1)*perCore:]
-    results = [normBatch((allWL,allWords,cu_nosp))]
-    del _allWords,_cu_nosp
+    results = [normBatch(allWL)]
+    del allWords,cu_nosp
     for j in jobs: results.append(j.result())
     sys.stderr.write(".") ; sys.stderr.flush()
     dic = {}
@@ -4569,7 +4558,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     # Now, if it's right more often than not:
     if can_be_default==True and len(okStarts) > len(badStarts) and unconditional_looks_ok("majority-case"): # (if can_be_default=="must", we have already checked for unconditional_looks_ok() above before computing okStarts and badStarts)
         yield True ; return
-    run_in_background = canBackground and len(okStarts) > 500 and executor # In a test with 300, 500, 700 and 900, the 500 threshold was fastest on concurrent.futures, but by just a few seconds.  TODO: does mpi4py.futures have a different 'sweet spot' here? (low priority unless we can get MPI to outdo concurrent.futures in this application)
+    run_in_background = canBackground and len(okStarts) > 500 and executor # In a test with 300, 500, 700 and 900, the 500 threshold was fastest on concurrent.futures, but by just a few seconds.
     may_take_time = canBackground and len(okStarts) > 1000
     if may_take_time:
       getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),cond(run_in_background,"backgrounding","could take some time"))).encode(terminal_charset,'replace'))
@@ -4580,13 +4569,18 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
       yield job.result() ; return
     if ybytes_max > ybytes and (not ymax_threshold or len(nonAnnot) <= ymax_threshold):
       retList = [] ; append=retList.append
+      times = []
       for nbytes in range(ybytes,ybytes_max+1,ybytes_step):
+        t = time.time()
         negate,ret,covered,toCover = tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,can_be_default=="must",nbytes==ybytes_max)
         if covered==toCover and len(ret)==1:
           if may_take_time: sys.stderr.write(" - using 1 indicator, negate=%s\n" % repr(negate))
           yield (negate,ret,nbytes) ; return # a single indicator that covers everything will be better than anything else we'll find
         append((-int(covered*100/toCover),len(ret),nbytes,negate,toCover,ret)) # (1st 4 of these are the sort keys: maximum coverage to nearest 1%, THEN minimum num indicators for the same coverage, THEN minimum nbytes (TODO: problems of very large nbytes might outweigh having more indicators; break if found 100% coverage by N?), THEN avoid negate)
         # TODO: try finding an OR-combination of indicators at *different* proximity lengths ?
+        if nbytes>ybytes and ymax_limitwords and nonAnnot in ymax_limitwords: break
+        times.append(time.time()-t) ; t=time.time()
+      if len(times)>2 and sum(times) > 20*60 and not min(i[0] for i in retList)<1.05*min(i[0] for i in retList[:2]): diagnose_write("%s took %d+mins, consider --ymax-limitwords (mins:%s, coverage:%s, indicators:%s, noexpand discards #2+)" % (withAnnot_unistr,sum(times)/60,",".join(str(int(t/60)) for t in times),",".join((str(-i[0])+"%") for i in retList),",".join(str(i[1]) for i in retList)),"Suggestion")
       retList.sort()
       if nonAnnot==diagnose: diagnose_write("Best coverage is %d%% of %d" % (-retList[0][0],retList[0][-2]))
       negate,ret = retList[0][-3],retList[0][-1]
@@ -4616,11 +4610,7 @@ def typo_report(debugFile,exceptionFile,withAnnot_unistr,msg_unistr):
     typo_data[debugFile].write((msg_unistr+u"\n").encode(terminal_charset,'replace'))
     typo_data[debugFile].flush() # in case interrupted
 def yarowsky_indicators_wrapped(withAnnot_unistr):
-    check_globals_are_set_up()
-    if debug_multicore: diagnose_write(u"%s: %d starting %s" % ((u"%02d:%02d:%02d" % time.localtime()[3:6]),os.getpid(),withAnnot_unistr))
-    r = getNext(yarowsky_indicators(withAnnot_unistr,False))
-    if debug_multicore: diagnose_write(u"%s: %d finishing %s" % ((u"%02d:%02d:%02d" % time.localtime()[3:6]),os.getpid(),withAnnot_unistr))
-    return r
+    return getNext(yarowsky_indicators(withAnnot_unistr,False))
 def getOkStarts(withAnnot_unistr):
     if withAnnot_unistr in precalc_sets: return precalc_sets[withAnnot_unistr]
     walen = len(withAnnot_unistr)
@@ -5038,58 +5028,27 @@ def generate_map():
     if checkpoint: pickle.Pickler(open_try_bz2(checkpoint+os.sep+'map','w'),-1).dump((m2c_map,precalc_sets,yPriorityDic))
     checkpoint_exit()
 
-def find_parallelism_type():
-    if single_core or not checkpoint: return # parallelise only if checkpoint (otherwise could have trouble sharing the normalised corpus and map etc, although TODO can still parallelise the normalisation part without checkpoint, and can still parallelise the rest if can establish copy_globals_to_helpers worked (via submitting a query task))
-    args = getoutput("ps -p " + str(os.getpid()) + " -o args")
-    if "-m mpi4py.futures" in args: return "mpi"
-    elif "-m scoop" in args: return "scoop"
+executor = None
+def setup_parallelism(): # returns number of cores
+    global executor
+    if single_core: return 1
+    elif executor: executor.shutdown(True) # MUST wait for the shutdown to finish before creating a new instance: some implementations seem to have a race condition
     try:
-      global concurrent,multiprocessing
-      import concurrent.futures # sudo pip install futures (2.7 backport of 3.2 standard library)
-      concurrent.futures.ProcessPoolExecutor # check we're not just being given ThreadPoolExecutor
       import multiprocessing
-      if multiprocessing.cpu_count() > 1:
-        return "concurrent" # to be replaced with "fork" if we establish globals work once we set it up
-    except: pass
-executor,parallelism_type = None,"unknown"
-def setup_parallelism():
-    global parallelism_type
-    parallelism_type = find_parallelism_type()
-    if not parallelism_type: return None,1
-    elif parallelism_type=="mpi":
-      import mpi4py.futures # mpi4py v2.1+
-      import mpi4py.MPI, mpi4py ; assert mpi4py.MPI.COMM_WORLD.size > 1, "mpi4py says world size is 1: likely a symptom of incorrectly-configured MPI.  Did you compile mpi4py using the same setup (e.g. MPICH or OpenMPI) as you are running?  mpi4py's config is: "+repr(mpi4py.get_config())
-      return mpi4py.futures.MPIPoolExecutor(), mpi4py.MPI.COMM_WORLD.size
-    elif parallelism_type=="scoop":
-      import scoop,scoop.futures
-      try: size = scoop.SIZE
-      except: size = 4 # undocumented API may have changed
-      return scoop.futures, size
-    elif parallelism_type=="concurrent":
+      if multiprocessing.cpu_count() <= 1: return 1
+      import concurrent.futures # sudo pip install futures (2.7 backport of 3.2 standard library)
       x = concurrent.futures.ProcessPoolExecutor(multiprocessing.cpu_count()-1)
       # Do not reduce Python 2's sys.setcheckinterval() (or Python 3's setswitchinterval) if using ProcessPoolExecutor, or job starts can be delayed.
       global our_test_value ; our_test_value = True
       if x.submit(test_global,None).result():
-        parallelism_type = "fork" # verified it propagated the globals at time of fork
-      return x, multiprocessing.cpu_count()
-    return None,1
+        executor = x
+        return multiprocessing.cpu_count()
+      else: x.shutdown(False) # ProcessPoolExecutor did not propagate globals at time of construction (which probably means we're running on Windows), would need to write to filesystem like versions of annogen before 3.183
+    except: pass
+    return 1
 def test_global(*_):
   try: return our_test_value
   except: return False
-def copy_globals_to_helpers():
-  global executor
-  if parallelism_type=="unknown": # normalise didn't set it up, e.g. because loaded from cache
-    executor, _ = setup_parallelism()
-    need_refork = False
-  else: need_refork = True
-  if parallelism_type=="fork":
-    if need_refork:
-      executor.shutdown(True) # MUST wait for the shutdown to finish before creating a new instance: some implementations seem to have a race condition
-      executor = concurrent.futures.ProcessPoolExecutor(multiprocessing.cpu_count()-1)
-    else: pass # globals work, but we've JUST set it up
-  elif parallelism_type and capitalisation and annot_whitespace and infile==sys.stdin: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8')) # normalise won't have written it and the other nodes will need it
-  # TODO: MPIPoolExecutor can take a 'globals' dict, but can we re-initialise a second time, and will the globals be propagated once and not per-job?
-  # TODO: scoop.shared.getConst(name, timeout=0.1) ("the maximum time to wait in seconds for the propagation of the constant") and setConst might avoid need for a shared filespace, but test it very carefully
 
 def get_phrases():
     # Returns a list of phrases in processing order, with length-numbers inserted in the list.  Caches its result.
@@ -5122,15 +5081,6 @@ def setup_other_globals():
     global markedUp_unichars
     if yarowsky_all: markedUp_unichars = None
     else: markedUp_unichars = set(list(u"".join(markDown(p) for p in get_phrases() if not type(p)==int)))
-def check_globals_are_set_up(): # for use during parallelism
-  global corpus_unistr
-  try: corpus_unistr # if we fork()d, we may already have it
-  except NameError:
-    normalise() # should get corpus_unistr from checkpoint,
-    try: corpus_unistr # unless we're NOT normalising,
-    except: corpus_unistr = openfile(infile).read().decode(incode) # in which case we have to load the corpus from scratch (it won't be stdin)
-    generate_map() # similarly this should just be a read
-    setup_other_globals() # might do a bit more work, but probably faster than copying if we're not on the same machine
 
 def analyse():
     accum = RulesAccumulator()
@@ -5795,7 +5745,10 @@ def set_title(t):
   is_tmux = (term=="screen" and os.environ.get("TMUX",""))
   if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
-def diagnose_write(s): getBuf(sys.stderr).write(bold_on+"Diagnose: "+bold_off+s.encode(terminal_charset,'replace')+clear_eol+'\n')
+def diagnose_write(s,label="Diagnose"):
+  if not main: start="\n"
+  else: start=""
+  getBuf(sys.stderr).write(start+bold_on+label+": "+bold_off+s.encode(terminal_charset,'replace')+clear_eol+'\n')
 try: screenWidth = int(os.environ['COLUMNS'])
 except:
   import struct, fcntl, termios
@@ -5834,7 +5787,7 @@ if main and not compile_only:
     sys.exit()
   generate_map() ; setup_other_globals()
   if not no_input:
-    copy_globals_to_helpers()
+    setup_parallelism() # re-copy globals to cores
     try: rulesAndConds = analyse()
     finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
   del _gp_cache

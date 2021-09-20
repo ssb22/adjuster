@@ -635,7 +635,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.182
+Options for Annotator Generator v3.183
 ===========================
 
 Usage: annogen.py [options]
@@ -763,7 +763,7 @@ Options:
 
 `--c-filename=C_FILENAME
 `
- : Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota). If MPI is in use then the default will always be standard output.
+ : Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota).
 
 `--c-compiler=C_COMPILER
 `
@@ -1021,11 +1021,15 @@ Options:
 
 `--ybytes-max=YBYTES_MAX
 `
- : Extend the Yarowsky seed-collocation search to check over larger ranges up to this maximum.  If this is set then several ranges will be checked in an attempt to determine the best one for each word, but see also ymax-threshold.
+ : Extend the Yarowsky seed-collocation search to check over larger ranges up to this maximum.  If this is set then several ranges will be checked in an attempt to determine the best one for each word, but see also ymax-threshold and ymax-limitwords.
 
 `--ymax-threshold=YMAX_THRESHOLD
 `
  : Limits the length of word that receives the narrower-range Yarowsky search when ybytes-max is in use. For words longer than this, the search will go directly to ybytes-max. This is for languages where the likelihood of a word's annotation being influenced by its immediate neighbours more than its distant collocations increases for shorter words, and less is to be gained by comparing different ranges when processing longer words. Setting this to 0 means no limit, i.e. the full range will be explored on **all** Yarowsky checks.
+
+`--ymax-limitwords=YMAX_LIMITWORDS
+`
+ : Comma-separated list of words (without annotation markup) for which the ybytes expansion loop should run at most two iterations.  This may be useful to reduce compile times for very common ambiguous words that depend only on their immediate neighbours.  Annogen may suggest words for this option if it finds they take inordinate time to process.
 
 `--ybytes-step=YBYTES_STEP
 `
@@ -1101,16 +1105,10 @@ Options:
  : Cancels any earlier `--time-estimate` option in Makefile variables etc
 
 `-0, --single-core`
- : Use only one CPU core even when others are available. If this option is not set, multiple cores are used if a 'futures' package is installed or if run under MPI or SCOOP; this currently requires `--checkpoint` + shared filespace, and is used only for some parts of the code. Single-core saves on CPU power consumption, but if the computer is set to switch itself off at the end of the run then **total** energy used is generally less if you allow it to run multicore and reach that switchoff sooner.
+ : Use only one CPU core even when others are available on Unix
 
 `--no-single-core`
  : Cancels any earlier `--single-core` option in Makefile variables etc
-
-`--debug-multicore`
- : Output extra messages to show how multicore load is being distributed
-
-`--no-debug-multicore`
- : Cancels any earlier `--debug-multicore` option in Makefile variables etc
 
 `-p STATUS_PREFIX, `--status-prefix`=STATUS_PREFIX
 `
