@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.183 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.184 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -822,7 +822,7 @@ if compress:
         if not s2==s:
           squashStrings.remove(s) ; squashStrings.add(s2)
       totSaved += bSaved
-      sys.stderr.write("Compress: %d/%d tokens, %d bytes saved%s" % (len(orig_tokens)-len(tokens),len(orig_tokens),totSaved,clear_eol)) ; sys.stderr.flush()
+      sys.stderr.write("Compress: %d/%d tokens, %d bytes saved%s\r" % (len(orig_tokens)-len(tokens),len(orig_tokens),totSaved,clear_eol)) ; sys.stderr.flush()
     squashStrings = "done"
     while len(pairs) > 256 and pairs[-1]==chr(0): pairs = pairs[:-1]
     sys.stderr.write("\n")
@@ -5410,7 +5410,7 @@ def outputParser(rulesAndConds):
         matchingAction(l,glossDic,glossMiss,glosslist,omitlist)
     if reannotator:
       global stderr_newline ; stderr_newline = False
-      sys.stderr.write("Reannotating... ")
+      sys.stderr.write("Preparing reannotate... ")
       sys.stderr.flush()
       dryRun()
       # Setting buffer size is not enough on all systems.
@@ -5426,6 +5426,8 @@ def outputParser(rulesAndConds):
       if reannotator.startswith('##'): cmd=reannotator[2:]
       elif reannotator[0]=='#': cmd=reannotator[1:]
       else: cmd = reannotator
+      sys.stderr.write("reannotating... ")
+      sys.stderr.flush()
       sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,close_fds=True)
       global cout ; cin,cout = sp.stdin,sp.stdout
       comms = [False,False]
@@ -5836,22 +5838,31 @@ if main:
      import httplib2,googleapiclient.discovery,oauth2client.service_account # pip install google-api-python-client (or pip install --upgrade google-api-python-client if yours is too old).  Might need pip install oauth2client also.
      trackToUse = os.environ.get("GOOGLE_PLAY_TRACK","").strip()
      if not trackToUse: trackToUse='beta'
-     sys.stderr.write("Logging in... ")
-     service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
-     eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
-     if android_upload:
-       sys.stderr.write("uploading... ")
+     for tryNo in xrange(10):
+      try:
+       if tryNo:
+         sys.stderr.write("\nRetrying in 1 minute... ")
+         sys.stderr.flush() ; time.sleep(60)
+         sys.stderr.write("now\n")
+       sys.stderr.write("Logging in... ")
        sys.stderr.flush()
-       v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
-       open(jSrc+"/../.last-versionCode","w").write(str(v))
-     else: v = int(open(jSrc+"/../.last-versionCode").read().strip()) # if this fails, you probably didn't run annogen v0.691+ to compile the APK before trying to change track (see instructions printed when GOOGLE_PLAY_TRACK environment variable is not set)
-     if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":T(os.environ["GOOGLE_PLAY_CHANGELOG"])}],u'status':u'completed'}],u'track':trackToUse}).execute() # needs to be "en-US" as just "en" is dropped by the Store, although it does say you can "add as supported language in your app's Store Listing"
-     else:
-       service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}],u'track':trackToUse}).execute()
-       if not android_upload: sys.stderr.write("Warning: GOOGLE_PLAY_CHANGELOG not set, any release notes will be deleted\n")
-     sys.stderr.write("Committing... ")
-     sys.stderr.flush()
-     sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse))
+       service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
+       eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
+       if android_upload:
+         sys.stderr.write("uploading... ")
+         sys.stderr.flush()
+         v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
+         open(jSrc+"/../.last-versionCode","w").write(str(v))
+       else: v = int(open(jSrc+"/../.last-versionCode").read().strip()) # if this fails, you probably didn't run annogen v0.691+ to compile the APK before trying to change track (see instructions printed when GOOGLE_PLAY_TRACK environment variable is not set)
+       if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":T(os.environ["GOOGLE_PLAY_CHANGELOG"])}],u'status':u'completed'}],u'track':trackToUse}).execute() # needs to be "en-US" as just "en" is dropped by the Store, although it does say you can "add as supported language in your app's Store Listing"
+       else:
+         service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}],u'track':trackToUse}).execute()
+         if not android_upload: sys.stderr.write("Warning: GOOGLE_PLAY_CHANGELOG not set, any release notes will be deleted\n")
+       sys.stderr.write("Committing... ")
+       sys.stderr.flush()
+       sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse))
+       break
+      except httplib2.HttpLib2Error: pass
    if not can_compile_android and not can_track_android: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
 To have Annogen build it for you, set these environment variables
 before the Annogen run (change the examples obviously) :
