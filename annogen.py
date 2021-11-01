@@ -2112,6 +2112,14 @@ if android_print: android_src += br"""
                     }
                 });
             }"""
+android_tts = False # set to True for testing only
+if android_tts: android_src += br"""
+            @JavascriptInterface public String TTSInfo() {
+                // Voice list.
+                // You might need to call this twice, with
+                // a delay to let it initialise.
+                return TTSTest(1);
+            }"""
 if android_template: android_src += br"""
             @TargetApi(17)
             @JavascriptInterface public boolean isDevMode() {
@@ -2381,6 +2389,56 @@ if pleco_hanping: android_src += br"""
     boolean gotPleco = false;
     String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
     int[] hanpingVersion = new int[]{0,0,0};"""
+if android_tts: android_src += br"""
+    String testString = "";
+    android.speech.tts.TextToSpeech tts=null,tts2=null;
+    @TargetApi(21)
+    String TTSTest(int batchNo) {
+        if (batchNo==1) {
+            if (testString != "") return testString;
+            if(AndroidSDK < 21) return "Voice list requires Android 5";
+            testString="TTS voice list:\n";
+        }
+        final android.content.Context context = this;
+        tts = new android.speech.tts.TextToSpeech(context,new android.speech.tts.TextToSpeech.OnInitListener(){
+                public void onInit(int status) {
+                    if(tts == null) {
+                        testString += "race-condition fail";
+                        return;
+                    }
+                    if (status != 0) {
+                        testString += "init fail";
+                        return;
+                    }
+                    int i=0; boolean found=false;
+                    for(android.speech.tts.TextToSpeech.EngineInfo ei : tts.getEngines()) {
+                        if (++i < batchNo) continue;
+                        found = true;
+                        tts2 = new android.speech.tts.TextToSpeech(context,new android.speech.tts.TextToSpeech.OnInitListener(){
+                                public void onInit(int status) {
+                                    if (tts2 == null) {
+                                        testString += "(engine race-condition fail)";
+                                        return;
+                                    }
+                                    if (status != 0) {
+                                        testString += "(engine init fail)";
+                                        return;
+                                    }
+                                    for(android.speech.tts.Voice v: tts2.getVoices()) {
+                                        testString += v.getName()+"(lang="+v.getLocale().getLanguage()+" variant="+v.getLocale().getVariant()+" quality="+String.valueOf(v.getQuality())+" connection="+(v.isNetworkConnectionRequired()?"t":"f")+" latency="+String.valueOf(v.getLatency())+")\n";
+                                    }
+                                    tts2.shutdown();
+                                    tts.shutdown();
+                                    TTSTest(batchNo+1);
+                                }
+                            },ei.name);
+                        break; // we have to wait for 1st tts2 to be processed before starting next, hence batchNo
+                    }
+                    if(!found)testString+="scan complete";
+                }
+            });
+        return "TTS voice list initialising";
+    }"""
 android_src += br"""
     static final String js_common="""+b'"'+jsAnnot()+br"""";
     @SuppressWarnings("deprecation")
