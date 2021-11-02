@@ -2114,11 +2114,14 @@ if android_print: android_src += br"""
             }"""
 android_tts = False # set to True for testing only
 if android_tts: android_src += br"""
-            @JavascriptInterface public String TTSInfo() {
-                // Voice list.
+            @JavascriptInterface public boolean TTS(String s) { return doTTS(s); }
+            @JavascriptInterface public String TTSInfo(String voices_to_set) {
+                // Returns voice list.
                 // You might need to call this twice, with
-                // a delay to let it initialise.
-                return TTSTest(1);
+                // a delay to let it initialise, to get
+                // the list.  Or just call to init a voice
+                // voices_to_set: comma-separated in order of preference (TODO: what if the 'better' one doesn't work due to network or firewall issues?) or "" to find none
+                return TTSTest(1,","+voices_to_set+",");
             }"""
 if android_template: android_src += br"""
             @TargetApi(17)
@@ -2390,54 +2393,87 @@ if pleco_hanping: android_src += br"""
     String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
     int[] hanpingVersion = new int[]{0,0,0};"""
 if android_tts: android_src += br"""
-    String testString = "";
-    android.speech.tts.TextToSpeech tts=null,tts2=null;
+    String ttsList = "";
+    android.speech.tts.TextToSpeech tts=null,tts2=null,
+        tts_keep=null; int found_dx=-1;
+    int nextID=0; @TargetApi(21)
+    boolean doTTS(String text) {
+        if(tts_keep==null) return false;
+        int maxLen=android.speech.tts.TextToSpeech.getMaxSpeechInputLength();
+        int queueMode = android.speech.tts.TextToSpeech.QUEUE_FLUSH;
+        while(text.length() > 0) {
+            String t2;
+            if (text.length() > maxLen) {
+                t2=text.substring(0,maxLen);
+                if(t2.indexOf("\u3002")>0) t2=t2.substring(0,t2.lastIndexOf("\u3002")+1);
+                else if(t2.indexOf(". ")>0) t2=t2.substring(0,t2.lastIndexOf(". ")+2);
+            } else t2 = text;
+            if(tts_keep.speak(t2,queueMode,null,String.valueOf(nextID++))!=android.speech.tts.TextToSpeech.SUCCESS) return false;
+            text = text.substring(t2.length());
+            queueMode = android.speech.tts.TextToSpeech.QUEUE_ADD;
+        } return true;
+    }
+    java.util.List<android.speech.tts.TextToSpeech.EngineInfo> eiList = null;
     @TargetApi(21)
-    String TTSTest(int batchNo) {
-        if (batchNo==1) {
-            if (testString != "") return testString;
-            if(AndroidSDK < 21) return "Voice list requires Android 5";
-            testString="TTS voice list:\n";
-        }
+    String TTSTest(int batchNo,String voices_to_set) {
         final android.content.Context context = this;
-        tts = new android.speech.tts.TextToSpeech(context,new android.speech.tts.TextToSpeech.OnInitListener(){
-                public void onInit(int status) {
-                    if(tts == null) {
-                        testString += "race-condition fail";
-                        return;
+        if (batchNo==1) {
+            if (ttsList != "") return ttsList;
+            if(AndroidSDK < 21) return "Voice list requires Android 5";
+            if(eiList==null) {
+                tts = new android.speech.tts.TextToSpeech(context,new android.speech.tts.TextToSpeech.OnInitListener(){
+                        public void onInit(int status) {
+                            if(tts == null) {
+                                ttsList += "race-condition fail";
+                                return;
+                            }
+                            if (status != 0) {
+                                ttsList += "init fail";
+                                return;
+                            }
+                            eiList = tts.getEngines();
+                            tts.shutdown(); tts = null;
+                            TTSTest(1,voices_to_set);
+                        }
+                    });
+                return "Fetching engine list";
+            }
+            ttsList="TTS voice list:\n";
+        }
+        int i=0; boolean found=false;
+        for(android.speech.tts.TextToSpeech.EngineInfo ei : eiList) {
+            if (++i < batchNo) continue;
+            found = true;
+            tts2 = new android.speech.tts.TextToSpeech(context,new android.speech.tts.TextToSpeech.OnInitListener(){
+                    public void onInit(int status) {
+                        if (tts2 == null) {
+                            ttsList += "(engine race-condition fail)";
+                            return;
+                        }
+                        if (status != 0) {
+                            ttsList += "(engine init fail)";
+                            return;
+                        }
+                        boolean do_shutdown = true;
+                        for(android.speech.tts.Voice v: tts2.getVoices()) {
+                            ttsList += v.getName()+"(lang="+v.getLocale().getLanguage()+" variant="+v.getLocale().getVariant()+" quality="+String.valueOf(v.getQuality())+" connection="+(v.isNetworkConnectionRequired()?"t":"f")+" latency="+String.valueOf(v.getLatency())+")\n";
+                            int dx=voices_to_set.indexOf(","+v.getName()+",");
+                            if (dx>-1 && (found_dx==-1 || dx < found_dx) && tts2.setVoice(v)==android.speech.tts.TextToSpeech.SUCCESS) {
+                                if(tts_keep!=null && do_shutdown) tts_keep.shutdown(); // != tts2
+                                tts_keep = tts2; do_shutdown=false;
+                                found_dx = dx;
+                            }
+                        }
+                        if (do_shutdown) tts2.shutdown();
+                        TTSTest(batchNo+1,voices_to_set);
                     }
-                    if (status != 0) {
-                        testString += "init fail";
-                        return;
-                    }
-                    int i=0; boolean found=false;
-                    for(android.speech.tts.TextToSpeech.EngineInfo ei : tts.getEngines()) {
-                        if (++i < batchNo) continue;
-                        found = true;
-                        tts2 = new android.speech.tts.TextToSpeech(context,new android.speech.tts.TextToSpeech.OnInitListener(){
-                                public void onInit(int status) {
-                                    if (tts2 == null) {
-                                        testString += "(engine race-condition fail)";
-                                        return;
-                                    }
-                                    if (status != 0) {
-                                        testString += "(engine init fail)";
-                                        return;
-                                    }
-                                    for(android.speech.tts.Voice v: tts2.getVoices()) {
-                                        testString += v.getName()+"(lang="+v.getLocale().getLanguage()+" variant="+v.getLocale().getVariant()+" quality="+String.valueOf(v.getQuality())+" connection="+(v.isNetworkConnectionRequired()?"t":"f")+" latency="+String.valueOf(v.getLatency())+")\n";
-                                    }
-                                    tts2.shutdown();
-                                    tts.shutdown();
-                                    TTSTest(batchNo+1);
-                                }
-                            },ei.name);
-                        break; // we have to wait for 1st tts2 to be processed before starting next, hence batchNo
-                    }
-                    if(!found)testString+="scan complete";
-                }
-            });
-        return "TTS voice list initialising";
+                },ei.name);
+            break; // we have to wait for 1st tts2 to be processed before starting next, hence batchNo
+        }
+        if(!found) {
+            ttsList += "scan complete";
+            return ttsList;
+        } else return "Scanning engines";
     }"""
 android_src += br"""
     static final String js_common="""+b'"'+jsAnnot()+br"""";
