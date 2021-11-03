@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.185 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.186 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -249,7 +249,7 @@ cancelOpt("android-print")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).")
-parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)")
+parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced)")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android app or browser extension to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply --existing-ruby-js-fixes and/or --existing-ruby-shortcut-yarowsky, then --delete-existing-ruby specifies that only the first --sharp-multi option should have existing ruby preserved.")
 parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
@@ -464,12 +464,13 @@ if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
 if extra_css.startswith("@"): extra_css = open(extra_css[1:],"rb").read()
 if extra_js.startswith("@"):
-  extra_js = extra_js[1:]
-  if not os.system("which node 2>/dev/null >/dev/null"):
+  f,extra_js=extra_js,b""
+  for f in f[1:].split(','):
+   if not os.system("which node 2>/dev/null >/dev/null"):
     # we can check the syntax
     import pipes
-    if os.system("node -c "+pipes.quote(extra_js)): errExit("Syntax check failed for extra-js file "+extra_js)
-  extra_js = open(extra_js,"rb").read()
+    if os.system("node -c "+pipes.quote(f)): errExit("Syntax check failed for extra-js file "+f)
+   extra_js += open(f,"rb").read()
 if type("")==type(u""): # Python 3
   def B(s):
     try: return s.encode('latin1')

@@ -638,7 +638,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.185
+Options for Annotator Generator v3.186
 ===========================
 
 Usage: annogen.py [options]
@@ -905,7 +905,7 @@ Options:
  : Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).
 
 `--extra-js=EXTRA_JS`
- : Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: `--extra-js`=@file.js (do not use // comments, only /* ... */ because newlines will be replaced)
+ : Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: `--extra-js`=@file.js or `--extra-js`=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced)
 
 `--existing-ruby-js-fixes=EXISTING_RUBY_JS_FIXES
 `
