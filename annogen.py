@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.186 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.187 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1608,6 +1608,7 @@ function annotWalk(n"""
 annotWalk(document);
 new window.MutationObserver(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}}).observe(document.body,{childList:true,subtree:true});
 """
+  elif for_android: r += br"if(!ssb_local_annotator.getIncludeAll())document.addEventListener('copy',(e)=>{var s=window.getSelection(),i,c=document.createElement('div');for(i=0;i < s.rangeCount;i++)c.appendChild(s.getRangeAt(i).cloneContents());e.clipboardData.setData('text/plain',c.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<.*?>/g,''));e.preventDefault()});" # work around user-select:none not always working (and newlines sometimes being added anyway)
   if not for_async:
     r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
     assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot o/p'
