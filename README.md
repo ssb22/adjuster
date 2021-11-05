@@ -638,7 +638,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.187
+Options for Annotator Generator v3.188
 ===========================
 
 Usage: annogen.py [options]
@@ -906,6 +906,12 @@ Options:
 
 `--extra-js=EXTRA_JS`
  : Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: `--extra-js`=@file.js or `--extra-js`=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced)
+
+`--tts-js`
+ : Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see code for details)
+
+`--no-tts-js`
+ : Cancels any earlier `--tts-js` option in Makefile variables etc
 
 `--existing-ruby-js-fixes=EXISTING_RUBY_JS_FIXES
 `

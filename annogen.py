@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.187 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.188 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -250,6 +250,8 @@ parser.add_option("--android-audio",help="When generating an Android browser, in
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).")
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced)")
+parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see code for details)")
+cancelOpt("tts-js")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android app or browser extension to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply --existing-ruby-js-fixes and/or --existing-ruby-shortcut-yarowsky, then --delete-existing-ruby specifies that only the first --sharp-multi option should have existing ruby preserved.")
 parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
@@ -457,7 +459,7 @@ if android_audio:
     android_audio,android_audio_maxWords = android_audio.split()
     android_audio_maxWords = int(android_audio_maxWords)
   else: android_audio_maxWords=None
-if (extra_js or extra_css or existing_ruby_js_fixes) and not android: errExit("--extra-js, --extra-css and --existing-ruby-js-fixes requires --android") # browser-extension: existing_ruby_js_fixes would require aType to be known by content.js (cn do via handleMessage) + oldTxt no longer sufficient for restoring page for reannotate.  TODO: even with delete_existing_ruby, oldTxt is not sufficient to restore page for annotation off (it currently needs reload after turn off if it had existing ruby, and we don't do that automatically, nor should we as they might have unsaved changes), due to nfOld/nfNew further up the DOM, and it's no good replacing it with a list of DOM objects to replaceChild on, because anything more than text does not persist in the DOM after content.js runs, nor does it persist in the content.js variable space.
+if (extra_js or extra_css or existing_ruby_js_fixes or tts_js) and not android: errExit("--extra-js, --tts-js, --extra-css and --existing-ruby-js-fixes requires --android") # browser-extension: existing_ruby_js_fixes would require aType to be known by content.js (cn do via handleMessage) + oldTxt no longer sufficient for restoring page for reannotate.  TODO: even with delete_existing_ruby, oldTxt is not sufficient to restore page for annotation off (it currently needs reload after turn off if it had existing ruby, and we don't do that automatically, nor should we as they might have unsaved changes), due to nfOld/nfNew further up the DOM, and it's no good replacing it with a list of DOM objects to replaceChild on, because anything more than text does not persist in the DOM after content.js runs, nor does it persist in the content.js variable space.
 if delete_existing_ruby and not (android or javascript): errExit("--delete-existing-ruby requires --android or --javascript") # (or --browser-extension, which implies --javascript)
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
@@ -2114,14 +2116,15 @@ if android_print: android_src += br"""
                     }
                 });
             }"""
-android_tts = False # set to True for testing only
-if android_tts: android_src += br"""
+if tts_js: android_src += br"""
             @JavascriptInterface public boolean TTS(String s) { return doTTS(s); }
+            @JavascriptInterface public boolean TTSIsSet() { return tts_keep!=null; }
             @JavascriptInterface public String TTSInfo(String voices_to_set) {
-                // Returns voice list.
+                // Optionally init a voice; return voice list.
                 // You might need to call this twice, with
                 // a delay to let it initialise, to get
-                // the list.  Or just call to init a voice
+                // the list.  Call with "" just to list.
+                // Must init a voice before TTSIsSet()==true and TTS() works.
                 // voices_to_set: comma-separated in order of preference (TODO: what if the 'better' one doesn't work due to network or firewall issues?) or "" to find none
                 return TTSTest(1,","+voices_to_set+",");
             }"""
@@ -2394,7 +2397,7 @@ if pleco_hanping: android_src += br"""
     boolean gotPleco = false;
     String[] hanpingPackage = new String[]{"com.embermitre.hanping.cantodict.app.pro","com.embermitre.hanping.app.pro","com.embermitre.hanping.app.lite"};
     int[] hanpingVersion = new int[]{0,0,0};"""
-if android_tts: android_src += br"""
+if tts_js: android_src += br"""
     String ttsList = "";
     android.speech.tts.TextToSpeech tts=null,tts2=null,
         tts_keep=null; int found_dx=-1;
@@ -2421,7 +2424,7 @@ if android_tts: android_src += br"""
         final android.content.Context context = this;
         if (batchNo==1) {
             if (ttsList != "") return ttsList;
-            if(AndroidSDK < 21) return "Voice list requires Android 5";
+            if(AndroidSDK < 21) return "Android 5+ required for multilingual TTS";
             if(eiList==null) {
                 tts = new android.speech.tts.TextToSpeech(context,new android.speech.tts.TextToSpeech.OnInitListener(){
                         public void onInit(int status) {
@@ -2547,7 +2550,10 @@ android_src += br"""
         return "";
     }
     @Override protected void onSaveInstanceState(Bundle outState) { if(browser!=null) browser.saveState(outState); }
-    @Override protected void onDestroy() { if(isFinishing() && AndroidSDK<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
+    @Override protected void onDestroy() {"""
+if tts_js: android_src += br"if(tts_keep!=null) tts_keep.shutdown();"
+android_src += br"""
+if(isFinishing() && AndroidSDK<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
     @SuppressWarnings("deprecation") // we use Build.VERSION.SDK only if we're on an Android so old that SDK_INT is not available:
     int AndroidSDK = (android.os.Build.VERSION.RELEASE.startsWith("1.") ? Integer.valueOf(Build.VERSION.SDK) : Build.VERSION.SDK_INT);
     WebView browser;"""
