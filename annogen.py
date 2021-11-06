@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.188 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.189 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1527,9 +1527,9 @@ function annotWalk(n"""
   if for_async:
     r += br"""
             if(!cnv.match(/^\\s*$/)) {
-                ((n"""
+                (function(n"""
     if delete_existing_ruby: r += b",nfOld,nfNew"
-    r += br""",c,cnv)=>{
+    r += br""",c,cnv){
                     var newNode=document.createElement('span');
                     newNode.className='_adjust0';
                     newNode.oldTxt=cnv;"""
@@ -1549,14 +1549,14 @@ function annotWalk(n"""
         while(p.nodeType==1&&p.firstChild){if(inline.indexOf(p.nodeName)==-1)return accum; else if(p.nodeName=="RT"||p.nodeName=="RP") break; p=p.firstChild}
         if(p.nodeType==3) accum+=cNorm(p)
       } return accum }
-                    chrome.runtime.sendMessage({'t':cnv,'l':contextLeft(c),'r':contextRight(c)},((nv)=>{""".replace(b"MAX_CONTEXT",(b"%d"%ybytes_max))
+                    chrome.runtime.sendMessage({'t':cnv,'l':contextLeft(c),'r':contextRight(c)},(function(nv){""".replace(b"MAX_CONTEXT",(b"%d"%ybytes_max))
     else: r += br"""
-                    chrome.runtime.sendMessage({'t':cnv},((nv)=>{ """
+                    chrome.runtime.sendMessage({'t':cnv},(function(nv){ """
     r += br"""
                         if(nv && nv!=cnv) {
                             try {
                                 for(const t of new DOMParser().parseFromString('<span> '+nv+' </span>','text/html').body.firstChild.childNodes) newNode.appendChild(t.cloneNode(true));
-                                var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) ((e)=>{e.addEventListener('click',(()=>{alert(e.title)}))})(a[i])
+                                var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) (function(e){e.addEventListener('click',(function(){alert(e.title)}))})(a[i])
                             } catch(err) { console.log(err.message) }
                             try{n.replaceChild(newNode, c)}catch(err){ /* already done */ }"""
     if delete_existing_ruby: r += br"""
@@ -1610,7 +1610,7 @@ function annotWalk(n"""
 annotWalk(document);
 new window.MutationObserver(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}}).observe(document.body,{childList:true,subtree:true});
 """
-  elif for_android: r += br"if(!ssb_local_annotator.getIncludeAll())document.addEventListener('copy',(e)=>{var s=window.getSelection(),i,c=document.createElement('div');for(i=0;i < s.rangeCount;i++)c.appendChild(s.getRangeAt(i).cloneContents());e.clipboardData.setData('text/plain',c.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<.*?>/g,''));e.preventDefault()});" # work around user-select:none not always working (and newlines sometimes being added anyway)
+  elif for_android: r += br"if(!ssb_local_annotator.getIncludeAll())document.addEventListener('copy',function(e){var s=window.getSelection(),i,c=document.createElement('div');for(i=0;i < s.rangeCount;i++)c.appendChild(s.getRangeAt(i).cloneContents());e.clipboardData.setData('text/plain',c.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<.*?>/g,''));e.preventDefault()});" # work around user-select:none not always working (and newlines sometimes being added anyway)
   if not for_async:
     r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
     assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot o/p'
@@ -3722,7 +3722,7 @@ var aType=localStorage.aType,numLines=localStorage.numLines;
 function handleMessage(request, sender, sendResponse) {
   if(typeof request=='number') {
     if(request<0) localStorage.numLines=numLines=-request; else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
-    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},(T)=>{for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c); annotWalk(document,document)'})})
+    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c); annotWalk(document,document)'})})
   } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // popup status query
   else { if(request==null) request={'t':getClip()};
   sendResponse(numLines>1?annotate(request['t']""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
@@ -3730,7 +3730,7 @@ function handleMessage(request, sender, sendResponse) {
   if glossfile: js_end += b",numLines"
   js_end += br""",request['l'],request['r']):request['t'])} }
 function getClip(){var area=document.createElement("textarea"); document.body.appendChild(area); area.focus();area.value='';document.execCommand("Paste");var txt=area.value; document.body.removeChild(area); return txt?txt:"Failed to read clipboard"}
-fetch((typeof browser!=undefined&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.extension.getURL)("annotate-dat.txt")).then((r)=>{r.text().then((r)=>{Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
+fetch((typeof browser!=undefined&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.extension.getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
 elif not os.environ.get("JS_OMIT_DOM",""):
   js_end += br"""
 function annotate_page("""
@@ -3764,7 +3764,7 @@ if (typeof require != "undefined" && typeof module != "undefined" && require.mai
 
 if browser_extension:
   # we can assume window.atob
-  js_inflate = br"""((dat,expandLen)=>{var buf=new Uint8Array(expandLen);dat=((r)=>{for(var e=new Uint8Array(r.length),t=0,n=e.length;t<n;t++)e[t]=r.charCodeAt(t);return e})(atob(dat));"""
+  js_inflate = br"""(function(dat,expandLen){var buf=new Uint8Array(expandLen);dat=(function(r){for(var e=new Uint8Array(r.length),t=0,n=e.length;t<n;t++)e[t]=r.charCodeAt(t);return e})(atob(dat));"""
 else: js_inflate = br"""(function(dat,expandLen){
   var buf=new Uint8Array(expandLen); dat=
   "undefined"!=typeof window && window.atob ?
@@ -3800,13 +3800,13 @@ else: rangeEnd = 0
 extension_config += b'<div id="cr"></div><button id="c">Clipboard</button><script src="config.js"></script></body></html>'
 # Don't want Clipboard button to auto-refresh (and hide the button) in the desktop extension version, since would need to stop the refresh when view is no longer visible + is it really a good idea to timer-paste the clipboard on a desktop when conversion to text could be costly etc + many desktops would dismiss the extension box before letting you switch to another window to change the clipboard (unless it's in a VM)
 extension_confjs = br"""function updateClip() {
-    chrome.runtime.sendMessage(null,((cr)=>{
+    chrome.runtime.sendMessage(null,(function(cr){
         var v=document.getElementById("cr");
         v.textContent = ''; // clear
         if(cr) {
             try {
                 for(const t of new DOMParser().parseFromString('<span> '+cr+' </span>','text/html').body.firstChild.childNodes) v.appendChild(t.cloneNode(true));
-                var a=v.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) ((e)=>{e.addEventListener('click',(()=>{alert(e.title)}))})(a[i])
+                var a=v.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) (function(e){e.addEventListener('click',(function(){alert(e.title)}))})(a[i])
             } catch(err) { console.log(err.message) }
         }
     }))}
