@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.19 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.191 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -249,7 +249,7 @@ cancelOpt("android-print")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).")
-parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced)")
+parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
 parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see code for details)")
 cancelOpt("tts-js")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
@@ -465,14 +465,6 @@ if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
 if extra_css.startswith("@"): extra_css = open(extra_css[1:],"rb").read()
-if extra_js.startswith("@"):
-  f,extra_js=extra_js,b""
-  for f in f[1:].split(','):
-   if not os.system("which node 2>/dev/null >/dev/null"):
-    # we can check the syntax
-    import pipes
-    if os.system("node -c "+pipes.quote(f)): errExit("Syntax check failed for extra-js file "+f)
-   extra_js += open(f,"rb").read()
 if type("")==type(u""): # Python 3
   def B(s):
     try: return s.encode('latin1')
@@ -487,6 +479,22 @@ else: # Python 2: pass through as quickly as possible
   def B(s): return s # (and as this particular script shouldn't need to run on a Python 2 below 2.7, we also use b"" inline for literals)
   def S(s): return s
   def getBuf(f): return f
+if extra_js.startswith("@"):
+  f,extra_js=extra_js,b""
+  for f in f[1:].split(','):
+   if ':' in f: f,fSR = f.split(':',1)
+   else: fSR=None
+   if not os.system("which node 2>/dev/null >/dev/null"):
+    # we can check the syntax
+    import pipes
+    if os.system("node -c "+pipes.quote(f)): errExit("Syntax check failed for extra-js file "+f)
+   dat = open(f,"rb").read()
+   if fSR:
+     fSR = fSR.split(':')
+     for i in xrange(0,len(fSR),2):
+       if not B(fSR[i]) in dat: errExit("extra-js with search and replace: unable to find "+repr(fSR[i])+" in "+f)
+       dat = dat.replace(B(fSR[i]),B(fSR[i+1]))
+   extra_js += dat ; del dat,fSR
 if extra_js.rstrip() and not B(extra_js.rstrip()[-1:]) in b';}': errExit("--extra-js must end with a semicolon or a closing brace")
 if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:],"rb").read()
 jPackage = None
