@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.191 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.192 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2131,6 +2131,12 @@ if tts_js: android_src += br"""
                 // You might need to call this twice, with
                 // a delay to let it initialise, to get
                 // the list.  Call with "" just to list.
+                // 
+                // List is likely to be useful in Google's
+                // version of Android, but might not be so
+                // useful in AOSP (Huawei etc): not tested
+                // on their non-Google devices.
+                // 
                 // Must init a voice before TTSIsSet()==true and TTS() works.
                 // voices_to_set: comma-separated in order of preference (TODO: what if the 'better' one doesn't work due to network or firewall issues?) or "" to find none
                 return TTSTest(1,","+voices_to_set+",");
@@ -5923,7 +5929,7 @@ if main and not compile_only:
 if main:
  if android:
    can_compile_android = all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS"])
-   can_track_android = (can_compile_android and android_upload) or ("GOOGLE_PLAY_TRACK" in os.environ and "SERVICE_ACCOUNT_KEY" in os.environ)
+   can_track_android = (can_compile_android and android_upload) or ("GOOGLE_PLAY_TRACK" in os.environ and "SERVICE_ACCOUNT_KEY" in os.environ and not os.environ.get("ANDROID_NO_RETRACK",""))
    if can_compile_android and compile_only and android_upload: update_android_manifest() # AndroidManifest.xml will not have been updated, so we'd better do it now
    if can_compile_android or can_track_android:
      os.chdir(jSrc+"/..")
@@ -5996,7 +6002,7 @@ before the Annogen run (change the examples obviously) :
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
    export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
    # If the above variables including SERVICE_ACCOUNT_KEY are set (and you haven't set ANDROID_NO_UPLOAD, below), then you'll also get an openPlayStore() function added to the Javascript interface for use in 'check for updates' links.
-   # After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK, and run with --compile-only.  You will need to set GOOGLE_PLAY_CHANGELOG again when doing this, as the Google API now discards changelogs on track-changes unless they are re-specified.
+   # After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK (and not ANDROID_NO_RETRACK), and run with --compile-only.  You will need to set GOOGLE_PLAY_CHANGELOG again when doing this, as the Google API now discards changelogs on track-changes unless they are re-specified.
 
 You may also wish to create some icons in res/drawable*
    (using Android Studio or the earlier ADT tools).
