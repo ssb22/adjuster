@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.192 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.193 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1433,6 +1433,10 @@ jsAddRubyCss += b";if(!window.doneHash){var h=window.location.hash.slice(1);if(h
 jsAddRubyCss += b"tw0()" # perform the first annotation scan after adding the ruby (calls all_frames_docs w.annotWalk)
 jsAddRubyCss += b";if(!window.doneHash && window.hash0){window.hCount=10*2;window.doneHash=function(){var e=document.getElementById(window.location.hash.slice(1)); if(e.offsetTop==window.hash0 && --window.hCount) setTimeout(window.doneHash,500); e.scrollIntoView()};window.doneHash()}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs), but don't redo this every time doc length changes on Android. setTimeout loop because rendering might take a while with large documents on slow devices.
 
+def awParams(main,doneR=b"false"):
+  if existing_ruby_js_fixes or delete_existing_ruby:
+    main += b','+doneR
+  return main
 def jsAnnot(for_android=True,for_async=False):
   # Android or browser JS-based DOM annotator.  Return value becomes the js_common string in the Android Java: must be escaped as if in single-quoted Java string.
   # for_android True: provides AnnotIfLenChanged, annotScan, all_frames_docs etc
@@ -1443,7 +1447,7 @@ def jsAnnot(for_android=True,for_async=False):
     if for_android: annotNo = b"ssb_local_annotator.getAnnotNo()"
     else: annotNo = b"aType" # will be in JS context
   else: annotNo = b"0" # TODO: could take out relevant code altogether
-  
+
   r = br"""var leaveTags=['SCRIPT','STYLE','TITLE','TEXTAREA','OPTION'], /* we won't scan inside these tags ever */
   
   mergeTags=['EM','I','B','STRONG']; /* we'll merge 2 of these the same if they're leaf elements */"""
@@ -1466,7 +1470,7 @@ def jsAnnot(for_android=True,for_async=False):
       c(w.document) };
     f(window) };
   function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; try{w.document}catch(E){return r} if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };
-  function tw0() { all_frames_docs(function(d){annotWalk(d,d,false,false)}) };
+  function tw0() { all_frames_docs(function(d){annotWalk("""+awParams(b"d,d,false,false")+br""")}) };
   function annotScan() {"""+B(extra_js).replace(b'\\',br'\\').replace(b'"',br'\"')+jsAddRubyCss+b"};"
   
   r += br"""
@@ -1474,6 +1478,7 @@ function annotWalk(n"""
   if not for_async: r += b",document" # multiple frames
   if for_android: r += b",inLink,inRuby"
   elif for_async and delete_existing_ruby: r += b",nfOld,nfNew" # as the callback 'need to fix [replace]' element is not necessarily at current level, see below
+  if existing_ruby_js_fixes or delete_existing_ruby: r+=b",doneR"
   r += br""") {
     /* Our main DOM-walking code */
   var c;"""
@@ -1485,6 +1490,8 @@ function annotWalk(n"""
     r += b""" for(c=n.firstChild; c; c=c.nextSibling) if(c.nodeType==1 && c.nodeName=='RUBY') { nf=true; break; }"""
     if for_async: r += b"if(nf) { nfOld=nReal;nfNew=n=n.cloneNode(true);" # so no effect on DOM if annotate returns no-op because it's switched off
     else: r += b"var nReal = n; if(nf) { n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
+    if existing_ruby_js_fixes or delete_existing_ruby:
+      r+=b"doneR=true;" # recursive call won't have to redo this in all links etc (especially existing_ruby_js_fixes)
     if delete_existing_ruby:
       if existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"if(!"+annotNo+b"){%s} else " % (B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
       r += br"""n.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'')"""
@@ -1521,13 +1528,14 @@ function annotWalk(n"""
     r += br"""cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
   if existing_ruby_shortcut_yarowsky and for_android: r += br"""
             var setR=false; if(!inRuby) {setR=(c.nodeName=='RUBY');if(setR)ssb_local_annotator.setYShortcut(true)}
-            annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||setR);
+            annotWalk("""+awParams(b"c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||setR","doneR")+br""");
             if(setR)ssb_local_annotator.setYShortcut(false)"""
   else:
     r += b"annotWalk(c"
     if not for_async: r += b",document"
     if for_android: r += b",inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY')"
     if for_async and delete_existing_ruby: r += b",nfOld,nfNew"
+    if delete_existing_ruby or existing_ruby_js_fixes: r += b",doneR"
     r += b");"
   r += br"""
           } break;
@@ -2349,7 +2357,7 @@ android_src += br"""
                 public void onPageFinished(WebView view,String url) {
                     if(AndroidSDK < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.  Also handles displaying the forward button when needed (4.4+ uses different logic for this in onKeyDown, because API19+ reduces frequency of scans when same length, due to it being only a backup to MutationObserver)
                     browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();if(!document.doneFwd && ssb_local_annotator.canGoForward()){var e=document.getElementById('annogenFwdBtn');if(e){e.style.display='inline';document.doneFwd=1}}window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
-                    else browser.evaluateJavascript(js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})",null);
+                    else browser.evaluateJavascript(js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk("""+awParams(b"n,document,inLink,false")+br""")}}).observe(document.body,{childList:true,subtree:true})",null);
                 } });"""
 if android_template: android_src += br"""
         if(AndroidSDK >= 3 && AndroidSDK < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
