@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.194 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.195 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1786,13 +1786,16 @@ if epub: android_manifest += br"""<uses-permission android:name="android.permiss
 # On an API 27 (Android 8) emulator, a content:// URI was sent instead of file://
 # so I would imagine the permission doesn't need activating on Android 8, but
 # for completeness we need to test Android 6 and Android 7 somehow (TODO)
-if pleco_hanping: android_manifest += br"""
-<queries>
+if pleco_hanping or tts_js:
+  android_manifest+=b"\n<queries>"
+  if pleco_hanping: android_manifest += br"""
 <package android:name="com.pleco.chinesesystem" />
 <package android:name="com.embermitre.hanping.cantodict.app.pro" />
 <package android:name="com.embermitre.hanping.app.pro" />
-<package android:name="com.embermitre.hanping.app.lite" />
-</queries>""" # likely needed to make those packages visible to getPackageInfo on targetSdkVersion=30
+<package android:name="com.embermitre.hanping.app.lite" />"""
+  if tts_js: android_manifest += br"""
+<intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>"""
+  android_manifest+=b"\n</queries>"
 android_manifest += br"""
 <uses-sdk android:minSdkVersion="1" android:targetSdkVersion="30" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
