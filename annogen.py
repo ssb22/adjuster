@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.195 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.196 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2160,6 +2160,7 @@ if tts_js: android_src += br"""
                 // on their non-Google devices.
                 // 
                 // Must init a voice before TTSIsSet()==true and TTS() works.
+                // (Will be checked for in clipboard.html; you can also check in extra-js)
                 // voices_to_set: comma-separated in order of preference (TODO: what if the 'better' one doesn't work due to network or firewall issues?) or "" to find none
                 return TTSTest(1,","+voices_to_set+",");
             }"""
@@ -2611,7 +2612,6 @@ public class BringToFront extends android.app.IntentService {
 }
 """
 android_clipboard = br"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>
-<script>window.onerror=function(msg,url,line){ssb_local_annotator.alert('','',''+msg+' line '+line); return true}</script>
     <h3 class="ssb_local_annotator_noprint">Clipboard</h3>
     <div id="clip">waiting for clipboard contents</div>
     <script>
@@ -2626,7 +2626,9 @@ if (newClip && newClip != curClip) {
     // - no need to replace the whole thing with this part
     curClip=newClip;
   } else {
-  document.getElementById('clip').innerHTML = newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/(https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+)/gi,function r(m,p1) { return '<a href="'+p1.replace('&amp;','&')+'">'+p1+'</a>' });
+  document.getElementById('clip').innerHTML = """
+if tts_js: android_clipboard += br"""(ssb_local_annotator.TTSIsSet()?'<span onclick="ssb_local_annotator.TTS(curClip.replace(/:/g,\'; \'))">\ud83d\udd0a</span>':'')+""" # (digit:digit read as hours:minutes by some voices, but shouldn't always be)
+android_clipboard += br"""newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/(https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+)/gi,function r(m,p1) { return '<a href="'+p1.replace('&amp;','&')+'">'+p1+'</a>' });
   if(typeof annotScan!='undefined') annotScan();
   curClip = newClip; if(ssb_local_annotator.annotate(newClip)!=newClip) ssb_local_annotator.bringToFront(); // should work on Android 9 or below; Android Q (API 29) takes away background clipboard access and we'll just get newClip="" until we're brought to foreground manually
   }
