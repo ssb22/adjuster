@@ -250,7 +250,7 @@ parser.add_option("--android-audio",help="When generating an Android browser, in
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).")
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
-parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see code for details)")
+parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)")
 cancelOpt("tts-js")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android app or browser extension to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply --existing-ruby-js-fixes and/or --existing-ruby-shortcut-yarowsky, then --delete-existing-ruby specifies that only the first --sharp-multi option should have existing ruby preserved.")
@@ -2162,6 +2162,9 @@ if tts_js: android_src += br"""
                 // Must init a voice before TTSIsSet()==true and TTS() works.
                 // (Will be checked for in clipboard.html; you can also check in extra-js)
                 // voices_to_set: comma-separated in order of preference (TODO: what if the 'better' one doesn't work due to network or firewall issues?) or "" to find none
+                // 
+                // Limitation: only one voice may be selected by TTSInfo; subsequent calls just return in-progress or cached list (if changing this, beware of race conditions in the async init)
+                // 
                 return TTSTest(1,","+voices_to_set+",");
             }"""
 if android_template: android_src += br"""

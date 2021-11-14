@@ -908,7 +908,7 @@ Options:
  : Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: `--extra-js`=@file.js or `--extra-js`=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: `--extra-js`=@file1.js:search:replace,file2.js
 
 `--tts-js`
- : Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see code for details)
+ : Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)
 
 `--no-tts-js`
  : Cancels any earlier `--tts-js` option in Makefile variables etc
