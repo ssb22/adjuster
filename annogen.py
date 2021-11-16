@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.197 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.198 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2083,10 +2083,17 @@ if glossfile: android_src += br"""
                         // TODO: 3-line persist to pop-ups (re-scan the DOM)?
                         // TODO: 3-line persist to other pages? (might be counterproductive to encouraging people not to rely on it)
                         // TODO: if already pressed, call it 2-line and reverse the substitution? (or just reload the page), AFTER scanning the DOM for popups (as currently pressing a second time is the only way to get 3line in popups)
-                        d.setPositiveButton("3 line", new android.content.DialogInterface.OnClickListener() {
-                                public void onClick(android.content.DialogInterface dialog,int id) {
-class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { browser.loadUrl(
-"javascript:var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt>'+title.split(' || ').map(function(m){return m.replace(/^([(]?[^/(;]*).*/,'$1')}).join(' ')+'</rt><rt>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});if(!ad0[i].inLink){var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)}} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
+                        d.setPositiveButton("1L/2L/3L", new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() {
+                            android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
+                            d.setTitle("Choose a format:");
+                            d.setPositiveButton("1 line",new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
+"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l2)l2.parentNode.removeChild(l2);if(!l1){var e=document.createElement('span');e.setAttribute('id','ssb_1Line');e.innerHTML='<style>rt{display:none!important}</style>';document.body.insertBefore(e,document.body.firstChild.nextSibling)}"
+); } }); } });
+                            d.setNeutralButton("2 lines",new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
+"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(!l2){var e=document.createElement('span');e.setAttribute('id','ssb_2Line');e.innerHTML='<style>rt:not(:last-of-type){display:none!important}</style>';document.body.insertBefore(e,document.body.firstChild.nextSibling)}"
+); } }); } });
+                            d.setNegativeButton("3 lines",new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
+"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(l2)l2.parentNode.removeChild(l2);var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt>'+title.split(' || ').map(function(m){return m.replace(/^([(]?[^/(;]*).*/,'$1')}).join(' ')+'</rt><rt>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});if(!ad0[i].inLink){var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)}} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
 /* Above rp elements are to make firstChild etc work in
    dialogue.  Don't do whole document.body.innerHTML, or
    scripts like document.write may execute a second time,
@@ -2098,7 +2105,9 @@ class InjectorTask implements Runnable { InjectorTask() {} @Override public void
    glosses are being trimmed.)  onclick= is removed in the
    postprocessing loop due to sites that put unsafe-inline
    in their Content-Security-Policy headers. */
-); } } act.runOnUiThread(new InjectorTask()); }});
+); } }); } });
+                            try { d.create().show(); } catch(Exception e) { Toast.makeText(act, "Unable to create popup box",Toast.LENGTH_LONG).show(); }
+                        } }); } });
                         } else """
 android_src += br"""
                         d.setPositiveButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
