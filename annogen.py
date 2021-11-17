@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.198 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.199 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -494,6 +494,8 @@ if extra_js.startswith("@"):
      for i in xrange(0,len(fSR),2):
        if not B(fSR[i]) in dat: errExit("extra-js with search and replace: unable to find "+repr(fSR[i])+" in "+f)
        dat = dat.replace(B(fSR[i]),B(fSR[i+1]))
+   m=re.search(br"\([^)]*\)\s*=>\s*{",dat)
+   if m: errExit(f+" seems to have arrow function (breaks compatibility with Android 4.x): "+repr(m.group()))
    extra_js += dat ; del dat,fSR
 if extra_js.rstrip() and not B(extra_js.rstrip()[-1:]) in b';}': errExit("--extra-js must end with a semicolon or a closing brace")
 if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:],"rb").read()
