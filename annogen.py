@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.199 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.2 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -309,7 +309,7 @@ parser.add_option("-Y","--python",
 cancelOpt("python")
 
 parser.add_option("--golang",
-                  help="[DEPRECATED] Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on old AppEngine with Go 1.11 or below.  Deprecated because newer AppEngine runtimes work differently (and the \"flexible\" environment can run C code); this option will probably be removed if they shut down the old free-tier runtimes.")
+                  help="[DEPRECATED] Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on a first-generation AppEngine runtime (Go 1.11 or below).  Deprecated because second-generation AppEngine runtimes work differently and the \"flexible\" option can run C code; this option will probably be removed if they shut down the non-flexible free-tier runtimes.")
 
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text, and if prefixed by ## it will be given text#annotation.  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
@@ -3002,7 +3002,8 @@ class Test {
 
 golang_start = b'/* "Go" code '+version_stamp+br"""
 
-To set up a Web service on old AppEngine (Go 1.11 or below),
+To set up a Web service on first-generation AppEngine
+(which uses Go 1.11 or below),
 put this file in a subdirectory of your project, and create a
 top-level .go file with something like:
 
@@ -3031,7 +3032,7 @@ handlers:
 Then test with: goapp serve
 (and POST to localhost:8080, e.g. via Web Adjuster --htmlFilter="http://localhost:8080")
 
-(To deploy with Web Adjuster also on old AppEngine, you'll need two instances, because
+(To deploy with Web Adjuster also on 1st-gen AppEngine, you'll need two instances, because
 although you could add Web Adjuster on the SAME one - put adjuster's app.yaml into a
 python-api.yaml with "module: pythonapi" - there will be the issue of how to set the
 URL handlers while making sure that Golang's has priority if it's an exception to .*)
@@ -3783,7 +3784,7 @@ function handleMessage(request, sender, sendResponse) {
   if glossfile: js_end += b",numLines"
   js_end += br""",request['l'],request['r']):request['t'])} }
 function getClip(){var area=document.createElement("textarea"); document.body.appendChild(area); area.focus();area.value='';document.execCommand("Paste");var txt=area.value; document.body.removeChild(area); return txt?txt:"Failed to read clipboard"}
-fetch((typeof browser!=undefined&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.extension.getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
+fetch((typeof browser!='undefined'&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.extension.getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
 elif not os.environ.get("JS_OMIT_DOM",""):
   js_end += br"""
 function annotate_page("""

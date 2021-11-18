@@ -638,7 +638,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.199
+Options for Annotator Generator v3.2
 ===========================
 
 Usage: annogen.py [options]
@@ -989,7 +989,7 @@ Options:
  : Cancels any earlier `--python` option in Makefile variables etc
 
 `--golang=GOLANG`
- : [**Deprecated**] Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on old AppEngine with Go 1.11 or below.  Deprecated because newer AppEngine runtimes work differently (and the "flexible" environment can run C code); this option will probably be removed if they shut down the old free-tier runtimes.
+ : [**Deprecated**] Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on a first-generation AppEngine runtime (Go 1.11 or below).  Deprecated because second-generation AppEngine runtimes work differently and the "flexible" option can run C code; this option will probably be removed if they shut down the non-flexible free-tier runtimes.
 
 `--reannotator=REANNOTATOR
 `
