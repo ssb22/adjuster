@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.2 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.21 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2487,7 +2487,7 @@ if tts_js: android_src += br"""
                                 return;
                             }
                             eiList = tts.getEngines();
-                            tts.shutdown(); tts = null;
+                            try { tts.shutdown(); } catch(Exception e) {} tts = null;
                             TTSTest(1,voices_to_set);
                         }
                     });
@@ -2514,12 +2514,12 @@ if tts_js: android_src += br"""
                             ttsList += v.getName()+"(lang="+v.getLocale().getLanguage()+" variant="+v.getLocale().getVariant()+" quality="+String.valueOf(v.getQuality())+" connection="+(v.isNetworkConnectionRequired()?"t":"f")+" latency="+String.valueOf(v.getLatency())+")\n";
                             int dx=voices_to_set.indexOf(","+v.getName()+",");
                             if (dx>-1 && (found_dx==-1 || dx < found_dx) && tts2.setVoice(v)==android.speech.tts.TextToSpeech.SUCCESS) {
-                                if(tts_keep!=null && do_shutdown) tts_keep.shutdown(); // != tts2
+                                if(tts_keep!=null && do_shutdown) try { tts_keep.shutdown(); } catch(Exception e) {} // != tts2
                                 tts_keep = tts2; do_shutdown=false;
                                 found_dx = dx;
                             }
                         }
-                        if (do_shutdown) tts2.shutdown();
+                        if (do_shutdown) try { tts2.shutdown(); } catch(Exception e) {}
                         TTSTest(batchNo+1,voices_to_set);
                     }
                 },ei.name);
@@ -2601,7 +2601,7 @@ android_src += br"""
     }
     @Override protected void onSaveInstanceState(Bundle outState) { if(browser!=null) browser.saveState(outState); }
     @Override protected void onDestroy() {"""
-if tts_js: android_src += br"if(tts_keep!=null) tts_keep.shutdown();"
+if tts_js: android_src += br"if(tts_keep!=null) try { tts_keep.shutdown(); } catch(Exception e) {}"
 android_src += br"""
 if(isFinishing() && AndroidSDK<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
     @SuppressWarnings("deprecation") // we use Build.VERSION.SDK only if we're on an Android so old that SDK_INT is not available:
