@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.21 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.22 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -248,7 +248,7 @@ parser.add_option("--android-print",
 cancelOpt("android-print")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
 parser.add_option("--android-urls",
-                  help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another Android application. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark).")
+                  help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another application in Android 1 through 11. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark). On Android 12+ this option won't work at all unless the specified domain(s) approved your app.") # "Starting in Android 12 (API level 31), a generic web intent resolves to an activity in your app only if your app is approved for the specific domain"
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
 parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)")
 cancelOpt("tts-js")
@@ -1799,11 +1799,11 @@ if pleco_hanping or tts_js:
 <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>"""
   android_manifest+=b"\n</queries>"
 android_manifest += br"""
-<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="30" />
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="31" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" android:networkSecurityConfig="@xml/network_security_config" >
 <service android:name=".BringToFront" android:exported="false"/>
-<activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleTask" >
+<activity android:configChanges="orientation|screenSize|keyboardHidden" android:name="%%JPACKAGE%%.MainActivity" android:label="@string/app_name" android:launchMode="singleTask" android:exported="true" >
 <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
 <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>"""
 if epub: android_manifest += br"""
@@ -2175,6 +2175,7 @@ if tts_js: android_src += br"""
                 // voices_to_set: comma-separated in order of preference (TODO: what if the 'better' one doesn't work due to network or firewall issues?) or "" to find none
                 // 
                 // Limitation: only one voice may be selected by TTSInfo; subsequent calls just return in-progress or cached list (if changing this, beware of race conditions in the async init)
+                // Known bug: after a device is upgraded from Android 11 to Android 12, the first time this app is launched it might select the wrong voice (and e.g. get a UK English voice to read out Google's Pinyin conversion of hanzi), could not reproduce this a second time, suspect race condition with the upgrade scripts finishing off
                 // 
                 return TTSTest(1,","+voices_to_set+",");
             }"""
@@ -5202,7 +5203,7 @@ def setup_parallelism(): # returns number of cores
       if x.submit(test_global,None).result():
         executor = x
         return multiprocessing.cpu_count()
-      else: x.shutdown(False) # ProcessPoolExecutor did not propagate globals at time of construction (which probably means we're running on Windows), would need to write to filesystem like versions of annogen before 3.183
+      else: x.shutdown(False) # ProcessPoolExecutor did not propagate globals at time of construction (which probably means we're running on Windows, or Python 3 on Mac), would need to write to filesystem like versions of annogen before 3.183
     except: pass
     return 1
 def test_global(*_):
