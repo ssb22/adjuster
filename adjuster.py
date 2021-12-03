@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.15 (c) 2012-21 Silas S. Brown"
+"Web Adjuster v3.16 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -339,7 +339,7 @@ define("mailtoPath",default="/@mail@to@__",help="A location on every adjusted we
 define("mailtoSMS",multiple=True,default="Opera Mini,Opera Mobi,Android,Phone,Mobile",help="When using mailtoPath, you can set a comma-separated list of platforms that understand sms: links. If any of these strings occur in the user-agent then an SMS link will be provided on the mailto redirection page, to place the suggested subject and/or body into a draft SMS message instead of an email.")
 
 heading("External processing options")
-define("htmlFilter",help="External program(s) to run to filter every HTML document. If more than one program is specified separated by # then the user will be given a choice (see htmlFilterName option). Any shell command can be used; its standard input will get the HTML (or the plain text if htmlText is set), and it should send the new version to standard output. Multiple copies of each program might be run at the same time to serve concurrent requests. UTF-8 character encoding is used. If you are not able to run external programs then you could use a back-end server (specify an http:// or https:// URL and input is POSTed in the request body; if this back-end server is another Web Adjuster with submitPath and submitBookmarklet set then give its submitPath plus uA for its 1st filter, uB for its 2nd, etc), or use a Python function: specify * followed by the function name, and inject the function into the adjuster module from a wrapper script (which imports adjuster, sets adjuster.options.htmlFilter etc, injects the function and calls adjuster.main). The function should take a byte-string and return its modified version, and is run in the serving thread.") # (so try to make it fast, although this is not quite so essential in WSGI mode; if you're in WSGI mode then I suggest getting the function to import any large required modules on-demand)
+define("htmlFilter",help="External program(s) to run to filter every HTML document. If more than one program is specified separated by # then the user will be given a choice (see htmlFilterName option). Any shell command can be used; its standard input will get the HTML (or the plain text if htmlText is set), and it should send the new version to standard output. Multiple copies of each program might be run at the same time to serve concurrent requests. UTF-8 character encoding is used. If you are not able to run external programs then you could use a back-end server (specify an http:// or https:// URL and input is POSTed in the request body; if this back-end server is another Web Adjuster with submitPath and submitBookmarklet set then give its submitPath plus uA for its 1st filter, uB for its 2nd, etc), or use a Python function: specify * followed by the function name, and inject the function into the adjuster module from a wrapper script (which imports adjuster, sets adjuster.options.htmlFilter etc, injects the function and calls adjuster.main). The function should take a byte-string and return its modified version, and is run in the serving thread. See also htmlUrl and htmlonly_tell_filter options.") # (run in the serving thread: so try to make it fast, although this is not quite so essential in WSGI mode; if you're in WSGI mode then I suggest getting the function to import any large required modules on-demand)
 define("htmlFilterName",help="A name for the task performed by htmlFilter. If this is set, the user will be able to switch it on and off from the browser via a cookie and some Javascript links at the bottom of HTML pages. If htmlFilter lists two or more options, htmlFilterName should list the same number plus one (again separated by #); the first is the name of the entire category (for example \"filters\"), and the user can choose between any one of them or none at all (hence the number of options is one more than the number of filters); if this yields more than 3 options then all but the first two are hidden behind a \"More\" option on some browsers.") # TODO: non-Javascript fallback for the switcher
 define("htmlJson",default=False,help="Try to detect HTML strings in JSON responses and feed them to htmlFilter. This can help when using htmlFilter with some AJAX-driven sites. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple HTML strings in the same JSON response will be given to it separated by newlines, and the newlines of the output determine which fragment to put back where. (If you combine htmlJson with htmlText, the external program will see text in HTML in JSON as well as text in HTML, but it won't see text in HTML in JSON in HTML.)")
 define("htmlText",default=False,help="Causes the HTML to be parsed, and only the text parts (not the markup) will be sent to htmlFilter. Useful to save doing HTML parsing in the external program. The external program is still allowed to include HTML markup in its output. IMPORTANT: Unless you also set the 'separator' option, the external program must preserve all newline characters, because multiple text strings will be given to it separated by newlines, and the newlines of the output determine which modified string to put back where.")
@@ -349,6 +349,7 @@ define("leaveTags",multiple=True,default="script,style,title,textarea,option",he
 define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with htmlText, you can set a comma-separated list of HTML tag names which should be deleted if they occur in any section of running text. For example, \"wbr\" (word-break opportunity) tags (listed by default) might cause problems with phrase-based annotators.")
 # stripTags TODO: <span class="whatever">&nbsp;</span> (c.f. annogen's JS) ?  have already added to the bookmarklet JS (undocumented! see 'awkwardSpan') but not to the proxy version (the two find_text_in_HTML functions)
 define("htmlUrl",default=False,help="Add a line containing the document's URL to the start of what gets sent to htmlFilter (useful for writing filters that behave differently for some sites; not yet implemented for submitBookmarklet, which will show a generic URL). The URL line must not be included in the filter's response.")
+define("htmlonly_tell_filter",default=False,help="Add a line showing the current status of \"HTML-only mode\" (see htmlonly_mode option) to the start of what gets sent to htmlFilter (before any htmlUrl if present), as \"True\" or \"False\" (must not be included in the filter's response).  This may be useful for filters that need to do extra processing if client-side scripts are removed.")
 
 define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.")
 # (submitPath: see comments in serve_submitPage; "with htmlFilter" TODO: do we add "(or --render)" to this? but charset submit not entirely tested with all old browsers; TODO: consider use of chardet.detect(buf) in python-chardet)
@@ -3640,6 +3641,8 @@ document.forms[0].i.focus()
             def get_all(self): return [("Content-Type","text/html; charset=utf-8")]
         if options.htmlUrl: line1 = "about:submitted\n"
         else: line1 = ""
+        if options.htmlonly_tell_filter:
+            line1=str(self.htmlOnlyMode())+"\n"+line1
         runFilterOnText(self,self.getHtmlFilter(),find_text_in_HTML(B(htmlhead("Uploaded Text - Web Adjuster"))+B("<h3>Your text</h3>")+B(txt2html(txt))+B("<hr>This is %s. %s</body></html>" % (serverName_html,backScriptNoBr))),lambda out,err:self.doResponse2(out,True,False),prefix=line1) # backScriptNoBr AFTER the server notice to save vertical space
     def serve_bookmarklet_code(self,xtra,forceSameWindow): # (forceSameWindow is used by the "plus" bookmarklets)
         self.add_header("Content-Type","application/javascript")
@@ -3691,6 +3694,8 @@ document.forms[0].i.focus()
             self.finish()
         if options.htmlUrl: line1 = "about:bookmarklet\n" # TODO: get the bookmarklet to report the location.href of the site (and update htmlUrl help text)
         else: line1 = ""
+        if options.htmlonly_tell_filter:
+            line1=str(self.htmlOnlyMode())+"\n"+line1
         runFilterOnText(self,self.getHtmlFilter(filterNo),codeTextList,callback,prefix=line1)
     def serve_backend_post(self,filterNo):
         # for another instance's htmlFilter=http://...uA etc
@@ -4345,6 +4350,8 @@ document.forms[0].i.focus()
         htmlFilter = self.getHtmlFilter()
         if options.htmlUrl: line1 = B(self.urlToFetch)+B("\n")
         else: line1 = B("")
+        if options.htmlonly_tell_filter:
+            line1=B(str(self.htmlOnlyMode())+"\n")+line1
         if do_html_process and htmlFilter:
             if options.htmlText: runFilterOnText(self,htmlFilter,find_text_in_HTML(body),callback,prefix=line1)
             else: runFilter(self,htmlFilter,line1+body,callback)
@@ -4946,10 +4953,8 @@ def runFilter(req,cmd,text,callback,textmode=True):
     if type(cmd)==type("") and cmd.startswith("*"):
         cmd = eval(cmd[1:]) # (normally a function name, but any Python expression that evaluates to a callable is OK, TODO: document this?  and incidentally if it evaluates to a string that's OK as well; the string will be given to an external command)
     if not type(cmd)==type(""):
-        if wsgi_mode: return callback(B(cmd(text)),"")
-        # else use a slightly more roundabout version to give watchdog ping a chance to work between cmd and callback:
         out = B(cmd(text))
-        return IOLoopInstance().add_timeout(time.time(),lambda *args:callback(out,""))
+        return IOLoopInstance().add_timeout(time.time(),lambda *args:callback(out,"")) # give watchdog ping a chance to work between cmd and callback
     elif cmd.startswith("http://") or cmd.startswith("https://"):
         return httpfetch(req,cmd,method="POST",body=text,callback=lambda r:(curlFinished(),callback(B(r.body),"")))
     def subprocess_thread():
