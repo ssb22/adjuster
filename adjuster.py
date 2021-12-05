@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.16 (c) 2012-21 Silas S. Brown"
+"Web Adjuster v3.17 (c) 2012-21 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -363,7 +363,7 @@ define("letsEncryptWarning",default=False,help="Indicates that submitBookmarklet
 define("submitBookmarkletRemoveExistingRuby",default=True,help="Specifies that 'bookmarklets' added to the 'Upload text' page should remove all existing ruby on a page before running.  Use this for example if you expect to replace the text with ruby of a different kind of annotation.")
 
 heading("Javascript execution options")
-define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome, HeadlessFirefox, Chrome or Firefox, and must have the appropriate one installed along with an appropriate version of Selenium (and ChromeDriver or GeckoDriver if appropriate).  Non-headless Chrome or Firefox requires a display (and might not respond to manual window close) but may help work around bugs in some headless versions.  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
+define("js_interpreter",default="",help="Execute Javascript on the server for users who choose \"HTML-only mode\". You can set js_interpreter to PhantomJS, HeadlessChrome, HeadlessFirefox, Chrome, Firefox, or edbrowse (experimental), and must have the appropriate one installed, along with an appropriate version of Selenium (and ChromeDriver or GeckoDriver if appropriate) if not using edbrowse.  Non-headless Chrome or Firefox requires a display (and might not respond to manual window close) but may help work around bugs in some headless versions.  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a \"real\" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot")
 define("js_upstream",default=False,help="Handle --headAppend, --bodyPrepend, --bodyAppend and --codeChanges upstream of our Javascript interpreter instead of making these changes as code is sent to the client, and make --staticDocs available to our interpreter as well as to the client.  This is for running experimental 'bookmarklets' etc with browsers like Lynx.")
 # js_upstream TODO: what of delay? (or wait for XHRs to finish, call executeJavascript instead?)
 define("js_frames",default=False,help="When using js_interpreter, append the content of all frames and iframes to the main document. This might help with bandwidth reduction and with sites that have complex cross-frame dependencies that can be broken by sending separate requests through the adjuster.")
@@ -382,11 +382,11 @@ define("js_reproxy",default=True,help="When js_interpreter is in use, have it se
 # js_reproxy also works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with js_interpreter) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
 define("js_prefetch",default=True,help="When running with js_reproxy, prefetch main pages to avoid holding up a js_interpreter instance if the remote server is down.  Turn this off if you expect most remote servers to be up and you want to detect js_429 issues earlier.") # (Doing prefetch per-core can lead to load imbalances when running multicore with more than one interpreter per core, as several new pages could be in process of fetch when only one interpreter is ready to take them.  Might want to run non-multicore and have just the interpreters using other cores if prefetch is needed.)
 define("js_UA",help="Custom user-agent string for js_interpreter requests, if for some reason you don't want to use the JS browser's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--js_reproxy) so scripts running in the JS browser itself will see its original user-agent.")
-define("js_images",default=True,help="When js_interpreter is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.")
+define("js_images",default=True,help="When js_interpreter is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # In edbrowse this will likely be treated as false anyway
 # js_images=False may also cause some versions of Webkit to leak memory (PhantomJS issue 12903), TODO: return a fake image if js_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("js_size",default="1024x768",help="The virtual screen dimensions of the browser when js_interpreter is in use (changing it might be useful for screenshots)")
 define("js_links",default=True,help="When js_interpreter is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
-define("js_multiprocess",default=True,help="When js_interpreter is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available. Recommended: if a webdriver instance gets 'stuck' in a way that somehow hangs its controlling process, we can detect and restart it.")
+define("js_multiprocess",default=True,help="When js_interpreter is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available and working. Recommended: if a webdriver instance gets 'stuck' in a way that somehow hangs its controlling process, we can detect and restart it.")
 define("ssl_fork",default=False,help="(Unix only) Run SSL-helper proxies as separate processes to stop the main event loop from being stalled by buggy SSL libraries. This costs RAM, but adding --multicore too will limit the number of helpers to one per core instead of one per port, so --ssl-fork --multicore is recommended if you want more js_interpreter instances than cores.")
 
 heading("Server control options")
@@ -581,7 +581,7 @@ if not tornado:
 # Further imports
 # --------------------------------------------------
 
-import time,socket,logging,subprocess,threading,base64,signal,traceback
+import time,socket,logging,subprocess,threading,base64,signal,traceback,shutil
 try: from string import letters,digits # Python 2
 except ImportError:
     from string import ascii_letters as letters # Python 3
@@ -956,14 +956,19 @@ def preprocessOptions():
     if options.js_interpreter:
       if options.js_instances < 1: errExit("js_interpreter requires positive js_instances")
       global webdriver
-      try: from selenium import webdriver
-      except: errExit("js_interpreter requires selenium")
-      if not options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox","Chrome","Firefox"]: errExit("js_interpreter (if set) must be PhantomJS, HeadlessChrome, HeadlessFirefox, Chrome or Firefox")
+      if options.js_interpreter=="edbrowse":
+        check_edbrowse()
+        if options.js_frames or options.js_links:
+          warn("--js_frames and --js-links not yet implemented with edbrowse, clearing them")
+          options.js_frames = options.js_links = False
+      else:
+        try: from selenium import webdriver
+        except: errExit("js_interpreter requires selenium (unless using --js-interpreter=edbrowse)")
+        if not options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox","Chrome","Firefox"]: errExit("js_interpreter (if set) must be PhantomJS, HeadlessChrome, HeadlessFirefox, Chrome, Firefox or edbrowse")
       if "x" in options.js_size:
         w,h = options.js_size.split("x",1)
       else: w,h = options.js_size,768
-      try: w,h = int(w),int(h)
-      except: w,h = 0,0
+      w,h = intor0(w),intor0(h)
       if not (w and h) and options.js_interpreter in ["PhantomJS","HeadlessChrome","HeadlessFirefox"]:
         warn("Unrecognised size '%s', using 1024x768\n" % options.js_size)
         w,h = 1024,768
@@ -1160,6 +1165,10 @@ def preprocessOptions():
     if not options.js_interpreter:
         options.js_reproxy=options.js_frames=False
     elif not options.htmlonly_mode: errExit("js_interpreter requires htmlonly_mode")
+
+def intor0(x):
+    try: return int(x)
+    except: return 0
 
 def check_injected_globals():
     # for making sure we're used correctly when imported
@@ -2347,7 +2356,7 @@ class WebdriverWrapper:
         # Try zapping the process ourselves anyway (even if theWebDriver.quit DIDN'T return error: seems it's sometimes still left around.  TODO: this could have unexpected consequences if the system's pid-reuse rate is excessively high.)
         self.theWebDriver = None
         emergency_zap_pid_and_children(pid)
-        if self.tempDirToDelete: emergency_zap_tempdir(self.tempDirToDelete)
+        if self.tempDirToDelete: shutil.rmtree(self.tempDirToDelete,True)
     def current_url(self):
         try: return self.theWebDriver.current_url
         except: return "" # PhantomJS Issue #13114: unconditional reload for now
@@ -2376,7 +2385,7 @@ class WebdriverWrapper:
         return B(f([]))
     def getpng(self):
         if options.js_interpreter=="HeadlessChrome": # resize not needed for PhantomJS (but PhantomJS is worse at font configuration and is no longer maintained)
-            self.theWebDriver.set_window_size(js_size[0],min(16000,int(self.theWebDriver.execute_script("return document.body.parentNode.scrollHeight")))) # TODO: check the 16000: what is Selenium's limit? (confirmed over 8000)
+            self.theWebDriver.set_window_size(js_size[0],min(16000,intor0(self.theWebDriver.execute_script("return document.body.parentNode.scrollHeight")))) # TODO: check the 16000: what is Selenium's limit? (confirmed over 8000)
             time.sleep(1)
         png = self.theWebDriver.get_screenshot_as_png()
         if options.js_interpreter=="HeadlessChrome": self.theWebDriver.set_window_size(*js_size)
@@ -2386,6 +2395,48 @@ class WebdriverWrapper:
             png = s.getvalue()
         except: pass # just return non-optimized
         return png
+def getWebdriverWrapper():
+    if options.js_interpreter=="edbrowse": return EdbrowseWrapper()
+    else: return WebdriverWrapper()
+class EdbrowseWrapper:
+    "Experimental wrapper for edbrowse that behaves like WebdriverWrapper"
+    def __init__(self): self.tDir,self.url,self.out = None,"about:blank",b""
+    def new(self,index,*args): self.tDir,self.edEnv = setup_edbrowse(index)
+    def getTmp(self,*args): return self.tDir
+    def quit(self,*args):
+        if self.tDir: shutil.rmtree(self.tDir,True)
+    def current_url(self): return self.url
+    def get(self,url):
+        self.url = url
+        out = subprocess.Popen(["edbrowse","-e"],-1,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=self.edEnv).communicate(b"b %s\njdb\ndocument.documentElement.outerHTML\n" % B(url))[0]
+        try: self.out = re.search(b"\\.browse\n(.*)EOF\\s*$",out,flags=re.DOTALL).group(1)
+        except: self.out = "Error: "+repr(out)
+    def execute_script(self,script): return "0" # typically used to get window dimensions etc, not needed for edbrowse
+    def click_id(self,clickElementID): pass # shouldn't be called if js_links off
+    def click_xpath(self,xpath): pass
+    def click_linkText(self,clickLinkText): pass
+    def getu8(self): return self.out
+    def getpng(self): return b"" # screenshots don't make sense on edbrowse
+def check_edbrowse():
+    tDir,edEnv = setup_edbrowse()
+    try: out,err = subprocess.Popen(["edbrowse","-v"],-1,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=edEnv).communicate(b"")
+    except OSError: errExit("Could not run edbrowse")
+    shutil.rmtree(tDir)
+    try: a,b,c = S(out).split('.')
+    except: errExit("Could not parse format of edbrowse version number "+repr(out))
+    if (intor0(a),intor0(b),intor0(c)) < (3,7,5): errExit("edbrowse too old: at least 3.7.5 is required")
+def setup_edbrowse(index=None):
+    tDir = getoutput("(TMPDIR=/dev/shm mktemp -d -t ed || mktemp -d -t ed) 2>/dev/null")
+    edEnv=os.environ.copy()
+    edEnv["TMPDIR"]=edEnv["HOME"]=tDir
+    ebrc = "downdir="+tDir+"\n"
+    ebrc += "jar="+tDir+os.sep+"cookies\n"
+    ebrc += "cachedir="+tDir+"\ncachesize=0\n" # (dir might not be needed if size=0)
+    if options.js_UA and not options.js_UA.startswith("*"): ebrc += "agent="+options.js_UA+"\n"
+    if options.js_reproxy and not index==None: ebrc += "proxy=* * 127.0.0.1:%d\n" % proxyPort(index)
+    elif options.upstream_proxy: ebrc += "proxy=* * "+options.upstream_proxy+"\n"
+    open(tDir+os.sep+".ebrc","w").write(ebrc)
+    return tDir,edEnv
 def emergency_zap_pid_and_children(pid):
     if not pid: return
     try:
@@ -2395,11 +2446,6 @@ def emergency_zap_pid_and_children(pid):
     except: pass # no psutil, or process already gone
     try: os.kill(pid,9),os.waitpid(pid, 0) # waitpid is necessary to clear it from the process table, but we should NOT use os.WNOHANG, as if we do, there's a race condition with the os.kill taking effect (even -9 isn't instant)
     except OSError: pass # maybe pid already gone
-def emergency_zap_tempdir(d):
-    try:
-        for f in os.listdir(d): emergency_zap_tempdir(d+os.sep+f)
-        os.rmdir(d)
-    except: unlink(d)
 try: from selenium.common.exceptions import TimeoutException
 except: # no Selenium or wrong version
     class TimeoutException(Exception): pass # placeholder
@@ -2408,7 +2454,7 @@ def webdriverWrapper_receiver(pipe,timeoutLock):
     "Command receiver for WebdriverWrapper for when it's running over IPC (--js-multiprocess).  Receives (command,args) and sends (return,exception), releasing the timeoutLock whenever it's ready to return."
     setProcName("adjusterWDhelp")
     CrossProcessLogging.initChild()
-    try: w = WebdriverWrapper()
+    try: w = getWebdriverWrapper()
     except KeyboardInterrupt: return
     while True:
         try: cmd,args = pipe.recv()
@@ -2478,7 +2524,16 @@ class WebdriverWrapperController:
     def click_linkText(self,clickLinkText): self.send("click_linkText",(clickLinkText,))
     def getu8(self): return self.send("getu8")
     def getpng(self): return self.send("getpng")
-try: import multiprocessing # Python 2.6
+try:
+    import multiprocessing # Python 2.6
+    def testFunc():
+        try: testVal
+        except: sys.exit(1)
+    if __name__ == "__main__":
+        testVal = 1
+        p=multiprocessing.Process(target=testFunc)
+        p.start() ; p.join()
+        if p.exitcode: raise Exception("multiprocessing unusable (import instead of fork?)") # e.g. Python 3 on Mac (TODO: document this in help text?)
 except: multiprocessing = None
 class WebdriverRunner:
     "Manage a WebdriverWrapperController (or a WebdriverWrapper if we're not using IPC) from a thread of the main process"
@@ -2486,11 +2541,11 @@ class WebdriverRunner:
         self.start,self.index = start,index
         if options.js_multiprocess:
             self.wrapper = WebdriverWrapperController()
-        else: self.wrapper = WebdriverWrapper()
+        else: self.wrapper = getWebdriverWrapper()
         self.renew_webdriver_newThread(True) # sets wd_threadStart
     def renew_controller(self): # SeriousTimeoutException
         emergency_zap_pid_and_children(self.wrapper.process.pid)
-        emergency_zap_tempdir(self.wrapper.tempDirToDelete)
+        shutil.rmtree(self.wrapper.tempDirToDelete,True)
         self.wrapper = WebdriverWrapperController()
     def renew_webdriver_sameThread(self,firstTime=False):
         self.usageCount = 0 ; self.maybe_stuck = False
@@ -2683,7 +2738,7 @@ def get_new_Chrome(index,renewing,headless):
     while True: # might be restarting from a corrupted user-data-dir state; in worst case might not even be able to cleanly remove it (TODO: what if some processes associated with an older instance somehow took a while to go away and still have named referenc to previous path: increment counter unconditionally?  still rm the old one)
         path = writable_tmpdir()+"hChrome-"+myUsername+str(options.port)+"."+str(index)+extra
         if not os.path.exists(path): break
-        import shutil ; shutil.rmtree(path,True)
+        shutil.rmtree(path,True)
         if not os.path.exists(path): break
         if extra: extra="-"+str(int(extra[1:])+1)
         else: extra = "-0"
@@ -2838,6 +2893,7 @@ webdriver_inProgress = [] ; webdriver_queue = []
 webdriver_lambda = webdriver_mu = 0
 def test_init_webdriver():
     "Check that we CAN start a webdriver, before forking to background and starting all of them"
+    if options.js_interpreter=="edbrowse": return
     sys.stderr.write("Checking webdriver configuration... "),sys.stderr.flush()
     get_new_webdriver(0).quit()
     sys.stderr.write("OK\n")
@@ -2895,7 +2951,7 @@ def webdriver_checkRenew(*args):
     IOLoopInstance().add_timeout(time.time()+60,webdriver_checkRenew)
 def webdriver_fetch(url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
     if tooLate(): return # probably webdriver_queue overload (which will also be logged)
-    elif prefetched and (not hasattr(prefetched,"code") or prefetched.code >= 500): return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something
+    elif prefetched and (not hasattr(prefetched,"code") or prefetched.code >= 500 or not hasattr(prefetched,"body") or not re.search(b'<script',B(prefetched.body),flags=re.I)): return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something, or a page with no JS (TODO: what if a page has onload=... with the scripts fully embedded in the attributes?  does edbrowse enable JS for that?  may need to ensure js_fallback is switched on when using edbrowse, in case edbrowse disables JS when we thought it wouldn't)
     elif wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # (can't reproxy in wsgi_mode, so can't use via and ua) TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do js_interpreter anyway; where else might we have threaded wsgi?  js_interpreter really is better run in non-wsgi mode anyway, so can js_reproxy)
     webdriver_queue.append((url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate))
     global webdriver_lambda ; webdriver_lambda += 1
@@ -5213,7 +5269,7 @@ def get_httpequiv_charset(htmlStr):
 def get_and_remove_httpequiv_charset(body):
     charset,tagStart,tagEnd = get_httpequiv_charset(body)
     if charset: body = body[:tagStart]+body[tagEnd:]
-    if body.startswith(B('<?xml version="1.0" encoding')): body = B('<?xml version="1.0"')+body[body.find(B("?>")):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
+    if B(body).startswith(B('<?xml version="1.0" encoding')): body = B('<?xml version="1.0"')+body[body.find(B("?>")):] # TODO: honour THIS 'encoding'?  anyway remove it because we've changed it to utf-8 (and if we're using LXML it would get a 'unicode strings with encoding not supported' exception)
     return charset, body
 
 #@file: run-browser.py
