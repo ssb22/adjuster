@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.22 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.23 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1298,7 +1298,8 @@ if have_annotModes:
 enum {
   annotations_only,
   ruby_markup,
-  brace_notation} annotation_mode = Default_Annotation_Mode;
+  brace_notation,
+  segment_only} annotation_mode = Default_Annotation_Mode;
 """ + c_defs
   c_switch1=br"""switch (annotation_mode) {
   case annotations_only: OutWriteDecompressP(annot); COPY_BYTE_SKIPN(numBytes); break;
@@ -1310,6 +1311,9 @@ enum {
       OutWriteByte(NEXT_COPY_BYTE);
     OutWriteByte('|'); OutWriteDecompressP(annot);
     OutWriteByte('}'); break;
+  case segment_only:
+    for(;numBytes;numBytes--)
+      OutWriteByte(NEXT_COPY_BYTE); break;
   }"""
   c_switch3 = b"if (annotation_mode == ruby_markup) {"
   c_switch4 = b"} else o(numBytes,annot);"
@@ -1329,10 +1333,10 @@ static int nearbytes = ybytes;
 #define setnear(n) (nearbytes = (n))
 """ + c_defs + br"""static int needSpace=0;
 static void s() {
-  if (needSpace) OutWriteByte(' ');
+  if (needSpace) OutWriteByte(annotation_mode==segment_only?'-':' '); /* (hyphen is probably the best separator character if our binary will be used for Gradint's espeak_preprocessors option) */
   else needSpace=1; /* for after the word we're about to write (if no intervening bytes cause needSpace=0) */
 } static void s0() {
-  if (needSpace) { OutWriteByte(' '); needSpace=0; }
+  if (needSpace) { OutWriteByte(annotation_mode==segment_only?'-':' '); needSpace=0; }
 }""" + decompress_func + br"""
 
 static void c(int numBytes) {
@@ -1753,12 +1757,15 @@ int main(int argc,char*argv[]) {
   c_end += br"""
       puts("--ruby   = output ruby markup (default)");
       puts("--raw    = output just the annotations without the base text");
+      puts("--seg    = output just a segmentation of the base text");
       puts("--braces = output as {base-text|annotation}");
       return 0;
     } else if(!strcmp(argv[i],"--ruby")) {
       annotation_mode = ruby_markup;
     } else if(!strcmp(argv[i],"--raw")) {
       annotation_mode = annotations_only;
+    } else if(!strcmp(argv[i],"--seg")) {
+      annotation_mode = segment_only;
     } else if(!strcmp(argv[i],"--braces")) {
       annotation_mode = brace_notation;
     } else {
