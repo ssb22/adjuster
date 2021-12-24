@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.23 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.231 (c) 2012-21 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1333,10 +1333,16 @@ static int nearbytes = ybytes;
 #define setnear(n) (nearbytes = (n))
 """ + c_defs + br"""static int needSpace=0;
 static void s() {
-  if (needSpace) OutWriteByte(annotation_mode==segment_only?'-':' '); /* (hyphen is probably the best separator character if our binary will be used for Gradint's espeak_preprocessors option) */
+  if (needSpace) OutWriteByte("""
+if have_annotModes: c_start += b"annotation_mode==segment_only?'-':' '); /* (hyphen is probably the best separator character if our binary will be used for Gradint's espeak_preprocessors option) */"
+else: c_start += b"' ');"
+c_start += br"""
   else needSpace=1; /* for after the word we're about to write (if no intervening bytes cause needSpace=0) */
 } static void s0() {
-  if (needSpace) { OutWriteByte(annotation_mode==segment_only?'-':' '); needSpace=0; }
+  if (needSpace) { OutWriteByte("""
+if have_annotModes: c_start += b"annotation_mode==segment_only?'-':' '"
+else: c_start += b"' '"
+c_start += br"""); needSpace=0; }
 }""" + decompress_func + br"""
 
 static void c(int numBytes) {
