@@ -295,6 +295,8 @@ parser.add_option("--browser-extension", help="Name of a Chrome or Firefox brows
 # Chrome: chrome://extensions - Developer mode - Load unpacked - select the directory
 # Chrome bug: browser_style true gives unreadable text in Chromium 89 with enable-force-dark set to "Enabled with selective inversion of everything" (and possibly other settings)
 
+# Note: --browser-extension currently generates "Manifest v2" extensions.  From 17th January 2022 the Chrome Web Store will no longer accept new extensions in Manifest v2: it will require Manifest v3 (which requires Chrome 88 or higher, and a future(?) version of Firefox; background pages must be moved to (non-persistent) service workers, + read clipboard changed).  Existing extensions can still be updated until January 2023, when they'll stop running in (new versions of) Chrome (extended till June for enterprise setups)
+
 parser.add_option("--dart",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate Dart.  This might be useful if you want to run an annotator in a Flutter application.")
