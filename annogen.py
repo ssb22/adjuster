@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.231 (c) 2012-21 Silas S. Brown"
+"Annotator Generator v3.232 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1878,7 +1878,7 @@ if annotation_names:
   else: android_url_box += B(annotation_names) # assume it's just one name
 else: android_url_box += br"annotation"
 android_url_box += br""" with Copy</button>');
-if(desktopURL) { fixInclude=function(){setTimeout(function(){var ow=document.getElementById('desktopVersion').offsetWidth;document.getElementById('include').style.maxWidth='calc(99% - '+(ow*2>visualViewport.width?0:ow)+'px)'},300)}; oldVZC=viewZoomCtrls; viewZoomCtrls=function(){ fixInclude(); oldVZC(); }; fixInclude() }
+if(desktopURL) { fixInclude=function(){setTimeout(function(){var ow=document.getElementById('desktopVersion').offsetWidth;document.getElementById('include').style.maxWidth='calc(99% - '+(ow*2>(window.visualViewport!=undefined?window.visualViewport.width:window.innerWidth)?0:ow)+'px)'},300)}; oldVZC=viewZoomCtrls; viewZoomCtrls=function(){ fixInclude(); oldVZC(); }; fixInclude() }
 var m=navigator.userAgent.match(/Android ([0-9]+)\./); if(m && m[1]<5) document.write("<div id=insecure style=\"clear: both; background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be safer to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></div>");
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)){document.forms[document.forms.length-1].url.value=c;document.getElementById("displayMe").style.display="table-cell"}</script>"""
 # API 19 (4.4) and below has no browser updates.  API 17 (4.2) and below has known shell exploits for CVE-2012-6636 which requires only that a site (or network access point) can inject arbitrary Javascript into the HTTP stream.  Not sure what context the resulting shell runs in, but there are probably escalation attacks available.  TODO: insist on working offline-only on old versions?
@@ -2526,7 +2526,8 @@ if tts_js: android_src += br"""
                             return;
                         }
                         boolean do_shutdown = true;
-                        for(android.speech.tts.Voice v: tts2.getVoices()) {
+                        java.util.Set<android.speech.tts.Voice> voices; try { voices=tts2.getVoices(); } catch(Exception e) { ttsList += "(getVoices fail)"; return; }
+                        for(android.speech.tts.Voice v: voices) {
                             ttsList += v.getName()+"(lang="+v.getLocale().getLanguage()+" variant="+v.getLocale().getVariant()+" quality="+String.valueOf(v.getQuality())+" connection="+(v.isNetworkConnectionRequired()?"t":"f")+" latency="+String.valueOf(v.getLatency())+")\n";
                             int dx=voices_to_set.indexOf(","+v.getName()+",");
                             if (dx>-1 && (found_dx==-1 || dx < found_dx) && tts2.setVoice(v)==android.speech.tts.TextToSpeech.SUCCESS) {
