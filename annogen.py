@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.232 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.233 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2110,7 +2110,7 @@ if glossfile: android_src += br"""
 "javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(!l2){var e=document.createElement('span');e.setAttribute('id','ssb_2Line');e.innerHTML='<style>rt:not(:last-of-type){display:none!important}</style>';document.body.insertBefore(e,document.body.firstChild.nextSibling)}"
 ); } }); } });
                             d.setNegativeButton("3 lines",new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
-"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(l2)l2.parentNode.removeChild(l2);var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt>'+title.split(' || ').map(function(m){return m.replace(/^([(]?[^/(;]*).*/,'$1')}).join(' ')+'</rt><rt>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});if(!ad0[i].inLink){var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)}} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
+"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(l2)l2.parentNode.removeChild(l2);var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"[^>]*><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt>'+title.split(' || ').map(function(m){return m.replace(/^([(]?[^/(;]*).*/,'$1')}).join(' ')+'</rt><rt>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});if(!ad0[i].inLink){var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)}} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
 /* Above rp elements are to make firstChild etc work in
    dialogue.  Don't do whole document.body.innerHTML, or
    scripts like document.write may execute a second time,
