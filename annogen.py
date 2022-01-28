@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.233 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.234 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1399,11 +1399,11 @@ def sort20px(singleQuotedStr): # 20px is relative to zoom
   if not android_template: return singleQuotedStr
   return singleQuotedStr.replace(b"20px",b"'+Math.round(20/Math.pow((ssb_local_annotator.canCustomZoom()?ssb_local_annotator.getRealZoomPercent():100)/100,0.6))+'px") # (do allow some scaling, but not by the whole zoom factor)
 def bookmarkJS():
-  "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks, and event-setup code to be added after (to work around onclick= restrictions on some sites, i.e. ones that set the HTTP header Content-Security-Policy: unsafe-inline)"
+  "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks, and event-setup code to be added after (as Content-Security-Policy could be unsafe-inline + unsafe-eval)"
   assert not '"' in android, "bookmarkJS needs re-implementing if --android URL contains quotes: please %-escape it"
   should_show_bookmarks = B("(location.href=='"+android.replace("'",r"\\'")+"'&&!document.noBookmarks)") # noBookmarks is used for handling ACTION_SEND, since it has the same href (TODO @lower-priority: use different href instead?)
   are_there_bookmarks = b"ssb_local_annotator.getBMs().replace(/,/g,'')"
-  show_bookmarks_string = br"""'<div style=\"border: green solid\">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style=\"color:red;text-decoration:none\" href=\"javascript:if(confirm(\\'Delete '+title.replace(/\\'/g,\"&apos;\").replace(/\"/g,\"&quot;\")+\"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')[\"+i+']);location.reload()}\">Delete</a>] <a style=\"color:blue;text-decoration:none\" href=\"'+url+'\">'+title+'</a>'}return c+'</ul>'})()+'</div>'""" # TODO: use of confirm() will include the line "the page at file:// says", could do without that (but reimplementing will need complex callbacks rather than a simple 'if')
+  show_bookmarks_string = br"""'<div style=\"border: green solid\">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style=\"color:red;text-decoration:none\" href=\"javascript:if(confirm(\\'Delete '+title.replace(/\\'/g,\"&apos;\").replace(/\"/g,\"&quot;\")+\"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')[\"+i+']);location.reload()}\">Delete</a>] <a style=\"color:blue;text-decoration:none\" href=\"'+url+'\">'+title+'</a>'}return c+'</ul>'})()+'</div>'""" # TODO: use of confirm() will include the line "the page at file:// says", could do without that (but reimplementing will need complex callbacks rather than a simple 'if').  The javascript: here is OK as we assume there's no Content-Security-Policy on our start page where should_show_bookmarks is true.
   show_bookmarks_string = are_there_bookmarks+b"?("+show_bookmarks_string+b"):''"
   should_suppress_toolset=[
     b"location.href.slice(0,7)=='file://'", # e.g. assets URLs
@@ -1414,31 +1414,36 @@ def bookmarkJS():
   should_suppress_toolset = b"("+b"||".join(should_suppress_toolset)+b")"
   toolset_openTag = sort20px(br"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: #1010AF solid !important; background: #1010AF !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""") # need to select a background that doesn't 'invert' too much by whatever algorithm forceDarkAllowed uses; 1010AF at opacity 0.8 = 4040BF on white
   toolset_closeTag = b"'</span></span>'"
-  bookmarkLink0 = b"ssb_local_annotator.addBM((location.href+' '+(document.title?document.title:location.hostname?location.hostname:'untitled')).replace(/,/g,'%2C'))"
-  bookmarkLink = br'\"'+b"javascript:"+bookmarkLink0+br'\"' # not ' as bookmarkLink0 contains '
-  copyLink0 = b"ssb_local_annotator.copy(location.href,true)"
-  copyLink = b"'javascript:"+copyLink0+b"'" # ' is OK here
-  forwardLink = b"'javascript:history.go(1)'"
-  closeLink = br'\"'+b"javascript:var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)"+br'\"'
   emoji_supported = b"(function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
-  bookmarks_emoji = br"""'>\ud83d\udd16</a> &nbsp; <a href=\"'+copyLink+'\">\ud83d\udccb</a> &nbsp; """
-  if android_print: bookmarks_emoji += br"""'+(ssb_local_annotator.canPrint()?('<a href=\"javascript:ssb_local_annotator.print()\">'+ssb_local_annotator.canPrint()+'</a> &nbsp; '):'')+'""" # don't need bookmarks_noEmoji equivalent, because pre-4.4 devices can't print anyway
-  bookmarks_emoji += br"""<span id=annogenFwdBtn style=\"display: none\"><a href=\"'+forwardLink+'\">\u27a1\ufe0f</a> &nbsp;</span> <a href=\"'+closeLink+'\">\u274c'"""
-  bookmarks_noEmoji = br"""' style=\"color: white !important\">Bookmark</a> <a href=\"'+copyLink+'\" style=\"color: white !important\">Copy</a> <a id=annogenFwdBtn style=\"display: none\" href=\"'+forwardLink+'\" style=\"color: white !important\">Fwd</a> <a href=\"'+closeLink+'\" style=\"color: white !important\">X'"""
-  toolset_string = b"(function(bookmarkLink,copyLink,forwardLink,closeLink){return "+toolset_openTag+br"""+'<a href=\"'+bookmarkLink+'\"'+(ssb_local_annotator_toolE?("""+bookmarks_emoji+b"):("+bookmarks_noEmoji+br"""))+'</a>'+"""+toolset_closeTag+b"})("+bookmarkLink+b","+copyLink+b","+forwardLink+b","+closeLink+b")" # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
+  bookmarks_emoji = br"""'>\ud83d\udd16</a> &nbsp; <a href=\"#\" id=\"ssb_local_annotator_b2\">\ud83d\udccb</a> &nbsp; """
+  if android_print: bookmarks_emoji += br"""'+(ssb_local_annotator.canPrint()?('<a id=\"ssb_local_annotator_b3\" href=\"#\">'+ssb_local_annotator.canPrint()+'</a> &nbsp; '):'')+'""" # don't need bookmarks_noEmoji equivalent, because pre-4.4 devices can't print anyway
+  bookmarks_emoji += br"""<span id=annogenFwdBtn style=\"display: none\"><a href=\"#\">\u27a1\ufe0f</a> &nbsp;</span> <a id=\"ssb_local_annotator_b5\" href=\"#\">\u274c'"""
+  bookmarks_noEmoji = br"""' style=\"color: white !important\">Bookmark</a> <a href=\"#\" id=\"ssb_local_annotator_b2\" style=\"color: white !important\">Copy</a> <a id=annogenFwdBtn style=\"display: none\" href=\"#\" style=\"color: white !important\">Fwd</a> <a id=\"ssb_local_annotator_b5\" href=\"#\" style=\"color: white !important\">X'"""
+  toolset_string = toolset_openTag+br"""+'<a id=\"ssb_local_annotator_b1\" href=\"#\"'+(ssb_local_annotator_toolE?("""+bookmarks_emoji+b"):("+bookmarks_noEmoji+br"))+'</a>'+"+toolset_closeTag # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
   # TODO: (don't know how much more room there is on smaller devices, but) U+1F504 Reload (just do window.location.reload)
   toolset_string = should_suppress_toolset+b"?'':("+toolset_string+b")"
   
   unconditional_inject = b"ssb_local_annotator_toolE="+emoji_supported
   # Highlighting function, currently depending on android_print (calls canPrint, and currently no other way to save highlights, TODO: figure out how we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions)
   if android_print:
-    p = br""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" onclick=\"ssb_local_annotator_highlightSel(&quot;'+c+'&quot;)\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(br"""'<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important; overflow: auto !important;\">'""")+br"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
+    p = br""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" data-c=\"'+c+'\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(br"""'<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important; overflow: auto !important;\">'""")+br"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
     if android_audio:
-      p=p.replace(b"ssb_local_annotator_highlightSel=",br"""ssb_local_annotator_playSel=function(){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);var t=new Array();for(;i < s.length && r.intersectsNode(s[i]); i++) t.push(s[i].getElementsByTagName('rb')[0].innerText); ssb_local_annotator.sendToAudio(t.join(''))};ssb_local_annotator_highlightSel=""").replace(b"+'</button>'",br"""+'<span onclick=\"ssb_local_annotator_playSel()\">'+(ssb_local_annotator_toolE?'\ud83d\udd0a':'S')+'</span></button>'""")
+      p=p.replace(b"ssb_local_annotator_highlightSel=",br"""ssb_local_annotator_playSel=function(){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);var t=new Array();for(;i < s.length && r.intersectsNode(s[i]); i++) t.push(s[i].getElementsByTagName('rb')[0].innerText); ssb_local_annotator.sendToAudio(t.join(''))};ssb_local_annotator_highlightSel=""").replace(b"+'</button>'",br"""+'<span>'+(ssb_local_annotator_toolE?'\ud83d\udd0a':'S')+'</span></button>'""")
       if android_audio_maxWords: p=p.replace(b"ssb_local_annotator.sendToAudio",b"if(t.length > %d) ssb_local_annotator.alert('','','Limit %d words!'); else ssb_local_annotator.sendToAudio" % (android_audio_maxWords,android_audio_maxWords))
     unconditional_inject += p
   unconditional_inject = b"(function(){"+unconditional_inject+b"})()"
-  return unconditional_inject+b"+("+should_show_bookmarks+b"?("+show_bookmarks_string+b"):("+toolset_string+b"))", b"var a=e.getElementsByTagName('*'),i;for(i=0;i < a.length; i++){var c=a[i].getAttribute('onclick');if(c){a[i].removeAttribute('onclick');a[i].addEventListener('click',Function('ev',c+';ev.preventDefault()'))}else{c=a[i].getAttribute('href');if(c&&c.slice(0,11)=='javascript:'){a[i].addEventListener('click',Function('ev',c.slice(11)+';ev.preventDefault()'))}}}"
+  event_handlers = b"""
+function annogenAddHandler(id,func){var e=document.getElementById(id);if(e)e.addEventListener('click',func)}
+annogenAddHandler('ssb_local_annotator_b1',function(){ssb_local_annotator.addBM((location.href+' '+(document.title?document.title:location.hostname?location.hostname:'untitled')).replace(/,/g,'%2C'))});
+annogenAddHandler('ssb_local_annotator_b2',function(){ssb_local_annotator.copy(location.href,true)});
+annogenAddHandler('annogenFwdBtn',function(){history.go(1)});
+annogenAddHandler('ssb_local_annotator_b5',function(){var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)});
+"""
+  if android_print:
+    event_handlers += b"annogenAddHandler('ssb_local_annotator_b3',function(){ssb_local_annotator.print()});" # DO have to wrap the ssb_local_annotator funcs in a function() or get "ReferenceError: NPObject deleted" on Android 4.4
+    event_handlers += b"var a=document.getElementById('ssb_local_annotator_HL'); if(a) for(a=a.firstChild;a;a=a.nextSibling)a.addEventListener('click',function(colour){return colour?function(){ssb_local_annotator_highlightSel(colour)}:ssb_local_annotator_playSel}(a.getAttribute('data-c')));"
+    if not android_audio: event_handlers=event_handlers.replace(b"return colour?function",b"return function").replace(b":ssb_local_annotator_playSel",b"")
+  return unconditional_inject+b"+("+should_show_bookmarks+b"?("+show_bookmarks_string+b"):("+toolset_string+b"))", event_handlers
 if bookmarks: jsAddRubyCss += b"+("+bookmarkJS()[0]+b")"
 jsAddRubyCss += b";d.body.insertBefore(e,d.body.firstChild)"
 if bookmarks: jsAddRubyCss += b";"+bookmarkJS()[1]
@@ -1464,7 +1469,7 @@ def jsAnnot(for_android=True,for_async=False):
 
   if for_android: r += br"""
   function annotPopAll(e){
-    /* click handler: alert box for glosses etc. Now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; don't use onclick= as it's incompatible with sites that say unsafe-inline in their Content-Security-Policy headers. */
+    /* click handler: alert box for glosses etc. Now we have a Copy button, it's convenient to put the click handler on ALL ruby elements, not just ones with title; beware compatibility with sites that disable unsafe-inline and/or unsafe-eval in their Content-Security-Policy headers. */
     if(e.currentTarget) e=e.currentTarget;
     function f(c){ /* scan all text under c */
       var i=0,r='',cn=c.childNodes;
@@ -1732,7 +1737,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
   p=pOrig; copyP=p;
   matchAll();
   free(pOrig);
-  OutWriteStr("<script><!--\nif(navigator.userAgent.match('Edge/'))document.write('</td></tr></table>')\n//--></script><script><!--\nfunction treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!=\"SCRIPT\" && c.nodeName!=\"TEXTAREA\" && !(c.nodeName==\"A\" && c.href)) { treewalk(c); if(c.nodeName==\"RUBY\" && c.title && !c.onclick) c.onclick=Function(\"alert(this.title)\") } c=c.nextSibling; } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);\n//--></script></body></html>");
+  OutWriteStr("<script><!--\nif(navigator.userAgent.match('Edge/'))document.write('</td></tr></table>')\n//--></script><script><!--\nfunction treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!=\"SCRIPT\" && c.nodeName!=\"TEXTAREA\" && !(c.nodeName==\"A\" && c.href)) { treewalk(c); if(c.nodeName==\"RUBY\" && c.title && !c.onclick) c.onclick=function(){alert(this.title)} } c=c.nextSibling } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);\n//--></script></body></html>");
   fclose(outFile);
   TCHAR fn2[sizeof(fname)]; int i;
   for(i=0; fname[i]; i++) fn2[i]=fname[i]; fn2[i]=(TCHAR)0;
