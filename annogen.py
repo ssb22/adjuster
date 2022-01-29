@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.234 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.235 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1456,7 +1456,7 @@ def jsAnnot(for_android=True,for_async=False):
   # Android or browser JS-based DOM annotator.  Return value becomes the js_common string in the Android Java: must be escaped as if in single-quoted Java string.
   # for_android True: provides AnnotIfLenChanged, annotScan, all_frames_docs etc
   # for_android False: just provides annotWalk, assumed to be called as-needed by user JS (doesn't install timers etc) and calls JS annotator instead of Java one
-  # for_async (browser_extension): provides MutationObserver (assumed capable browser if running the extension).  TODO: ask background.js if we are Off b4 doing annotWalk and observer?  (but then if turn on, will need to install mutation observer if not already installed.  so need to track it's been installed on the tab / doc / somewhere.)
+  # for_async (browser_extension): provides MutationObserver (assumed capable browser if running the extension)
   assert not (for_android and for_async), "options are mutually exclusive"
   if sharp_multi:
     if for_android: annotNo = b"ssb_local_annotator.getAnnotNo()"
@@ -1653,8 +1653,9 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     r += b"}" # if nf
   r += b"}" # function annotWalk
   if for_async: r += br"""
-annotWalk(document);
-new window.MutationObserver(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}}).observe(document.body,{childList:true,subtree:true});
+document.annotWalkOff=1;
+chrome.runtime.sendMessage(false,function(r){if(r!=1)annotWalk(document);document.annotWalkOff=(r==1)});
+new window.MutationObserver(function(mut){var i,j;if(!document.annotWalkOff)for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}}).observe(document.body,{childList:true,subtree:true});
 """
   elif for_android: r += br"if(!ssb_local_annotator.getIncludeAll())document.addEventListener('copy',function(e){var s=window.getSelection(),i,c=document.createElement('div');for(i=0;i < s.rangeCount;i++)c.appendChild(s.getRangeAt(i).cloneContents());e.clipboardData.setData('text/plain',c.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<.*?>/g,''));e.preventDefault()});" # work around user-select:none not always working (and newlines sometimes being added anyway)
   if not for_async:
@@ -3798,8 +3799,8 @@ var aType=localStorage.aType,numLines=localStorage.numLines;
 function handleMessage(request, sender, sendResponse) {
   if(typeof request=='number') {
     if(request<0) localStorage.numLines=numLines=-request; else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
-    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c); annotWalk(document,document)'})})
-  } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // popup status query
+    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c);'+(numLines==1?'document.annotWalkOff=1':'document.annotWalkOff=0;annotWalk(document,document)')})})
+  } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // status query (used by popup and by initial off/on)
   else { if(request==null) request={'t':getClip()};
   sendResponse(numLines>1?annotate(request['t']""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
   if sharp_multi: js_end += b",aType"
