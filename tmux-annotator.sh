@@ -6,7 +6,7 @@
 # annotate the current screen using "annotator" (in PATH)
 # and pipes the result through "termlayout" (in PATH).
 
-# Silas S. Brown 2014, 2015, 2019 - public domain - no warranty
+# Silas S. Brown 2014, 2015, 2019, 2022 - public domain - no warranty
 
 if [ "$TMUX" ]; then
   # tmux is not already running
@@ -16,8 +16,8 @@ elif [ "$1" = annot ]; then
   tmux capture-pane
   tmux last-window
   clear ; echo Please wait... # hopefully not long
-  if test -e /dev/shm; then export TmpFile=$(mktemp /dev/shm/annotXXX)
-  else export TmpFile=$(mktemp /tmp/annotXXX); fi
+  if [ -e /dev/shm ]; then TmpFile=$(mktemp /dev/shm/annotXXX)
+  else TmpFile=$(mktemp /tmp/annotXXX); fi
   tmux save-buffer $TmpFile # can't put /dev/stdout here
   tmux delete-buffer
   sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/$/<br>/' < $TmpFile | annotator --ruby | termlayout | less -r

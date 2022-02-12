@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.17 (c) 2012-21 Silas S. Brown"
+"Web Adjuster v3.17 (c) 2012-22 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -456,9 +456,9 @@ while True:
 # run on port 80) then try something like this:
 """# ---------- cut here ----------
 #!/bin/bash
-export URL=http://localhost:28080/LetMeIn # or whatever
-export T=$(mktemp /dev/shm/XXXXXX) ; cat > $T
-export T2=$(mktemp /dev/shm/XXXXXX)
+URL=http://localhost:28080/LetMeIn # or whatever
+T=$(mktemp /dev/shm/XXXXXX) ; cat > $T
+T2=$(mktemp /dev/shm/XXXXXX)
 wget --post-file $T -q -O - "$URL" > $T2
 echo "Content-Length: $(wc -c < $T2)" # please don't "chunk" it
 echo ; cat $T2 ; rm $T $T2
