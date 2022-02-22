@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.235 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.236 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1622,7 +1622,7 @@ for(c=n.firstChild; c; c=c.nextSibling) {
       if glossfile: annotateFunc += b",numLines"
       annotateFunc += b")}"
     r += b"var nv="+annotateFunc+br"""(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) }"""
-    if for_android: r += br"""if(!inLink){var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)}"""
+    if for_android: r += br"""var a,i,m=document.documentElement;if(!inLink){a=newNode.getElementsByTagName('ruby');for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)} if(m)m=m.offsetWidth;if(m){a=newNode.getElementsByTagName('rt');for(i=0;i < a.length;i++)if(a[i].offsetWidth > m)a[i].style.setProperty('white-space','normal','important')}""" # (offsetWidth part not currently done on browser extension; low priority as browser extensions are currently desktop-only)
     r += b"}" # if nv != cnv
   r += b"}}" # case 3, switch
   if not for_async: r += b"cP=c;"
@@ -1648,7 +1648,7 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     r += br"""
         nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'"""
     if for_android: r += br""";
-        if(!inLink) {var a=function(n){n=n.firstChild;while(n){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}n=n.nextSibling}};a(nReal)}"""
+        var a=function(n,i){for(n=n.firstChild;n;n=n.nextSibling){if(n.nodeType==1){if(n.nodeName=='RUBY'){if(!i)n.addEventListener('click',annotPopAll);var t;for(t=n.firstChild;t;t=t.nextSibling)if(t.nodeType==1&&t.nodeName=='RT'&&t.offsetWidth > document.documentElement.offsetWidth)t.style.setProperty('white-space','normal','important')}else a(n,i||n.nodeName=='A')}}};a(nReal,inLink)"""
     if delete_existing_ruby: r += b"""} else nReal.parentNode.replaceChild(n,nReal)"""
     r += b"}" # if nf
   r += b"}" # function annotWalk
@@ -1734,7 +1734,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
     outFile=fopen(fname,"w");
     if (!outFile) errorExit("Cannot write c.html");
   }
-  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style id=\"ruby\">ruby { display: inline-table; vertical-align: bottom; -webkit-border-vertical-spacing: 1px; padding-top: 0.5ex; } ruby * { display: inline; vertical-align: top; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if lt IE 8]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->\n<!--[if !IE]>-->\n<style>rt { font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n<script><!--\nif(navigator.userAgent.match('Edge/'))document.write('<table><tr><td>')\n//--></script><h3>Clipboard</h3>");
+  OutWriteStr("<html><head><meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body><style>ruby { display: inline-table; vertical-align: bottom; -webkit-border-vertical-spacing: 1px; padding-top: 0.5ex; } ruby * { display: inline; vertical-align: top; line-height:1.0; text-indent:0; text-align:center; white-space: nowrap; } rb { display: table-row-group; font-size: 100%; } rt { display: table-header-group; font-size: 100%; line-height: 1.1; }</style>\n<!--[if lt IE 8]><style>ruby, ruby *, ruby rb, ruby rt { display: inline !important; vertical-align: baseline !important; padding-top: 0pt !important; } ruby { border: thin grey solid; } </style><![endif]-->\n<!--[if !IE]>-->\n<style>rt { font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important; }</style>\n<!--<![endif]-->\n<script><!--\nif(navigator.userAgent.match('Edge/'))document.write('<table><tr><td>')\n//--></script><h3>Clipboard</h3>");
   p=pOrig; copyP=p;
   matchAll();
   free(pOrig);
@@ -1852,6 +1852,7 @@ android_url_box += br"""
 <form style="clear:both;margin:0em;padding-top:0.5ex" onSubmit="var v=this.url.value;if(typeof annotUrlTrans!='undefined'){var u=annotUrlTrans(v);if(typeof u!='undefined')v=u}if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="width:1em;margin:0em;padding:0em;display:none" id=displayMe align=left><button style="width:100%;background:#ededed;color:inherit" onclick="document.forms[document.forms.length-1].url.value='';document.getElementById('displayMe').style.display='none';return false">X</button></td><td style="margin: 0em; padding: 0em"><input type=text style="width:100%;background:inherit;color:inherit" placeholder="http://"; name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%;background:#ededed;color:inherit"></td></tr></table></form>
 <script>
 function viewZoomCtrls() {
+   var s=document.body.getElementsByTagName("style")[0]; s.innerText=s.innerText.replace(/nowrap/,'normal');
    window.setTimeout(function(){
    var t=document.getElementById("zI");
    var r=t.getBoundingClientRect();
