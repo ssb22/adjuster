@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.18 (c) 2012-22 Silas S. Brown"
+"Web Adjuster v3.19 (c) 2012-22 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -4807,7 +4807,6 @@ rubyCss1 = "".join([
     "display: inline;vertical-align:top;"
     "line-height:1.0;text-indent:0;"
     "text-align:center;"
-    "white-space:nowrap;" # Some versions of Chrome (including under Android 9) have layout bugs in large print: if white-space:nowrap is not here then padding will be reduced.  This does make things awkward if you have a filter whose rt output exceeds a phone's screen width in large print, but we can at least work around this with Javascript below.
     "padding-left:0px !important;padding-right:0px !important}" # if we space-separate words
     "rb{display:table-row-group;font-size: 100%;}"
     "rt{display:table-header-group;font-size:100%;line-height:1.1;}"])
@@ -4821,12 +4820,8 @@ rubyScript += rubyScript_fonts
 # and this goes at the END of the body:
 rubyEndScript = """
 <script><!--
-function tw0(){if(document.getElementsByTagName){var a=document.getElementsByTagName('ruby'),i,m=document.documentElement;"""
-rubyEndScript += "for(i=0;i < a.length; i++)if(a[i].title&&!a[i].clkAdded)(function(e){e.clkAdded=1;e.addEventListener('click',(function(){alert(e.title)}))})(a[i]);" # don't use onclick= as our bookmarklets could be incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
-rubyEndScript += "if(m)m=m.offsetWidth;if(m){a=document.getElementsByTagName('rt');for(i=0;i<a.length;i++)if(a[i].offsetWidth > m)a[i].style.whiteSpace='normal'}" # overriding the above nowrap (although there'll be some delay before applying this after zoom has changed; TODO: if offsetWidth takes a lot of CPU, might want to avoid recalculating ones already checked and leave the user to reload the page if necessary after changing the size)
-rubyEndScript += """}}
-function tw() { tw0(); window.setTimeout(tw,5000); } tw0(); window.setTimeout(tw,1500);
-//--></script>""" 
+function treewalk(n) { var c;for(c=n.firstChild;c;c=c.nextSibling) { if (c.nodeType==1 && c.nodeName!="SCRIPT" && c.nodeName!="TEXTAREA" && !(c.nodeName=="A" && c.href)) { treewalk(c); if(c.nodeName=="RUBY" && c.title && !c.clkAdded) {c.addEventListener('click',(function(c){return function(){alert(c.title)}})(c)); c.clkAdded=1 } } } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);
+//--></script>""" # don't use onclick= as our bookmarklets could be incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
 
 #@file: bookmarklet.py
 # --------------------------------------------------
