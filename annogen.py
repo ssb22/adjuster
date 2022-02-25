@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.237 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.238 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1648,7 +1648,7 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     r += br"""
         nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'"""
     if for_android: r += br""";
-        if(!inLink){var a=function(n){for(n=n.firstChild;n;n=n.nextSibling){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll)else if(n.nodeName!='A')a(n)}}};a(nReal)}"""
+        if(!inLink){var a=function(n){for(n=n.firstChild;n;n=n.nextSibling){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}}};a(nReal)}"""
     if delete_existing_ruby: r += b"""} else nReal.parentNode.replaceChild(n,nReal)"""
     r += b"}" # if nf
   r += b"}" # function annotWalk
