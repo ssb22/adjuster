@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.238 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.239 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5407,12 +5407,15 @@ else:
   outLang_true = b"1"
   outLang_false = b"0"
 
+stderr_newline = True
 def allVars(u):
   global cjk_cLookup
   try: cjk_cLookup
   except NameError:
-    sys.stderr.write("(checking CJK closures for missing glosses)\n")
-    global stderr_newline ; stderr_newline = True
+    global stderr_newline
+    if stderr_newline: sys.stderr.write("Checking CJK closures for missing glosses\n")
+    else: sys.stderr.write("checking CJK closures for missing glosses... "),sys.stderr.flush()
+    stderr_newline = True
     from cjklib.characterlookup import CharacterLookup
     cjk_cLookup = CharacterLookup("C") # param doesn't matter for getCharacterVariants, so just put "C" for now
     cjk_cLookup.varCache = {} # because getCharacterVariants can be slow if it uses SQL queries
@@ -5476,8 +5479,8 @@ def matchingAction(rule,glossDic,glossMiss,glosslist,omitlist):
       if toAdd in reannotateDict:
         au = reannotateDict[toAdd]
         if au and reannotate_caps and annotation_unistr and not annotation_unistr[0]==annotation_unistr[0].lower():
-          if sharp_multi: au='#'.join((w[0].upper()+w[1:]) for w in au.split('#'))
-          else: au=au[0].upper()+au[1:]
+          if sharp_multi: au='#'.join(capsFirst(w) for w in au.split('#'))
+          else: au=capsFirst(au)
         annotation_unistr = au
       else: toReannotateSet.add(toAdd)
     if compress:
@@ -5512,6 +5515,10 @@ def matchingAction(rule,glossDic,glossMiss,glosslist,omitlist):
         else: action.append(adot+b'o(%d,"%s");' % (bytesToCopy,annotation_bytes))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
+
+def capsFirst(s):
+  if not s: return s # (e.g. annotation omitted for a word in reannotate)
+  return s[0].upper()+s[1:]
 
 def readGlossfile():
     glossDic = {} ; glossMiss = set() ; glosslist = set()
@@ -5625,7 +5632,7 @@ def outputParser(rulesAndConds):
         open('reannotator-debug-in.txt','wb').write(os.linesep.join(l).encode(outcode)+B(os.linesep))
         open('reannotator-debug-out.txt','wb').write(os.linesep.join(l2).encode(outcode)+B(os.linesep))
         errExit("Reannotator command didn't output the same number of lines as we gave it (gave %d, got %d).  Input and output have been written to reannotator-debug-in.txt and reannotator-debug-out.txt for inspection.  Bailing out." % (len(l),len(l2)))
-      if stderr_newline: sys.stderr.write("Reannotated %d items\n" % len(l))
+      if stderr_newline: sys.stderr.write("reannotated %d items\n" % len(l))
       else: sys.stderr.write("(%d items)\n" % len(l))
       toReannotateSet = set() ; reannotateDict = dict(zip(l,l2)) ; del l,l2
     if compress:
