@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.239 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.2391 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1433,7 +1433,7 @@ def bookmarkJS():
     unconditional_inject += p
   unconditional_inject = b"(function(){"+unconditional_inject+b"})()"
   event_handlers = b"""
-function annogenAddHandler(id,func){var e=document.getElementById(id);if(e)e.addEventListener('click',func)}
+function annogenAddHandler(id,func){var e=document.getElementById(id);if(e){var f=function(e){func();if(e&&e.stopPropagation){e.stopPropagation();e.preventDefault();if(e.stopImmediatePropagation)e.stopImmediatePropagation()}};e.addEventListener('click',f,true);e.addEventListener('touchstart',f,true)}} /* tries to override sites' document-level event capture routines changing the document just before printing (e.g. de-selecting something) */
 annogenAddHandler('ssb_local_annotator_b1',function(){ssb_local_annotator.addBM((location.href+' '+(document.title?document.title:location.hostname?location.hostname:'untitled')).replace(/,/g,'%2C'))});
 annogenAddHandler('ssb_local_annotator_b2',function(){ssb_local_annotator.copy(location.href,true)});
 annogenAddHandler('annogenFwdBtn',function(){history.go(1)});
