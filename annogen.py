@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.2391 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.24 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1433,14 +1433,15 @@ def bookmarkJS():
     unconditional_inject += p
   unconditional_inject = b"(function(){"+unconditional_inject+b"})()"
   event_handlers = b"""
-function annogenAddHandler(id,func){var e=document.getElementById(id);if(e){var f=function(e){func();if(e&&e.stopPropagation){e.stopPropagation();e.preventDefault();if(e.stopImmediatePropagation)e.stopImmediatePropagation()}};e.addEventListener('click',f,true);e.addEventListener('touchstart',f,true)}} /* tries to override sites' document-level event capture routines changing the document just before printing (e.g. de-selecting something) */
-annogenAddHandler('ssb_local_annotator_b1',function(){ssb_local_annotator.addBM((location.href+' '+(document.title?document.title:location.hostname?location.hostname:'untitled')).replace(/,/g,'%2C'))});
-annogenAddHandler('ssb_local_annotator_b2',function(){ssb_local_annotator.copy(location.href,true)});
-annogenAddHandler('annogenFwdBtn',function(){history.go(1)});
-annogenAddHandler('ssb_local_annotator_b5',function(){var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)});
+function annogenAddHandler1(id,func){var e=document.getElementById(id);if(e)e.addEventListener('click',func)} /* waits for full click (avoiding scroll-start) but more likely to have side-effects in sites' own event handlers */
+function annogenAddHandler2(id,func){var e=document.getElementById(id);if(e){var f=function(e){func();if(e&&e.stopPropagation){e.stopPropagation();e.preventDefault();if(e.stopImmediatePropagation)e.stopImmediatePropagation()}};e.addEventListener('click',f,true);e.addEventListener('touchstart',f,true)}} /* tries to override sites' document-level event capture routines changing the document just before printing (e.g. de-selecting something) */
+annogenAddHandler2('ssb_local_annotator_b1',function(){ssb_local_annotator.addBM((location.href+' '+(document.title?document.title:location.hostname?location.hostname:'untitled')).replace(/,/g,'%2C'))});
+annogenAddHandler2('ssb_local_annotator_b2',function(){ssb_local_annotator.copy(location.href,true)});
+annogenAddHandler1('annogenFwdBtn',function(){history.go(1)});
+annogenAddHandler1('ssb_local_annotator_b5',function(){var e=document.getElementById('ssb_local_annotator_bookmarks');e.parentNode.removeChild(e)});
 """
   if android_print:
-    event_handlers += b"annogenAddHandler('ssb_local_annotator_b3',function(){ssb_local_annotator.print()});" # DO have to wrap the ssb_local_annotator funcs in a function() or get "ReferenceError: NPObject deleted" on Android 4.4
+    event_handlers += b"annogenAddHandler2('ssb_local_annotator_b3',function(){ssb_local_annotator.print()});" # DO have to wrap the ssb_local_annotator funcs in a function() or get "ReferenceError: NPObject deleted" on Android 4.4
     event_handlers += b"var a=document.getElementById('ssb_local_annotator_HL'); if(a) for(a=a.firstChild;a;a=a.nextSibling)a.addEventListener('click',function(colour){return colour?function(){ssb_local_annotator_highlightSel(colour)}:ssb_local_annotator_playSel}(a.getAttribute('data-c')));"
     if not android_audio: event_handlers=event_handlers.replace(b"return colour?function",b"return function").replace(b":ssb_local_annotator_playSel",b"")
   return unconditional_inject+b"+("+should_show_bookmarks+b"?("+show_bookmarks_string+b"):("+toolset_string+b"))", event_handlers
