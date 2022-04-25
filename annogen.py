@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.24 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.241 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3780,7 +3780,7 @@ if js_6bit: js_start = js_start.replace(b"var numBytes = data.charCodeAt(dPtr++)
 if sharp_multi: js_start += br""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
 js_start += br"""; // from UTF-8 back to Unicode
 }"""
-if not browser_extension: b", // end of annotate method\n" # data: ... \n goes here
+if not browser_extension: js_start += b", // end of annotate method\n" # data: ... \n goes here
 js_end = br"""};
 function annotate(input"""
 if sharp_multi: js_end += b",aType"
