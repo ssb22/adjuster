@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.241 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.242 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -4696,11 +4696,11 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
           if nonAnnot==diagnose: diagnose_write("%s is default by %s len=1 rule after removing irrelevant badStarts" % (withAnnot_unistr,explain))
           return True # should be safe, and should cover most "common short Chinese word with thousands of contexts" cases
         # If len 2 or more, it's risky because the correct solution could be to process just a fraction of the word now and the rest will become the start of a longer word, so we probably don't want it matching the whole lot by default: we'll want positive or negative indicators instead.
-        # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without positive indicators it should do so
+        # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without indicators it should do so
         # Check for no "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
         # (The below might under-match if there's the appearance of a split rule but it actually has extra non-marked-up text in between, but it shouldn't over-match.)
         # TODO: if we can find the actual "A BC" sequences (instead of simply checking for their possibility as here), and if we can guarantee to make 'phrase'-length rules for all of them, then AB can still be the default.  This might be useful if okStarts is very much greater than badStarts.
-        # (TODO: until the above is implemented, consider recommending --ymax-threshold=0, because, now that Yarowsky-like collocations can be negative, the 'following word' could just go in as a collocation with low ybytes)
+        # (TODO: until the above is implemented, consider recommending --ymax-threshold=0 so all ybytes ranges are tried, because, now that Yarowsky-like collocations can be negative, the 'following word' could just go in as a collocation with low ybytes)
         # TODO: also, if the exceptions to rule AB are always of the form "Z A B", and we can guarantee to generate a phrase rule for "Z A B", then AB can still be default.  (We should already catch this when the exceptions are "ZA B", but not when they are "Z A B", and --ymax-threshold=0 probably won't always help here, especially if Z==B; Mandarin "mei2you3" / "you3 mei2 you3" comes to mind)
         llen = len(mdStart)+len(nonAnnot)
         regex=re.compile(re.escape(mdStart) + mdSplitR.join(re.escape(c) for c in list(nonAnnot)))
@@ -4755,7 +4755,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
       times = []
       for nbytes in range(ybytes,ybytes_max+1,ybytes_step):
         t = time.time()
-        negate,ret,covered,toCover = tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,can_be_default=="must",nbytes==ybytes_max)
+        negate,ret,covered,toCover,nbytes = tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,can_be_default=="must",nbytes==ybytes_max)
         if covered==toCover and len(ret)==1:
           if may_take_time: sys.stderr.write(" - using 1 indicator, negate=%s\n" % repr(negate))
           yield (negate,ret,nbytes) ; return # a single indicator that covers everything will be better than anything else we'll find
@@ -4831,6 +4831,9 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
     def bytesAround(start): return within_Nbytes(start+len(nonAnnot),nbytes)
     okStrs=list(set(bytesAround(s) for s in okStarts))
     badStrs=list(set(bytesAround(s) for s in badStarts))
+    if nonAnnot==diagnose:
+      inBoth = set(okStrs).intersection(set(badStrs))
+      if inBoth: diagnose_write("tryNBytes(%d) on %s has contexts that are both OK and bad: %s" % (nbytes,withAnnot_unistr,"/".join(list(inBoth)[:10])))
     pOmit = unichr(1).join(badStrs) # omit anything that occurs in this string from +ve indicators
     nOmit = unichr(1).join(okStrs) # ditto for -ve indicators
     pCovered=[False]*len(okStrs)
@@ -4840,33 +4843,34 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
     nRet = [] ; nAppend=nRet.append
     n2Ret = [] ; nAppend2 = n2Ret.append
     negate = None # not yet set
-    stuffToCheck = [] ; stuffChecked = []
+    toCheck = [] ; diagnostics = []
     if not force_negate:
-      l = []
-      stuffChecked.append((l,"",pRet,pCovered))
-      stuffToCheck.append((l,okStrs,pAppend,pCovered,unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))) # a generator and associated parameters for positive indicators
+      didFind = [] # for append(True) when something found, used only by diagnostics
+      diagnostics.append((didFind,"",pRet,pCovered))
+      toCheck.append((didFind,okStrs,pAppend,pCovered,unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))) # a generator and associated parameters for positive indicators
     diagnose_extra = []
     if force_negate or 5*len(okStrs) > len(badStrs) or not okStrs: # and for negative indicators, if appropriate: (changed in v0.6892: still check for negative indicators if len(okStrs) is similar to len(badStrs) even if not strictly greater, but don't bother if len(okStrs) is MUCH less)
-      l = []
-      stuffChecked.append((l,"negative",nRet,nCovered))
-      stuffToCheck.append((l,badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s))))
+      didFind = []
+      diagnostics.append((didFind,"negative",nRet,nCovered))
+      toCheck.append((didFind,badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s))))
       if try_harder and okStrs and not force_negate:
-        l = [] ; stuffChecked.append((l,"overmatch-negative",n2Ret,n2Covered))
-        stuffToCheck.append((l,badStrs,nAppend2,n2Covered,unique_substrings(badStrs,markedUp_unichars,lambda txt:False,lambda txt:(sum(1 for s in badStrs if txt in s),-sum(1 for s in okStrs if txt in s))))) # a harder try to find negative indicators (added in v0.6896): allow over-matching (equivalent to under-matching positive indicators) if it's the only way to get all badStrs covered; may be useful if the word can occur in isolation
+        didFind = []
+        diagnostics.append((didFind,"overmatch-negative",n2Ret,n2Covered))
+        toCheck.append((didFind,badStrs,nAppend2,n2Covered,unique_substrings(badStrs,markedUp_unichars,lambda txt:False,lambda txt:(sum(1 for s in badStrs if txt in s),-sum(1 for s in okStrs if txt in s))))) # a harder try to find negative indicators (added in v0.6896): allow over-matching (equivalent to under-matching positive indicators) if it's the only way to get all badStrs covered; may be useful if the word can occur in isolation
     elif nonAnnot==diagnose: diagnose_extra.append("Not checking for negative indicators as 5*%d>%d=%s." % (len(okStrs),len(badStrs),repr(5*len(okStrs)>len(badStrs))))
-    while stuffToCheck and negate==None:
-      for i in range(len(stuffToCheck)):
-        l,strs,append,covered,generator = stuffToCheck[i]
-        try: indicator = getNext(generator)
+    while toCheck and negate==None:
+      for i in range(len(toCheck)):
+        didFind,strs,append,covered,generator = toCheck[i]
+        try: indicator = getNext(generator) # gets a yield from the corresponding unique_substrings call
         except StopIteration:
-          del stuffToCheck[i] ; break
+          del toCheck[i] ; break
         found = True ; cChanged = False
         for j in xrange(len(strs)):
           if not covered[j] and indicator in strs[j]:
             covered[j]=cChanged=True
         if cChanged:
          append(indicator)
-         if not l: l.append(True)
+         if not didFind: didFind.append(True)
          if all(covered):
           if append==pAppend: negate=False
           elif append==nAppend: negate=True # negate with no overmatch allowed found all the exceptions, so use it (don't use it if it doesn't find ALL the exceptions, since we don't ever want an as-if 'overmatch positive' i.e. misidentifying a word/phrase in a place where the corpus explicitly DOESN'T have it, unless force_negate see comment below)
@@ -4883,11 +4887,16 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
     # and if negate==None AFTER this loop, didn't get all(pCovered) OR all(nCovered), in which case we fall back to negate=False (unless force_negate).  In other words, negative indicators normally have to cover ALL non-occurrences to be passed, whereas positive indicators just have to cover SOME.  This is in keeping with the idea of 'under-match is better than over-match' (because an under-matching negative indicator is like an over-matching positive one)
     if force_negate: negate = True
     if negate==True: ret,covered = nRet,nCovered
-    elif negate=="harder": ret,covered = n2Ret,n2Covered
+    elif negate=="harder":
+      ret,covered = n2Ret,n2Covered
+      if nbytes>ybytes and all(any(indicator in within_Nbytes(s+len(nonAnnot),nbytes) for indicator in ret)==any(indicator in within_Nbytes(s+len(nonAnnot),ybytes) for indicator in ret) for s in badStarts):
+        # v3.242: we're using overmatch-negate on larger contexts, the smaller context might have failed to consider this compromise indicator due to there being an intersection between badStrs and okStrs when small, so when contexts are enlarged and we found it's the least-bad indicator to use anyway, check if we could then go back to the smaller context with same results (could reduce overmatch in practice even if not in the corpus, e.g. if somebody inputs 2 similar-looking words next to each other). TODO: check in-between contexts also?
+        if nonAnnot==diagnose: diagnose_write("Overriding output nbytes from %d to %d by same-result rule" % (nbytes,ybytes))
+        nbytes = ybytes
     else: ret,covered = pRet,pCovered
     if nonAnnot==diagnose:
-      def report(actuallyChecked,negate,ret,covered):
-        if not actuallyChecked: return ""
+      def report(didFind,negate,ret,covered):
+        if not didFind: return ""
         if negate: indicators = negate+" indicators "
         else: indicators = "indicators "
         if ret:
@@ -4909,10 +4918,10 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
       if len(pOmit) > 200: pOmit = pOmit[:200]+"..."
       diagnose_extra = " ".join(diagnose_extra)
       if diagnose_extra: diagnose_extra=" "+diagnose_extra
-      rr = ", ".join(r for r in [report(*i) for i in stuffChecked] if r)
+      rr = ", ".join(r for r in [report(*i) for i in diagnostics] if r)
       if not rr: rr = "nothing"
       diagnose_write("tryNBytes(%d) on %s (avoiding '%s') found %s%s" % (nbytes,withAnnot_unistr,pOmit.replace(unichr(1),'/').replace('\n',"\\n"),rr,diagnose_extra))
-    return negate,ret,sum(1 for x in covered if x),len(covered)
+    return negate,ret,sum(1 for x in covered if x),len(covered),nbytes
 
 def cond(a,b,c):
   if a: return b
@@ -5023,6 +5032,7 @@ def checkCoverage(ruleAsWordlist,words,coveredFlags):
     # Don't worry about ybytes - assume the Yarowsky-like
     # indicators have been calculated correctly across the
     # whole text so we don't need to re-check them now.
+    # TODO: option to be more pessimistic about coverage when the indicators weren't 100% match or (especially) overmatch-negative, perhaps by getting addRulesForPhrase to omit from rulesAsWordlists_By1stWord (if this is used only for checkCoverage i.e. no remove_old_rules) and if yBytesRet and yBytesRet[0][0]=="overmatch-negative".  This might however result in many 2+-word phrases being generated that aren't really needed (OK for server with enough memory, less good for app on old device); might be better to discount the coverage only if the following word (or words?) actually contains one of the overmatching negative indicators, which might need an extra map between 1st word and -ve indicators to check in 2nd word for the checkCoverage call in addRulesForPhrase.
     assert type(ruleAsWordlist)==type(words)==list
     try: start = words.index(ruleAsWordlist[0])
     except ValueError: return False
