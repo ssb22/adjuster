@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.242 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.243 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -369,8 +369,6 @@ parser.add_option("-1","--single-words",
 cancelOpt("single-words")
 parser.add_option("--max-words",default=0,
                   help="Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one.")  # (There was a bug in annogen versions before 0.58 that caused --max-words to additionally limit how far away from the start of its phrase a rule-example must be placed; this has now been fixed.  There was also a bug that resulted in too many extra rules being tested over already-catered-for phrases; as this has now been fixed, the additional benefit of a --max-words limit is now reduced, but you might want to put one in anyway.  That second bug also had the effect of the coverage % being far too low in the progress stats.)
-
-# TODO: optionally (especially if NOT using Yarowsky) do an additional pass (after discovering all other rules) and turn whole phrases that are not completely covered by other rules into whole-phrase rules, if it doesn't conflict 1 phrase w. anothr of equal priority; shld be ok if no overlap, overlaps wld *sometimes* be ok suggest a len threshold
 
 parser.add_option("--checkpoint",help="Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.")
 # (Condor can checkpoint an application on Win/Mac/Linux but is awkward to set up.  Various Linux and BSD application checkpoint approaches also exist, and virtual machines can have their state saved.  On the other hand the physical machine might have a 'hibernate' option which is easier.)
@@ -4699,7 +4697,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
         # e.g. looking at rule AB, text ABC and correct segmentation is A BC, don't want it to 'greedily' match AB by default without indicators it should do so
         # Check for no "A BC" situations, i.e. can't find any possible SEQUENCE of rules that STARTS with ALL the characters in nonAnnot and that involves having them SPLIT across multiple words:
         # (The below might under-match if there's the appearance of a split rule but it actually has extra non-marked-up text in between, but it shouldn't over-match.)
-        # TODO: if we can find the actual "A BC" sequences (instead of simply checking for their possibility as here), and if we can guarantee to make 'phrase'-length rules for all of them, then AB can still be the default.  This might be useful if okStarts is very much greater than badStarts.
+        # TODO: if we can find the actual "A BC" sequences (instead of simply checking for their possibility as here), and if we can guarantee to make 'phrase'-length rules for all of them, then AB can still be the default.  This might be useful if okStarts is very much greater than badStarts.  It would require checkCoverage to mark "A" as False if there exists a (no-indicators) "AB" rule.
         # (TODO: until the above is implemented, consider recommending --ymax-threshold=0 so all ybytes ranges are tried, because, now that Yarowsky-like collocations can be negative, the 'following word' could just go in as a collocation with low ybytes)
         # TODO: also, if the exceptions to rule AB are always of the form "Z A B", and we can guarantee to generate a phrase rule for "Z A B", then AB can still be default.  (We should already catch this when the exceptions are "ZA B", but not when they are "Z A B", and --ymax-threshold=0 probably won't always help here, especially if Z==B; Mandarin "mei2you3" / "you3 mei2 you3" comes to mind)
         llen = len(mdStart)+len(nonAnnot)
@@ -5823,12 +5821,17 @@ if norefs:
   def refs(*args): return ""
 else:
   def refs(rule,omit=False):
-    try: okStarts = getOkStarts(rule)
-    except: return "" # KeyError can happen in some incremental-run glossMiss situations: just omit that reference in the debug file
-    return starts2refs(okStarts,omit)
-
-def starts2refs(startSet,omit=False):
-    # assumes generate_map() has been called
+    if rule in precalc_sets:
+      def findStarts():
+        for x in sorted(precalc_sets[rule]): yield x
+    else:
+      k = getNext(splitWords(rule))
+      if not k in precalc_sets: return "" # can happen in some incremental-run glossMiss situations: just omit that reference in the debug file
+      walen = len(rule)
+      def findStarts():
+        for x in precalc_sets[k]:
+          if corpus_unistr[m2c_map[x]:m2c_map[x]+walen]==rule: yield x
+    starts = findStarts()
     global refMap
     try: refMap
     except:
@@ -5841,8 +5844,9 @@ def starts2refs(startSet,omit=False):
     rmPos = 0 ; ret = []
     while len(ret) < maxrefs and rmPos < len(refMap):
       s = refMap[rmPos][0] ; i = -1
-      while i < s and startSet:
-        i = min(startSet) ; startSet.remove(i)
+      while i < s:
+        try: i = getNext(starts)
+        except StopIteration: break
         i = m2c_map[i]
       if i < s: break
       rmE = len(refMap)-1
