@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.243 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.244 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5650,7 +5650,9 @@ def outputParser(rulesAndConds):
       pairs = squashFinish()
     else: pairs = b""
     for rule,conds in rulesAndConds: addRule(rule,conds,byteSeq_to_action_dict)
-    for l in read_manual_rules(): addRule(l,[],byteSeq_to_action_dict,True)
+    for l in read_manual_rules():
+      if diagnose_manual and l in rulesAndConds: getBuf(sys.stderr).write(("\nINFO: Possible unnecessary manual rule '%s'\n" % l).encode(terminal_charset))
+      addRule(l,[],byteSeq_to_action_dict,True)
     write_glossMiss(glossMiss)
     longest_rule_len = max(len(b) for b in iterkeys(byteSeq_to_action_dict))
     longest_rule_len += ybytes_max # because buffer len is 2*longest_rule_len, we shift half of it when (readPtr-bufStart +ybytes >= bufLen) and we don't want this shift to happen when writePtr-bufStart = Half_Bufsize-1 and readPtr = writePtr + Half_Bufsize-1 (TODO: could we get away with max(0,ybytes_max-1) instead? but check how this interacts with the line below; things should be safe as they are now).  This line's correction was missing in Annogen v0.599 and below, which could therefore occasionally emit code that, when running from stdin, occasionally replaced one of the document's bytes with an undefined byte (usually 0) while emitting correct annotation for the original byte.  (This could result in bad UTF-8 that crashed the bookmarklet feature of Web Adjuster v0.21 and below.)
