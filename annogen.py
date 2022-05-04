@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.244 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.245 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -358,6 +358,10 @@ parser.add_option("-K","--yarowsky-all",
                   action="store_true",default=False,
                   help="Accept Yarowsky seed collocations even from input characters that never occur in annotated words (this might include punctuation and example-separation markup)")
 cancelOpt("yarowsky-all")
+parser.add_option("--yarowsky-multiword",
+                  action="store_true",default=False,
+                  help="Check potential multiword rules for Yarowsky seed collocations also.  Without this option (default), only single-word rules are checked.") # multiword might not work so well
+cancelOpt("yarowsky-multiword")
 parser.add_option("--yarowsky-debug",default=1,
                   help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
 parser.add_option("--normalise-debug",default=1,
@@ -4315,6 +4319,7 @@ def splitWords(text,phrases=False):
 
 markupPattern = re.compile(re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),flags=re.DOTALL)
 wordPattern = re.escape(markupStart)+'.*?'+re.escape(markupEnd)
+multiWordPattern = re.escape(markupEnd)+".*?"+re.escape(markupStart) # indicates there could be more than one word
 phrasePattern = re.compile(wordPattern+r'(\s*'+wordPattern+r')*',flags=re.DOTALL+re.UNICODE)
 wordPattern = re.compile(wordPattern,flags=re.DOTALL)
 wspPattern = re.compile(r"\s+",flags=re.UNICODE)
@@ -4990,7 +4995,7 @@ def test_rule(withAnnot_unistr,yBytesRet,canBackground=None):
     # build them up incrementally without "cross-talk")
     # yield "backgrounded" = task has been backgrounded; getNext collects job handle, then getNext collects result (nb we default to NOT canBackground, as test_rule is called from several places of which ONE can handle backgrounding)
     if primitive: yield True
-    elif ybytes:
+    elif ybytes and (yarowsky_multiword or not re.search(multiWordPattern,withAnnot_unistr)):
         # Doesn't have to be always right, but put the indicators in yBytesRet
         ybrG = yarowsky_indicators(withAnnot_unistr,canBackground)
         ybr = getNext(ybrG)
