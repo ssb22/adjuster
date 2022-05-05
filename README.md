@@ -641,7 +641,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.245
+Options for Annotator Generator v3.246
 ===========================
 
 Usage: annogen.py [options]
@@ -1065,6 +1065,13 @@ Options:
 `--no-yarowsky-multiword
 `
  : Cancels any earlier `--yarowsky-multiword` option in Makefile variables etc
+
+`--yarowsky-thorough`
+ : Recheck Yarowsky seed collocations when considering if any multiword rule would be needed to reproduce the examples.  This could risk 'overfitting' the example set.
+
+`--no-yarowsky-thorough
+`
+ : Cancels any earlier `--yarowsky-thorough` option in Makefile variables etc
 
 `--yarowsky-debug=YAROWSKY_DEBUG
 `

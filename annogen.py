@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.245 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.246 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -362,6 +362,10 @@ parser.add_option("--yarowsky-multiword",
                   action="store_true",default=False,
                   help="Check potential multiword rules for Yarowsky seed collocations also.  Without this option (default), only single-word rules are checked.") # multiword might not work so well
 cancelOpt("yarowsky-multiword")
+parser.add_option("--yarowsky-thorough",
+                  action="store_true",default=False,
+                  help="Recheck Yarowsky seed collocations when considering if any multiword rule would be needed to reproduce the examples.  This could risk 'overfitting' the example set.") # (more likely to come up with rules that aren't really needed and end with 1st half of a sandhi etc)
+cancelOpt("yarowsky-thorough")
 parser.add_option("--yarowsky-debug",default=1,
                   help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
 parser.add_option("--normalise-debug",default=1,
@@ -4893,7 +4897,7 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
     elif negate=="harder":
       ret,covered = n2Ret,n2Covered
       if nbytes>ybytes and all(any(indicator in within_Nbytes(s+len(nonAnnot),nbytes) for indicator in ret)==any(indicator in within_Nbytes(s+len(nonAnnot),ybytes) for indicator in ret) for s in badStarts):
-        # v3.242: we're using overmatch-negate on larger contexts, the smaller context might have failed to consider this compromise indicator due to there being an intersection between badStrs and okStrs when small, so when contexts are enlarged and we found it's the least-bad indicator to use anyway, check if we could then go back to the smaller context with same results (could reduce overmatch in practice even if not in the corpus, e.g. if somebody inputs 2 similar-looking words next to each other). TODO: check in-between contexts also?
+        # v3.242: we're using overmatch-negate on larger contexts, the smaller context might have failed to consider this compromise indicator due to there being an intersection between badStrs and okStrs when small, so when contexts are enlarged and we found it's the least-bad indicator to use anyway, check if we could then go back to the smaller context with same results (could reduce overmatch in practice even if not in the corpus, e.g. if somebody inputs 2 similar-looking words next to each other). TODO: check ybytes+ybytes_step*N for all N that yields < nbytes?
         if nonAnnot==diagnose: diagnose_write("Overriding output nbytes from %d to %d by same-result rule" % (nbytes,ybytes))
         nbytes = ybytes
     else: ret,covered = pRet,pCovered
@@ -5029,13 +5033,9 @@ def all_possible_rules(words,covered):
             yield words[wStart:wStart+ruleLen]
             # caller join()s before adding to rules dict
 
-def checkCoverage(ruleAsWordlist,words,coveredFlags):
+def checkCoverage(ruleAsWordlist,words,coveredFlags,ybr=0):
     # Updates coveredFlags and returns True if any changes
-    # (if False, the new rule is redundant).
-    # Don't worry about ybytes - assume the Yarowsky-like
-    # indicators have been calculated correctly across the
-    # whole text so we don't need to re-check them now.
-    # TODO: option to be more pessimistic about coverage when the indicators weren't 100% match or (especially) overmatch-negative, perhaps by getting addRulesForPhrase to omit from rulesAsWordlists_By1stWord (if this is used only for checkCoverage i.e. no remove_old_rules) and if yBytesRet and yBytesRet[0][0]=="overmatch-negative".  This might however result in many 2+-word phrases being generated that aren't really needed (OK for server with enough memory, less good for app on old device); might be better to discount the coverage only if the following word (or words?) actually contains one of the overmatching negative indicators, which might need an extra map between 1st word and -ve indicators to check in 2nd word for the checkCoverage call in addRulesForPhrase.
+    # (if False, the new rule is redundant)
     assert type(ruleAsWordlist)==type(words)==list
     try: start = words.index(ruleAsWordlist[0])
     except ValueError: return False
@@ -5043,18 +5043,28 @@ def checkCoverage(ruleAsWordlist,words,coveredFlags):
     changedFlags = False
     while start <= len(words)-ln:
         if words[start:start+ln] == ruleAsWordlist:
-            if not all(coveredFlags[start:start+ln]):
+            if not all(coveredFlags[start:start+ln]) and (not yarowsky_thorough or not ybr or cc_testR(ybr,markDown(wspJoin(words[:start+ln])),markDown(wspJoin(words[start+ln:])))):
                 coveredFlags[start:start+ln]=[True]*ln
                 changedFlags = True
             start += ln
-        else:
-            try: start = words.index(ruleAsWordlist[0],start+1)
-            except ValueError: break
+        else: start += 1
+        try: start = words.index(ruleAsWordlist[0],start)
+        except ValueError: break
     return changedFlags
 
-def wspJoin(l):
-  if removeSpace: return "".join(l)
-  else: return " ".join(l)
+def cc_testR(ybr,before,after):
+  # service routine for checkCoverage to also test against
+  # yBytesRet (i.e. check the Yarowsky-like indicators can
+  # actually enable the rule to apply in this context,
+  # before we update coverage flags to say that it does)
+  negate,indicators,nbytes = ybr
+  context = before[-nbytes:].encode(outcode)[-nbytes:]+after[:nbytes].encode(outcode)[:nbytes]
+  r=any(i.encode(outcode) in context for i in indicators)
+  if negate: r = not r
+  return r
+
+if removeSpace: wspJoin = lambda l: "".join(l)
+else: wspJoin = lambda l: " ".join(l)
 
 def potentially_bad_overlap(rulesAsWordlists,newRuleAsWords):
     # Allow overlaps only if rule(s) being overlapped are
@@ -5139,7 +5149,7 @@ class RulesAccumulator:
     if self.amend_rules: self.remove_old_rules(words) # NB if yignore this might not remove all, but still removes all that affect checkCoverage below
     for w in set(words):
       for ruleAsWordlist in self.rulesAsWordlists_By1stWord.get(w,[]):
-        if checkCoverage(ruleAsWordlist,words,covered) and all(covered):
+        if checkCoverage(ruleAsWordlist,words,covered,self.rules[wspJoin(ruleAsWordlist)]) and all(covered):
           yield len(covered),len(covered) ; return # no new rules needed
     for ruleAsWordlist in all_possible_rules(words,covered):
         rule = wspJoin(ruleAsWordlist) ; yBytesRet = []
@@ -5154,10 +5164,9 @@ class RulesAccumulator:
         if not r or potentially_bad_overlap(self.rulesAsWordlists,ruleAsWordlist):
             self.rejectedRules.add(rule) # so we don't waste time evaluating it again (TODO: make sure rejectedRules doesn't get too big?)
             continue
-        cc = checkCoverage(ruleAsWordlist,words,covered) # changes 'covered'
-        assert cc, "this call to checkCoverage should never return False now that all_possible_rules takes 'covered' into account" # and it's a generator which is always working from the CURRENT copy of 'covered'
         if len(yBytesRet): self.rules[rule] = yBytesRet[0]
         else: self.rules[rule] = [] # unconditional
+        checkCoverage(ruleAsWordlist,words,covered,self.rules[rule]) # changes 'covered'
         if not ybytes: self.rulesAsWordlists.append(ruleAsWordlist)
         if not ruleAsWordlist[0] in self.rulesAsWordlists_By1stWord: self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]] = []
         self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]].append(ruleAsWordlist)
