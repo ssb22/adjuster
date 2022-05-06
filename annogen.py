@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.246 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.247 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -366,6 +366,10 @@ parser.add_option("--yarowsky-thorough",
                   action="store_true",default=False,
                   help="Recheck Yarowsky seed collocations when considering if any multiword rule would be needed to reproduce the examples.  This could risk 'overfitting' the example set.") # (more likely to come up with rules that aren't really needed and end with 1st half of a sandhi etc)
 cancelOpt("yarowsky-thorough")
+parser.add_option("--yarowsky-half-thorough",
+                  action="store_true",default=False,
+                  help="Like --yarowsky-thorough but check only what collocations occur within the proposed new rule (not around it)")
+cancelOpt("yarowsky-half-thorough")
 parser.add_option("--yarowsky-debug",default=1,
                   help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
 parser.add_option("--normalise-debug",default=1,
@@ -5030,9 +5034,10 @@ def all_possible_rules(words,covered):
     for ruleLen in range(1,maxRuleLen+1): # (sort by len)
         for wStart in range(len(words)-ruleLen+1):
           if not all(covered[wStart:wStart+ruleLen]):
-            yield words[wStart:wStart+ruleLen]
+            yield words[wStart:wStart+ruleLen], wStart
             # caller join()s before adding to rules dict
 
+if yarowsky_half_thorough: yarowsky_thorough = True # will amend it in caller of checkCoverage
 def checkCoverage(ruleAsWordlist,words,coveredFlags,ybr=0):
     # Updates coveredFlags and returns True if any changes
     # (if False, the new rule is redundant)
@@ -5149,12 +5154,26 @@ class RulesAccumulator:
     if self.amend_rules: self.remove_old_rules(words) # NB if yignore this might not remove all, but still removes all that affect checkCoverage below
     for w in set(words):
       for ruleAsWordlist in self.rulesAsWordlists_By1stWord.get(w,[]):
-        if checkCoverage(ruleAsWordlist,words,covered,self.rules[wspJoin(ruleAsWordlist)]) and all(covered):
+        k = wspJoin(ruleAsWordlist)
+        if yarowsky_half_thorough and self.rules[k]:
+          pass # need to make worst-case assumption of context-sensitive rules NEVER matching here, because we need separately to evaluate them depending on each proposed rule from all_possible_rules
+        elif checkCoverage(ruleAsWordlist,words,covered,self.rules[k]) and all(covered):
           yield len(covered),len(covered) ; return # no new rules needed
-    for ruleAsWordlist in all_possible_rules(words,covered):
+    for ruleAsWordlist, wStart in all_possible_rules(words,covered):
         rule = wspJoin(ruleAsWordlist) ; yBytesRet = []
         if rule in self.rejectedRules: continue
         if rule in self.rules: continue # this can still happen even now all_possible_rules takes 'covered' into account, because the above checkCoverage assumes the rule won't be applied in a self-overlapping fashion, whereas all_possible_rules makes no such assumption (TODO: fix this inconsistency?)
+        if yarowsky_half_thorough and len(ruleAsWordlist) > 1:
+          c2 = covered[wStart:wStart+len(ruleAsWordlist)]
+          def f():
+           for w in set(ruleAsWordlist):
+            for r2 in self.rulesAsWordlists_By1stWord.get(w,[]):
+              # if len(r2) >= len(c2): continue # as an optimisation, but this shouldn't be necessary if we're doing phrases in increasing length unless running incrementally
+              # if not yarowsky_multiword and len(r2)>1: continue # but self.rules[k] will be False below anyway, so this won't be much of a speedup, just saves one wspJoin
+              k = wspJoin(r2)
+              if self.rules[k] and checkCoverage(r2,ruleAsWordlist,c2,self.rules[k]) and all(c2): return
+          f()
+          if all(c2): continue
         rGen = test_rule(rule,yBytesRet,canBackground)
         r = getNext(rGen)
         if r=="backgrounded":
@@ -5166,7 +5185,9 @@ class RulesAccumulator:
             continue
         if len(yBytesRet): self.rules[rule] = yBytesRet[0]
         else: self.rules[rule] = [] # unconditional
-        checkCoverage(ruleAsWordlist,words,covered,self.rules[rule]) # changes 'covered'
+        if yarowsky_half_thorough: k = []
+        else: k = self.rules[rule]
+        checkCoverage(ruleAsWordlist,words,covered,k) # changes 'covered'
         if not ybytes: self.rulesAsWordlists.append(ruleAsWordlist)
         if not ruleAsWordlist[0] in self.rulesAsWordlists_By1stWord: self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]] = []
         self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]].append(ruleAsWordlist)
@@ -5845,7 +5866,7 @@ else:
       if not k in precalc_sets: return "" # can happen in some incremental-run glossMiss situations: just omit that reference in the debug file
       walen = len(rule)
       def findStarts():
-        for x in precalc_sets[k]:
+        for x in sorted(precalc_sets[k]):
           if corpus_unistr[m2c_map[x]:m2c_map[x]+walen]==rule: yield x
     starts = findStarts()
     global refMap
@@ -5896,7 +5917,7 @@ def outputRulesSummary(rulesAndConds):
     # Can now do the summary:
     for annot,orig,rule,conditions in d:
         if time.time() >= t + 2:
-          sys.stderr.write(("(%d of %d)" % (count,len(rulesAndConds)))+clear_eol) ; sys.stderr.flush()
+          sys.stderr.write(("(%d of %d)\r" % (count,len(rulesAndConds)))+clear_eol) ; sys.stderr.flush()
           t = time.time()
         count += 1
         def code(x):
