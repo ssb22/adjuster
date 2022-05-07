@@ -641,7 +641,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.247
+Options for Annotator Generator v3.248
 ===========================
 
 Usage: annogen.py [options]
@@ -1075,7 +1075,7 @@ Options:
 
 `--yarowsky-half-thorough
 `
- : Like `--yarowsky-thorough` but check only what collocations occur within the proposed new rule (not around it)
+ : Like `--yarowsky-thorough` but check only what collocations occur within the proposed new rule (not around it), less likely to overfit
 
 `--no-yarowsky-half-thorough
 `
@@ -1097,7 +1097,11 @@ Options:
 
 `--max-words=MAX_WORDS
 `
- : Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  `--single-words` is equivalent to `--max-words`=1.  If you need to limit the search time, and are using -y, it should suffice to use `--single-words` for a quick annotator or `--max-words`=5 for a more thorough one.
+ : Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  `--single-words` is equivalent to `--max-words`=1.  If you need to limit the search time, and are using -y, it should suffice to use `--single-words` for a quick annotator or `--max-words`=5 for a more thorough one (or try 3 if `--yarowsky-half-thorough` is in use).
+
+`--multiword-end-avoid=MULTIWORD_END_AVOID
+`
+ : Comma-separated list of words (without annotation markup) that should be avoided at the end of a multiword rule (e.g. sandhi likely to depend on the following word)
 
 `--checkpoint=CHECKPOINT
 `

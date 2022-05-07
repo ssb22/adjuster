@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.247 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.248 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -368,7 +368,7 @@ parser.add_option("--yarowsky-thorough",
 cancelOpt("yarowsky-thorough")
 parser.add_option("--yarowsky-half-thorough",
                   action="store_true",default=False,
-                  help="Like --yarowsky-thorough but check only what collocations occur within the proposed new rule (not around it)")
+                  help="Like --yarowsky-thorough but check only what collocations occur within the proposed new rule (not around it), less likely to overfit")
 cancelOpt("yarowsky-half-thorough")
 parser.add_option("--yarowsky-debug",default=1,
                   help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
@@ -380,7 +380,9 @@ parser.add_option("-1","--single-words",
                   help="Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.")
 cancelOpt("single-words")
 parser.add_option("--max-words",default=0,
-                  help="Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one.")  # (There was a bug in annogen versions before 0.58 that caused --max-words to additionally limit how far away from the start of its phrase a rule-example must be placed; this has now been fixed.  There was also a bug that resulted in too many extra rules being tested over already-catered-for phrases; as this has now been fixed, the additional benefit of a --max-words limit is now reduced, but you might want to put one in anyway.  That second bug also had the effect of the coverage % being far too low in the progress stats.)
+                  help="Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one (or try 3 if --yarowsky-half-thorough is in use).")  # (There was a bug in annogen versions before 0.58 that caused --max-words to additionally limit how far away from the start of its phrase a rule-example must be placed; this has now been fixed.  There was also a bug that resulted in too many extra rules being tested over already-catered-for phrases; as this has now been fixed, the additional benefit of a --max-words limit is now reduced, but you might want to put one in anyway.  That second bug also had the effect of the coverage % being far too low in the progress stats.)
+parser.add_option("--multiword-end-avoid",
+                  help="Comma-separated list of words (without annotation markup) that should be avoided at the end of a multiword rule (e.g. sandhi likely to depend on the following word)")
 
 parser.add_option("--checkpoint",help="Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.")
 # (Condor can checkpoint an application on Win/Mac/Linux but is awkward to set up.  Various Linux and BSD application checkpoint approaches also exist, and virtual machines can have their state saved.  On the other hand the physical machine might have a 'hibernate' option which is easier.)
@@ -622,6 +624,7 @@ def T(s):
   return s.decode(terminal_charset)
 if keep_whitespace: keep_whitespace = set(T(keep_whitespace).split(','))
 if ymax_limitwords: ymax_limitwords = set(T(ymax_limitwords).split(','))
+if multiword_end_avoid: multiword_end_avoid = set(T(multiword_end_avoid).split(','))
 if glossmiss_hide: glossmiss_hide = set(T(glossmiss_hide).split(','))
 if status_prefix: status_prefix += ": "
 else: status_prefix = ""
@@ -5033,7 +5036,7 @@ def all_possible_rules(words,covered):
     else: maxRuleLen = len(words)
     for ruleLen in range(1,maxRuleLen+1): # (sort by len)
         for wStart in range(len(words)-ruleLen+1):
-          if not all(covered[wStart:wStart+ruleLen]):
+          if not all(covered[wStart:wStart+ruleLen]) and (not multiword_end_avoid or ruleLen==1 or not markDown(words[wStart+ruleLen-1]) in multiword_end_avoid):
             yield words[wStart:wStart+ruleLen], wStart
             # caller join()s before adding to rules dict
 
