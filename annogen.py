@@ -266,7 +266,7 @@ cancelOpt("compile-only")
 
 parser.add_option("-j","--javascript",
                   action="store_true",default=False,
-                  help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
+                  help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run your own binaries.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
 cancelOpt("javascript")
 
 parser.add_option("-6","--js-6bit",
@@ -307,7 +307,7 @@ parser.add_option("--dart-datafile",
 
 parser.add_option("-Y","--python",
                   action="store_true",default=False,
-                  help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.")
+                  help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run your own binaries, and it is table-driven for fast loading.")
 cancelOpt("python")
 
 parser.add_option("--golang",

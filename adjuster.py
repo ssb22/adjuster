@@ -1227,7 +1227,7 @@ class CrossProcessLogging(logging.Handler):
     def emit(self, record): # simplified from Python 3.2 (but put just the dictionary, not the record obj itself, to make pickling errors less likely)
         try:
             if record.exc_info:
-                dummy = self.format(record) # record.exc_text
+                placeholder = self.format(record) # record.exc_text
                 record.exc_info = None
             d = record.__dict__
             d['msg'],d['args'] = record.getMessage(),None
@@ -4541,7 +4541,7 @@ def duff_certfile():
     except:
         # Here's one I made earlier with 'openssl req',
         # TODO: it will expire in 2038 (S2G problem) - might or might not be relevant when asking browsers to ignore self-signed anyway
-        the_duff_certfile = writable_tmpdir()+"dummy.pem"
+        the_duff_certfile = writable_tmpdir()+"placeholder.pem"
         open(the_duff_certfile,'w').write("""-----BEGIN PRIVATE KEY-----
 MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC1XEMV7CQYkJcu
 +x7TkOL5EOeIajC3Fs2PepT6X45UkEC3Z63Gx+cXIPKWENPO6ePIMXIRCodVkKid

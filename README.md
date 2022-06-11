@@ -942,7 +942,7 @@ Options:
  : Cancels any earlier `--compile-only` option in Makefile variables etc
 
 `-j, --javascript`
- : Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run native code.  The JS will be table-driven to make it load faster (and `--no-summary` will also be set).  See comments at the start for usage.
+ : Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run your own binaries.  The JS will be table-driven to make it load faster (and `--no-summary` will also be set).  See comments at the start for usage.
 
 `--no-javascript`
  : Cancels any earlier `--javascript` option in Makefile variables etc
@@ -986,7 +986,7 @@ Options:
  : When generating Dart code, put annotator data into a separate file and open it using this pathname. Not compatible with Dart's "Web app" option, but might save space in a Flutter app (especially along with `--zlib`)
 
 `-Y, --python`
- : Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run native code, and it is table-driven for fast loading.
+ : Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run your own binaries, and it is table-driven for fast loading.
 
 `--no-python`
  : Cancels any earlier `--python` option in Makefile variables etc
