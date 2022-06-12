@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.19 (c) 2012-22 Silas S. Brown"
+"Web Adjuster v3.2 (c) 2012-22 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -224,7 +224,7 @@ define("password_domain",help="The domain entry in host_suffix to which the pass
 # what the tool is.  prominentNotice DOES apply even to the
 # password_domain if prominentNotice=="htmlFilter".
 # 
-define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * when this is ignored and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
+define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * then this is removed and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
 define("open_proxy",default=False,help="Whether or not to allow running with no password. Off by default as a safeguard against accidentally starting an open proxy.")
 define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separated list of regular expressions specifying URLs that are not allowed to be fetched unless --real_proxy is in effect. Browsers requesting a URL that contains any of these will be redirected to the original site. Use for example if you want people to go direct when posting their own content to a particular site (this is of only limited use if your server also offers access to any other site on the Web, but it might be useful when that's not the case). Include ^https in the list to prevent Web Adjuster from fetching HTTPS pages for adjustment and return over normal HTTP. This access is enabled by default now that many sites use HTTPS for public pages that don't really need to be secure, just to get better placement on some search engines, but if sending confidential information to the site then beware you are trusting the Web Adjuster machine and your connection to it, plus its certificate verification might not be as thorough as your browser's.")
 define("prohibitUA",multiple=True,default="TwitterBot",help="Comma-separated list of regular expressions which, if they occur in browser strings, result in the browser being redirected to the original site. Use for example if you want certain robots that ignore robots.txt to go direct.")
@@ -351,7 +351,7 @@ define("stripTags",multiple=True,default="wbr",help="When using htmlFilter with 
 define("htmlUrl",default=False,help="Add a line containing the document's URL to the start of what gets sent to htmlFilter (useful for writing filters that behave differently for some sites; not yet implemented for submitBookmarklet, which will show a generic URL). The URL line must not be included in the filter's response.")
 define("htmlonly_tell_filter",default=False,help="Add a line showing the current status of \"HTML-only mode\" (see htmlonly_mode option) to the start of what gets sent to htmlFilter (before any htmlUrl if present), as \"True\" or \"False\" (must not be included in the filter's response).  This may be useful for filters that need to do extra processing if client-side scripts are removed.")
 
-define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is ignored and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.")
+define("submitPath",help="If set, accessing this path (on any domain) will give a form allowing the user to enter their own text for processing with htmlFilter. The path should be one that websites are not likely to use (even as a prefix), and must begin with a slash (/). If you prefix this with a * then the * is removed and any password set in the 'password' option does not apply to submitPath. Details of the text entered on this form is not logged by Web Adjuster, but short texts are converted to compressed GET requests which might be logged by proxies etc.")
 # (submitPath: see comments in serve_submitPage; "with htmlFilter" TODO: do we add "(or --render)" to this? but charset submit not entirely tested with all old browsers; TODO: consider use of chardet.detect(buf) in python-chardet)
 define("submitPrompt",default="Type or paste in some text to adjust",help="What to say before the form allowing users to enter their own text when submitPath is set (compare boxPrompt)")
 define("submitBookmarklet",default=True,help="If submitPath and htmlFilter is set, and if browser Javascript support seems sufficient, then add one or more 'bookmarklets' to the 'Upload Text' page (named after htmlFilterName if provided), allowing the user to quickly upload text from other sites. This might be useful if for some reason those sites cannot be made to go through Web Adjuster directly. The bookmarklets should work on modern desktop browsers and on iOS and Android; they should cope with frames and with Javascript-driven changes to a page, and on some browsers an option is provided to additionally place the page into a frameset so that links to other pages on the same site can be followed without explicitly reactivating the bookmarklet (but this does have disadvantages - page must be reloaded + URL display gets 'stuck' - so it's left to the user to choose).") # (and if the other pages check their top.location, things could break there as well)
@@ -381,7 +381,7 @@ define("js_fallback",default="X-Js-Fallback",help="If this is set to a non-empty
 define("js_reproxy",default=True,help="When js_interpreter is in use, have it send its upstream requests back through the adjuster on a different port. This allows js_interpreter to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and enables the js_prefetch option.")
 # js_reproxy also works around issue #13114 in PhantomJS 2.x.  Only real reason to turn it off is if we're running in WSGI mode (which isn't recommended with js_interpreter) as we haven't yet implemented 'find spare port and run separate IO loop behind the WSGI process' logic
 define("js_prefetch",default=True,help="When running with js_reproxy, prefetch main pages to avoid holding up a js_interpreter instance if the remote server is down.  Turn this off if you expect most remote servers to be up and you want to detect js_429 issues earlier.") # (Doing prefetch per-core can lead to load imbalances when running multicore with more than one interpreter per core, as several new pages could be in process of fetch when only one interpreter is ready to take them.  Might want to run non-multicore and have just the interpreters using other cores if prefetch is needed.)
-define("js_UA",help="Custom user-agent string for js_interpreter requests, if for some reason you don't want to use the JS browser's default. If you prefix this with a * then the * is ignored and the user-agent string is set by the upstream proxy (--js_reproxy) so scripts running in the JS browser itself will see its original user-agent.")
+define("js_UA",help="Custom user-agent string for js_interpreter requests, if for some reason you don't want to use the JS browser's default (or the client's if js_reproxy is on and js_prefetch off). If you prefix js_UA with a * then the * is removed and the user-agent string is set by the upstream proxy (--js_reproxy) so scripts running in the JS browser itself will see its original user-agent.")
 define("js_images",default=True,help="When js_interpreter is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.") # In edbrowse this will likely be treated as false anyway
 # js_images=False may also cause some versions of Webkit to leak memory (PhantomJS issue 12903), TODO: return a fake image if js_reproxy? (will need to send a HEAD request first to verify it is indeed an image, as PhantomJS's Accept header is probably */*) but height/width will be wrong
 define("js_size",default="1024x768",help="The virtual screen dimensions of the browser when js_interpreter is in use (changing it might be useful for screenshots)")
@@ -2888,7 +2888,7 @@ def get_new_PhantomJS(index,renewing=False):
     return wd
 def proxyPort(index): return port_randomise.get(js_proxy_port[index],js_proxy_port[index])
 webdriver_runner = [] ; webdriver_prefetched = []
-webdriver_via = [] ; webdriver_UA = []
+webdriver_via = [] ; webdriver_UA = [] ; webdriver_AL = []
 webdriver_inProgress = [] ; webdriver_queue = []
 webdriver_lambda = webdriver_mu = 0
 def test_init_webdriver():
@@ -2906,7 +2906,7 @@ def init_webdrivers(start,N):
         webdriver_runner.append(WebdriverRunner(start,len(webdriver_runner)))
         webdriver_prefetched.append(None)
         webdriver_inProgress.append(set())
-        webdriver_via.append(None) ; webdriver_UA.append("")
+        webdriver_via.append(None) ; webdriver_UA.append("") ; webdriver_AL.append("")
     def quit_wd_atexit(*args):
       if informing: sys.stderr.write("Quitting %d webdriver%s... " % (options.js_instances,plural(options.js_instances))),sys.stderr.flush()
       try:
@@ -2933,12 +2933,13 @@ def webdriver_checkServe(*args):
         if not webdriver_queue: break # just to save a little
         if not webdriver_runner[i].wd_threadStart:
             while webdriver_queue:
-                url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate = webdriver_queue.pop(0)
+                url,prefetched,ua,acceptLang,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate = webdriver_queue.pop(0)
                 if tooLate():
                     debuglog("tooLate() for "+url)
                     continue
                 debuglog("Starting fetch of "+url+" on webdriver instance "+str(i+webdriver_runner[i].start))
                 webdriver_via[i],webdriver_UA[i] = via,ua
+                webdriver_AL[i] = acceptLang
                 webdriver_runner[i].fetch(url,prefetched,clickElementID,clickLinkText,asScreenshot,callback,tooLate)
                 global webdriver_mu ; webdriver_mu += 1
                 break
@@ -2949,11 +2950,11 @@ def webdriver_checkRenew(*args):
     for i in webdriver_runner:
         if not i.wd_threadStart and i.usageCount and i.finishTime + options.js_restartMins < time.time(): i.renew_webdriver_newThread() # safe because we're running in the IOLoop thread, which therefore can't start wd_thread between our test of wd_threadStart and renew_webdriver_newThread
     IOLoopInstance().add_timeout(time.time()+60,webdriver_checkRenew)
-def webdriver_fetch(url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
+def webdriver_fetch(url,prefetched,ua,acceptLang,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate):
     if tooLate(): return # probably webdriver_queue overload (which will also be logged)
     elif prefetched and (not hasattr(prefetched,"code") or prefetched.code >= 500 or not hasattr(prefetched,"body") or not re.search(b'<script',B(prefetched.body),flags=re.I)): return callback(prefetched) # don't bother allocating a webdriver if we got a timeout or DNS error or something, or a page with no JS (TODO: what if a page has onload=... with the scripts fully embedded in the attributes?  does edbrowse enable JS for that?  may need to ensure js_fallback is switched on when using edbrowse, in case edbrowse disables JS when we thought it wouldn't)
     elif wsgi_mode: return callback(_wd_fetch(webdriver_runner[0],url,prefetched,clickElementID,clickLinkText,asScreenshot)) # (can't reproxy in wsgi_mode, so can't use via and ua) TODO: if *threaded* wsgi, index 0 might already be in use (we said threadsafe:true in AppEngine instructions but AppEngine can't do js_interpreter anyway; where else might we have threaded wsgi?  js_interpreter really is better run in non-wsgi mode anyway, so can js_reproxy)
-    webdriver_queue.append((url,prefetched,ua,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate))
+    webdriver_queue.append((url,prefetched,ua,acceptLang,clickElementID,clickLinkText,via,asScreenshot,callback,tooLate))
     global webdriver_lambda ; webdriver_lambda += 1
     debuglog("webdriver_queue len=%d after adding %s" % (len(webdriver_queue),url))
     webdriver_checkServe() # safe as we're IOLoop thread
@@ -3862,6 +3863,8 @@ document.forms[0].i.focus()
             if options.js_UA:
                 if options.js_UA.startswith("*"): self.request.headers["User-Agent"] = options.js_UA[1:]
             else: self.request.headers["User-Agent"] = webdriver_UA[self.WA_PjsIndex]
+            if webdriver_AL[self.WA_PjsIndex]:
+                self.request.headers["Accept-Language"] = webdriver_AL[self.WA_PjsIndex]
             webdriver_inProgress[self.WA_PjsIndex].add(self.request.uri)
         elif not self.isSslUpstream:
             if self.handleSSHTunnel(): return
@@ -4061,6 +4064,7 @@ document.forms[0].i.focus()
             if options.via: via = self.request.headers["Via"],self.request.headers["X-Forwarded-For"]
             else: via = None # they might not be defined
             ua = self.request.headers.get("User-Agent","")
+            acceptLang = self.request.headers.get("Accept-Language","")
             if body or self.request.method.lower()=="post":
                 body = self.request.method, body
             clickElementID = clickLinkText = None
@@ -4098,6 +4102,7 @@ document.forms[0].i.focus()
                     (debuglog("Calling webdriver_fetch from prefetch callback: "+self.urlToFetch),
                     webdriver_fetch(self.urlToFetch,
                                     prefetched_response,ua,
+                                    acceptLang,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
                         lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,js=True),tooLate)),
@@ -4118,6 +4123,7 @@ document.forms[0].i.focus()
               prefetch_when_ready(time.time())
             else: # no reproxy: can't prefetch (or it's turned off)
                 webdriver_fetch(self.urlToFetch,None,ua,
+                                acceptLang,
                         clickElementID, clickLinkText,
                         via,viewSource=="screenshot",
                         lambda r:self.doResponse(r,converterFlags,viewSource==True,isProxyRequest,js=True),tooLate)
