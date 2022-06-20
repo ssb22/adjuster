@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.249 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.25 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1396,7 +1396,7 @@ c_end += br"""  while(!FINISHED) {
 
 # jsAddRubyCss will be in a quoted string in Java source, so all " and \ must be escaped:
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
-annotation_font = [b"Times New Roman"] # Android has Droid Serif but it's not selected if you put "serif" or "Droid Serif", it's mapped from "Times New Roman" (tested in Android 4.4 and Android 10)
+annotation_font = [b"Times New Roman"] # Android has NotoSerif but you can't select it by name, it's mapped from "Times New Roman" (tested in Android 4.4, Android 10 and Android 12, however in Android 12 it does not work for printing, so we'll override it to "sans-serif" in Android 11+ below)
 # there's a more comprehensive list in the windows_clipboard code below, but those fonts are less likely found on Android
 jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{"
 if android_template: jsAddRubyCss += b"-webkit-user-select:'+(ssb_local_annotator.getIncludeAll()?'text':'none')+' !important;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way, but other users want the annotations (and copying one word at a time via the popup box is slow).  This (plus our JS fix) narrows things down only if Copy is in use, not extended popup options e.g. Translate. (Incidentally, user-select:all on rb doesn't work in Android 10 as of 2021-01, so better use 'text' or 'auto')
@@ -1404,7 +1404,7 @@ jsAddRubyCss += b"display:table-header-group !important;font-size:100% !importan
 jsAddRubyCss += b"rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}" # for 3line mode (assumes rt/rb and rt/rt/rb)
 jsAddRubyCss += b"rp{display:none!important}"+B(extra_css).replace(b'\\',br'\\').replace(b'"',br'\"').replace(b"'",br"\\'")+b"'"
 if epub: jsAddRubyCss += b"+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
-if android_print: jsAddRubyCss += b"+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; } }'"
+if android_print: jsAddRubyCss += b"+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; }'+(ssb_local_annotator.printNeedsCssHack()?' rt { font-family: sans-serif !important; }':'')+' }'"
 if android_template: jsAddRubyCss += b"+(ssb_local_annotator.getDevCSS()?'ruby:not([title]){border:thin blue solid} ruby[title~=\\\"||\\\"]{border:thin blue dashed}':'')" # (use *= instead of ~= if the || is not separated on both sides with space)
 jsAddRubyCss += b"+'</style>'"
 def sort20px(singleQuotedStr): # 20px is relative to zoom
@@ -2170,6 +2170,9 @@ if android_print: android_src += br"""
                 if(AndroidSDK >= 24) return "\ud83d\udda8";
                 else if(AndroidSDK >= 19) return "<span style=color:black;background:white;padding:0.3ex>P</span>";
                 else return "";
+            }
+            @JavascriptInterface public boolean printNeedsCssHack() {
+                return AndroidSDK >= 30; // known good on 29, known bad on 31 (as of 2022-06)
             }
             boolean printing_in_progress = false;
             @TargetApi(19)
