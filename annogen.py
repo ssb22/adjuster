@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.25 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.26 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -230,7 +230,7 @@ parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (SDK 24 or higher is required on the build machine, but the resulting app will be compatible with all versions of Android back to 1.x); if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
 # SDK 24 was released mid-2016.  If your main OS cannot be upgraded, you should be able to install a newer SDK on a virtual machine, e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless'
 parser.add_option("--android-template",
-                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc and 'desktopURL' if you have a page about how to get a desktop version (e.g. via browser extension; however in my experiment putting this button here did not result in many extension installs and some users complained about the form looking too complex so perhaps such links should be put elsewhere, so the desktopURL variable is deprecated).  Also enables better zoom controls on Android 4+, a mode selector if you use --annotation-names, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  annotUrlTrans returns undefined = uses original
+                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use --annotation-names, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  annotUrlTrans returns undefined = uses original
 parser.add_option("-L","--pleco-hanping",
                   action="store_true",default=False,
                   help="In the Android app, make popup definitions link to Pleco or Hanping if installed")
@@ -246,6 +246,7 @@ parser.add_option("--android-print",
                   action="store_true",default=False,
                   help="When generating an Android browser, include code to provide a Print option (usually print to PDF) and a simple highlight-selection option. The Print option will require Android 4.4, but the app should still run without it on earlier versions of Android.")
 cancelOpt("android-print")
+parser.add_option("--known-characters",help="When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters ordered by frequency (most frequent first), newline separated (for future expansion). Words consisting entirely of the first N characters specified by this file (where N is settable by the user in steps of 10) will be unannotated until tapped on.")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another application in Android 1 through 11. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark). On Android 12+ this option won't work at all unless the specified domain(s) approved your app.") # "Starting in Android 12 (API level 31), a generic web intent resolves to an activity in your app only if your app is approved for the specific domain"
@@ -465,6 +466,8 @@ if android_template:
   android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
+if known_characters and not android: errExit("--known-characters requires --android")
+if known_characters and not android_template: warn("known-characters without android-template means you call the Javascript functions yourself")
 if android_print and not bookmarks: errExit("The current implementation of --android-print requires --bookmarks to be set as well")
 if android_audio:
   if not android_print: errExit("The current implementation of --android-audio requires --android-print to be set as well") # for the highlighting (and TODO: I'm not sure about the HTML5-Audio support of Android 2.x devices etc, so should we check a minimum Android version before making the audio option available? as highlight option can be done pre-4.4 just no way to save the result)
@@ -1402,6 +1405,7 @@ jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body)
 if android_template: jsAddRubyCss += b"-webkit-user-select:'+(ssb_local_annotator.getIncludeAll()?'text':'none')+' !important;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way, but other users want the annotations (and copying one word at a time via the popup box is slow).  This (plus our JS fix) narrows things down only if Copy is in use, not extended popup options e.g. Translate. (Incidentally, user-select:all on rb doesn't work in Android 10 as of 2021-01, so better use 'text' or 'auto')
 jsAddRubyCss += b"display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+b", ".join(annotation_font)+b" !important;}"
 jsAddRubyCss += b"rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}" # for 3line mode (assumes rt/rb and rt/rt/rb)
+if known_characters: jsAddRubyCss += b"rt.known{display: none !important}"
 jsAddRubyCss += b"rp{display:none!important}"+B(extra_css).replace(b'\\',br'\\').replace(b'"',br'\"').replace(b"'",br"\\'")+b"'"
 if epub: jsAddRubyCss += b"+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += b"+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; }'+(ssb_local_annotator.printNeedsCssHack()?' rt { font-family: sans-serif !important; }':'')+' }'"
@@ -1660,7 +1664,9 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     if delete_existing_ruby: r += b"""
         if(!"""+annotNo+b""") {"""
     r += br"""
-        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt>'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'"""
+        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt"""
+    if known_characters: r += br"""'+(rb.indexOf('<rt>')==-1?' class=known':'')+'""" # if all the <rt> we generated are <rt class=known> then propagate this to the existing ruby
+    r += br""">'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'"""
     if for_android: r += br""";
         if(!inLink){var a=function(n){for(n=n.firstChild;n;n=n.nextSibling){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}}};a(nReal)}"""
     if delete_existing_ruby: r += b"""} else nReal.parentNode.replaceChild(n,nReal)"""
@@ -1671,7 +1677,7 @@ document.annotWalkOff=1;
 chrome.runtime.sendMessage(false,function(r){if(r!=1)annotWalk(document);document.annotWalkOff=(r==1)});
 new window.MutationObserver(function(mut){var i,j;if(!document.annotWalkOff)for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}}).observe(document.body,{childList:true,subtree:true});
 """
-  elif for_android: r += br"if(!ssb_local_annotator.getIncludeAll())document.addEventListener('copy',function(e){var s=window.getSelection(),i,c=document.createElement('div');for(i=0;i < s.rangeCount;i++)c.appendChild(s.getRangeAt(i).cloneContents());e.clipboardData.setData('text/plain',c.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<.*?>/g,''));e.preventDefault()});" # work around user-select:none not always working (and newlines sometimes being added anyway)
+  elif for_android: r += br"if(!ssb_local_annotator.getIncludeAll())document.addEventListener('copy',function(e){var s=window.getSelection(),i,c=document.createElement('div');for(i=0;i < s.rangeCount;i++)c.appendChild(s.getRangeAt(i).cloneContents());e.clipboardData.setData('text/plain',c.innerHTML.replace(/<rt.*?<[/]rt>/g,'').replace(/<.*?>/g,''));e.preventDefault()});" # work around user-select:none not always working (and newlines sometimes being added anyway)
   if not for_async:
     r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
     assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot o/p'
@@ -1888,16 +1894,18 @@ function zoomIn() {
 if(ssb_local_annotator.canCustomZoom()) document.write('<div style="float:left">Size: <button id=zO onclick="zoomOut()" style="background:#ededed;color:inherit">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()" style="background:#ededed;color:inherit">+</button></div>');"""
 if sharp_multi and annotation_names: android_url_box += br"""
 modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+br"""];document.write('<div style="float:right; text-align: right">Mode: ');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)if(i==c)document.write('<button disabled style="background:#ededed;color:inherit"><input type=radio checked> '+modeNames[i]+'</button>');else document.write('<button style="background:#ededed;color:inherit" onclick="ssb_local_annotator.setAnnotNo('+i+');location.reload();return false"><input type=radio> '+modeNames[i]+'</button>');document.write('</div>');"""
+if known_characters: android_url_box += br"""
+var zinFreq='"""+re.sub(b'\s+',b'',open(known_characters,'rb').read())+"""',known=ssb_local_annotator.getKnownCharacters();
+document.write('<select style="float: right; margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(zinFreq.slice(0,this.selectedIndex==-1?0:10*this.selectedIndex))"><option'+(known==""?' selected':'')+'>Annotate all</option>');
+for(var dx=10;dx<zinFreq.length+10;dx+=10) document.write('<option'+(known==zinFreq.slice(0,dx)?' selected':'')+'>Leave '+(dx>zinFreq.length?zinFreq.length:dx)+' known</option>');
+document.write('</select>');""" # TODO: could add a 'custom' option that's selected if none of the others are, but will need some way of editing it (and might need to nicely handle the case of 'frequency table corrected during an app upgrade')
 android_url_box += br"""
-if(typeof desktopURL!='undefined') document.write('<a id="desktopVersion" style="float: right; margin-top: 0.5ex; padding: 0px 0.4em 0px 0.4em; border: thin grey dotted; text-align: center" href="'+desktopURL+'">Desktop<br>version</a>');
-else desktopURL=0;
-document.write('<button id="include" style="float:left;background:#ededed;color:inherit;padding-left:0px;padding-right:0.2ex" onclick="ssb_local_annotator.setIncludeAll(!ssb_local_annotator.getIncludeAll());location.reload();return false"><input type=checkbox'+(ssb_local_annotator.getIncludeAll()?' checked':'')+'>Include """
+document.write('<button style="float:left;background:#ededed;color:inherit;padding-left:0px;padding-right:0.2ex" onclick="ssb_local_annotator.setIncludeAll(!ssb_local_annotator.getIncludeAll());location.reload();return false"><input type=checkbox'+(ssb_local_annotator.getIncludeAll()?' checked':'')+'>Include """
 if annotation_names:
   if sharp_multi: android_url_box += br"'+modeNames[ssb_local_annotator.getAnnotNo()].replace(/^.*? ([^ ]+)( [(].*)?$/g,'$1')+'" # so e.g. "Cantonese Sidney Lau (with numbers)" -> "Lau" (as we want this shorter than the buttons)
   else: android_url_box += B(annotation_names) # assume it's just one name
 else: android_url_box += br"annotation"
 android_url_box += br""" with Copy</button>');
-if(desktopURL) { fixInclude=function(){setTimeout(function(){var ow=document.getElementById('desktopVersion').offsetWidth;document.getElementById('include').style.maxWidth='calc(99% - '+(ow*2>(window.visualViewport!=undefined?window.visualViewport.width:window.innerWidth)?0:ow)+'px)'},300)}; oldVZC=viewZoomCtrls; viewZoomCtrls=function(){ fixInclude(); oldVZC(); }; fixInclude() }
 var m=navigator.userAgent.match(/Android ([0-9]+)\./); if(m && m[1]<5) document.write("<div id=insecure style=\"clear: both; background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be safer to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></div>");
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)){document.forms[document.forms.length-1].url.value=c;document.getElementById("displayMe").style.display="table-cell"}</script>"""
 # API 19 (4.4) and below has no browser updates.  API 17 (4.2) and below has known shell exploits for CVE-2012-6636 which requires only that a site (or network access point) can inject arbitrary Javascript into the HTTP stream.  Not sure what context the resulting shell runs in, but there are probably escalation attacks available.  TODO: insist on working offline-only on old versions?
@@ -1913,6 +1921,7 @@ import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -1986,11 +1995,15 @@ android_src += br"""
         class A {
             public A(MainActivity act) {
                 this.act = act;"""
+if sharp_multi or known_characters or android_template: android_src += br"""
+                SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);"""
 if sharp_multi: android_src += br"""
-                annotNo = Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("annotNo", "0")); setPattern();"""
+                annotNo = Integer.valueOf(sp.getString("annotNo", "0")); setSharpMultiPattern();"""
+if known_characters: android_src += br"""
+                knownChars = sp.getString("knownChars", ""); setKnownCharsPattern();"""
 if android_template: android_src += br"""
-                if(canCustomZoom()) setZoomLevel(Integer.valueOf(getSharedPreferences("ssb_local_annotator",0).getString("zoom", "4")));
-                setIncludeAll(getSharedPreferences("ssb_local_annotator",0).getString("includeAll", "f").equals("t"));"""
+                if(canCustomZoom()) setZoomLevel(Integer.valueOf(sp.getString("zoom", "4")));
+                setIncludeAll(sp.getString("includeAll", "f").equals("t"));"""
 android_src += br"""
             }
             MainActivity act; String copiedText="";"""
@@ -2002,13 +2015,31 @@ if sharp_multi: android_src += br""" int annotNo;
                 do {
                 e = getSharedPreferences("ssb_local_annotator",0).edit();
                 e.putString("annotNo",String.valueOf(annotNo));
-                } while(!e.commit()); setPattern();
+                } while(!e.commit()); setSharpMultiPattern();
             }
-            void setPattern() {
+            void setSharpMultiPattern() {
                 smPat=java.util.regex.Pattern.compile("<rt>"+new String(new char[annotNo]).replace("\0","[^#]*#")+"([^#]*?)(#.*?)?</rt>");
             }
             java.util.regex.Pattern smPat=java.util.regex.Pattern.compile("<rt>([^#]*?)(#.*?)?</rt>");
             @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
+if known_characters: android_src += br"""
+            @JavascriptInterface public String getKnownCharacters() { return knownChars; }
+            @JavascriptInterface public void setKnownCharacters(String known) {
+                knownChars = known;
+                android.content.SharedPreferences.Editor e;
+                do {
+                e = getSharedPreferences("ssb_local_annotator",0).edit();
+                e.putString("knownChars",known);
+                } while(!e.commit());
+                setKnownCharsPattern();
+            }
+            String knownChars = "";
+            java.util.regex.Pattern kcPat;
+            void setKnownCharsPattern() {
+                if (knownChars.isEmpty()) kcPat=null;
+                else kcPat=java.util.regex.Pattern.compile("(<rb>["+knownChars+"]+</rb><rt)(>.*?</rt>)");
+            }
+"""
 if android_template: android_src += br"""
             int zoomLevel; boolean includeAllSetting;
             @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
@@ -2045,6 +2076,13 @@ if sharp_multi: android_src += br"""
                 StringBuffer sb=new StringBuffer();
                 while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(1)+"</rt>");
                 m.appendTail(sb); r=sb.toString();"""
+if known_characters: android_src += br"""
+                if(kcPat!=null) {
+                    java.util.regex.Matcher k = kcPat.matcher(r);
+                    StringBuffer s2=new StringBuffer();
+                    while(k.find()) k.appendReplacement(s2, k.group(1)+" class=known"+k.group(2));
+                    k.appendTail(s2); r=s2.toString();
+                }"""
 if epub: android_src += br"""if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"\u200e"+r;""" # &lrm; needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair.  Fix in v0.6899: use Unicode rather than &lrm; as the latter is not recognised as "valid XML" by Android 10, leading to innerHTML assignment throwing an exception, which in previous versions went uncaught and led to unexplained disappearance of text instead of annotation, usually at 1 chunk per second due to runTimerLoop.  (This issue was not manifest on Android 9 and below.)
 android_src += br"""return r; }
             @JavascriptInterface public void alert(String text,String annot,String gloss) {
@@ -2118,9 +2156,20 @@ if glossfile: android_src += br"""
                         if (tt.length()>0) {
                         // TODO: 3-line persist to pop-ups (re-scan the DOM)?
                         // TODO: 3-line persist to other pages? (might be counterproductive to encouraging people not to rely on it)
-                        // TODO: if already pressed, call it 2-line and reverse the substitution? (or just reload the page), AFTER scanning the DOM for popups (as currently pressing a second time is the only way to get 3line in popups)
                         d.setPositiveButton("1L/2L/3L", new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() {
-                            android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
+                            android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);"""
+if known_characters and glossfile: # TODO: might want a way of getting this choice if known_characters and not glossfile, probably by providing some alternative to the 1L/2L/3L button in this case
+  android_src += br"""
+                            if(!knownChars.isEmpty()) {
+                                String[] items=new String[2];
+                                items[0]=new String("Show all"); items[1]=new String("Hide known");
+                                d.setItems(items,new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int hideOrNot) {
+                                    if(hideOrNot==1) act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
+"javascript:var h=document.getElementById('ssb_hide0');if(h)h.parentNode.removeChild(h)"
+); } }); else act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
+"javascript:var h=document.getElementById('ssb_hide0');if(!h){h=document.createElement('span');h.setAttribute('id','ssb_hide0');h.innerHTML='<style>ruby rt.known { display:table-header-group !important } </style>';document.body.insertBefore(h,document.body.firstChild.nextSibling)}"
+); } }); } }); } else"""
+if glossfile: android_src += br"""
                             d.setTitle("Choose a format:");
                             d.setPositiveButton("1 line",new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
 "javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l2)l2.parentNode.removeChild(l2);if(!l1){var e=document.createElement('span');e.setAttribute('id','ssb_1Line');e.innerHTML='<style>rt{display:none!important}</style>';document.body.insertBefore(e,document.body.firstChild.nextSibling)}"
@@ -2129,7 +2178,7 @@ if glossfile: android_src += br"""
 "javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(!l2){var e=document.createElement('span');e.setAttribute('id','ssb_2Line');e.innerHTML='<style>rt:not(:last-of-type){display:none!important}</style>';document.body.insertBefore(e,document.body.firstChild.nextSibling)}"
 ); } }); } });
                             d.setNegativeButton("3 lines",new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
-"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(l2)l2.parentNode.removeChild(l2);var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"[^>]*><rb>(.*?)<[/]rb><rt>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt>'+title.split(' || ').map(function(m){return m.replace(/^([(]?[^/(;]*).*/,'$1')}).join(' ')+'</rt><rt>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});if(!ad0[i].inLink){var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)}} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
+"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(l2)l2.parentNode.removeChild(l2);var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"[^>]*><rb>(.*?)<[/]rb><rt(.*?)>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,known,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt'+known+'>'+title.split(' || ').map(function(m){return m.replace(/^([(]?[^/(;]*).*/,'$1')}).join(' ')+'</rt><rt'+known+'>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});if(!ad0[i].inLink){var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)}} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
 /* Above rp elements are to make firstChild etc work in
    dialogue.  Don't do whole document.body.innerHTML, or
    scripts like document.write may execute a second time,
