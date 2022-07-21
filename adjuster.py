@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.2 (c) 2012-22 Silas S. Brown"
+"Web Adjuster v3.21 (c) 2012-22 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -4807,15 +4807,15 @@ document.write('<a href="javascript:history.go(-1)">Back to previous page</a> ')
 
 rubyCss1 = "".join([
     "ruby{"
-    "display:inline-table;vertical-align:bottom;"
+    "display:inline-table !important;vertical-align:bottom;"
     "-webkit-border-vertical-spacing:1px;padding-top:0.5ex;}"
     "ruby *{"
-    "display: inline;vertical-align:top;"
+    "display: inline !important;vertical-align:top;"
     "line-height:1.0;text-indent:0;"
     "text-align:center;"
     "padding-left:0px !important;padding-right:0px !important}" # if we space-separate words
-    "rb{display:table-row-group;font-size: 100%;}"
-    "rt{display:table-header-group;font-size:100%;line-height:1.1;}"])
+    "rb{display:table-row-group !important;font-size: 100%;}"
+    "rt{display:table-header-group !important;font-size:100%;line-height:1.1;}"])
 rubyScript = '<style>'+rubyCss1+'</style>'
 # And the following hack is to stop the styles in the 'noscript' and the variable (and any others) from being interpreted if an HTML document with this processing is accidentally referenced as a CSS source (which can mess up ruby):
 rubyScript = "<!-- { } @media(none) { -->" + rubyScript
