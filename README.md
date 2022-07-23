@@ -641,7 +641,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.26
+Options for Annotator Generator v3.261
 ===========================
 
 Usage: annogen.py [options]
@@ -901,7 +901,7 @@ Options:
 
 `--known-characters=KNOWN_CHARACTERS
 `
- : When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters ordered by frequency (most frequent first), newline separated (for future expansion). Words consisting entirely of the first N characters specified by this file (where N is settable by the user in steps of 10) will be unannotated until tapped on.
+ : When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other. Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.
 
 `--android-audio=ANDROID_AUDIO
 `

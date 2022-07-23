@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.26 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.261 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -246,7 +246,7 @@ parser.add_option("--android-print",
                   action="store_true",default=False,
                   help="When generating an Android browser, include code to provide a Print option (usually print to PDF) and a simple highlight-selection option. The Print option will require Android 4.4, but the app should still run without it on earlier versions of Android.")
 cancelOpt("android-print")
-parser.add_option("--known-characters",help="When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters ordered by frequency (most frequent first), newline separated (for future expansion). Words consisting entirely of the first N characters specified by this file (where N is settable by the user in steps of 10) will be unannotated until tapped on.")
+parser.add_option("--known-characters",help="When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other. Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
 parser.add_option("--android-urls",
                   help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another application in Android 1 through 11. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark). On Android 12+ this option won't work at all unless the specified domain(s) approved your app.") # "Starting in Android 12 (API level 31), a generic web intent resolves to an activity in your app only if your app is approved for the specific domain"
@@ -1543,7 +1543,7 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     else: r += b"var nReal = n; if(nf) { n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
     if delete_existing_ruby:
       if existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"if(!"+annotNo+b"){%s} else " % (B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
-      r += br"""{var n2=n.cloneNode(false);n2.innerHTML=n.innerHTML.replace(/<rt>.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'');n=n2}"""
+      r += br"""{var n2=n.cloneNode(false);n2.innerHTML=n.innerHTML.replace(/<rt.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'');n=n2}"""
     else: r += B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"')
     r += b"}"
     if for_async: r += b"}"
@@ -1664,7 +1664,7 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     if delete_existing_ruby: r += b"""
         if(!"""+annotNo+b""") {"""
     r += br"""
-        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt"""
+        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt[^>]*>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt"""
     if known_characters: r += br"""'+(rb.indexOf('<rt>')==-1?' class=known':'')+'""" # if all the <rt> we generated are <rt class=known> then propagate this to the existing ruby
     r += br""">'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'"""
     if for_android: r += br""";
@@ -1894,10 +1894,15 @@ function zoomIn() {
 if(ssb_local_annotator.canCustomZoom()) document.write('<div style="float:left">Size: <button id=zO onclick="zoomOut()" style="background:#ededed;color:inherit">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()" style="background:#ededed;color:inherit">+</button></div>');"""
 if sharp_multi and annotation_names: android_url_box += br"""
 modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+br"""];document.write('<div style="float:right; text-align: right">Mode: ');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)if(i==c)document.write('<button disabled style="background:#ededed;color:inherit"><input type=radio checked> '+modeNames[i]+'</button>');else document.write('<button style="background:#ededed;color:inherit" onclick="ssb_local_annotator.setAnnotNo('+i+');location.reload();return false"><input type=radio> '+modeNames[i]+'</button>');document.write('</div>');"""
-if known_characters: android_url_box += br"""
-var zinFreq='"""+re.sub(b'\s+',b'',open(known_characters,'rb').read())+"""',known=ssb_local_annotator.getKnownCharacters();
-document.write('<select style="float: right; margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(zinFreq.slice(0,this.selectedIndex==-1?0:10*this.selectedIndex))"><option'+(known==""?' selected':'')+'>Annotate all</option>');
-for(var dx=10;dx<zinFreq.length+10;dx+=10) document.write('<option'+(known==zinFreq.slice(0,dx)?' selected':'')+'>Leave '+(dx>zinFreq.length?zinFreq.length:dx)+' known</option>');
+if known_characters:
+  l = [re.sub(b'\s+',b'',l) for l in open(known_characters,'rb').readlines()]
+  l = [i for i in l if i]
+  if len(l) % 10: warn("UI code currently assumes known_characters line count will be a multiple of 10, but it isn't.  Last option will be too high.") # TODO handle this properly?
+  l = b'['+b','.join(b"'"+b"".join(l[s:s+10])+b"'" for s in xrange(0,len(l),10))+b']'
+  android_url_box += br"""
+var zinFreq="""+l+""",known=ssb_local_annotator.getKnownCharacters();
+document.write('<select style="float: right; margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(zinFreq.slice(0,this.selectedIndex<0?0:this.selectedIndex).join('+"''"+'))"><option'+(known==""?' selected':'')+'>Annotate all</option>');
+for(var dx=0,k='';dx<zinFreq.length;dx++) document.write('<option'+(known==(k+=zinFreq[dx])?' selected':'')+'>Leave '+((1+dx)*10)+' known</option>');
 document.write('</select>');""" # TODO: could add a 'custom' option that's selected if none of the others are, but will need some way of editing it (and might need to nicely handle the case of 'frequency table corrected during an app upgrade')
 android_url_box += br"""
 document.write('<button style="float:left;background:#ededed;color:inherit;padding-left:0px;padding-right:0.2ex" onclick="ssb_local_annotator.setIncludeAll(!ssb_local_annotator.getIncludeAll());location.reload();return false"><input type=checkbox'+(ssb_local_annotator.getIncludeAll()?' checked':'')+'>Include """
@@ -2018,7 +2023,7 @@ if sharp_multi: android_src += br""" int annotNo;
                 } while(!e.commit()); setSharpMultiPattern();
             }
             void setSharpMultiPattern() {
-                smPat=java.util.regex.Pattern.compile("<rt>"+new String(new char[annotNo]).replace("\0","[^#]*#")+"([^#]*?)(#.*?)?</rt>");
+                smPat=java.util.regex.Pattern.compile("<rt>"+new String(new char[annotNo]).replace("\0","[^#]*#")+"([^#]*?)(#.*?)?</rt>"); // don't need to deal with <rt class=known> here, as we're working before that's applied
             }
             java.util.regex.Pattern smPat=java.util.regex.Pattern.compile("<rt>([^#]*?)(#.*?)?</rt>");
             @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
