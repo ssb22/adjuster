@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.261 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.262 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1921,38 +1921,19 @@ if android_template:
     android_template = android_template.replace(b"</body",b"VERSION_GOES_HERE</body")
 android_version_stamp = br"""<script>document.write('<address '+(ssb_local_annotator.isDevMode()?'onclick="if(((typeof ssb_local_annotator_dblTap==\'undefined\')?null:ssb_local_annotator_dblTap)==null) window.ssb_local_annotator_dblTap=setTimeout(function(){window.ssb_local_annotator_dblTap=null},500); else { clearTimeout(ssb_local_annotator_dblTap);window.ssb_local_annotator_dblTap=null;ssb_local_annotator.setDevCSS();ssb_local_annotator.alert(\'\',\'\',\'Developer mode: words without glosses will be boxed in blue. Compile time %%TIME%%\')}" ':'')+'>%%DATE%% version</address>')</script>""" # ensure date itself is on LHS (especially if we're at the bottom), as zoom control on API levels 3 through 13 can overprint RHS of last thing on page. This date should help with "can I check your app is up-to-date" encounters + ensures there's an extra line on the document in case zoom control overprints last line.  Time available in developer mode as might have more than one alpha release per day and want to check got latest.
 android_src = br"""package %%JPACKAGE%%;
-import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
+import android.annotation.*;
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
-import android.content.Intent;
-import android.content.SharedPreferences;
+import android.content.*;
 import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Handler;
+import android.os.*;
 import android.view.KeyEvent;
-import android.webkit.JavascriptInterface;
-import android.webkit.WebChromeClient;"""
-if epub: android_src += br"""
-import android.webkit.WebResourceResponse;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;"""
+import android.webkit.*;"""
 if android_print: android_src += br"""
-import android.os.CancellationSignal;
-import android.os.ParcelFileDescriptor;
 import java.lang.reflect.InvocationTargetException;
-import android.print.PageRange;
-import android.print.PrintAttributes;
-import android.print.PrintDocumentAdapter;
-import android.print.PrintDocumentAdapter.LayoutResultCallback;
-import android.print.PrintManager;"""
+import android.print.*;"""
 android_src += br"""
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.Toast;
-import java.io.FileNotFoundException;
-import java.io.IOException;
+import java.io.*;
 import java.util.zip.ZipInputStream;
 public class MainActivity extends Activity {
     %%JPACKAGE%%.Annotator annotator;
@@ -2226,7 +2207,7 @@ if android_print: android_src += br"""
                 else return "";
             }
             @JavascriptInterface public boolean printNeedsCssHack() {
-                return AndroidSDK >= 30; // known good on 29, known bad on 31 (as of 2022-06)
+                return AndroidSDK >= 30; // known good on 29, known bad on 31 (as of 2022-06, at least on Samsung phones; fault not reproduced on Pixel 2 simulated in AVD, with or without updates, but not sure if we can read the device manufacturer from here)
             }
             boolean printing_in_progress = false;
             @TargetApi(19)
