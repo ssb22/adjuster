@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.262 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.263 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1901,7 +1901,7 @@ if known_characters:
   l = b'['+b','.join(b"'"+b"".join(l[s:s+10])+b"'" for s in xrange(0,len(l),10))+b']'
   android_url_box += br"""
 var zinFreq="""+l+""",known=ssb_local_annotator.getKnownCharacters();
-document.write('<select style="float: right; margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(zinFreq.slice(0,this.selectedIndex<0?0:this.selectedIndex).join('+"''"+'))"><option'+(known==""?' selected':'')+'>Annotate all</option>');
+document.write('<select style="float: right; margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(zinFreq.slice(0,this.selectedIndex<0?0:this.selectedIndex).join('+"''"+'));location.reload()"><option'+(known==""?' selected':'')+'>Annotate all</option>');
 for(var dx=0,k='';dx<zinFreq.length;dx++) document.write('<option'+(known==(k+=zinFreq[dx])?' selected':'')+'>Leave '+((1+dx)*10)+' known</option>');
 document.write('</select>');""" # TODO: could add a 'custom' option that's selected if none of the others are, but will need some way of editing it (and might need to nicely handle the case of 'frequency table corrected during an app upgrade')
 android_url_box += br"""
