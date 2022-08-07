@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.21 (c) 2012-22 Silas S. Brown"
+"Web Adjuster v3.22 (c) 2012-22 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -506,7 +506,7 @@ heading("Dynamic DNS options")
 define("ip_change_command",help="An optional script or other shell command to launch whenever the public IP address changes. The new IP address will be added as a parameter; ip_query_url must be set to make this work. The script can for example update any Dynamic DNS services that point to the server.")
 define("ip_change_tries",default=1,help="Number of times to run ip_change_command if it returns failure (0 means unlimited, which is not recommended).  For example, you can have the script return failure if it doesn't get either an \"Updated\" or an expected \"not changed\" response from a Dynamic DNS service (but it is not advisable to expect a host lookup to reflect the change immediately)")
 define("ip_change_delay",default=5,help="Number of seconds to delay between tries of ip_change_command if it fails")
-define("ip_query_url",help="URL that will return your current public IP address, as a line of text with no markup added. Used for the ip_change_command option. You can set up a URL by placing a CGI script on a server outside your network and having it do: echo Content-type: text/plain;echo;echo $REMOTE_ADDR (but if you want your IPv4 address, ensure the adjuster machine and the outside server are not both configured for IPv6)") # If you want something more complex (fallback IP servers, SSH_CLIENT values for tunnels, etc) then you could use a local CGI script to do it
+define("ip_query_url",help="URL that will return your current public IP address, as a line of text with no markup added. Used for the ip_change_command option. You can set up a URL by placing a CGI script on a server outside your network and having it do: echo Content-type: text/plain;echo;echo $REMOTE_ADDR (but if you want your IPv4 address, ensure the adjuster machine and the outside server are not both configured for IPv6). If you have a known static IP address but still want to run an ip_change_command for it, you can set ip_query_url to the static IP address instead of a URL.") # If you want something more complex (fallback IP servers, SSH_CLIENT values for tunnels, etc) then you could use a local CGI script to do it
 define("ip_query_url2",help="Optional additional URL that might sometimes return your public IP address along with other information. This can for example be a status page served by a local router (http://user:password@192.168... is accepted, and if the password is the name of an existing file then its contents are read instead). If set, the following behaviour occurs: Once ip_check_interval has passed since the last ip_query_url check, ip_query_url2 will be queried at an interval of ip_check_interval2 (which can be short), to check that the known IP is still present in its response. Once the known IP is no longer present, ip_query_url will be queried again. This arrangement can reduce the load on ip_query_url while allowing a reduced ip_check_interval for faster response to IP changes, while not completely trusting the local router to report the correct IP at all times. (If it's notoriously unleriable then it might be best NOT to reduce ip_check_interval, in which case at least you'll get a faster response once the initial ip_check_interval wait has passed after the previous IP change; this however might not be suitable if you're behind a router that is frequently rebooting.) See also ip_query_aggressive if the router might report an IP change before connectivity is restored. You may also set ip_query_url2 to the special value 'upnp' if you want it to query a router via UPnP (miniupnpc package required).") # (If using filename then its contents will be re-read every time the URL is used; this might be useful for example if the router password can change)
 define("ip_check_interval",default=8000,help="Number of seconds between checks of ip_query_url for the ip_change_command option")
 define("ip_check_interval2",default=60,help="Number of seconds between checks of ip_query_url2 (if set), for the ip_change_command option")
@@ -6287,6 +6287,7 @@ class Dynamic_DNS_updater:
     def queryIP(self):
         # Queries ip_query_url, and, after receiving a response (optionally via retries if ip_query_aggressive), sets a timeout to go back to queryLocalIP after ip_check_interval (not ip_check_interval2)
         debuglog("queryIP")
+        if not "://" in options.ip_query_url: return self.newIP(options.ip_query_url) # not a URL: assume static IP
         def handleResponse(r):
             curlFinished()
             if not r.error:
