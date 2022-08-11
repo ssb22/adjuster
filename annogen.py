@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.263 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.264 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -4887,6 +4887,8 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
       if inBoth: diagnose_write("tryNBytes(%d) on %s has contexts that are both OK and bad: %s" % (nbytes,withAnnot_unistr,"/".join(list(inBoth)[:10])))
     pOmit = unichr(1).join(badStrs) # omit anything that occurs in this string from +ve indicators
     nOmit = unichr(1).join(okStrs) # ditto for -ve indicators
+    avoidSelf = unichr(1)+nonAnnot[max(0,len(nonAnnot)-nbytes):].encode(outcode)[-nbytes:].decode(outcode,'ignore')
+    pOmit += avoidSelf ; nOmit += avoidSelf
     pCovered=[False]*len(okStrs)
     nCovered=[False]*len(badStrs)
     n2Covered=[False]*len(badStrs)
@@ -4907,7 +4909,7 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
       if try_harder and okStrs and not force_negate:
         didFind = []
         diagnostics.append((didFind,"overmatch-negative",n2Ret,n2Covered))
-        toCheck.append((didFind,badStrs,nAppend2,n2Covered,unique_substrings(badStrs,markedUp_unichars,lambda txt:False,lambda txt:(sum(1 for s in badStrs if txt in s),-sum(1 for s in okStrs if txt in s))))) # a harder try to find negative indicators (added in v0.6896): allow over-matching (equivalent to under-matching positive indicators) if it's the only way to get all badStrs covered; may be useful if the word can occur in isolation
+        toCheck.append((didFind,badStrs,nAppend2,n2Covered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in avoidSelf,lambda txt:(sum(1 for s in badStrs if txt in s),-sum(1 for s in okStrs if txt in s))))) # a harder try to find negative indicators (added in v0.6896): allow over-matching (equivalent to under-matching positive indicators) if it's the only way to get all badStrs covered (v3.264: only don't try creating an indicator from the word itself which would render the rule a no-op).  May be useful if the word can occur in isolation.
     elif nonAnnot==diagnose: diagnose_extra.append("Not checking for negative indicators as 5*%d>%d=%s." % (len(okStrs),len(badStrs),repr(5*len(okStrs)>len(badStrs))))
     while toCheck and negate==None:
       for i in range(len(toCheck)):
