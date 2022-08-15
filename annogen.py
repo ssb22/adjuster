@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.264 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.265 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1931,6 +1931,8 @@ import android.webkit.*;"""
 if android_print: android_src += br"""
 import java.lang.reflect.InvocationTargetException;
 import android.print.*;"""
+if tts_js: android_src += br"""
+import android.speech.tts.*;"""
 android_src += br"""
 import android.widget.Toast;
 import java.io.*;
@@ -2522,13 +2524,13 @@ if pleco_hanping: android_src += br"""
     int[] hanpingVersion = new int[]{0,0,0};"""
 if tts_js: android_src += br"""
     String ttsList = "";
-    android.speech.tts.TextToSpeech tts=null,tts2=null,
+    TextToSpeech tts=null,tts2=null,
         tts_keep=null; int found_dx=-1;
     int nextID=0; @TargetApi(21)
     boolean doTTS(String text) {
         if(tts_keep==null) return false;
-        int maxLen=android.speech.tts.TextToSpeech.getMaxSpeechInputLength();
-        int queueMode = android.speech.tts.TextToSpeech.QUEUE_FLUSH;
+        int maxLen=TextToSpeech.getMaxSpeechInputLength();
+        int queueMode = TextToSpeech.QUEUE_FLUSH;
         while(text.length() > 0) {
             String t2;
             if (text.length() > maxLen) {
@@ -2536,12 +2538,12 @@ if tts_js: android_src += br"""
                 if(t2.indexOf("\u3002")>0) t2=t2.substring(0,t2.lastIndexOf("\u3002")+1);
                 else if(t2.indexOf(". ")>0) t2=t2.substring(0,t2.lastIndexOf(". ")+2);
             } else t2 = text;
-            if(tts_keep.speak(t2,queueMode,null,String.valueOf(nextID++))!=android.speech.tts.TextToSpeech.SUCCESS) return false;
+            if(tts_keep.speak(t2,queueMode,null,String.valueOf(nextID++))!=TextToSpeech.SUCCESS) return false;
             text = text.substring(t2.length());
-            queueMode = android.speech.tts.TextToSpeech.QUEUE_ADD;
+            queueMode = TextToSpeech.QUEUE_ADD;
         } return true;
     }
-    java.util.List<android.speech.tts.TextToSpeech.EngineInfo> eiList = null;
+    java.util.List<TextToSpeech.EngineInfo> eiList = null;
     @TargetApi(21)
     String TTSTest(int batchNo,String voices_to_set) {
         final android.content.Context context = this;
@@ -2549,7 +2551,7 @@ if tts_js: android_src += br"""
             if (ttsList != "") return ttsList;
             if(AndroidSDK < 21) return "Android 5+ required for multilingual TTS";
             if(eiList==null) {
-                tts = new android.speech.tts.TextToSpeech(context,new android.speech.tts.TextToSpeech.OnInitListener(){
+                tts = new TextToSpeech(context,new TextToSpeech.OnInitListener(){
                         public void onInit(int status) {
                             if(tts == null) {
                                 ttsList += "race-condition fail";
@@ -2569,10 +2571,10 @@ if tts_js: android_src += br"""
             ttsList="TTS voice list:\n";
         }
         int i=0; boolean found=false;
-        for(android.speech.tts.TextToSpeech.EngineInfo ei : eiList) {
+        for(TextToSpeech.EngineInfo ei : eiList) {
             if (++i < batchNo) continue;
             found = true;
-            tts2 = new android.speech.tts.TextToSpeech(context,new android.speech.tts.TextToSpeech.OnInitListener(){
+            tts2 = new TextToSpeech(context,new TextToSpeech.OnInitListener(){
                     public void onInit(int status) {
                         if (tts2 == null) {
                             ttsList += "(engine race-condition fail)";
@@ -2583,11 +2585,11 @@ if tts_js: android_src += br"""
                             return;
                         }
                         boolean do_shutdown = true;
-                        java.util.Set<android.speech.tts.Voice> voices; try { voices=tts2.getVoices(); } catch(Exception e) { ttsList += "(getVoices fail)"; return; }
-                        for(android.speech.tts.Voice v: voices) {
+                        java.util.Set<Voice> voices; try { voices=tts2.getVoices(); } catch(Exception e) { voices=null; } if(voices==null /* (either by exception or otherwise, e.g. on somebody's Android 11 getVoices() simply returned null) */) { ttsList += "(getVoices fail)"; return; }
+                        for(Voice v: voices) {
                             ttsList += v.getName()+"(lang="+v.getLocale().getLanguage()+" variant="+v.getLocale().getVariant()+" quality="+String.valueOf(v.getQuality())+" connection="+(v.isNetworkConnectionRequired()?"t":"f")+" latency="+String.valueOf(v.getLatency())+")\n";
                             int dx=voices_to_set.indexOf(","+v.getName()+",");
-                            if (dx>-1 && (found_dx==-1 || dx < found_dx) && tts2.setVoice(v)==android.speech.tts.TextToSpeech.SUCCESS) {
+                            if (dx>-1 && (found_dx==-1 || dx < found_dx) && tts2.setVoice(v)==TextToSpeech.SUCCESS) {
                                 if(tts_keep!=null && do_shutdown) try { tts_keep.shutdown(); } catch(Exception e) {} // != tts2
                                 tts_keep = tts2; do_shutdown=false;
                                 found_dx = dx;
