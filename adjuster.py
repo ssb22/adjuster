@@ -400,6 +400,7 @@ define("pidfile",default="",help="Write our process ID to this file when running
 # Description=Web Adjuster
 # [Install]
 # Alias=adjuster.service  # ensure it's unique
+# WantedBy=multi-user.target
 # [Service]
 # Type=notify  # or Type=forking if we have no sdnotify module
 # ExecStart=/usr/bin/python adjuster.py --config=etc
