@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.265 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.266 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1818,17 +1818,16 @@ android_manifest = br"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:sharedUserId="" android:installLocation="preferExternal" >
 <uses-permission android:name="android.permission.INTERNET" />"""
 # The versionCode, versionName and sharedUserId attributes in the above are also picked up on in the code below
-if epub: android_manifest += br"""<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />"""
+if epub: android_manifest += br"""<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="22" />"""
+# API 23 (Android 6) needs extra code to request this permission
+# (which we don't do), but Send URIs should arrive as content://
+# (they should be content:// on Android 5).
+# Android 13 (API 33) apps shouldn't declare READ_EXTERNAL_STORAGE.
 # On API 19 (Android 4.4), the external storage permission is:
 # (1) needed for opening epubs from a file manager,
 # (2) automatically propagated throughout sharedUserId (if one of your apps has it then they will all get it),
 # (3) persists until the next reboot if you reinstall your apps without it.
 # Points 2 and 3 can make developers think it's not really needed :-(
-# API 23+ Android 6+ needs extra code to activate this permission, but I don't
-# yet know if it's still needed for opening epub from a file manager on 6+.
-# On an API 27 (Android 8) emulator, a content:// URI was sent instead of file://
-# so I would imagine the permission doesn't need activating on Android 8, but
-# for completeness we need to test Android 6 and Android 7 somehow (TODO)
 if pleco_hanping or tts_js:
   android_manifest+=b"\n<queries>"
   if pleco_hanping: android_manifest += br"""
@@ -1840,7 +1839,7 @@ if pleco_hanping or tts_js:
 <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>"""
   android_manifest+=b"\n</queries>"
 android_manifest += br"""
-<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="31" />
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="33" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" android:networkSecurityConfig="@xml/network_security_config" >
 <service android:name=".BringToFront" android:exported="false"/>
@@ -2302,7 +2301,7 @@ android_src += br"""
                 if(AndroidSDK < Build.VERSION_CODES.HONEYCOMB)
                     ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
-                if(toast) Toast.makeText(act, "Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
+                if(toast && AndroidSDK<33) Toast.makeText(act, "Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
             }"""
 if android_audio: android_src += br"""
             @JavascriptInterface public void sendToAudio(final String s) {
