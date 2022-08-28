@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.266 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.27 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -254,7 +254,7 @@ parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fi
 parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)")
 cancelOpt("tts-js")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
-parser.add_option("--delete-existing-ruby",action="store_true",default=False,help="Set the Android app or browser extension to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply --existing-ruby-js-fixes and/or --existing-ruby-shortcut-yarowsky, then --delete-existing-ruby specifies that only the first --sharp-multi option should have existing ruby preserved.")
+parser.add_option("--existing-ruby-lang-regex",help="Set the Android app or browser extension to remove existing ruby elements unless the document language matches this regular expression. If --sharp-multi is in use, you can separate multiple regexes with comma and any unset will always delete existing ruby.  If this option is not set at all then existing ruby is always kept.")
 parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
 parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android browser app. You may also specify a file to read --extra-css=@file.css")
 parser.add_option("--app-name",default="Annotating browser",
@@ -458,9 +458,11 @@ def errExit(msg):
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
+if sharp_multi and not annotation_names and (browser_extension or existing_ruby_lang_regex): errExit("--sharp-multi requires --annotation-names to be set if --browser-extension or --existing-ruby-lang-regex")
+if existing_ruby_lang_regex:
+    while len(existing_ruby_lang_regex.split(','))<len(annotation_names.split(',')): existing_ruby_lang_regex += br",\b$"
 if browser_extension:
   javascript = True
-  if sharp_multi and not annotation_names: errExit("--sharp-multi requires --annotation-names to be set if --browser-extension")
   if zlib: errExit("--zlib not currently supported with --browser-extension") # would need to ensure it's decompressed after being read in from annotate-dat.txt
 if android_template:
   android = "file:///android_asset/index.html"
@@ -476,8 +478,8 @@ if android_audio:
     android_audio,android_audio_maxWords = android_audio.split()
     android_audio_maxWords = int(android_audio_maxWords)
   else: android_audio_maxWords=None
-if (extra_js or extra_css or existing_ruby_js_fixes or tts_js) and not android: errExit("--extra-js, --tts-js, --extra-css and --existing-ruby-js-fixes requires --android") # browser-extension: existing_ruby_js_fixes would require aType to be known by content.js (cn do via handleMessage) + oldTxt no longer sufficient for restoring page for reannotate.  TODO: even with delete_existing_ruby, oldTxt is not sufficient to restore page for annotation off (it currently needs reload after turn off if it had existing ruby, and we don't do that automatically, nor should we as they might have unsaved changes), due to nfOld/nfNew further up the DOM, and it's no good replacing it with a list of DOM objects to replaceChild on, because anything more than text does not persist in the DOM after content.js runs, nor does it persist in the content.js variable space.
-if delete_existing_ruby and not (android or javascript): errExit("--delete-existing-ruby requires --android or --javascript") # (or --browser-extension, which implies --javascript)
+if (extra_js or extra_css or existing_ruby_js_fixes or tts_js) and not android: errExit("--extra-js, --tts-js, --extra-css and --existing-ruby-js-fixes requires --android") # browser-extension: existing_ruby_js_fixes would require aType to be known by content.js (cn do via handleMessage) + oldTxt no longer sufficient for restoring page for reannotate.  TODO: even with existing ruby deleted by existing_ruby_lang_regex non-match, oldTxt is not sufficient to restore page for annotation off (it currently needs reload after turn off if it had existing ruby, and we don't do that automatically, nor should we as they might have unsaved changes), due to nfOld/nfNew further up the DOM, and it's no good replacing it with a list of DOM objects to replaceChild on, because anything more than text does not persist in the DOM after content.js runs, nor does it persist in the content.js variable space.
+if existing_ruby_lang_regex and not (android or javascript): errExit("--existing-ruby-lang-regex requires --android or --javascript") # (or --browser-extension, which implies --javascript)
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
@@ -1510,16 +1512,15 @@ def jsAnnot(for_android=True,for_async=False):
 function annotWalk(n"""
   if not for_async: r += b",document" # multiple frames
   if for_android: r += b",inLink,inRuby"
-  elif for_async and delete_existing_ruby: r += b",nfOld,nfNew" # as the callback 'need to fix [replace]' element is not necessarily at current level, see below
+  elif for_async and existing_ruby_lang_regex: r += b",nfOld,nfNew" # as the callback 'need to fix [replace]' element is not necessarily at current level, see below
   r += br""") {
     /* Our main DOM-walking code */
   var c;"""
-  if not for_async or delete_existing_ruby:
-    if for_async: r += b"var nf=!!nfOld,nReal=n; if(!nf){"
-    else: r += br"""
-    var nf=false, /* "need to fix" as there was already ruby on the page */ rShared=false /* ruby shared with other elements like links, possibly containing event handlers: beware batch changes */;"""
-    if for_android: r += b"if(!inRuby)"
-    r += b"""
+  if for_async: r += b"var nf=!!nfOld,nReal=n; if(!nf){"
+  else: r += br"""
+  var nf=false, /* "need to fix" as there was already ruby on the page */ rShared=false /* ruby shared with other elements like links, possibly containing event handlers: beware batch changes */;"""
+  if for_android: r += b"if(!inRuby)"
+  r += b"""
 for(c=n.firstChild; c; c=c.nextSibling) {
   if(c.nodeType==1) {
     if(c.nodeName=='RUBY') nf=true; else rShared=true
@@ -1539,14 +1540,13 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     break
   }
 }"""
-    if for_async: r += b"if(nf) { nfOld=nReal;nfNew=n=n.cloneNode(true);" # so no effect on DOM if annotate returns no-op because it's switched off
-    else: r += b"var nReal = n; if(nf) { n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
-    if delete_existing_ruby:
-      if existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"if(!"+annotNo+b"){%s} else " % (B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
-      r += br"""{var n2=n.cloneNode(false);n2.innerHTML=n.innerHTML.replace(/<rt.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'');n=n2}"""
-    else: r += B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"')
-    r += b"}"
-    if for_async: r += b"}"
+  if for_async: r += b"if(nf) { nfOld=nReal;nfNew=n=n.cloneNode(true);" # so no effect on DOM if annotate returns no-op because it's switched off
+  else: r += b"var nReal = n,kR=1; if(nf) { n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
+  if existing_ruby_lang_regex: r += b"kR=document.documentElement.lang.match(["+b",".join(b"/"+l.replace(b'\\',br'\\')+b"/" for l in existing_ruby_lang_regex.split(','))+b"]["+annotNo+b"]);if(kR){" # (else unconditionally keep existing ruby)
+  if existing_ruby_js_fixes: r += B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"')
+  if existing_ruby_lang_regex: r += br"""} else {var n2=n.cloneNode(false);n2.innerHTML=n.innerHTML.replace(/<rt.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'');n=n2}"""
+  r += b"}" # if nf
+  if for_async: r += b"}" # if(!nf)
   r += br"""
     /* 1. check for WBR and mergeTags */
     function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^\\s*$/)};
@@ -1570,9 +1570,7 @@ for(c=n.firstChild; c; c=c.nextSibling) {
         case 1:
           if(leaveTags.indexOf(c.nodeName)==-1 && c.className!='_adjust0') {"""
   if not for_async:
-    r += b"if("
-    if not delete_existing_ruby: r += b"!nf &&"
-    elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!"+annotNo+b") &&" # TODO: or just leave it as "!nf &&" in all 'MAY have existing ruby' cases?  check the 'fix' would still work if we go down this branch even if nf, i.e. is !nf just an optimisation?
+    r += b"if(!nf &&" # TODO: unless existing_ruby_lang_regex is set to always delete no matter what
     if for_android: r += b"!inRuby &&"
     r += br"""cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
   if existing_ruby_shortcut_yarowsky and for_android: r += br"""
@@ -1583,7 +1581,7 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     r += b"annotWalk(c"
     if not for_async: r += b",document"
     if for_android: r += b",inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY')"
-    if for_async and delete_existing_ruby: r += b",nfOld,nfNew"
+    if for_async and existing_ruby_lang_regex: r += b",nfOld,nfNew"
     r += b");"
   r += br"""
           } break;
@@ -1592,7 +1590,7 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     r += br"""
             if(!cnv.match(/^\\s*$/)) {
                 (function(n"""
-    if delete_existing_ruby: r += b",nfOld,nfNew"
+    if existing_ruby_lang_regex: r += b",nfOld,nfNew"
     r += br""",c,cnv){
                     var newNode=document.createElement('span');
                     newNode.className='_adjust0';
@@ -1623,12 +1621,12 @@ for(c=n.firstChild; c; c=c.nextSibling) {
                                 var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) (function(e){e.addEventListener('click',(function(){alert(e.title)}))})(a[i])
                             } catch(err) { console.log(err.message) }
                             try{n.replaceChild(newNode, c)}catch(err){ /* already done */ }"""
-    if delete_existing_ruby: r += br"""
+    if existing_ruby_lang_regex: r += br"""
                             if(nfOld) {try{nfOld.parentNode.replaceChild(nfNew,nfOld)}catch(err){ /* already done */ } }"""
     r += br"""
                         }
                     }))})(n"""
-    if delete_existing_ruby: r += b",nfOld,nfNew"
+    if existing_ruby_lang_regex: r += b",nfOld,nfNew"
     r += b",c,cnv)}"
   else: # not for_async
     if for_android: annotateFunc = b"ssb_local_annotator.annotate"
@@ -1646,14 +1644,10 @@ for(c=n.firstChild; c; c=c.nextSibling) {
   if not for_async: r += b"cP=c;"
   r += b"c=cNext;"
   if not for_async:
-    r += b"if("
-    if not delete_existing_ruby: r += b"!nf &&"
-    elif existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky: r += b"!(nf&&!"+annotNo+b") &&" # TODO: same as above
+    r += b"if(!nf &&"  # TODO: as above: unless existing_ruby_lang_regex is set to always delete it no matter what
     r += br"""!inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling) /* space after the inline link or em etc */"""
   r += b"}" # while c
   if not for_async:
-   if delete_existing_ruby and not (existing_ruby_js_fixes or existing_ruby_shortcut_yarowsky): r += b"if(nf) nReal.parentNode.replaceChild(n,nReal);"
-   else:
     r += br"""
     /* 3. Batch-fix any damage we did to existing ruby.
        Keep new titles; normalise the markup so our 3-line option still works.
@@ -1661,15 +1655,15 @@ for(c=n.firstChild; c; c=c.nextSibling) {
        Also ensure all ruby is space-separated like ours,
        so our padding CSS overrides don't give inconsistent results */
     if(nf) {"""
-    if delete_existing_ruby: r += b"""
-        if(!"""+annotNo+b""") {"""
+    if existing_ruby_lang_regex: r += b"""
+        if(kR) {""" # else unconditionally keep ruby
     r += br"""
         nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt[^>]*>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt"""
     if known_characters: r += br"""'+(rb.indexOf('<rt>')==-1?' class=known':'')+'""" # if all the <rt> we generated are <rt class=known> then propagate this to the existing ruby
     r += br""">'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'"""
     if for_android: r += br""";
         if(!inLink){var a=function(n){for(n=n.firstChild;n;n=n.nextSibling){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}}};a(nReal)}"""
-    if delete_existing_ruby: r += b"""} else nReal.parentNode.replaceChild(n,nReal)"""
+    if existing_ruby_lang_regex: r += b"""} else nReal.parentNode.replaceChild(n,nReal)"""
     r += b"}" # if nf
   r += b"}" # function annotWalk
   if for_async: r += br"""

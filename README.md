@@ -641,7 +641,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.266
+Options for Annotator Generator v3.27
 ===========================
 
 Usage: annogen.py [options]
@@ -924,9 +924,9 @@ Options:
 `
  : Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: `--existing-ruby-js-fixes`=@file.js
 
-`--delete-existing-ruby
+`--existing-ruby-lang-regex=EXISTING_RUBY_LANG_REGEX
 `
- : Set the Android app or browser extension to completely remove existing ruby elements. Use this when you expect to replace a site's own annotation with a completely different type of annotation. If you also supply `--existing-ruby-js-fixes` and/or `--existing-ruby-shortcut-yarowsky`, then `--delete-existing-ruby` specifies that only the first `--sharp-multi` option should have existing ruby preserved.
+ : Set the Android app or browser extension to remove existing ruby elements unless the document language matches this regular expression. If `--sharp-multi` is in use, you can separate multiple regexes with comma and any unset will always delete existing ruby.  If this option is not set at all then existing ruby is always kept.
 
 `--existing-ruby-shortcut-yarowsky
 `
