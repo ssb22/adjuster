@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.27 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.28 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1852,17 +1852,17 @@ elif android_template:
   android_template = open(android_template,'rb').read()
   if not b"</body" in android_template: warn("--android-template has no \"</body\" so won't have a version stamp")
 # android_url_box: one user saw an "Offline EPUB file" link and said "I have to give it an EPUB, that's too complicated" without noticing the URL box immediately afterwards, so we'd better put the URL box first.
+# Another user still found the EPUB link distracting, so let's make it a button (to match the Go button) rather than a 'different'-looking link (if most users want the Web browser then we probably don't want EPUB to be the _first_ thing they notice).
 # As we're using forceDarkAllowed to allow 'force dark mode' on Android 10, we MUST specify background and color.  Left unspecified results in input elements that always have white backgrounds even in dark mode, in which case you get white on white = invisible text.  "inherit" works; background #ededed looks more shaded and does get inverted; background-image linear-gradient does NOT get inverted (so don't use it).
 # And as fewer browsers display "http" users might be less likely to recognise that as the start of the URL, so don't use "http://" for the box's placeholder.
 android_url_box = br"""<div style="border: thin dotted grey">
 <form style="margin:0em;padding-bottom:0.5ex" onSubmit="var v=this.url.value;if(typeof annotUrlTrans!='undefined'){var u=annotUrlTrans(v);if(typeof u!='undefined')v=u}if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="width:1em;margin:0em;padding:0em;display:none" id=displayMe align=left><button style="width:100%;background:#ededed;color:inherit" onclick="document.forms[document.forms.length-1].url.value='';document.getElementById('displayMe').style.display='none';return false">X</button></td><td style="margin: 0em; padding: 0em"><input type=text style="width:100%;background:inherit;color:inherit" placeholder="Web page" name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%;background:#ededed;color:inherit"></td></tr></table></form>"""
-# Now all other controls, as floats:
+# Now all other controls:
 if epub: android_url_box += br"""
-<a style="float: left; border: thin grey dotted; padding: 0px 0.4em 0px 0.4em" href="javascript:ssb_local_annotator.getEPUB()">Offline EPUB</a>
-<a style="float: right; padding: 0px 0.4em 0px 0.4em; border: thin grey dotted" href="clipboard.html">Clipboard</a>"""
-else: android_url_box += br"""
-<a style="float: left; padding: 0px 0.4em 0px 0.4em; border: thin grey dotted" href="clipboard.html">Offline&nbsp;clipboard</a>"""
-android_url_box += br"""<script>
+<button style="margin-top: 0.5ex;background:#ededed;color:inherit" onclick="ssb_local_annotator.getEPUB()">EPUB</button>"""
+android_url_box += br"""
+<button style="margin-top: 0.5ex;background:#ededed;color:inherit" onclick="location.href='file:///android_asset/clipboard.html'">Clipboard</button>
+<script>
 function viewZoomCtrls() {
    window.setTimeout(function(){
    var t=document.getElementById("zI");
@@ -1884,9 +1884,9 @@ function zoomIn() {
    else document.getElementById("zO").disabled=false;
    viewZoomCtrls();
 }
-if(ssb_local_annotator.canCustomZoom()) document.write('<div style="float:left">Size: <button id=zO onclick="zoomOut()" style="background:#ededed;color:inherit">-</button> <span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span> <button id=zI onclick="zoomIn()" style="background:#ededed;color:inherit">+</button></div>');"""
+if(ssb_local_annotator.canCustomZoom()) document.write('<div style="display:inline-block;margin-top: 0.5ex"><button id=zO onclick="zoomOut()" style="background:#ededed;color:inherit;font-size:90%">A</button><span id=zL>'+ssb_local_annotator.getZoomPercent()+'%</span><button id=zI onclick="zoomIn()" style="background:#ededed;color:inherit;font-size:110%">A</button></div> ');"""
 if sharp_multi and annotation_names: android_url_box += br"""
-modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+br"""];document.write('<div style="float:right; text-align: right">Mode: ');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)if(i==c)document.write('<button disabled style="background:#ededed;color:inherit"><input type=radio checked> '+modeNames[i]+'</button>');else document.write('<button style="background:#ededed;color:inherit" onclick="ssb_local_annotator.setAnnotNo('+i+');location.reload();return false"><input type=radio> '+modeNames[i]+'</button>');document.write('</div>');"""
+modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+br"""];document.write('<select style="margin-top: 0.5ex" onChange="ssb_local_annotator.setAnnotNo(this.selectedIndex<0?0:this.selectedIndex);location.reload()">');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)document.write('<option'+(i==c?' selected':'')+'>'+modeNames[i]+'</option>');document.write('</select> ');"""
 if known_characters:
   l = [re.sub(b'\s+',b'',l) for l in open(known_characters,'rb').readlines()]
   l = [i for i in l if i]
@@ -1894,20 +1894,20 @@ if known_characters:
   l = b'['+b','.join(b"'"+b"".join(l[s:s+10])+b"'" for s in xrange(0,len(l),10))+b']'
   android_url_box += br"""
 var zinFreq="""+l+""",known=ssb_local_annotator.getKnownCharacters();
-document.write('<select style="float: right; margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(zinFreq.slice(0,this.selectedIndex<0?0:this.selectedIndex).join('+"''"+'));location.reload()"><option'+(known==""?' selected':'')+'>Annotate all</option>');
+document.write('<select style="margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(zinFreq.slice(0,this.selectedIndex<0?0:this.selectedIndex).join('+"''"+'));location.reload()"><option'+(known==""?' selected':'')+'>Annotate all</option>');
 for(var dx=0,k='';dx<zinFreq.length;dx++) document.write('<option'+(known==(k+=zinFreq[dx])?' selected':'')+'>Leave '+((1+dx)*10)+' known</option>');
-document.write('</select>');""" # TODO: could add a 'custom' option that's selected if none of the others are, but will need some way of editing it (and might need to nicely handle the case of 'frequency table corrected during an app upgrade')
+document.write('</select> ');""" # TODO: could add a 'custom' option that's selected if none of the others are, but will need some way of editing it (and might need to nicely handle the case of 'frequency table corrected during an app upgrade')
 android_url_box += br"""
-document.write('<button style="float:left;background:#ededed;color:inherit;padding-left:0px;padding-right:0.2ex" onclick="ssb_local_annotator.setIncludeAll(!ssb_local_annotator.getIncludeAll());location.reload();return false"><input type=checkbox'+(ssb_local_annotator.getIncludeAll()?' checked':'')+'>Include """
+document.write('<button style="margin-top: 0.5ex;background:#ededed;color:inherit;padding-left:0px;padding-right:0.2ex" onclick="ssb_local_annotator.setIncludeAll(!ssb_local_annotator.getIncludeAll());location.reload();return false"><input type=checkbox'+(ssb_local_annotator.getIncludeAll()?' checked':'')+'>Include """
 if annotation_names:
   if sharp_multi: android_url_box += br"'+modeNames[ssb_local_annotator.getAnnotNo()].replace(/^.*? ([^ ]+)( [(].*)?$/g,'$1')+'" # so e.g. "Cantonese Sidney Lau (with numbers)" -> "Lau" (as we want this shorter than the buttons)
   else: android_url_box += B(annotation_names) # assume it's just one name
 else: android_url_box += br"annotation"
 android_url_box += br""" with Copy</button>');
-var m=navigator.userAgent.match(/Android ([0-9]+)\./); if(m && m[1]<5) document.write("<div id=insecure style=\"clear: both; background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be safer to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></div>");
+var m=navigator.userAgent.match(/Android ([0-9]+)\./); if(m && m[1]<5) document.write("<div id=insecure style=\"background-color: pink; color: black\"><b>In-app browsers receive no security updates on Android&nbsp;4.4 and below, so be careful where you go.</b> It might be safer to copy/paste or Share text to it when working with an untrusted web server. <button onclick=\"document.getElementById('insecure').style.display='none'\">OK</button></div>");
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)){document.forms[document.forms.length-1].url.value=c;document.getElementById("displayMe").style.display="table-cell"}</script>"""
 # API 19 (4.4) and below has no browser updates.  API 17 (4.2) and below has known shell exploits for CVE-2012-6636 which requires only that a site (or network access point) can inject arbitrary Javascript into the HTTP stream.  Not sure what context the resulting shell runs in, but there are probably escalation attacks available.  TODO: insist on working offline-only on old versions?
-android_url_box += b'<div style="clear:both"></div></div>' # make sure to clear the floats before ending the div if div#insecure is not displayed
+android_url_box += b'</div>'
 if android_template:
   android_template = android_template.replace(b"URL_BOX_GOES_HERE",android_url_box)
   if not b"VERSION_GOES_HERE" in android_template:
