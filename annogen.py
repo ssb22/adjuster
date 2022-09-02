@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.28 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.29 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -328,6 +328,8 @@ parser.add_option("--sharp-multi",
                   help="Assume annotation (or reannotator output) contains multiple alternatives separated by # (e.g. pinyin#Yale) and include code to select one by number at runtime (starting from 0). This is to save on total space when shipping multiple annotators that share the same word grouping and gloss data, differing only in the transcription of each word.")
 cancelOpt("sharp-multi")
 parser.add_option("--annotation-names",help="Comma-separated list of annotation types supplied to sharp-multi (e.g. Pinyin,Yale), if you want the Android app etc to be able to name them.  You can also set just one annotation names here if you are not using sharp-multi.")
+parser.add_option("--annotation-map",help="Comma-separated list of annotation-number overrides for sharp-multi, e.g. 7=3 to take the 3rd item if a 7th is selected") # this one starts at 1 rather than 0
+parser.add_option("--annotation-postprocess",help="Extra code for post-processing specific annotNo selections after retrieving from a sharp-multi list (@file is allowed)")
 
 #  =========== ANALYSIS OPTIONS ==============
 
@@ -483,7 +485,10 @@ if existing_ruby_lang_regex and not (android or javascript): errExit("--existing
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
+if not annotation_postprocess: annotation_postprocess = ""
 if extra_css.startswith("@"): extra_css = open(extra_css[1:],"rb").read()
+if annotation_postprocess.startswith("@"): annotation_postprocess = open(annotation_postprocess[1:],"rb").read()
+if annotation_postprocess and not java: errExit("--annotation-postprocess is currently implemented only for Java") # TODO could at least do JS
 if type("")==type(u""): # Python 3
   def B(s):
     try: return s.encode('latin1')
@@ -901,6 +906,16 @@ static void OutWriteStrP(const char *annot) {
 """
 else: decompress_func = b""
 
+def annotMap(varName="annotNo",mayNeedParen=False):
+  r = ""
+  if annotation_map:
+    for i in annotation_map.split(","):
+      k,v = i.split('=')
+      r += varName+"=="+str(int(k)-1)+"?"+str(int(v)-1)+":"
+  r += varName
+  if mayNeedParen and "==" in r: r="("+r+")"
+  return B(r)
+
 if c_filename and os.sep in c_filename: cfn = c_filename[c_filename.rindex(os.sep)+1:]
 else: cfn = c_filename
 if library:
@@ -1026,7 +1041,7 @@ char *annotate(const char *input"""
   readPtr=writePtr=startPtr=(char*)input;
   outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
   afree(); outBytes = malloc(outWriteLen);"""
-  if sharp_multi: c_defs += b" numSharps=annotNo;"
+  if sharp_multi: c_defs += b" numSharps="+annotMap()+";"
   c_defs += br""" annotation_mode = aMode;
   if(outBytes) { outWritePtr = 0; matchAll(); }
   if(outBytes) OutWriteByte(0);
@@ -1775,8 +1790,11 @@ elif not library:
 #ifndef Omit_main
 int main(int argc,char*argv[]) {
   int i=1;"""
-  if sharp_multi: c_end += br"""
-  if(i<argc && isdigit(*argv[i])) numSharps=atoi(argv[i++]);"""
+  if sharp_multi:
+    c_end += br"""
+  if(i<argc && isdigit(*argv[i])) { numSharps=atoi(argv[i++]);"""
+    if annotation_map: c_end += br"numSharps="+annotMap("numSharps")+";"
+    c_end += " }"
   c_end += br"""
   for(; i<argc; i++) {
     if(!strcmp(argv[i],"--help")) {"""
@@ -1928,7 +1946,10 @@ if tts_js: android_src += br"""
 import android.speech.tts.*;"""
 android_src += br"""
 import android.widget.Toast;
-import java.io.*;
+import java.io.*;"""
+if sharp_multi: android_src += br"""
+import java.util.regex.*;"""
+android_src += br"""
 import java.util.zip.ZipInputStream;
 public class MainActivity extends Activity {
     %%JPACKAGE%%.Annotator annotator;
@@ -1999,9 +2020,9 @@ if sharp_multi: android_src += br""" int annotNo;
                 } while(!e.commit()); setSharpMultiPattern();
             }
             void setSharpMultiPattern() {
-                smPat=java.util.regex.Pattern.compile("<rt>"+new String(new char[annotNo]).replace("\0","[^#]*#")+"([^#]*?)(#.*?)?</rt>"); // don't need to deal with <rt class=known> here, as we're working before that's applied
+                smPat=Pattern.compile("<rt>"+new String(new char["""+annotMap()+br"""]).replace("\0","[^#]*#")+"([^#]*?)(#.*?)?</rt>"); // don't need to deal with <rt class=known> here, as we're working before that's applied
             }
-            java.util.regex.Pattern smPat=java.util.regex.Pattern.compile("<rt>([^#]*?)(#.*?)?</rt>");
+            Pattern smPat=Pattern.compile("<rt>([^#]*?)(#.*?)?</rt>");
             @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
 if known_characters: android_src += br"""
             @JavascriptInterface public String getKnownCharacters() { return knownChars; }
@@ -2015,10 +2036,10 @@ if known_characters: android_src += br"""
                 setKnownCharsPattern();
             }
             String knownChars = "";
-            java.util.regex.Pattern kcPat;
+            Pattern kcPat;
             void setKnownCharsPattern() {
                 if (knownChars.isEmpty()) kcPat=null;
-                else kcPat=java.util.regex.Pattern.compile("(<rb>["+knownChars+"]+</rb><rt)(>.*?</rt>)");
+                else kcPat=Pattern.compile("(<rb>["+knownChars+"]+</rb><rt)(>.*?</rt>)");
             }
 """
 if android_template: android_src += br"""
@@ -2053,13 +2074,13 @@ android_src += br"""
 if data_driven: android_src += b"throws java.util.zip.DataFormatException "
 android_src += b'{ if(annotator==null) return t; String r=annotator.annotate(t);'
 if sharp_multi: android_src += br"""
-                java.util.regex.Matcher m = smPat.matcher(r);
+                Matcher m = smPat.matcher(r);
                 StringBuffer sb=new StringBuffer();
                 while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(1)+"</rt>");
-                m.appendTail(sb); r=sb.toString();"""
+                m.appendTail(sb); r=sb.toString();"""+B(annotation_postprocess)
 if known_characters: android_src += br"""
                 if(kcPat!=null) {
-                    java.util.regex.Matcher k = kcPat.matcher(r);
+                    Matcher k = kcPat.matcher(r);
                     StringBuffer s2=new StringBuffer();
                     while(k.find()) k.appendReplacement(s2, k.group(1)+" class=known"+k.group(2));
                     k.appendTail(s2); r=s2.toString();
@@ -2329,7 +2350,7 @@ if bookmarks: android_src += br"""
                     do {
                         android.content.SharedPreferences sp=createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0);
                         p2=","+sp.getString("prefs", ",");
-                        s=p2.replaceFirst(java.util.regex.Pattern.quote(","+p+","), ",");
+                        s=p2.replaceFirst(Pattern.quote(","+p+","), ",");
                         if(s.equals(p2)) break;
                         e = sp.edit(); done=true;
                         e.putString("prefs",s.substring(1));
@@ -2338,7 +2359,7 @@ if bookmarks: android_src += br"""
                 do {
                    android.content.SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
                    p2=","+sp.getString("prefs", ",");
-                   s=p2.replaceFirst(java.util.regex.Pattern.quote(","+p+","), ",");
+                   s=p2.replaceFirst(Pattern.quote(","+p+","), ",");
                    if(s.equals(p2)) break;
                 e = sp.edit();
                 e.putString("prefs",s.substring(1));
@@ -3822,7 +3843,7 @@ if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
 }
 return decodeURIComponent(escape(output.join("")))"""
 if js_6bit: js_start = js_start.replace(b"var numBytes = data.charCodeAt(dPtr++);",b"var numBytes = (data.charCodeAt(dPtr++)-"+B(str(js_6bit_offset-1))+b")&0xFF;")
-if sharp_multi: js_start += br""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat(aType)+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
+if sharp_multi: js_start += br""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat("""+annotMap("aType")+br""")+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
 js_start += br"""; // from UTF-8 back to Unicode
 }"""
 if not browser_extension: js_start += b", // end of annotate method\n" # data: ... \n goes here
@@ -3980,7 +4001,7 @@ dart_src += br""") {
       if (oldPos==p) { needSpace=false; output.write(String.fromCharCode(inBytes[p++])); copyP++; }
     }
     return Utf8Decoder().convert(output.toString().codeUnits)"""
-if sharp_multi: dart_src += br""".replaceAllMapped(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#"*aType+"(.*?)(#.*?)?</r"),(Match m)=>"${m[1]}${m[2]}</r")"""
+if sharp_multi: dart_src += br""".replaceAllMapped(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#"*"""+annotMap("aType",True)+br"""+"(.*?)(#.*?)?</r"),(Match m)=>"${m[1]}${m[2]}</r")"""
 dart_src += br""";
   }
   int _readAddr() { int addr=0; for (int i=addrLen; i>0; i--) addr=(addr << 8) | data.codeUnitAt(dPtr++); return addr; }

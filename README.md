@@ -641,7 +641,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.28
+Options for Annotator Generator v3.29
 ===========================
 
 Usage: annogen.py [options]
@@ -1018,6 +1018,14 @@ Options:
 `--annotation-names=ANNOTATION_NAMES
 `
  : Comma-separated list of annotation types supplied to sharp-multi (e.g. Pinyin,Yale), if you want the Android app etc to be able to name them.  You can also set just one annotation names here if you are not using sharp-multi.
+
+`--annotation-map=ANNOTATION_MAP
+`
+ : Comma-separated list of annotation-number overrides for sharp-multi, e.g. 7=3 to take the 3rd item if a 7th is selected
+
+`--annotation-postprocess=ANNOTATION_POSTPROCESS
+`
+ : Extra code for post-processing specific annotNo selections after retrieving from a sharp-multi list (@file is allowed)
 
 `-o, --allow-overlaps`
  : Normally, the analyser avoids generating rules that could overlap with each other in a way that would leave the program not knowing which one to apply.  If a short rule would cause overlaps, the analyser will prefer to generate a longer rule that uses more context, and if even the entire phrase cannot be made into a rule without causing overlaps then the analyser will give up on trying to cover that phrase.  This option allows the analyser to generate rules that could overlap, as long as none of the overlaps would cause actual problems in the example phrases. Thus more of the examples can be covered, at the expense of a higher risk of ambiguity problems when applying the rules to other texts.  See also the -y option.
