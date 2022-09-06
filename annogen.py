@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.29 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.3 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -462,7 +462,7 @@ if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
 if sharp_multi and not annotation_names and (browser_extension or existing_ruby_lang_regex): errExit("--sharp-multi requires --annotation-names to be set if --browser-extension or --existing-ruby-lang-regex")
 if existing_ruby_lang_regex:
-    while len(existing_ruby_lang_regex.split(','))<len(annotation_names.split(',')): existing_ruby_lang_regex += br",\b$"
+    while len(existing_ruby_lang_regex.split(','))<len(annotation_names.split(',')): existing_ruby_lang_regex += br",^\b$"
 if browser_extension:
   javascript = True
   if zlib: errExit("--zlib not currently supported with --browser-extension") # would need to ensure it's decompressed after being read in from annotate-dat.txt
@@ -480,8 +480,8 @@ if android_audio:
     android_audio,android_audio_maxWords = android_audio.split()
     android_audio_maxWords = int(android_audio_maxWords)
   else: android_audio_maxWords=None
-if (extra_js or extra_css or existing_ruby_js_fixes or tts_js) and not android: errExit("--extra-js, --tts-js, --extra-css and --existing-ruby-js-fixes requires --android") # browser-extension: existing_ruby_js_fixes would require aType to be known by content.js (cn do via handleMessage) + oldTxt no longer sufficient for restoring page for reannotate.  TODO: even with existing ruby deleted by existing_ruby_lang_regex non-match, oldTxt is not sufficient to restore page for annotation off (it currently needs reload after turn off if it had existing ruby, and we don't do that automatically, nor should we as they might have unsaved changes), due to nfOld/nfNew further up the DOM, and it's no good replacing it with a list of DOM objects to replaceChild on, because anything more than text does not persist in the DOM after content.js runs, nor does it persist in the content.js variable space.
-if existing_ruby_lang_regex and not (android or javascript): errExit("--existing-ruby-lang-regex requires --android or --javascript") # (or --browser-extension, which implies --javascript)
+if (extra_js or extra_css or tts_js) and not android: errExit("--extra-js, --tts-js and --extra-css require --android")
+if (existing_ruby_lang_regex or existing_ruby_js_fixes) and not (android or javascript): errExit("--existing-ruby-lang-regex and --existing-ruby-js-fixes requires --android or --javascript") # (or --browser-extension, which implies --javascript)
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
@@ -523,6 +523,7 @@ if extra_js.startswith("@"):
    extra_js += dat ; del dat,fSR
 if extra_js.rstrip() and not B(extra_js.rstrip()[-1:]) in b';}': errExit("--extra-js must end with a semicolon or a closing brace")
 if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:],"rb").read()
+if browser_extension and re.search("erHTML *=[^=]",existing_ruby_js_fixes): warn("Code in --existing-ruby-js-fixes that sets innerHTML or outerHTML might result in an extension that's not accepted by Firefox uploads")
 jPackage = None
 if nested_switch: nested_switch=int(nested_switch) # TODO: if java, override it?  or just rely on the help text for --nested-switch (TODO cross-reference it from --java?)
 if java:
@@ -1487,6 +1488,18 @@ jsAddRubyCss += b";if(!window.doneHash){var h=window.location.hash.slice(1);if(h
 jsAddRubyCss += b"tw0()" # perform the first annotation scan after adding the ruby (calls all_frames_docs w.annotWalk)
 jsAddRubyCss += b";if(!window.doneHash && window.hash0){window.hCount=10*2;window.doneHash=function(){var e=document.getElementById(window.location.hash.slice(1)); if(e.offsetTop==window.hash0 && --window.hCount) setTimeout(window.doneHash,500); e.scrollIntoView()};window.doneHash()}" # and redo jump-to-ID if necessary (e.g. Android 4.4 Chrome 33 on EPUBs), but don't redo this every time doc length changes on Android. setTimeout loop because rendering might take a while with large documents on slow devices.
 
+class JsBlock:
+  def __init__(self,l=b"",r=b""):
+    self.start,self.end = l,r
+    self.mid = []
+  def a(self,i): self.mid.append(i)
+  def r(self):
+    return self.start+b"".join(self.mid)+self.end
+
+def cond(a,b,c):
+  if a: return b
+  else: return c
+
 def jsAnnot(for_android=True,for_async=False):
   # Android or browser JS-based DOM annotator.  Return value becomes the js_common string in the Android Java: must be escaped as if in single-quoted Java string.
   # for_android True: provides AnnotIfLenChanged, annotScan, all_frames_docs etc
@@ -1495,6 +1508,7 @@ def jsAnnot(for_android=True,for_async=False):
   assert not (for_android and for_async), "options are mutually exclusive"
   if sharp_multi:
     if for_android: annotNo = b"ssb_local_annotator.getAnnotNo()"
+    elif for_async: annotNo = b"document.aType" # set by the startup sendMessage callback in content.js
     else: annotNo = b"aType" # will be in JS context
   else: annotNo = b"0" # TODO: could take out relevant code altogether
   
@@ -1531,52 +1545,35 @@ function annotWalk(n"""
   r += br""") {
     /* Our main DOM-walking code */
   var c;"""
-  if for_async: r += b"var nf=!!nfOld,nReal=n; if(!nf){"
-  else: r += br"""
-  var nf=false, /* "need to fix" as there was already ruby on the page */ rShared=false /* ruby shared with other elements like links, possibly containing event handlers: beware batch changes */;"""
-  if for_android: r += b"if(!inRuby)"
-  r += b"""
-for(c=n.firstChild; c; c=c.nextSibling) {
-  if(c.nodeType==1) {
-    if(c.nodeName=='RUBY') nf=true; else rShared=true
-  }
-  if(nf&&rShared) { /* put ruby parts in separate span so it can be batched-changed without interfering with event handlers on other elements */
-    nf=false; var rubySpan=false; c=n.firstChild;
-    while(c) { var c2=c.nextSibling;
-      if(!rubySpan && c.nodeType==1 && c.nodeName=='RUBY') {
-        rubySpan=document.createElement('span');
-        n.insertBefore(rubySpan,c)
-      } if(rubySpan) {
-        if(c.nodeType!=1 || c.nodeName=='RUBY') {
-          n.removeChild(c); rubySpan.appendChild(c)
-        } else rubySpan=false
-      } c=c2
-    }
-    break
-  }
-}"""
-  if for_async: r += b"if(nf) { nfOld=nReal;nfNew=n=n.cloneNode(true);" # so no effect on DOM if annotate returns no-op because it's switched off
-  else: r += b"var nReal = n,kR=1; if(nf) { n=n.cloneNode(true);" # if messing with existing ruby, first do it offline for speed
-  if existing_ruby_lang_regex: r += b"kR=document.documentElement.lang.match(["+b",".join(b"/"+l.replace(b'\\',br'\\')+b"/" for l in existing_ruby_lang_regex.split(','))+b"]["+annotNo+b"]);if(kR){" # (else unconditionally keep existing ruby)
-  if existing_ruby_js_fixes: r += B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"')
-  if existing_ruby_lang_regex: r += br"""} else {var n2=n.cloneNode(false);n2.innerHTML=n.innerHTML.replace(/<rt.*?<[/]rt>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'');n=n2}"""
-  r += b"}" # if nf
-  if for_async: r += b"}" # if(!nf)
+  CheckExistingRuby = None
+  if for_async and (existing_ruby_lang_regex or existing_ruby_js_fixes):
+    # we might delete or change existing ruby
+    CheckExistingRuby = JsBlock(b"var nf=!!nfOld,nReal=n,kR=1; if(!nf){",b"}")
+  elif not for_async:
+    CheckExistingRuby = JsBlock(b"var nf=false,kR=1;") # nf = "need to fix" as there was already ruby on the page; kR = do we keep existing ruby (can be set to false later)
+  if CheckExistingRuby:
+    if for_android: SetNF=JsBlock(b"if(!inRuby) {",b"}")
+    else: SetNF = JsBlock()
+    SetNF.a(js_check_for_existing_ruby_and_set_nf)
+    CheckExistingRuby.a(SetNF.r())
+    if for_async: FixupRuby = JsBlock(b"if(nf) { nfOld=nReal;n=n.cloneNode(true);nfNew=document.createElement('span');nfNew.className='_adjust0';nfNew.appendChild(n);nfNew.oldHtml=n.outerHTML;",b"}") # and in for_async, the replaceChild for this cloneNode does not happen unless we ALSO can annotate the rb (so it shouldn't disturb ruby that's completely unrelated to the charsets we annotate)
+    else: FixupRuby = JsBlock(b"var nReal = n; if(nf) { n=n.cloneNode(true);",b"}") # if messing with existing ruby, first do it offline for speed (and need to set nReal here because didn't set it above if we're not for_async)
+    if existing_ruby_lang_regex: KeepRuby=JsBlock(b"kR=document.documentElement.lang.match(["+b",".join(b"/"+cond(for_android,l.replace(b'\\',br'\\'),l)+b"/" for l in existing_ruby_lang_regex.split(','))+b"]["+annotNo+b"]);if(kR){",b"}")
+    else: KeepRuby = JsBlock() # unconditional
+    if existing_ruby_js_fixes:
+      if for_android: KeepRuby.a(B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
+      else: KeepRuby.a(B(existing_ruby_js_fixes))
+    FixupRuby.a(KeepRuby.r())
+    if KeepRuby.start: # not unconditionally keeping ruby: need an 'else delete'
+      if for_async: FixupRuby.a(br"""else {var zap=function(t){while(1){var r=n.getElementsByTagName(t);if(!r.length)break;r[0].parentNode.removeChild(r[0])}};zap('rt');zap('rp');while(1){var r=n.getElementsByTagName('ruby');if(!r.length)break;r[0].parentNode.replaceChild(document.createTextNode(r[0].innerText),r[0])}}""") # not allowed to write to innerHTML in Firefox extensions
+      else: FixupRuby.a(br"""else {var n2=n.cloneNode(false);n2.innerHTML=n.innerHTML.replace(/<r[pt].*?<[/]r[pt]>/g,'').replace(/<[/]?(?:ruby|rb)[^>]*>/g,'');n=n2}""")
+    CheckExistingRuby.a(FixupRuby.r())
+    r += CheckExistingRuby.r()
+  # else no CheckExistingRuby (and consequently no nf or kR defined): existing ruby will be double-annotated.  This happens if for_async and not existing_ruby_lang_regex.
+
+  r += js_check_wbr_and_mergeTags
   r += br"""
-    /* 1. check for WBR and mergeTags */
-    function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^\\s*$/)};
-    c=n.firstChild; while(c) {
-      var ps = c.previousSibling, cNext = c.nextSibling;
-      if (c.nodeType==1) { if((c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\\s*$/))))) && isTxt(cNext) && isTxt(ps) /* e.g. <span id="page8" class="pageNum">&#160;</span> in mid-word; rm ONLY if non-whitespace text immediately before/after: beware of messing up JS applications */ ) {
-        n.removeChild(c);
-        cNext.previousSibling.nodeValue+=cNext.nodeValue;
-        n.removeChild(cNext); cNext=ps}
-      else if(cNext && cNext.nodeType==1 && mergeTags.indexOf(c.nodeName)!=-1 && c.nodeName==cNext.nodeName && c.childNodes.length==1 && cNext.childNodes.length==1 && isTxt(c.firstChild) && isTxt(cNext.firstChild)){
-        cNext.firstChild.nodeValue=c.firstChild.nodeValue+cNext.firstChild.nodeValue;
-        n.removeChild(c)} }
-      c=cNext}
-    
-    /* 2. recurse into nodes, or annotate new text */
+    /* Recurse into nodes, or annotate new text */
     c=n.firstChild; """
   if not for_async: r += b"var cP=null;"
   r += br"""while(c){
@@ -1596,7 +1593,7 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     r += b"annotWalk(c"
     if not for_async: r += b",document"
     if for_android: r += b",inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY')"
-    if for_async and existing_ruby_lang_regex: r += b",nfOld,nfNew"
+    if for_async and CheckExistingRuby: r += b",nfOld,nfNew"
     r += b");"
   r += br"""
           } break;
@@ -1605,11 +1602,12 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     r += br"""
             if(!cnv.match(/^\\s*$/)) {
                 (function(n"""
-    if existing_ruby_lang_regex: r += b",nfOld,nfNew"
+    if CheckExistingRuby: r += b",nfOld,nfNew"
     r += br""",c,cnv){
                     var newNode=document.createElement('span');
-                    newNode.className='_adjust0';
-                    newNode.oldTxt=cnv;"""
+                    newNode.className='_adjust0';"""
+    if CheckExistingRuby: r += b"if(!nfNew)"
+    r += b"newNode.oldTxt=cnv;"
     if ybytes: r += br"""
     var inline=["SPAN","STRONG","EM","B","I","U","FONT","A","RUBY","RB","RP","RT"]; function cStop(p){return !p||(p.nodeType==1&&inline.indexOf(p.nodeName)==-1)} function cNorm(p){return unescape(encodeURIComponent(p.nodeValue.replace(/\s+/g,'').replace(/^[+*0-9]*$/,'')))} /* omit simple footnote link */
     function contextLeft(p) {
@@ -1636,13 +1634,32 @@ for(c=n.firstChild; c; c=c.nextSibling) {
                                 var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) (function(e){e.addEventListener('click',(function(){alert(e.title)}))})(a[i])
                             } catch(err) { console.log(err.message) }
                             try{n.replaceChild(newNode, c)}catch(err){ /* already done */ }"""
-    if existing_ruby_lang_regex: r += br"""
-                            if(nfOld) {try{nfOld.parentNode.replaceChild(nfNew,nfOld)}catch(err){ /* already done */ } }"""
+    if CheckExistingRuby: r += br"""
+                            if(nfOld) {
+try{nfOld.parentNode.replaceChild(nfNew,nfOld)}catch(err){ /* already done */ }
+    /* Fix damage we did to existing ruby, keeping new titles */
+      var a=nfNew?nfNew.getElementsByTagName('ruby'): /* not sure how it gets here when nfOld is non-null */ [],i;
+      for(i=0; i < a.length; i++) {
+        if(i && a[i].previousSibling==a[i-1]) a[i].parentNode.insertBefore(document.createTextNode(" "),a[i]);
+        var t=[],chgFmt=0;
+        while(1) {
+          var r=a[i].getElementsByTagName('ruby');
+          if(!r.length) break; r=r[0];
+          var tt=r.getAttribute('title');
+          if(tt) t.push(tt);
+          var rl=r.lastChild;while(rl.previousSibling&&rl.nodeName!="RB"){rl=rl.previousSibling;}
+          chgFmt=r.firstChild.nodeName=="RT";
+          r.parentNode.replaceChild(document.createTextNode(rl.innerText),r);
+        }
+        t = t.join(' || '); if(t){a[i].setAttribute('title',t);(function(e){e.addEventListener('click',(function(){alert(e.title)}))})(a[i])}
+        if(chgFmt) { /* patch up 3-line */ var rt=document.createElement("rt"); rt.appendChild(document.createTextNode(t.match(/[^/(;]*/)[0])); a[i].insertBefore(rt,a[i].firstChild); var v=a[i].lastChild;if(v.nodeName=="RT"){a[i].removeChild(v);v.nodeName="RB";a[i].insertBefore(v,a[i].firstChild.nextSibling)} }
+      }
+}"""
     r += br"""
                         }
                     }))})(n"""
-    if existing_ruby_lang_regex: r += b",nfOld,nfNew"
-    r += b",c,cnv)}"
+    if CheckExistingRuby: r += b",nfOld,nfNew"
+    r += b",c,cnv)}" # this } matches if(!cnv.match...) {
   else: # not for_async
     if for_android: annotateFunc = b"ssb_local_annotator.annotate"
     elif not sharp_multi and not glossfile:
@@ -1657,33 +1674,33 @@ for(c=n.firstChild; c; c=c.nextSibling) {
     r += b"}" # if nv != cnv
   r += b"}}" # case 3, switch
   if not for_async: r += b"cP=c;"
-  r += b"c=cNext;"
+  r += b"c=cNext"
   if not for_async:
-    r += b"if(!nf &&"  # TODO: as above: unless existing_ruby_lang_regex is set to always delete it no matter what
+    r += b";if(!nf &&"  # TODO: as above: unless existing_ruby_lang_regex is set to always delete it no matter what
     r += br"""!inRuby && c && c.previousSibling!=cP && c.previousSibling.previousSibling && c.previousSibling.firstChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c.previousSibling) /* space after the inline link or em etc */"""
   r += b"}" # while c
   if not for_async:
     r += br"""
-    /* 3. Batch-fix any damage we did to existing ruby.
+    /* Batch-fix any damage we did to existing ruby.
        Keep new titles; normalise the markup so our 3-line option still works.
-       (TODO: this throws away hints at glossfile middle column e.g. chai1 vs cha4.  But only for the gloss line, and we do have an 'incomplete' warning.  Passing context in to every annotation call in an existing ruby could slow things down considerably.)
        Also ensure all ruby is space-separated like ours,
        so our padding CSS overrides don't give inconsistent results */
     if(nf) {"""
-    if existing_ruby_lang_regex: r += b"""
-        if(kR) {""" # else unconditionally keep ruby
-    r += br"""
-        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt[^>]*>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt"""
-    if known_characters: r += br"""'+(rb.indexOf('<rt>')==-1?' class=known':'')+'""" # if all the <rt> we generated are <rt class=known> then propagate this to the existing ruby
-    r += br""">'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'"""
-    if for_android: r += br""";
-        if(!inLink){var a=function(n){for(n=n.firstChild;n;n=n.nextSibling){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}}};a(nReal)}"""
-    if existing_ruby_lang_regex: r += b"""} else nReal.parentNode.replaceChild(n,nReal)"""
+    if existing_ruby_lang_regex:
+      KeepRuby = JsBlock(b"if(kR){",b"} else nReal.parentNode.replaceChild(n,nReal)")
+    else: KeepRuby = JsBlock() # unconditional
+    KeepRuby.a(br"""
+        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt[^>]*>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt""")
+    if known_characters: KeepRuby.a(br"""'+(rb.indexOf('<rt>')==-1?' class=known':'')+'""") # if all the <rt> we generated are <rt class=known> then propagate this to the existing ruby
+    KeepRuby.a(br""">'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'""")
+    if for_android: KeepRuby.a(br""";
+        if(!inLink){var a=function(n){for(n=n.firstChild;n;n=n.nextSibling){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}}};a(nReal)}""")
+    r += KeepRuby.r()
     r += b"}" # if nf
   r += b"}" # function annotWalk
   if for_async: r += br"""
 document.annotWalkOff=1;
-chrome.runtime.sendMessage(false,function(r){if(r!=1)annotWalk(document);document.annotWalkOff=(r==1)});
+chrome.runtime.sendMessage(true,function(r){if(r!=-1){document.aType=r;annotWalk(document)}document.annotWalkOff=(r==-1)});
 new window.MutationObserver(function(mut){var i,j;if(!document.annotWalkOff)for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}}).observe(document.body,{childList:true,subtree:true});
 """
   elif for_android: r += br"if(!ssb_local_annotator.getIncludeAll())document.addEventListener('copy',function(e){var s=window.getSelection(),i,c=document.createElement('div');for(i=0;i < s.rangeCount;i++)c.appendChild(s.getRangeAt(i).cloneContents());e.clipboardData.setData('text/plain',c.innerHTML.replace(/<rt.*?<[/]rt>/g,'').replace(/<.*?>/g,''));e.preventDefault()});" # work around user-select:none not always working (and newlines sometimes being added anyway)
@@ -1691,6 +1708,43 @@ new window.MutationObserver(function(mut){var i,j;if(!document.annotWalkOff)for(
     r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
     assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot o/p'
   return r
+
+js_check_for_existing_ruby_and_set_nf = b"""
+var rShared=false;
+for(c=n.firstChild; c; c=c.nextSibling) {
+  if(c.nodeType==1) {
+    if(c.nodeName=='RUBY') nf=true; else rShared=true
+  }
+  if(nf&&rShared) { /* put ruby parts in separate span so it can be batched-changed without interfering with event handlers on other elements such as links at same level */
+    nf=false; var rubySpan=false; c=n.firstChild;
+    while(c) { var c2=c.nextSibling;
+      if(!rubySpan && c.nodeType==1 && c.nodeName=='RUBY') {
+        rubySpan=document.createElement('span');
+        n.insertBefore(rubySpan,c)
+      } if(rubySpan) {
+        if(c.nodeType!=1 || c.nodeName=='RUBY') {
+          n.removeChild(c); rubySpan.appendChild(c)
+        } else rubySpan=false
+      } c=c2
+    }
+    break
+  }
+}"""
+
+js_check_wbr_and_mergeTags = br"""
+    /* Check for WBR and mergeTags */
+    function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^\\s*$/)};
+    var c=n.firstChild; while(c) {
+      var ps = c.previousSibling, cNext = c.nextSibling;
+      if (c.nodeType==1) { if((c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\\s*$/))))) && isTxt(cNext) && isTxt(ps) /* e.g. <span id="page8" class="pageNum">&#160;</span> in mid-word; rm ONLY if non-whitespace text immediately before/after: beware of messing up JS applications */ ) {
+        n.removeChild(c);
+        cNext.previousSibling.nodeValue+=cNext.nodeValue;
+        n.removeChild(cNext); cNext=ps}
+      else if(cNext && cNext.nodeType==1 && mergeTags.indexOf(c.nodeName)!=-1 && c.nodeName==cNext.nodeName && c.childNodes.length==1 && cNext.childNodes.length==1 && isTxt(c.firstChild) && isTxt(cNext.firstChild)){
+        cNext.firstChild.nodeValue=c.firstChild.nodeValue+cNext.firstChild.nodeValue;
+        n.removeChild(c)} }
+      c=cNext}
+"""
 
 if windows_clipboard: c_end += br"""
 #ifdef _WINCE
@@ -1946,10 +2000,8 @@ if tts_js: android_src += br"""
 import android.speech.tts.*;"""
 android_src += br"""
 import android.widget.Toast;
-import java.io.*;"""
-if sharp_multi: android_src += br"""
-import java.util.regex.*;"""
-android_src += br"""
+import java.io.*;
+import java.util.regex.*;
 import java.util.zip.ZipInputStream;
 public class MainActivity extends Activity {
     %%JPACKAGE%%.Annotator annotator;
@@ -3866,7 +3918,7 @@ var aType=localStorage.aType,numLines=localStorage.numLines;
 function handleMessage(request, sender, sendResponse) {
   if(typeof request=='number') {
     if(request<0) localStorage.numLines=numLines=-request; else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
-    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c);'+(numLines==1?'document.annotWalkOff=1':'document.annotWalkOff=0;annotWalk(document,document)')})})
+    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c);else if(c.oldHtml)c.parentNode.replaceChild(new DOMParser().parseFromString(c.oldHtml,"text/html").body.firstChild.cloneNode(true),c);'+(numLines==1?'document.annotWalkOff=1':'document.annotWalkOff=0;document.aType='+aType+';annotWalk(document,document)')})})
   } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // status query (used by popup and by initial off/on)
   else { if(request==null) request={'t':getClip()};
   sendResponse(numLines>1?annotate(request['t']""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
@@ -4991,10 +5043,6 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
       if not rr: rr = "nothing"
       diagnose_write("tryNBytes(%d) on %s (avoiding '%s') found %s%s" % (nbytes,withAnnot_unistr,pOmit.replace(unichr(1),'/').replace('\n',"\\n"),rr,diagnose_extra))
     return negate,ret,sum(1 for x in covered if x),len(covered),nbytes
-
-def cond(a,b,c):
-  if a: return b
-  else: return c
 
 def badInfo(badStarts,nonAnnot,for_tty=True):
   ret = u"%d false positive" % len(badStarts)
