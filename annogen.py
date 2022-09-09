@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.3 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.301 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -296,7 +296,7 @@ parser.add_option("--browser-extension", help="Name of a Chrome or Firefox brows
 # Chrome: chrome://extensions - Developer mode - Load unpacked - select the directory
 # Chrome bug: browser_style true gives unreadable text in Chromium 89 with enable-force-dark set to "Enabled with selective inversion of everything" (and possibly other settings)
 
-# Note: --browser-extension currently generates "Manifest v2" extensions.  From 17th January 2022 the Chrome Web Store will no longer accept new extensions in Manifest v2: it will require Manifest v3 (which requires Chrome 88 or higher, and a future(?) version of Firefox; background pages must be moved to (non-persistent) service workers, + read clipboard changed).  Existing extensions can still be updated until January 2023, when they'll stop running in (new versions of) Chrome (extended till June for enterprise setups)
+# Note: --browser-extension currently generates "Manifest v2" extensions.  Since January 2022 the Chrome Web Store no longer accepted new extensions in Manifest v2: it requires Manifest v3 (which requires Chrome 88 or higher, and a future(?) version of Firefox; background pages must be moved to (non-persistent) service workers, + read clipboard changed).  Existing extensions can still be updated until January 2023, when they'll stop running in (new versions of) Chrome (extended till June for enterprise setups) but may work in Firefox for longer
 
 parser.add_option("--dart",
                   action="store_true",default=False,
@@ -1628,7 +1628,7 @@ function annotWalk(n"""
     else: r += br"""
                     chrome.runtime.sendMessage({'t':cnv},(function(nv){ """
     r += br"""
-                        if(nv && nv!=cnv) {
+                        if(nv && (nv!=cnv || nv.trim()!=cnv.trim())) {
                             try {
                                 for(const t of new DOMParser().parseFromString('<span> '+nv+' </span>','text/html').body.firstChild.childNodes) newNode.appendChild(t.cloneNode(true));
                                 var a=newNode.getElementsByTagName('ruby'),i; for(i=0; i < a.length; i++) if(a[i].title) (function(e){e.addEventListener('click',(function(){alert(e.title)}))})(a[i])
@@ -1972,7 +1972,7 @@ document.write('</select> ');""" # TODO: could add a 'custom' option that's sele
 android_url_box += br"""
 document.write('<button style="margin-top: 0.5ex;background:#ededed;color:inherit;padding-left:0px;padding-right:0.2ex" onclick="ssb_local_annotator.setIncludeAll(!ssb_local_annotator.getIncludeAll());location.reload();return false"><input type=checkbox'+(ssb_local_annotator.getIncludeAll()?' checked':'')+'>Include """
 if annotation_names:
-  if sharp_multi: android_url_box += br"'+modeNames[ssb_local_annotator.getAnnotNo()].replace(/^.*? ([^ ]+)( [(].*)?$/g,'$1')+'" # so e.g. "Cantonese Sidney Lau (with numbers)" -> "Lau" (as we want this shorter than the buttons)
+  if sharp_multi: android_url_box += br"'+modeNames[ssb_local_annotator.getAnnotNo()].replace(/^.*?([^ ]+)( [(].*)?$/g,'$1')+'" # so e.g. "Cantonese Sidney Lau (with numbers)" -> "Lau" (as we want this shorter than the buttons)
   else: android_url_box += B(annotation_names) # assume it's just one name
 else: android_url_box += br"annotation"
 android_url_box += br""" with Copy</button>');
