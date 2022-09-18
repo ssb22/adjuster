@@ -22,7 +22,7 @@
 # and on GitLab at https://gitlab.com/ssb22/adjuster
 # and on BitBucket https://bitbucket.org/ssb22/adjuster
 # and at https://gitlab.developers.cam.ac.uk/ssb22/adjuster
-# and in China: git clone https://gitee.com/ssb22/adjuster
+# and in China: https://gitee.com/ssb22/adjuster
 
 import re, unicodedata, os, sys
 
