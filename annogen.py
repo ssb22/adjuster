@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.301 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.302 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2783,7 +2783,7 @@ if (newClip && newClip != curClip) {
     curClip=newClip;
   } else {
   document.getElementById('clip').innerHTML = """
-if tts_js: android_clipboard += br"""'<span id="read" onclick="ssb_local_annotator.TTS(curClip.replace(/:/g,\'; \'))"'+(ssb_local_annotator.TTSIsSet()?'':' style="visibility:hidden"')+'>\ud83d\udd0a</span>'+""" # (digit:digit read as hours:minutes by some voices, but shouldn't always be; TTSIsSet might be false if clipboard view selected before TTS has finished starting on application launch, in which case we want the control to appear later)
+if tts_js: android_clipboard += br"""'<span class="ssb_local_annotator_noprint" id="read" onclick="ssb_local_annotator.TTS(curClip.replace(/:/g,\'; \'))"'+(ssb_local_annotator.TTSIsSet()?'':' style="visibility:hidden"')+'>\ud83d\udd0a</span>'+""" # (digit:digit read as hours:minutes by some voices, but shouldn't always be; TTSIsSet might be false if clipboard view selected before TTS has finished starting on application launch, in which case we want the control to appear later)
 android_clipboard += br"""newClip.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/(https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+)/gi,function r(m,p1) { return '<a href="'+p1.replace('&amp;','&')+'">'+p1+'</a>' });
   if(typeof annotScan!='undefined') annotScan();
   curClip = newClip; if(ssb_local_annotator.annotate(newClip)!=newClip) ssb_local_annotator.bringToFront(); // should work on Android 9 or below; Android Q (API 29) takes away background clipboard access and we'll just get newClip="" until we're brought to foreground manually
