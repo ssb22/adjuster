@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.302 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.303 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2036,7 +2036,7 @@ if pleco_hanping: android_src += br"""
         if(AndroidSDK >= 11) for(int i=0; i<3; i++) try { hanpingVersion[i]=getApplicationContext().getPackageManager().getPackageInfo(hanpingPackage[i],0).versionCode; if(hanpingVersion[i]!=0) { dictionaries++; if(i==1) break /* don't also check Lite if got Pro*/; } } catch (android.content.pm.PackageManager.NameNotFoundException e) {}
         // ---------------------------------------------"""
 android_src += br"""
-        if(AndroidSDK >= 7) { browser.getSettings().setAppCachePath(getApplicationContext().getCacheDir().getAbsolutePath()); browser.getSettings().setAppCacheEnabled(true); } // not to be confused with the normal browser cache
+        if(AndroidSDK >= 7 && AndroidSDK < 33) { try { WebSettings.class.getMethod("setAppCachePath",new Class[] { String.class }).invoke(browser.getSettings(),getApplicationContext().getCacheDir().getAbsolutePath()); WebSettings.class.getMethod("setAppCacheEnabled",new Class[] { Boolean.class }).invoke(browser.getSettings(),true); } catch (NoSuchMethodException e) {} catch (IllegalAccessException e) {} catch (InvocationTargetException e) {} } // not to be confused with the normal browser cache (call methods dynamically because platform 33 can't compile this)
         if(AndroidSDK<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. swipe-closed in Activity Manager)
         browser.getSettings().setJavaScriptEnabled(true);
         browser.setWebChromeClient(new WebChromeClient());"""
@@ -4509,7 +4509,7 @@ def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,la
   sys.stderr.flush()
 
 def read_and_normalise():
-  global infile, corpus_unistr, executor
+  global infile, corpus_unistr
   if infile: infile=openfile(infile)
   else:
     infile = sys.stdin
@@ -5364,6 +5364,7 @@ executor = None
 def setup_parallelism(): # returns number of cores
     global executor
     if single_core: return 1
+    elif sys.platform=='darwin' and sys.version_info[0]==3: return 1 # as of Python 3.8, Python 3 on Mac's ProcessPoolExecutor doesn't propagate globals on construction so we can't currently use it (see below), AND its early shutdown gets QueueManagerThread exceptions we can't catch + hangs on exit, so don't even try to use it on Mac Python3
     elif executor: executor.shutdown(True) # MUST wait for the shutdown to finish before creating a new instance: some implementations seem to have a race condition
     try:
       import multiprocessing
@@ -5454,6 +5455,8 @@ def analyse():
           covered += coveredA ; toCover += toCoverA
         phraseNo += 1
     flush_background(backgrounded)
+    try: executor.shutdown(False) # if wordLen never exceeded 1 so it didn't get shut down above, might as well free up other processes now
+    except: pass
     if rulesFile: accum.save()
     if diagnose_manual: test_manual_rules()
     return sorted(accum.rulesAndConds()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
@@ -6167,10 +6170,12 @@ if main:
    if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps after August 2021 ?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
      cmd_or_exit("$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
      cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
-     a = " -JXmx4g --force-jumbo" # -J option must go first
-     if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
+     if os.path.exists(os.environ["BUILD_TOOLS"]+"/dx"):
+      a = " -JXmx4g --force-jumbo" # -J option must go first
+      if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
        a += " --min-sdk-version=1" # older versions of dx don't have that flag, but will be min-sdk=1 anyway
-     cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
+      cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
+     else: cmd_or_exit("$BUILD_TOOLS/d8 --min-api 1 --output bin $(find bin -type f -name '*.class')")
      cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
      cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add -0 '' "+dirName+".ap_ classes.dex")
      rm_f("bin/"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk")
