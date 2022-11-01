@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.303 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.304 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -471,7 +471,7 @@ if android_template:
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
 if known_characters and not android: errExit("--known-characters requires --android")
-if known_characters and not android_template: warn("known-characters without android-template means you call the Javascript functions yourself")
+if known_characters and not android_template and not ("ANDROID_NO_UPLOAD" in os.environ and "GOOGLE_PLAY_TRACK" in os.environ): warn("known-characters without android-template means you call the Javascript functions yourself")
 if android_print and not bookmarks: errExit("The current implementation of --android-print requires --bookmarks to be set as well")
 if android_audio:
   if not android_print: errExit("The current implementation of --android-audio requires --android-print to be set as well") # for the highlighting (and TODO: I'm not sure about the HTML5-Audio support of Android 2.x devices etc, so should we check a minimum Android version before making the audio option available? as highlight option can be done pre-4.4 just no way to save the result)
