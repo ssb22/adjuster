@@ -641,7 +641,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.304
+Options for Annotator Generator v3.31
 ===========================
 
 Usage: annogen.py [options]
@@ -978,6 +978,10 @@ Options:
 `--browser-extension=BROWSER_EXTENSION
 `
  : Name of a Chrome or Firefox browser extension to generate.  The extension will be placed in a directory of the same name (without spaces), which may optionally already exist and contain icons like 32.png and 48.png to be used.
+
+`--manifest-v3=MANIFEST_V3
+`
+ : Use Manifest v3 instead of Manifest v2 when generating browser extensions (tested on Chrome only, and requires Chrome 88 or higher).  This will be required for all Chrome Web Store uploads starting in 2023
 
 `--dart`
  : Instead of generating C code, generate Dart.  This might be useful if you want to run an annotator in a Flutter application.

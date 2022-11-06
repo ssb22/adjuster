@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.304 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.31 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -296,7 +296,7 @@ parser.add_option("--browser-extension", help="Name of a Chrome or Firefox brows
 # Chrome: chrome://extensions - Developer mode - Load unpacked - select the directory
 # Chrome bug: browser_style true gives unreadable text in Chromium 89 with enable-force-dark set to "Enabled with selective inversion of everything" (and possibly other settings)
 
-# Note: --browser-extension currently generates "Manifest v2" extensions.  Since January 2022 the Chrome Web Store no longer accepted new extensions in Manifest v2: it requires Manifest v3 (which requires Chrome 88 or higher, and a future(?) version of Firefox; background pages must be moved to (non-persistent) service workers, + read clipboard changed).  Existing extensions can still be updated until January 2023, when they'll stop running in (new versions of) Chrome (extended till June for enterprise setups) but may work in Firefox for longer
+parser.add_option("--manifest-v3", help="Use Manifest v3 instead of Manifest v2 when generating browser extensions (tested on Chrome only, and requires Chrome 88 or higher).  This will be required for all Chrome Web Store uploads starting in 2023") # and is already required for new extensions
 
 parser.add_option("--dart",
                   action="store_true",default=False,
@@ -3911,20 +3911,46 @@ js_end += b"return Annotator.annotate(input"
 if sharp_multi: js_end += b",aType"
 js_end += b")}"
 if browser_extension:
-  js_end += b"""
+  if manifest_v3: js_end += br"""
+function restoreOld(numLines,aType) {
+    for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))
+        if(c.oldTxt) c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c); else if(c.oldHtml)c.parentNode.replaceChild(new DOMParser().parseFromString(c.oldHtml,"text/html").body.firstChild.cloneNode(true),c);
+    document.annotWalkOff=(numLines==1);document.aType=aType;annotWalk(document,document) }"""
+  else: js_end += br"""
 if(localStorage.aType===undefined) localStorage.aType=0;
 if(localStorage.numLines===undefined) localStorage.numLines=2;
-var aType=localStorage.aType,numLines=localStorage.numLines;
-function handleMessage(request, sender, sendResponse) {
-  if(typeof request=='number') {
+var aType=localStorage.aType,numLines=localStorage.numLines;"""
+  js_end += br"""function handleMessage(request, sender, sendResponse) {"""
+  if manifest_v3: js_end += br"""
+    chrome.storage.local.get(["aType"],(aType)=>{    chrome.storage.local.get(["numLines"],(numLines)=>{
+        aType=aType["aType"];numLines=numLines["numLines"];
+        if(aType===undefined) aType=0;
+        if(numLines===undefined) numLines=2;
+        if(typeof request=='number') {
+            if(request<0) numLines=-request; else {aType=request;if(numLines==1)numLines=2}
+        }
+        chrome.storage.local.set({["aType"]: aType, ["numLines"]: numLines},()=>{
+"""
+  js_end += b"if(typeof request=='number') {"
+  if manifest_v3: js_end += br"""
+      (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.scripting && chrome.scripting.executeScript?chrome.scripting.executeScript:browser.scripting.executeScript)({target:{tabId:t.id,allFrames:true},func: restoreOld, args:[numLines,aType]},()=>{chrome.runtime.lastError})}); // ignore lastError as it's likely to be "cannot access chrome:// URL" if one of the tabs in the extension manager
+      sendResponse(true);"""
+  else: js_end += br"""
     if(request<0) localStorage.numLines=numLines=-request; else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
-    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c);else if(c.oldHtml)c.parentNode.replaceChild(new DOMParser().parseFromString(c.oldHtml,"text/html").body.firstChild.cloneNode(true),c);'+(numLines==1?'document.annotWalkOff=1':'document.annotWalkOff=0;document.aType='+aType+';annotWalk(document,document)')})})
-  } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // status query (used by popup and by initial off/on)
+    (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c);else if(c.oldHtml)c.parentNode.replaceChild(new DOMParser().parseFromString(c.oldHtml,"text/html").body.firstChild.cloneNode(true),c);'+(numLines==1?'document.annotWalkOff=1':'document.annotWalkOff=0;document.aType='+aType+';annotWalk(document,document)')})})"""
+  js_end += br"""
+  } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // status query (used by popup and by initial off/on)"""
+  if manifest_v3: js_end += br"""
+  else {
+      sendResponse(numLines>1?annotate(request['t']"""
+  else: js_end += br"""
   else { if(request==null) request={'t':getClip()};
   sendResponse(numLines>1?annotate(request['t']""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
   if sharp_multi: js_end += b",aType"
   if glossfile: js_end += b",numLines"
-  js_end += br""",request['l'],request['r']):request['t'])} }
+  if manifest_v3: js_end += br""",request['l'],request['r']):request['t'])}})})}); return true}
+fetch((typeof browser!='undefined'&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.runtime.getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})"""
+  else: js_end += br""",request['l'],request['r']):request['t'])} }
 function getClip(){var area=document.createElement("textarea"); document.body.appendChild(area); area.focus();area.value='';document.execCommand("Paste");var txt=area.value; document.body.removeChild(area); return txt?txt:"Failed to read clipboard"}
 fetch((typeof browser!='undefined'&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.extension.getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
 elif not os.environ.get("JS_OMIT_DOM",""):
@@ -3995,8 +4021,12 @@ if sharp_multi and annotation_names and ',' in annotation_names:
 else: rangeEnd = 0
 extension_config += b'<div id="cr"></div><button id="c">Clipboard</button><script src="config.js"></script></body></html>'
 # Don't want Clipboard button to auto-refresh (and hide the button) in the desktop extension version, since would need to stop the refresh when view is no longer visible + is it really a good idea to timer-paste the clipboard on a desktop when conversion to text could be costly etc + many desktops would dismiss the extension box before letting you switch to another window to change the clipboard (unless it's in a VM)
-extension_confjs = br"""function updateClip() {
-    chrome.runtime.sendMessage(null,(function(cr){
+if manifest_v3: extension_confjs = br"""function getClip(){var area=document.createElement("textarea"); document.body.appendChild(area); area.focus();area.value='';document.execCommand("Paste");var txt=area.value; document.body.removeChild(area); return txt?txt:"Failed to read clipboard"}"""
+else: extension_confjs = b""
+extension_confjs += b"function updateClip() {"
+if manifest_v3: extension_confjs += b"chrome.runtime.sendMessage({'t':getClip()},(function(cr){"
+else: extension_confjs += b"chrome.runtime.sendMessage(null,(function(cr){"
+extension_confjs += br"""
         var v=document.getElementById("cr");
         v.textContent = ''; // clear
         if(cr) {
@@ -5931,14 +5961,14 @@ def setup_browser_extension():
     versionName[-1] = B(str(int(versionName[-1])+1))
     versionName = b'.'.join(versionName)
   except: versionName = b"0.1"
-  open(dirToUse+"/manifest.json","wb").write(br"""{
-  "manifest_version": 2,
+  open(dirToUse+"/manifest.json","wb").write((br"""{
+  "manifest_version": """+cond(manifest_v3,b"3",b"2")+br""",
   "name": "%s",
   "version": "%s",
-  "background": { "scripts": ["background.js"] },
+  "background": { """+cond(manifest_v3,b'"service_worker": "background.js"',b'"scripts": ["background.js"]')+br""" },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
-  "browser_action":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
-  "permissions": ["<all_urls>","clipboardRead"]%s}""" % (B(browser_extension),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
+  """+cond(manifest_v3,b'"action"',b'"browser_action"')+br""":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
+  """+cond(manifest_v3,b'"host_permissions": ["<all_urls>"], "permissions": ["clipboardRead","storage","scripting"]',b'"permissions": ["<all_urls>","clipboardRead"]')+b",%s}") % (B(browser_extension),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
   open(dirToUse+"/background.js","wb").write(js_start+js_end)
   open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
   open(dirToUse+"/config.html","wb").write(extension_config)
