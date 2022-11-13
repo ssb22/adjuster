@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.31 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.311 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -296,7 +296,9 @@ parser.add_option("--browser-extension", help="Name of a Chrome or Firefox brows
 # Chrome: chrome://extensions - Developer mode - Load unpacked - select the directory
 # Chrome bug: browser_style true gives unreadable text in Chromium 89 with enable-force-dark set to "Enabled with selective inversion of everything" (and possibly other settings)
 
-parser.add_option("--manifest-v3", help="Use Manifest v3 instead of Manifest v2 when generating browser extensions (tested on Chrome only, and requires Chrome 88 or higher).  This will be required for all Chrome Web Store uploads starting in 2023") # and is already required for new extensions
+parser.add_option("--manifest-v3",
+                  action="store_true",default=False,
+                  help="Use Manifest v3 instead of Manifest v2 when generating browser extensions (tested on Chrome only, and requires Chrome 88 or higher).  This will be required for all Chrome Web Store uploads starting in 2023") # and is already required for new extensions
 
 parser.add_option("--dart",
                   action="store_true",default=False,
