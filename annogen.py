@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.311 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.312 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -295,6 +295,8 @@ parser.add_option("--browser-extension", help="Name of a Chrome or Firefox brows
 # Firefox: about:debugging - 'this firefox' - load temporary add-on - manifest.json
 # Chrome: chrome://extensions - Developer mode - Load unpacked - select the directory
 # Chrome bug: browser_style true gives unreadable text in Chromium 89 with enable-force-dark set to "Enabled with selective inversion of everything" (and possibly other settings)
+
+parser.add_option("--browser-extension-description", help="Description field to use when generating browser extensions")
 
 parser.add_option("--manifest-v3",
                   action="store_true",default=False,
@@ -5965,12 +5967,12 @@ def setup_browser_extension():
   except: versionName = b"0.1"
   open(dirToUse+"/manifest.json","wb").write((br"""{
   "manifest_version": """+cond(manifest_v3,b"3",b"2")+br""",
-  "name": "%s",
+  "name": "%s",%s
   "version": "%s",
   "background": { """+cond(manifest_v3,b'"service_worker": "background.js"',b'"scripts": ["background.js"]')+br""" },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
   """+cond(manifest_v3,b'"action"',b'"browser_action"')+br""":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
-  """+cond(manifest_v3,b'"host_permissions": ["<all_urls>"], "permissions": ["clipboardRead","storage","scripting"]',b'"permissions": ["<all_urls>","clipboardRead"]')+b",%s}") % (B(browser_extension),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
+  """+cond(manifest_v3,b'"host_permissions": ["<all_urls>"], "permissions": ["clipboardRead","storage","scripting"]',b'"permissions": ["<all_urls>","clipboardRead"]')+b",%s}") % (B(browser_extension),B(cond(browser_extension_description,'" description": "%s",'%browser_extension_description,"")),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
   open(dirToUse+"/background.js","wb").write(js_start+js_end)
   open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
   open(dirToUse+"/config.html","wb").write(extension_config)
