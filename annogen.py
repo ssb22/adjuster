@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.312 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.313 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -512,16 +512,15 @@ if extra_js.startswith("@"):
   for f in f[1:].split(','):
    if ':' in f: f,fSR = f.split(':',1)
    else: fSR=None
-   if not os.system("which node 2>/dev/null >/dev/null"):
-    # we can check the syntax
-    import pipes
-    if os.system("node -c "+pipes.quote(f)): errExit("Syntax check failed for extra-js file "+f)
    dat = open(f,"rb").read()
    if fSR:
      fSR = fSR.split(':')
      for i in xrange(0,len(fSR),2):
        if not B(fSR[i]) in dat: errExit("extra-js with search and replace: unable to find "+repr(fSR[i])+" in "+f)
        dat = dat.replace(B(fSR[i]),B(fSR[i+1]))
+   if not os.system("which node 2>/dev/null >/dev/null"): # we can check the syntax
+     out,err = subprocess.Popen("node -c /dev/stdin",shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate(dat)
+     if out or err: errExit("Syntax check failed for extra-js file "+f+"\n"+"node stdout: "+repr(out)+"\nnode stderr: "+repr(err))
    m=re.search(br"\([^)]*\)\s*=>\s*{",dat)
    if m: errExit(f+" seems to have arrow function (breaks compatibility with Android 4.x): "+repr(m.group()))
    extra_js += dat ; del dat,fSR
