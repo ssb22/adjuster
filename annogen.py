@@ -300,7 +300,7 @@ parser.add_option("--browser-extension-description", help="Description field to 
 
 parser.add_option("--manifest-v3",
                   action="store_true",default=False,
-                  help="Use Manifest v3 instead of Manifest v2 when generating browser extensions (tested on Chrome only, and requires Chrome 88 or higher).  This will be required for all Chrome Web Store uploads starting in 2023") # and is already required for new extensions
+                  help="Use Manifest v3 instead of Manifest v2 when generating browser extensions (tested on Chrome only, and requires Chrome 88 or higher).  This will be required for all Chrome Web Store uploads starting in June 2023.") # and is already required for new extensions
 
 parser.add_option("--dart",
                   action="store_true",default=False,
