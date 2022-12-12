@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.314 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.315 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2215,9 +2215,10 @@ if glossfile: android_src += br"""
                         if (tt.length()>0) {
                         // TODO: 3-line persist to pop-ups (re-scan the DOM)?
                         // TODO: 3-line persist to other pages? (might be counterproductive to encouraging people not to rely on it)
-                        d.setPositiveButton("1L/2L/3L", new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() {
+                        d.setPositiveButton("1/2/3L", // not 1L/2L/3L: on some zoomed-in Android 13 phones it wraps and leaves the "3L" occluded
+new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() {
                             android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);"""
-if known_characters and glossfile: # TODO: might want a way of getting this choice if known_characters and not glossfile, probably by providing some alternative to the 1L/2L/3L button in this case
+if known_characters and glossfile: # TODO: might want a way of getting this choice if known_characters and not glossfile, probably by providing some alternative to the 1/2/3L button in this case
   android_src += br"""
                             if(!knownChars.isEmpty()) {
                                 String[] items=new String[2];
