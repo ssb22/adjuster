@@ -27,9 +27,25 @@
 # and in China: https://gitee.com/ssb22/adjuster
 # although some early ones are missing.
 
-from optparse import OptionParser
-parser = OptionParser()
 import sys,os,os.path,tempfile,time,re,subprocess,unicodedata
+from optparse import OptionParser
+if '--html-options' in sys.argv:
+  print ("Usage: annogen.py [options]<p>Options:<dl>")
+  class HTMLOptions:
+    def add_option(self,*args,**kwargs):
+      if not 'action' in kwargs: args=[a+'=' if a.startswith('--') else a for a in args]
+      print ("<dt><kbd>"+"</kbd>, <kbd>".join(args)+"</kbd></dt><dd>"+re.sub('(?<=[A-Za-z])([/=_])(?=[A-Za-z])',r'<wbr/>\1',re.sub('(--[A-Za-z-]*)',r'<kbd>\1</kbd>',kwargs.get("help","").replace("%default",str(kwargs.get("default","%default"))).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;'))).replace("BEFORE","<strong>before</strong>").replace("AFTER","<strong>after</strong>").replace("ALWAYS","<strong>always</strong>").replace(" ALL "," <strong>all</strong> ").replace(" LONG "," <strong>long</strong> ").replace(" NOT "," <strong>not</strong> ").replace("DEPRECATED","<strong>Deprecated</strong>").replace("WITHOUT","<strong>without</strong>").replace("js:search:replace,","js:<wbr>search:<wbr>replace,<wbr>")+"</dd>")
+  parser = HTMLOptions()
+  parser.add_option("--help",action=True,help="show this help message and exit")
+elif '--markdown-options' in sys.argv:
+  print ("Usage: annogen.py [options]\n\nOptions:\n\n")
+  class MarkdownOptions:
+    def add_option(self,*args,**kwargs):
+      if not 'action' in kwargs: args=[a+'=' if a.startswith('--') else a for a in args]
+      print ("`"+"`, `".join(args)+"`\n : "+re.sub('(--[A-Za-z-]*)',r'`\1`',kwargs.get("help","").replace("%default",str(kwargs.get("default","%default")))).replace("BEFORE","**before**").replace("AFTER","**after**").replace("ALWAYS","**always**").replace(" ALL "," **all** ").replace(" LONG "," **long** ").replace(" NOT "," **not** ").replace("DEPRECATED","**Deprecated**").replace("WITHOUT","**without**")+"\n")
+  parser = MarkdownOptions()
+  parser.add_option("--help",action=True,help="show this help message and exit")
+else: parser = OptionParser()
 try: from subprocess import getoutput
 except: from commands import getoutput
 if not "mac" in sys.platform and not "darwin" in sys.platform and ("win" in sys.platform or "mingw32" in sys.platform): exe=".exe" # Windows, Cygwin, etc
@@ -420,6 +436,10 @@ cancelOpt("single-core")
 
 parser.add_option("-p","--status-prefix",help="Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running")
 
+if '--html-options' in sys.argv or '--markdown-options' in sys.argv:
+  if '--html-options' in sys.argv:
+    print ("</dl>")
+  sys.exit()
 main = (__name__ == "__main__")
 term = os.environ.get("TERM","")
 is_xterm = "xterm" in term
