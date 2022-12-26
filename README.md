@@ -649,7 +649,7 @@ Usage: annogen.py [options]
 Options:
 
 
-`--help`
+`-h`, `--help`
  : show this help message and exit
 
 `--infile=`
@@ -659,13 +659,13 @@ Options:
  : Character encoding of the input file (default utf-8)
 
 `--mstart=`
- : The string that starts a piece of text with annotation markup in the input examples; default <ruby><rb>
+ : The string that starts a piece of text with annotation markup in the input examples; default `<ruby><rb>`
 
 `--mmid=`
- : The string that occurs in the middle of a piece of markup in the input examples, with the word on its left and the added markup on its right (or the other way around if mreverse is set); default </rb><rt>
+ : The string that occurs in the middle of a piece of markup in the input examples, with the word on its left and the added markup on its right (or the other way around if mreverse is set); default `</rb><rt>`
 
 `--mend=`
- : The string that ends a piece of annotation markup in the input examples; default </rt></ruby>
+ : The string that ends a piece of annotation markup in the input examples; default `</rt></ruby>`
 
 `-r`, `--mreverse`
  : Specifies that the annotation markup is reversed, so the text **before** mmid is the annotation and the text **after** it is the base text

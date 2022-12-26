@@ -36,15 +36,17 @@ if '--html-options' in sys.argv:
       if not 'action' in kwargs: args=[a+'=' if a.startswith('--') else a for a in args]
       print ("<dt><kbd>"+"</kbd>, <kbd>".join(args)+"</kbd></dt><dd>"+re.sub('(?<=[A-Za-z])([/=_])(?=[A-Za-z])',r'<wbr/>\1',re.sub('(--[A-Za-z-]*)',r'<kbd>\1</kbd>',kwargs.get("help","").replace("%default",str(kwargs.get("default","%default"))).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;'))).replace("BEFORE","<strong>before</strong>").replace("AFTER","<strong>after</strong>").replace("ALWAYS","<strong>always</strong>").replace(" ALL "," <strong>all</strong> ").replace(" LONG "," <strong>long</strong> ").replace(" NOT "," <strong>not</strong> ").replace("DEPRECATED","<strong>Deprecated</strong>").replace("WITHOUT","<strong>without</strong>").replace("js:search:replace,","js:<wbr>search:<wbr>replace,<wbr>")+"</dd>")
   parser = HTMLOptions()
-  parser.add_option("--help",action=True,help="show this help message and exit")
+  parser.add_option("-h","--help",action=True,help="show this help message and exit")
 elif '--markdown-options' in sys.argv:
   print ("Usage: annogen.py [options]\n\nOptions:\n\n")
   class MarkdownOptions:
     def add_option(self,*args,**kwargs):
       if not 'action' in kwargs: args=[a+'=' if a.startswith('--') else a for a in args]
-      print ("`"+"`, `".join(args)+"`\n : "+re.sub('(--[A-Za-z-]*)',r'`\1`',kwargs.get("help","").replace("%default",str(kwargs.get("default","%default")))).replace("BEFORE","**before**").replace("AFTER","**after**").replace("ALWAYS","**always**").replace(" ALL "," **all** ").replace(" LONG "," **long** ").replace(" NOT "," **not** ").replace("DEPRECATED","**Deprecated**").replace("WITHOUT","**without**")+"\n")
+      d = str(kwargs.get("default","%default"))
+      if "://" in d or "<" in d: d="`"+d+"`"
+      print ("`"+"`, `".join(args)+"`\n : "+re.sub('(--[A-Za-z-]*)',r'`\1`',kwargs.get("help","").replace("%default",d)).replace("BEFORE","**before**").replace("AFTER","**after**").replace("ALWAYS","**always**").replace(" ALL "," **all** ").replace(" LONG "," **long** ").replace(" NOT "," **not** ").replace("DEPRECATED","**Deprecated**").replace("WITHOUT","**without**")+"\n")
   parser = MarkdownOptions()
-  parser.add_option("--help",action=True,help="show this help message and exit")
+  parser.add_option("-h","--help",action=True,help="show this help message and exit")
 else: parser = OptionParser()
 try: from subprocess import getoutput
 except: from commands import getoutput
