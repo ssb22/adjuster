@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.315 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.316 (c) 2012-22 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2397,6 +2397,19 @@ android_src += br"""
                     ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
                 if(toast && AndroidSDK<33) Toast.makeText(act, "Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
+            }
+            @JavascriptInterface public boolean isFirstRun() {
+                // This is for certain third-party app stores that insist you make your users click through legal verbiage on first use
+                // (TODO: include in code only if used in assets or an option set + document in help text?)
+                android.content.SharedPreferences.Editor e;
+                String s;
+                do {
+                   SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
+                   s=sp.getString("run", "0");
+                   e = sp.edit();
+                   e.putString("run","1");
+                } while(!e.commit());
+                return s.equals("0");
             }"""
 if android_audio: android_src += br"""
             @JavascriptInterface public void sendToAudio(final String s) {
@@ -2410,7 +2423,7 @@ if bookmarks: android_src += br"""
             @JavascriptInterface public void addBM(String p) {
                 android.content.SharedPreferences.Editor e;
                 do {
-                   android.content.SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
+                   SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
                    String s=sp.getString("prefs", ",");
                    if((","+s).contains(","+p+",")) { // we have to give it a number
                        int count=1; String p2; while(true) {
@@ -2419,8 +2432,8 @@ if bookmarks: android_src += br"""
                        } p=p2;
                    }
                    s += p+",";
-                e = sp.edit();
-                e.putString("prefs",s);
+                   e = sp.edit();
+                   e.putString("prefs",s);
                 } while(!e.commit());
                 Toast.makeText(act, "Added bookmark", Toast.LENGTH_LONG).show();
             }
@@ -2428,7 +2441,7 @@ if bookmarks: android_src += br"""
                 android.content.SharedPreferences.Editor e; boolean done=false; String s,p2;"""+B("".join(r"""
                 try {
                     do {
-                        android.content.SharedPreferences sp=createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0);
+                        SharedPreferences sp=createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0);
                         p2=","+sp.getString("prefs", ",");
                         s=p2.replaceFirst(Pattern.quote(","+p+","), ",");
                         if(s.equals(p2)) break;
@@ -2437,7 +2450,7 @@ if bookmarks: android_src += br"""
                      } while(!e.commit());
                 } catch(Exception x) {} if(done) return;""" % p for p in bookmarks.split(",") if not p==jPackage))+br"""
                 do {
-                   android.content.SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
+                   SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
                    p2=","+sp.getString("prefs", ",");
                    s=p2.replaceFirst(Pattern.quote(","+p+","), ",");
                    if(s.equals(p2)) break;
@@ -2474,7 +2487,7 @@ if epub: android_src += br"""
                     String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
                     loadingEpub = url.startsWith(epubPrefix); // TODO: what if an epub includes off-site prerequisites? (should we be blocking that?) : setting loadingEpub false would suppress the lrm marks (could make them unconditional but more overhead; could make loadingEpub 'stay on' for rest of session)
                     if (!loadingEpub) return null;
-                    android.content.SharedPreferences sp=getPreferences(0);
+                    SharedPreferences sp=getPreferences(0);
                     String epubUrl=sp.getString("epub","");
                     if(epubUrl.length()==0) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("epubUrl setting not found").getBytes()));
                     Uri epubUri=Uri.parse(epubUrl);
@@ -2606,7 +2619,7 @@ if epub: android_src += br"""
     void openEpub(String url) {
         if(AndroidSDK<11 && url.endsWith(".epub")) { browser.loadUrl("javascript:document.close();document.noBookmarks=1;document.rubyScriptAdded=0;document.write('<html><head><meta name=\"mobileoptimized\" content=\"0\"><meta name=\"viewport\" content=\"width=device-width\"></head><body>This app'+\"'s EPUB handling requires Android 3 or above :-(</body>\")"); return; } // (Support for Android 2 would require using data URIs for images etc, and using shouldOverrideUrlLoading on all links)
         // Android 5+ content:// URIs expire when the receiving Activity finishes, so we won't be able to add them to bookmarks (unless copy the entire epub, which is not good on a space-limited device)
-        android.content.SharedPreferences sp=getPreferences(0);
+        SharedPreferences sp=getPreferences(0);
         android.content.SharedPreferences.Editor e; do { e=sp.edit(); e.putString("epub",url); } while(!e.commit());
         loadingWait("http://epub/"); // links will be absolute; browser doesn't have to change
     }
