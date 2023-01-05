@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.221 (c) 2012-22 Silas S. Brown"
+"Web Adjuster v3.222 (c) 2012-23 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1823,10 +1823,12 @@ def setup_stdio():
         elif StdinPass: StdinPass.write(l) # open
         else: # not yet established
             StdinPending.append(l)
-            def ClearPending():
-                global StdinPending ; StdinPending = []
             StdinPass = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
-            doCallback(None,StdinPass.connect,lambda *args:(StdinPass.write(B('').join(StdinPending)),ClearPending(),readUntilClose(StdinPass,lambda last:(sys.stdout.write(last),sys.stdout.close()),lambda chunk:sys.stdout.write(chunk))),(options.address, port_randomise.get(options.port,options.port)))
+            def ClearPending(): del StdinPending[:]
+            def WriteOut(s):
+                try: sys.stdout.buffer.write(s)
+                except: sys.stdout.write(s)
+            doCallback(None,StdinPass.connect,lambda *args:(StdinPass.write(B('').join(StdinPending)),ClearPending(),readUntilClose(StdinPass,lambda last:(WriteOut(last),sys.stdout.close()),WriteOut)),(options.address, port_randomise.get(options.port,options.port)))
     IOLoopInstance().add_handler(sys.stdin.fileno(), doStdin, IOLoop.READ)
 
 #@file: up-down.py
@@ -2737,7 +2739,7 @@ def get_new_Chrome(index,renewing,headless):
         else: myUsername = ""
     extra = ""
     while True: # might be restarting from a corrupted user-data-dir state; in worst case might not even be able to cleanly remove it (TODO: what if some processes associated with an older instance somehow took a while to go away and still have named referenc to previous path: increment counter unconditionally?  still rm the old one)
-        path = writable_tmpdir()+"hChrome-"+myUsername+str(options.port)+"."+str(index)+extra
+        path = "/tmp/hChrome-"+myUsername+str(options.port)+"."+str(index)+extra # don't use writable_tmpdir() here: some versions of Chromedriver can fail if you try to put a /dev/shm path into --user-data-dir
         if not os.path.exists(path): break
         shutil.rmtree(path,True)
         if not os.path.exists(path): break
@@ -3183,7 +3185,10 @@ class RequestForwarder(RequestHandler):
             try:
                 webdriver_inProgress[self.WA_PjsIndex].remove(self.request.uri)
             except: pass
-        elif options.one_request_only and not self.isSslUpstream: stopServer("Stopping after one request")
+        elif options.one_request_only and not self.isSslUpstream:
+            if options.stdio: IOLoopInstance().add_timeout(time.time()+1,lambda *args:stopServer("Stopping after 1 request + 1 second")) # otherwise stdout-write sometimes doesn't happen (Tornado 6.1)
+            else:
+                stopServer("Stopping after one request")
         try: reqsInFlight.remove(id(self))
         except: pass
         try: origReqInFlight.remove(id(self))
