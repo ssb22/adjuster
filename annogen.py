@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.316 (c) 2012-22 Silas S. Brown"
+"Annotator Generator v3.316 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -219,7 +219,7 @@ parser.add_option("-D","--data-driven",
 cancelOpt("data-driven")
 parser.add_option("-F","--fast-assemble",
                   action="store_true",default=False,
-                  help="Skip opcode compaction when using data-driven (slightly speeds up compilation, at the expense of larger code size)") # TODO: consider removing this option now it's no longer very slow anyway
+                  help="[DEPRECATED] Skip opcode compaction when using data-driven (slightly speeds up compilation, at the expense of larger code size)") # TODO: consider removing this option now it's no longer very slow anyway
 cancelOpt("fast-assemble")
 
 parser.add_option("-Z","--zlib",
@@ -267,7 +267,7 @@ cancelOpt("android-print")
 parser.add_option("--known-characters",help="When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other. Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
 parser.add_option("--android-urls",
-                  help="Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another application in Android 1 through 11. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark). On Android 12+ this option won't work at all unless the specified domain(s) approved your app.") # "Starting in Android 12 (API level 31), a generic web intent resolves to an activity in your app only if your app is approved for the specific domain"
+                  help="[DEPRECATED] Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another application in Android 1 through 11. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark). On Android 12+ this option won't work at all unless the specified domain(s) approved your app.") # "Starting in Android 12 (API level 31), a generic web intent resolves to an activity in your app only if your app is approved for the specific domain"
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
 parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)")
 cancelOpt("tts-js")

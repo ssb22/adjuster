@@ -818,7 +818,7 @@ Options:
  : Cancels any earlier `--data-driven` option in Makefile variables etc
 
 `-F`, `--fast-assemble`
- : Skip opcode compaction when using data-driven (slightly speeds up compilation, at the expense of larger code size)
+ : [**Deprecated**] Skip opcode compaction when using data-driven (slightly speeds up compilation, at the expense of larger code size)
 
 `--no-fast-assemble`
  : Cancels any earlier `--fast-assemble` option in Makefile variables etc
@@ -884,7 +884,7 @@ Options:
  : When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.
 
 `--android-urls=`
- : Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another application in Android 1 through 11. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark). On Android 12+ this option won't work at all unless the specified domain(s) approved your app.
+ : [**Deprecated**] Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another application in Android 1 through 11. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark). On Android 12+ this option won't work at all unless the specified domain(s) approved your app.
 
 `--extra-js=`
  : Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: `--extra-js`=@file.js or `--extra-js`=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: `--extra-js`=@file1.js:search:replace,file2.js
