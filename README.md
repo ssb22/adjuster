@@ -641,7 +641,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.316
+Options for Annotator Generator v3.317
 ===========================
 
 Usage: annogen.py [options]
@@ -894,6 +894,9 @@ Options:
 
 `--no-tts-js`
  : Cancels any earlier `--tts-js` option in Makefile variables etc
+
+`--accept-html=`
+ : When generating an Android browser, display the HTML fragment from this file and have the user press Accept before they first use the app.  Some misguided app stores insist you make your users accept a privacy policy even when you don't collect data.  This is bad design for the users (training them to think warnings are unimportant) but the stores might think requiring it gets them out of legal trouble.
 
 `--existing-ruby-js-fixes=`
  : Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: `--existing-ruby-js-fixes`=@file.js

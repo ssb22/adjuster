@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.316 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.317 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -271,6 +271,7 @@ parser.add_option("--android-urls",
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
 parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)")
 cancelOpt("tts-js")
+parser.add_option("--accept-html",help="When generating an Android browser, display the HTML fragment from this file and have the user press Accept before they first use the app.  Some misguided app stores insist you make your users accept a privacy policy even when you don't collect data.  This is bad design for the users (training them to think warnings are unimportant) but the stores might think requiring it gets them out of legal trouble.")
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--existing-ruby-lang-regex",help="Set the Android app or browser extension to remove existing ruby elements unless the document language matches this regular expression. If --sharp-multi is in use, you can separate multiple regexes with comma and any unset will always delete existing ruby.  If this option is not set at all then existing ruby is always kept.")
 parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
@@ -1954,6 +1955,7 @@ elif android_template:
 # Another user still found the EPUB link distracting, so let's make it a button (to match the Go button) rather than a 'different'-looking link (if most users want the Web browser then we probably don't want EPUB to be the _first_ thing they notice).
 # As we're using forceDarkAllowed to allow 'force dark mode' on Android 10, we MUST specify background and color.  Left unspecified results in input elements that always have white backgrounds even in dark mode, in which case you get white on white = invisible text.  "inherit" works; background #ededed looks more shaded and does get inverted; background-image linear-gradient does NOT get inverted (so don't use it).
 # And as fewer browsers display "http" users might be less likely to recognise that as the start of the URL, so don't use "http://" for the box's placeholder.
+if accept_html and (not android_template or not "URL_BOX_GOES_HERE" in android_template): errExit("--accept-html currently requires an --android-template with URL_BOX_GOES_HERE or blank")
 android_url_box = br"""<div style="border: thin dotted grey">
 <form style="margin:0em;padding-bottom:0.5ex" onSubmit="var v=this.url.value;if(typeof annotUrlTrans!='undefined'){var u=annotUrlTrans(v);if(typeof u!='undefined')v=u}if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="width:1em;margin:0em;padding:0em;display:none" id=displayMe align=left><button style="width:100%;background:#ededed;color:inherit" onclick="document.forms[document.forms.length-1].url.value='';document.getElementById('displayMe').style.display='none';return false">X</button></td><td style="margin: 0em; padding: 0em"><input type=text style="width:100%;background:inherit;color:inherit" placeholder="Web page" name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%;background:#ededed;color:inherit"></td></tr></table></form>"""
 # Now all other controls:
@@ -2007,6 +2009,7 @@ var m=navigator.userAgent.match(/Android ([0-9]+)\./); if(m && m[1]<5) document.
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)){document.forms[document.forms.length-1].url.value=c;document.getElementById("displayMe").style.display="table-cell"}</script>"""
 # API 19 (4.4) and below has no browser updates.  API 17 (4.2) and below has known shell exploits for CVE-2012-6636 which requires only that a site (or network access point) can inject arbitrary Javascript into the HTTP stream.  Not sure what context the resulting shell runs in, but there are probably escalation attacks available.  TODO: insist on working offline-only on old versions?
 android_url_box += b'</div>'
+if accept_html: android_url_box += b'<div id="popup" style="display:none;z-index:999;position:fixed;top:0px;left:0px;max-height:100%;border:solid red;overflow:auto;background:white;color:black">'+open(accept_html,'rb').read()+b'<div><button onClick="ssb_local_annotator.accept();document.getElementById(\'popup\').style.display=\'none\'">&#x2705; Accept</button> <button onClick="ssb_local_annotator.decline()">&#x274C; Decline</button></div></div><script>if(!ssb_local_annotator.accepted())document.getElementById("popup").style.display="block"</script>'
 if android_template:
   android_template = android_template.replace(b"URL_BOX_GOES_HERE",android_url_box)
   if not b"VERSION_GOES_HERE" in android_template:
@@ -2397,19 +2400,24 @@ android_src += br"""
                     ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
                 if(toast && AndroidSDK<33) Toast.makeText(act, "Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
-            }
-            @JavascriptInterface public boolean isFirstRun() {
-                // This is for certain third-party app stores that insist you make your users click through legal verbiage on first use
-                // (TODO: include in code only if used in assets or an option set + document in help text?)
+            }"""
+if accept_html: android_src += br"""
+            @JavascriptInterface public void accept() {
                 android.content.SharedPreferences.Editor e;
                 String s;
                 do {
                    SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
-                   s=sp.getString("run", "0");
                    e = sp.edit();
-                   e.putString("run","1");
+                   e.putString("accept","1");
                 } while(!e.commit());
-                return s.equals("0");
+            }
+            @JavascriptInterface public void decline() {
+                if(!accepted()) act.runOnUiThread(new Runnable(){
+                    @Override public void run() {
+                        act.finish(); }}); // else some site tried to DoS our app: ignore
+            }
+            @JavascriptInterface public boolean accepted() {
+                return getSharedPreferences("ssb_local_annotator",0).getString("accept","0").equals("1");
             }"""
 if android_audio: android_src += br"""
             @JavascriptInterface public void sendToAudio(final String s) {
