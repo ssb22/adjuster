@@ -641,7 +641,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.317
+Options for Annotator Generator v3.318
 ===========================
 
 Usage: annogen.py [options]
@@ -719,7 +719,7 @@ Options:
  : Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary "gloss" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do **not** affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.
 
 `-C`, `--gloss-closure`
- : If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package.
+ : If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package, currently only on Python 2 (the cjklib3 port is not yet complete enough) and using outdated Unihan data.
 
 `--no-gloss-closure`
  : Cancels any earlier `--gloss-closure` option in Makefile variables etc

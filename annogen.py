@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.317 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.318 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -130,7 +130,9 @@ parser.add_option("--glossfile",
 parser.add_option("-C", "--gloss-closure",
                   action="store_true",
                   default=False,
-                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package.") # TODO: option to put variant closures into the annotator itself? (generate new rules if not already exist + closure the 'near' tests) but that could unnecessarily increase the annotator size (with --data-driven the increase could be significant unless we implement shared-substringVariants optimisations, and even then it's unclear how this would interact with the space-saving of common-prefix multibyte sequences), + it might not be correct in all cases, e.g. U+91CC in jianti SHOULDN'T be translated to U+88E1/U+88CF in fanti if it's part of a name, although recognising a 'messed-up' name with that substitution might be acceptable. Anyway, using these closures to fill in a missing gloss should be tolerable.
+                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package, currently only on Python 2 (the cjklib3 port is not yet complete enough) and using outdated Unihan data.")
+# (e.g. U+82AD has an incorrect kZVariant U+5DF4, although U+7652's kZVariant paring with U+6108 is more 'arguable'; new data has U+7652 M to U+7609 and from there kSpecializedSemanticVariant to U+6108)
+# TODO: option to put variant closures into the annotator itself? (generate new rules if not already exist + closure the 'near' tests) but that could unnecessarily increase the annotator size (with --data-driven the increase could be significant unless we implement shared-substringVariants optimisations, and even then it's unclear how this would interact with the space-saving of common-prefix multibyte sequences), + it might not be correct in all cases, e.g. U+91CC in jianti SHOULDN'T be translated to U+88E1/U+88CF in fanti if it's part of a name, although recognising a 'messed-up' name with that substitution might be acceptable. Anyway, using these closures to fill in a missing gloss should be tolerable.
 cancelOpt("gloss-closure")
 parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
@@ -1875,8 +1877,8 @@ int main(int argc,char*argv[]) {
   if sharp_multi:
     c_end += br"""
   if(i<argc && isdigit(*argv[i])) { numSharps=atoi(argv[i++]);"""
-    if annotation_map: c_end += br"numSharps="+annotMap("numSharps")+";"
-    c_end += " }"
+    if annotation_map: c_end += br"numSharps="+annotMap("numSharps")+b";"
+    c_end += b" }"
   c_end += br"""
   for(; i<argc; i++) {
     if(!strcmp(argv[i],"--help")) {"""
@@ -4962,10 +4964,10 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
         if nbytes>ybytes and ymax_limitwords and nonAnnot in ymax_limitwords: break
         times.append(time.time()-t) ; t=time.time()
       if len(times)>2 and sum(times) > 20*60 and not min(i[0] for i in retList)<1.05*min(i[0] for i in retList[:2]): diagnose_write("%s took %d+mins, consider --ymax-limitwords (mins:%s, coverage:%s, indicators:%s, noexpand discards #2+)" % (withAnnot_unistr,sum(times)/60,",".join(str(int(t/60)) for t in times),",".join((str(-i[0])+"%") for i in retList),",".join(str(i[1]) for i in retList)),"Suggestion")
-      retList.sort()
-      if nonAnnot==diagnose: diagnose_write("Best coverage is %d%% of %d" % (-retList[0][0],retList[0][-2]))
-      negate,ret = retList[0][-3],retList[0][-1]
-      distance = retList[0][2]
+      ret0 = min(retList,key=lambda x:x[:3]+(str(x[3]),)) # (don't let Python3 try to compare True with 'harder' in x[3] like Python2 does)
+      if nonAnnot==diagnose: diagnose_write("Best coverage is %d%% of %d" % (-ret0[0],ret0[-2]))
+      negate,ret = ret0[-3],ret0[-1]
+      distance = ret0[2]
     else:
       negate,ret = tryNBytes(ybytes_max,nonAnnot,badStarts,okStarts,withAnnot_unistr,can_be_default=="must")[:2]
       if ybytes < ybytes_max: distance = ybytes_max
@@ -6178,7 +6180,7 @@ def set_title(t):
 def diagnose_write(s,label="Diagnose"):
   if not main: start="\n"
   else: start=""
-  getBuf(sys.stderr).write(start+bold_on+label+": "+bold_off+s.encode(terminal_charset,'replace')+clear_eol+'\n')
+  getBuf(sys.stderr).write(B(start+bold_on+label+": "+bold_off)+s.encode(terminal_charset,'replace')+B(clear_eol+'\n'))
 try: screenWidth = int(os.environ['COLUMNS'])
 except:
   import struct, fcntl, termios
