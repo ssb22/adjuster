@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.318 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.319 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -128,11 +128,7 @@ parser.add_option("--post-normalise",
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 parser.add_option("-C", "--gloss-closure",
-                  action="store_true",
-                  default=False,
-                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also. This option requires the cjklib package, currently only on Python 2 (the cjklib3 port is not yet complete enough) and using outdated Unihan data.")
-# (e.g. U+82AD has an incorrect kZVariant U+5DF4, although U+7652's kZVariant paring with U+6108 is more 'arguable'; new data has U+7652 M to U+7609 and from there kSpecializedSemanticVariant to U+6108)
-# TODO: option to put variant closures into the annotator itself? (generate new rules if not already exist + closure the 'near' tests) but that could unnecessarily increase the annotator size (with --data-driven the increase could be significant unless we implement shared-substringVariants optimisations, and even then it's unclear how this would interact with the space-saving of common-prefix multibyte sequences), + it might not be correct in all cases, e.g. U+91CC in jianti SHOULDN'T be translated to U+88E1/U+88CF in fanti if it's part of a name, although recognising a 'messed-up' name with that substitution might be acceptable. Anyway, using these closures to fill in a missing gloss should be tolerable.
+                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also, using the Unihan variants file specified by this option") # TODO: option to put variant closures into the annotator itself? (generate new rules if not already exist + closure the 'near' tests) but that could unnecessarily increase the annotator size (with --data-driven the increase could be significant unless we implement shared-substringVariants optimisations, and even then it's unclear how this would interact with the space-saving of common-prefix multibyte sequences), + it might not be correct in all cases, e.g. U+91CC in jianti SHOULDN'T be translated to U+88E1/U+88CF in fanti if it's part of a name, although recognising a 'messed-up' name with that substitution might be acceptable. Anyway, using these closures to fill in a missing gloss should be tolerable.
 cancelOpt("gloss-closure")
 parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
@@ -5643,31 +5639,31 @@ else:
 
 stderr_newline = True
 def allVars(u):
-  global cjk_cLookup
-  try: cjk_cLookup
+  global cjkVars
+  try: cjkVars
   except NameError:
     global stderr_newline
     if stderr_newline: sys.stderr.write("Checking CJK closures for missing glosses\n")
     else: sys.stderr.write("checking CJK closures for missing glosses... "),sys.stderr.flush()
     stderr_newline = True
-    from cjklib.characterlookup import CharacterLookup
-    cjk_cLookup = CharacterLookup("C") # param doesn't matter for getCharacterVariants, so just put "C" for now
-    cjk_cLookup.varCache = {} # because getCharacterVariants can be slow if it uses SQL queries
-  def lookupVar(u,t):
-    if (u,t) not in cjk_cLookup.varCache: cjk_cLookup.varCache[(u,t)] = cjk_cLookup.getCharacterVariants(u,t)
-    return cjk_cLookup.varCache[(u,t)]
+    cjkVars = {}
+    abbr = {"kSemanticVariant":"M","kSimplifiedVariant":"S","kTraditionalVariant":"T","kZVariant":"Z","kCompatibilityVariant":"C"}
+    for l in open(gloss_closure):
+      if l.strip() and not l.startswith("#"):
+        l=l.split()
+        cjkVars.setdefault((int(l[0][2:],16),abbr.get(l[1],"O")),set()).update(int(i.split('<')[0][2:],16) for i in l[2:])
   done = set([u])
   for t in "STCMZ":
-    for var in lookupVar(u,t):
+    for var in cjkVars.get((u,t),[]):
       if not var in done: yield var
       done.add(var)
       # In at least some versions of the data, U+63B3 needs to go via T (U+64C4) and M (U+865C) and S to get to U+864F (instead of having a direct M variant to 864F), so we need to take (S/T)/M/(S/T) variants also:
       if t in "ST":
-        for var in lookupVar(var,'M'):
+        for var in cjkVars.get((var,'M'),[]):
           if var in done: continue
           yield var ; done.add(var)
           for t2 in "ST":
-            for var in lookupVar(var,t2):
+            for var in cjkVars.get((var,t2),[]):
               if var in done: continue
               yield var ; done.add(var)
 
@@ -5675,7 +5671,9 @@ def allVarsW(unistr):
   vRest = []
   for i in xrange(len(unistr)):
     got_vRest = False
-    for v in allVars(unistr[i]):
+    for v in allVars(ord(unistr[i])):
+      try: v=unichr(v)
+      except: continue # narrow Python build non-BMP: ignore (TODO)
       yield unistr[:i]+v+unistr[i+1:]
       if got_vRest:
         for vr in vRest: yield unistr[:i]+v+vr
