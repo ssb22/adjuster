@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.319 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.32 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -698,7 +698,7 @@ def nearCall(negate,conds,subFuncs,subFuncL):
   else: fStart,fEnd = outLang_bool+b" NewFunc() {",b"}"
   if negate: rTrue,rFalse = outLang_false,outLang_true
   else: rTrue,rFalse = outLang_true,outLang_false
-  return subFuncCall(fStart+b"\n".join(outLang_shortIf(nearCall(False,conds[i:j],subFuncs,subFuncL),b"return "+rTrue+b";") for i,j in zip(range(0,len(conds),max_or_length),range(max_or_length,len(conds),max_or_length)+[len(conds)]))+b"\nreturn "+rFalse+b";"+fEnd,subFuncs,subFuncL)
+  return subFuncCall(fStart+b"\n".join(outLang_shortIf(nearCall(False,conds[i:j],subFuncs,subFuncL),b"return "+rTrue+b";") for i,j in zip(range(0,len(conds),max_or_length),list(range(max_or_length,len(conds),max_or_length))+[len(conds)]))+b"\nreturn "+rFalse+b";"+fEnd,subFuncs,subFuncL)
 
 def outLang_shortIf(cond,statement):
   if golang: return b"if "+cond+b" {\n  "+statement+b"\n}"
@@ -3539,7 +3539,13 @@ class BytecodeAssembler:
     def f(*args): raise Exception("Must call link() only once")
     self.link = f
     sys.stderr.write("Linking... ") ; sys.stderr.flush()
-    for dat,ref in sorted(iteritems(self.d2l)): # the functions and data to add to the end of self.l, sorted so we can optimise for overlaps
+    def dl(t):
+      r = [(x,y) for x,y in iteritems(self.d2l) if type(x)==t]
+      if not t==tuple: r.sort() # so we can optimise for overlaps (but don't let Python 3 try to compare across types, it's more fussy than Python 2)
+      return r
+    d2l = dl(bytes)+dl(unicode)+dl(tuple) # the functions and data to add to the end of self.l
+    assert len(d2l)==len(self.d2l), "missed out a key type"
+    for dat,ref in d2l:
         assert type(ref)==tuple and type(ref[0])==int
         self.l.append((-ref[0],)) # the label
         if type(dat) in [bytes,unicode]:
@@ -5928,7 +5934,7 @@ def outputParser(rulesAndConds):
       else: dataName = "data"
       if java: open(jSrc+"/../assets/annotate.dat","wb").write(ddrivn)
       else:
-        outfile.write(b"static unsigned char "+dataName+b"[]=\""+c_escapeRawBytes(ddrivn)+b'\";\n')
+        outfile.write(b"static unsigned char "+B(dataName)+b"[]=\""+c_escapeRawBytes(ddrivn)+b'\";\n')
         if zlib: outfile.write(c_zlib.replace(b'%%ORIGLEN%%',B(str(origLen))).replace(b'%%ZLIBLEN%%',B(str(len(ddrivn))))+b"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
         outfile.write(c_datadrive+b"\n")
       del ddrivn
@@ -6105,7 +6111,7 @@ def outputRulesSummary(rulesAndConds):
     # Can now do the summary:
     for annot,orig,rule,conditions in d:
         if time.time() >= t + 2:
-          sys.stderr.write(("(%d of %d)\r" % (count,len(rulesAndConds)))+clear_eol) ; sys.stderr.flush()
+          sys.stderr.write(("(%d of %d)%s\r" % (count,len(rulesAndConds),clear_eol))) ; sys.stderr.flush()
           t = time.time()
         count += 1
         def code(x):
