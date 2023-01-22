@@ -5653,25 +5653,24 @@ def allVars(u):
     else: sys.stderr.write("checking CJK closures for missing glosses... "),sys.stderr.flush()
     stderr_newline = True
     cjkVars = {}
-    abbr = {"kSemanticVariant":"M","kSimplifiedVariant":"S","kTraditionalVariant":"T","kZVariant":"Z","kCompatibilityVariant":"C"}
+    abbr = {"kSemanticVariant":"M","kSimplifiedVariant":"f","kTraditionalVariant":"f","kZVariant":"v"} # TODO: if any F900..FAD9, consider reading kCompatibilityVariant from Unihan_IRGSources.txt (need to open a different file)
     for l in open(gloss_closure):
       if l.strip() and not l.startswith("#"):
         l=l.split()
         cjkVars.setdefault((int(l[0][2:],16),abbr.get(l[1],"O")),set()).update(int(i.split('<')[0][2:],16) for i in l[2:])
   done = set([u])
-  for t in "STCMZ":
+  for t in "fMv":
     for var in cjkVars.get((u,t),[]):
       if not var in done: yield var
       done.add(var)
-      # In at least some versions of the data, U+63B3 needs to go via T (U+64C4) and M (U+865C) and S to get to U+864F (instead of having a direct M variant to 864F), so we need to take (S/T)/M/(S/T) variants also:
-      if t in "ST":
+      # In at least some versions of the data, U+63B3 needs to go via T (U+64C4) and M (U+865C) and S to get to U+864F (instead of having a direct M variant to 864F), so we need to take f/M/f variants also:
+      if t=="f": # fanti / jianti
         for var in cjkVars.get((var,'M'),[]):
           if var in done: continue
           yield var ; done.add(var)
-          for t2 in "ST":
-            for var in cjkVars.get((var,t2),[]):
-              if var in done: continue
-              yield var ; done.add(var)
+          for var in cjkVars.get((var,"f"),[]):
+            if var in done: continue
+            yield var ; done.add(var)
 
 def allVarsW(unistr):
   vRest = []
