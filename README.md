@@ -641,7 +641,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.32
+Options for Annotator Generator v3.321
 ===========================
 
 Usage: annogen.py [options]
@@ -798,6 +798,12 @@ Options:
 
 `--no-norefs`
  : Cancels any earlier `--norefs` option in Makefile variables etc
+
+`--rulesFile-only`
+ : Don't generate a parser or a rules summary, just update rulesFile
+
+`--no-rulesFile-only`
+ : Cancels any earlier `--rulesFile-only` option in Makefile variables etc
 
 `-E`, `--newlines-reset`
  : Have the annotator reset its state on every newline byte. By default newlines do not affect state such as whether a space is required before the next word, so that if the annotator is used with Web Adjuster's htmlText option (which defaults to using newline separators) the spacing should be handled sensibly when there is HTML markup in mid-sentence.

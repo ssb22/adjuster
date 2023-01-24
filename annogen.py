@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.32 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.321 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -198,6 +198,11 @@ parser.add_option("-R","--norefs",
                   action="store_true",default=False,
                   help="Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if --no-input is specified.") # the speed difference is not so great as of v0.593, but needed anyway if --no-input is set
 cancelOpt("norefs")
+
+parser.add_option("--rulesFile-only",
+                  action="store_true",default=False,
+                  help="Don't generate a parser or a rules summary, just update rulesFile")
+cancelOpt("rulesFile-only")
 
 parser.add_option("-E","--newlines-reset",
                   action="store_false",
@@ -618,6 +623,7 @@ if zlib:
   data_driven = True
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if dart and not dart_datafile: warn("--zlib without --dart-datafile might not be as efficient as you'd hope (and --zlib prevents the resulting Dart code from being compiled to a \"Web app\" anyway)") # as it requires dart:io
+if rulesFile_only and not rulesFile: warn("This run won't do much (--rulesFile-only set with no --rulesFile)") # might be OK as a partial coverage test
 if data_driven:
   if c_sharp or golang: errExit("--data-driven and --zlib are not yet implemented in C# or Go")
   elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java? (in which case also update the 'compress' errExit above so it doesn't check for android before suggesting zlib)
@@ -5542,6 +5548,7 @@ def analyse():
     except: pass
     if rulesFile: accum.save()
     if diagnose_manual: test_manual_rules()
+    if rulesFile_only: sys.exit(0)
     return sorted(accum.rulesAndConds()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
 try: import Queue as queue # Python 2
 except: import queue # Python 3
@@ -6136,7 +6143,7 @@ if isatty(sys.stdout):
     if summary_only:
         warn("Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'")
         c_filename = None
-    elif not java and main and not priority_list and not normalise_only and not browser_extension: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
+    elif not java and main and not priority_list and not normalise_only and not browser_extension and not rulesFile_only: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
 def openfile(fname,mode='r'):
     lzma = bz2 = None
