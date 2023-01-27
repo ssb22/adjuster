@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.321 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.322 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -250,6 +250,7 @@ parser.add_option("--java",
 parser.add_option("--android",
                   help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (SDK 24 or higher is required on the build machine, but the resulting app will be compatible with all versions of Android back to 1.x); if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
 # SDK 24 was released mid-2016.  If your main OS cannot be upgraded, you should be able to install a newer SDK on a virtual machine, e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless'
+# Ubuntu 22.04's multi-architecture android-sdk-build-tools package uses libandroid-23-java; there is a google-android-platform-24-installer package that can add platform-24 to platform-23 but this still doesn't provide the d8 tool now needed for signing (and it doesn't work to just copy d8 and lib/d8.jar from 29.0.2 on a machine that can run Studio)
 parser.add_option("--android-template",
                   help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use --annotation-names, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  annotUrlTrans returns undefined = uses original
 parser.add_option("-L","--pleco-hanping",
@@ -546,7 +547,13 @@ if extra_js.startswith("@"):
        if not B(fSR[i]) in dat: errExit("extra-js with search and replace: unable to find "+repr(fSR[i])+" in "+f)
        dat = dat.replace(B(fSR[i]),B(fSR[i+1]))
    if can_check_syntax:
-     out,err = subprocess.Popen("node -c /dev/stdin",shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate(dat)
+     if os.path.exists("/dev/shm"):
+       # node -c /dev/stdin can fail on GNU/Linux
+       fn="/dev/shm/"+str(os.getpid())+".js"
+       open(fn,"wb").write(dat)
+       out,err = subprocess.Popen("node -c "+fn,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate()
+       os.remove(fn)
+     else: out,err = subprocess.Popen("node -c /dev/stdin",shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate(dat)
      if out or err: errExit("Syntax check failed for extra-js file "+f+"\n"+"node stdout: "+repr(out)+"\nnode stderr: "+repr(err))
    else: warn("No syntax checker available for "+f)
    m=re.search(br"\([^)]*\)\s*=>\s*{",dat)
@@ -1590,7 +1597,7 @@ function annotWalk(n"""
     CheckExistingRuby.a(SetNF.r())
     if for_async: FixupRuby = JsBlock(b"if(nf) { nfOld=nReal;n=n.cloneNode(true);nfNew=document.createElement('span');nfNew.className='_adjust0';nfNew.appendChild(n);nfNew.oldHtml=n.outerHTML;",b"}") # and in for_async, the replaceChild for this cloneNode does not happen unless we ALSO can annotate the rb (so it shouldn't disturb ruby that's completely unrelated to the charsets we annotate)
     else: FixupRuby = JsBlock(b"var nReal = n; if(nf) { n=n.cloneNode(true);",b"}") # if messing with existing ruby, first do it offline for speed (and need to set nReal here because didn't set it above if we're not for_async)
-    if existing_ruby_lang_regex: KeepRuby=JsBlock(b"kR=document.documentElement.lang.match(["+b",".join(b"/"+cond(for_android,l.replace(b'\\',br'\\'),l)+b"/" for l in existing_ruby_lang_regex.split(','))+b"]["+annotNo+b"]);if(kR){",b"}")
+    if existing_ruby_lang_regex: KeepRuby=JsBlock(b"kR=document.documentElement.lang.match(["+b",".join(b"/"+cond(for_android,B(l).replace(b'\\',br'\\'),B(l))+b"/" for l in existing_ruby_lang_regex.split(','))+b"]["+annotNo+b"]);if(kR){",b"}")
     else: KeepRuby = JsBlock() # unconditional
     if existing_ruby_js_fixes:
       if for_android: KeepRuby.a(B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
@@ -1998,7 +2005,7 @@ if known_characters:
   if len(l) % 10: warn("UI code currently assumes known_characters line count will be a multiple of 10, but it isn't.  Last option will be too high.") # TODO handle this properly?
   l = b'['+b','.join(b"'"+b"".join(l[s:s+10])+b"'" for s in xrange(0,len(l),10))+b']'
   android_url_box += br"""
-var zinFreq="""+l+""",known=ssb_local_annotator.getKnownCharacters();
+var zinFreq="""+l+br""",known=ssb_local_annotator.getKnownCharacters();
 document.write('<select style="margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(zinFreq.slice(0,this.selectedIndex<0?0:this.selectedIndex).join('+"''"+'));location.reload()"><option'+(known==""?' selected':'')+'>Annotate all</option>');
 for(var dx=0,k='';dx<zinFreq.length;dx++) document.write('<option'+(known==(k+=zinFreq[dx])?' selected':'')+'>Leave '+((1+dx)*10)+' known</option>');
 document.write('</select> ');""" # TODO: could add a 'custom' option that's selected if none of the others are, but will need some way of editing it (and might need to nicely handle the case of 'frequency table corrected during an app upgrade')
@@ -5967,7 +5974,7 @@ def outputParser(rulesAndConds):
       open(jSrc+"/../res/layout/activity_main.xml","wb").write(android_layout)
       open(jSrc+"/../res/menu/main.xml","wb").write(b'<menu xmlns:android="http://schemas.android.com/apk/res/android" ></menu>\n') # TODO: is this file even needed at all?
       open(jSrc+"/../res/values/dimens.xml","wb").write(b'<resources><dimen name="activity_horizontal_margin">16dp</dimen><dimen name="activity_vertical_margin">16dp</dimen></resources>\n')
-      open(jSrc+"/../res/values/styles.xml","wb").write(b'<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"><item name="android:forceDarkAllowed">true</item></style></resources>\n')
+      open(jSrc+"/../res/values/styles.xml","wb").write(b'<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"><item name="android:forceDarkAllowed">true</item></style></resources>\n') # won't compile on SDKs that don't know about API 29, e.g. Ubuntu 22.04's packages: could try using introspection to call setForceDarkAllowed() (but need to solve the 'missing d8' problem first if want to upload the resulting APK)
       open(jSrc+"/../res/values/strings.xml","wb").write(B('<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="app_name">'+app_name.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')+'</string></resources>\n'))
       open(jSrc+"/../res/xml/network_security_config.xml","wb").write(b'<?xml version="1.0" encoding="utf-8"?>\n<network-security-config><base-config cleartextTrafficPermitted="true" /></network-security-config>\n')
     elif c_sharp: outfile.write(cSharp_end)
