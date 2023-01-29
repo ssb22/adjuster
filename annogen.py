@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.322 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.323 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -248,9 +248,7 @@ cancelOpt("c-sharp")
 parser.add_option("--java",
                   help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
 parser.add_option("--android",
-                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (SDK 24 or higher is required on the build machine, but the resulting app will be compatible with all versions of Android back to 1.x); if the necessary environment variables are not set, this option will just write the files and print a message on stderr explaining what needs to be set for automated command-line building.")
-# SDK 24 was released mid-2016.  If your main OS cannot be upgraded, you should be able to install a newer SDK on a virtual machine, e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless'
-# Ubuntu 22.04's multi-architecture android-sdk-build-tools package uses libandroid-23-java; there is a google-android-platform-24-installer package that can add platform-24 to platform-23 but this still doesn't provide the d8 tool now needed for signing (and it doesn't work to just copy d8 and lib/d8.jar from 29.0.2 on a machine that can run Studio)
+                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (otherwise it puts a message on stderr explaining what needs to be set)")
 parser.add_option("--android-template",
                   help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use --annotation-names, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  annotUrlTrans returns undefined = uses original
 parser.add_option("-L","--pleco-hanping",
@@ -6266,22 +6264,25 @@ if main:
      dirName0 = S(getoutput("pwd|sed -e s,.*./,,"))
      dirName = shell_escape(dirName0)
    if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps after August 2021 ?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
-     cmd_or_exit("$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
-     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
-     if os.path.exists(os.environ["BUILD_TOOLS"]+"/dx"):
+     if "SDK_SSH" in os.environ:
+       remote1 = 'ssh "$SDK_SSH" "cd '+getoutput("mktemp -d")+' && '
+       remote2 = '"'
+       cmd_or_exit('tar -zc . | '+remote1+'tar -zx'+remote2)
+     else: remote1=remote2 = ""
+     cmd_or_exit(remote1+"$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_"+remote2) # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
+     cmd_or_exit(remote1+"find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile"+remote2) # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
+     if not remote1 and os.path.exists(os.environ["BUILD_TOOLS"]+"/dx"): # older SDK (not currently supported if SDK_SSH set, TODO?)
       a = " -JXmx4g --force-jumbo" # -J option must go first
       if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
        a += " --min-sdk-version=1" # older versions of dx don't have that flag, but will be min-sdk=1 anyway
       cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
-     else: cmd_or_exit("$BUILD_TOOLS/d8 --min-api 1 --output bin $(find bin -type f -name '*.class')")
-     cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
-     cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add -0 '' "+dirName+".ap_ classes.dex")
-     rm_f("bin/"+dirName0+".apk") ; cmd_or_exit("$BUILD_TOOLS/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk")
-     rm_f("../"+dirName0+".apk")
-     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("$BUILD_TOOLS/apksigner sign --ks \"$KEYSTORE_FILE\" --v1-signer-name \"$KEYSTORE_USER\" --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out ../"+dirName+".apk bin/"+dirName+".apk")
-     else: cmd_or_exit("$BUILD_TOOLS/apksigner sign --ks \"$HOME\"/.android/debug.keystore --v1-signer-name androiddebugkey --ks-pass pass:android --key-pass pass:android --out ../"+dirName+".apk bin/"+dirName+".apk") # if KEYSTORE_FILE not provided, try to use debug.keystore generated by Eclipse/Studio (TODO: file may not be present if you haven't created/tried any projects yet)
-     rm_f("bin/"+dirName0+".ap_")
-     rm_f("bin/"+dirName0+".apk")
+     else: cmd_or_exit(remote1+"$BUILD_TOOLS/d8 --min-api 1 --output bin $(find bin -type f -name '*.class')"+remote2)
+     cmd_or_exit(remote1+"cp bin/resources.ap_ bin/"+dirName+".ap_"+remote2)
+     cmd_or_exit(remote1+"cd bin && $BUILD_TOOLS/aapt add -0 '' "+dirName+".ap_ classes.dex"+remote2)
+     cmd_or_exit(remote1+"rm -f bin/"+dirName0+".apk && $BUILD_TOOLS/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk && rm -f ../"+dirName0+".apk"+remote2)
+     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit(remote1+"$BUILD_TOOLS/apksigner sign --ks $KEYSTORE_FILE --v1-signer-name $KEYSTORE_USER --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out ../"+dirName+".apk bin/"+dirName+".apk"+remote2)
+     cmd_or_exit(remote1+"rm -f bin/"+dirName0+".ap_ bin/"+dirName0+".apk"+remote2)
+     if remote1: cmd_or_exit(remote1+"P=\$(pwd) && cd .. && cat "+dirName+".apk && rm -rf "+dirName+".apk \$P"+remote2+" > ../"+dirName+".apk")
      if not can_track_android: cmd_or_exit("du -h ../"+dirName+".apk")
    if can_track_android:
      import httplib2,googleapiclient.discovery,oauth2client.service_account # pip install google-api-python-client (or pip install --upgrade google-api-python-client if yours is too old).  Might need pip install oauth2client also.
@@ -6316,20 +6317,26 @@ if main:
 To have Annogen build it for you, set these environment variables
 before the Annogen run (change the examples obviously) :
    export SDK=/home/example/Android/Sdk
-   export PLATFORM=$SDK/platforms/android-19
-   export BUILD_TOOLS=$SDK/build-tools/21.0.2
-   # To get a release build, additionally set:
+   export PLATFORM=$SDK/platforms/android-33
+   export BUILD_TOOLS=$SDK/build-tools/33.0.1
+   # To sign the build (required for release), additionally set:
    export KEYSTORE_FILE=/path/to/keystore
    export KEYSTORE_USER='your user name'
    export KEYSTORE_PASS='your password'
-   # You can upload this to Google Play before August 2021
-   # (or after that for updates to older apps).  In August
-   # Google Play will enforce a different 'bundle' format
-   # for new apps, which I don't yet know how to make.  It
-   # should be possible to update existing apps in the old
-   # format for some time after though.
-   # To upload the release to Google Play, additionally set:
+
+   # The app will be compatible with Android 1.0+
+   # but SDK 24+ is required on the build machine.
+   # SDK 24 was released mid-2016.  If you have an older Intel-based machine whose main OS cannot be upgraded, you may be able to install a newer SDK on a virtual machine, e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless'
+   # On non-Intel architectures, things are more complicated.  Ubuntu 22.04's multi-architecture android-sdk-build-tools package is not suitable (even together with google-android-platform-24-installer) because it doesn't provide the necessary update to app signing in SDK 24.  But if you're running on something like an OCI Ampere A1 server, you could make a separate, lower-spec'd x86 machine available just for the Android SDK builds (you'll need an X11 connection to it to download and install Android Studio), and set
+   export SDK_SSH='machine-name'
+   # Annogen will copy the files to be compiled to this machine and run the SDK tools there.
+
+   # You can upload the apk to Google Play to update an existing app.
+   # Since August 2021, Google Play enforces a different 'bundle' format
+   # for new apps, which I don't yet know how to make.
+   # To upload the update release to Google Play, additionally set:
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
+   # (this is on the local machine, not SDK_SSH)
    # and optionally:
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
    export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
