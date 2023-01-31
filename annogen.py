@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.323 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.324 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -545,13 +545,18 @@ if extra_js.startswith("@"):
        if not B(fSR[i]) in dat: errExit("extra-js with search and replace: unable to find "+repr(fSR[i])+" in "+f)
        dat = dat.replace(B(fSR[i]),B(fSR[i+1]))
    if can_check_syntax:
+     out = err = True
      if os.path.exists("/dev/shm"):
-       # node -c /dev/stdin can fail on GNU/Linux
+       # node -c /dev/stdin can fail on some installations of GNU/Linux (but /dev/shm can fail on others, so try both)
        fn="/dev/shm/"+str(os.getpid())+".js"
        open(fn,"wb").write(dat)
        out,err = subprocess.Popen("node -c "+fn,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate()
        os.remove(fn)
-     else: out,err = subprocess.Popen("node -c /dev/stdin",shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate(dat)
+     if out or err:
+       out0,err0 = out,err
+       out,err = subprocess.Popen("node -c /dev/stdin",shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE).communicate(dat)
+       if (out or err) and not out0==True:
+         out,err = out0+out,err0+err
      if out or err: errExit("Syntax check failed for extra-js file "+f+"\n"+"node stdout: "+repr(out)+"\nnode stderr: "+repr(err))
    else: warn("No syntax checker available for "+f)
    m=re.search(br"\([^)]*\)\s*=>\s*{",dat)
