@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.324 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.325 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -246,9 +246,9 @@ parser.add_option("-#","--c-sharp",
 cancelOpt("c-sharp")
 
 parser.add_option("--java",
-                  help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option.  See --android for example use.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/package and the main class will be called Annotator.")
+                  help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/annotator and the main class will be called Annotator.")
 parser.add_option("--android",
-                  help="URL for an Android app to browse.  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (otherwise it puts a message on stderr explaining what needs to be set)")
+                  help="URL for an Android app to browse (--java must be set).  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (otherwise it puts a message on stderr explaining what needs to be set)")
 parser.add_option("--android-template",
                   help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use --annotation-names, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  annotUrlTrans returns undefined = uses original
 parser.add_option("-L","--pleco-hanping",
@@ -2859,14 +2859,32 @@ if android_print: android_clipboard += b';'+android_print_script.replace(br'\"',
 android_clipboard += br"""</script>
 </body></html>"""
 java_src = br"""package %%JPACKAGE%%;
+import java.io.*;
 public class Annotator {
-public Annotator() { %%JDATA%%
-    addrLen = data[0] & 0xFF;"""
-if post_normalise: java_src += b"""
+public Annotator("""
+if android and data_driven:
+  # will need a context param to read from assets
+  java_src += b"android.content.Context context"
+java_src += b")"
+if data_driven:
+  java_src += b" throws IOException"
+  if zlib: java_src += b",java.util.zip.DataFormatException"
+java_src += b" {"
+if data_driven:
+  java_src += b"""try { data=new byte[%%DLEN%%]; } catch (OutOfMemoryError e) { throw new IOException("Out of memory! Can't load annotator!"); }"""
+  if android: java_src += b'context.getAssets().open("annotate.dat").read(data);'
+  else: assert 0, "non-Android data-driven Java not yet implemented" # should have errExit
+  if zlib: java_src += br"""
+java.util.zip.Inflater i=new java.util.zip.Inflater();
+i.setInput(data);
+byte[] decompressed; try { decompressed=new byte[%%ULEN%%]; } catch (OutOfMemoryError e) { throw new IOException("Out of memory! Can't unpack annotator!"); }
+i.inflate(decompressed); i.end(); data = decompressed;"""
+  java_src += br"addrLen = data[0] & 0xFF;"
+  if post_normalise: java_src += b"""
     dPtr = 1; char[] compressedFreqs;
     try {
         compressedFreqs = new String(java.util.Arrays.copyOfRange(data,readAddr(),data.length), "UTF-16LE").toCharArray();
-    } catch (java.io.UnsupportedEncodingException e) {
+    } catch (UnsupportedEncodingException e) {
         // should never happen with UTF-16LE
         return;
     }
@@ -2878,12 +2896,13 @@ if post_normalise: java_src += b"""
     } while(w!=0) { normalisationTable[w]=w; w++; /* overflows to 0 */ }
 }
 char[] normalisationTable; byte[] origInBytes;"""
-else: java_src += b"}"
+  else: java_src += b"}" # end c'tor w/out adding extra private data
+else: java_src += b"}" # no data_driven: empty constructor
 java_src += br"""
 int nearbytes;
 byte[] inBytes;
 public int inPtr,writePtr; boolean needSpace;
-java.io.ByteArrayOutputStream outBuf;
+ByteArrayOutputStream outBuf;
 public void sn(int n) { nearbytes = n; }
 static final byte EOF = (byte)0; // TODO: a bit hacky
 public byte nB() {
@@ -2943,7 +2962,7 @@ public void o2(int numBytes,String annot,String title) {
 byte[] s2b(String s) {
   // Convert string to bytes - version that works before Android API level 9 i.e. in Java 5 not 6.  (Some versions of Android Lint sometimes miss the fact that s.getBytes(UTF8) where UTF8==java.nio.charset.Charset.forName("UTF-8") won't always work.)  We could do an API9+ version and use @android.annotation.TargetApi(9) around the class, but anyway we'd rather not have to generate a special Android-specific version of Annotator as well as putting Android stuff in a separate class.)
   try { return s.getBytes("UTF-8"); }
-  catch(java.io.UnsupportedEncodingException e) {
+  catch(UnsupportedEncodingException e) {
     // should never happen for UTF-8
     return null;
   }
@@ -3053,7 +3072,7 @@ if post_normalise: java_src += br"""
   origInBytes=s2b(txt); char[] tmp=txt.toCharArray(); for(int i=0; i<tmp.length; i++) tmp[i]=normalisationTable[tmp[i]]; txt=new String(tmp);
 """
 java_src += br"""
-  nearbytes=%%YBYTES%%;inBytes=s2b(txt);writePtr=0;needSpace=false;outBuf=new java.io.ByteArrayOutputStream();inPtr=0;
+  nearbytes=%%YBYTES%%;inBytes=s2b(txt);writePtr=0;needSpace=false;outBuf=new ByteArrayOutputStream();inPtr=0;
   while(inPtr < inBytes.length) {
     int oldPos=inPtr; """
 if data_driven:
@@ -3065,22 +3084,19 @@ else: java_src += b"%%JPACKAGE%%.topLevelMatch.f(this);"
 java_src += br"""
     if (oldPos==inPtr) { needSpace=false; o(nB()); writePtr++; }
   }
-  String ret=null; try { ret=new String(outBuf.toByteArray(), "UTF-8"); } catch(java.io.UnsupportedEncodingException e) {}"""
+  String ret=null; try { ret=new String(outBuf.toByteArray(), "UTF-8"); } catch(UnsupportedEncodingException e) {}"""
 if post_normalise: java_src = java_src.replace(b"inBytes[writePtr",b"origInBytes[writePtr").replace(b"o(nB()); writePtr++;",b"inPtr++; o(origInBytes[writePtr++]);")
 if existing_ruby_shortcut_yarowsky: java_src += b"shortcut_nearTest=old_snt;"
 java_src += br"""
   inBytes=null; outBuf=null; return ret;
-}
+}"""
+if not android: java_src += b"""
+public static void main(String[] args) {
+  BufferedReader r=new BufferedReader(new InputStreamReader(System.in)); String s; Annotator a=new Annotator();
+  try { while((s=r.readLine()) != null) System.out.println(a.annotate(s)); } catch(IOException i) { System.out.println("IOException"); }
 }
 """
-android_loadData = br"""try { data=new byte[%%DLEN%%]; } catch (OutOfMemoryError e) { throw new java.io.IOException("Out of memory! Can't load annotator!"); }
-context.getAssets().open("annotate.dat").read(data);"""
-if zlib: android_loadData += br"""
-java.util.zip.Inflater i=new java.util.zip.Inflater();
-i.setInput(data);
-byte[] decompressed; try { decompressed=new byte[%%ULEN%%]; } catch (OutOfMemoryError e) { throw new java.io.IOException("Out of memory! Can't unpack annotator!"); }
-i.inflate(decompressed); i.end(); data = decompressed;
-"""
+java_src += b"}"
 
 if os.environ.get("ANNOGEN_CSHARP_NO_MAIN",""):
   cSharp_mainNote = b""
@@ -5936,11 +5952,8 @@ def outputParser(rulesAndConds):
     elif java:
       start = java_src.replace(b"%%JPACKAGE%%",B(jPackage))
       if data_driven:
-        a = android_loadData.replace(b"%%DLEN%%",B(str(len(ddrivn))))
-        if zlib: a = a.replace(b"%%ULEN%%",B(str(origLen)))
-        start = start.replace(b"() { %%JDATA%%",b"(android.content.Context context) throws java.io.IOException { "+a) # Annotator c'tor needs a context argument if it's data-driven, to load annotate.dat
-        if zlib: start = start.replace(b"context) throws java.io.IOException {",b"context) throws java.io.IOException,java.util.zip.DataFormatException {")
-      else: start = start.replace(b"%%JDATA%%",b"")
+        start = start.replace(b"%%DLEN%%",B(str(len(ddrivn))))
+        if zlib: start = start.replace(b"%%ULEN%%",B(str(origLen)))
     elif c_sharp: start = cSharp_start
     elif golang: start = golang_start
     else: start = c_start
