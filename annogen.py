@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.325 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.326 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -582,7 +582,7 @@ if sharp_multi:
   if c_sharp or python or golang: errExit("sharp-multi not yet implemented in C#, Python or Go")
   elif windows_clipboard: errExit("sharp-multi not yet implemented for windows-clipboard") # would need a way to select the annotator, probably necessitating a GUI on Windows
 if java or javascript or python or c_sharp or golang or dart:
-    def cOnly(param,lang="C"): errExit(param+" not yet implemented in any language other than "+lang+", so cannot be used with --java, --javascript, --python, --c-sharp, --golang or --dart")
+    def cOnly(param): errExit(param+" not yet implemented in any language other than C, so cannot be used with --java, --javascript, --python, --c-sharp, --golang or --dart")
     if windows_clipboard: cOnly("--windows-clipboard")
     if library: cOnly("--library")
     if not outcode=="utf-8": cOnly("Non utf-8 outcode")
@@ -636,7 +636,6 @@ if zlib:
 if rulesFile_only and not rulesFile: warn("This run won't do much (--rulesFile-only set with no --rulesFile)") # might be OK as a partial coverage test
 if data_driven:
   if c_sharp or golang: errExit("--data-driven and --zlib are not yet implemented in C# or Go")
-  elif java and not android: errExit("In Java, --data-driven and --zlib currently require --android as we need to know where to store the data file") # TODO: option to specify path in 'pure' Java? (in which case also update the 'compress' errExit above so it doesn't check for android before suggesting zlib)
 elif javascript or python or dart: data_driven = True
 compact_opcodes = data_driven and not fast_assemble
 if java or javascript or python or c_sharp or golang or dart: c_compiler = None
@@ -2873,7 +2872,7 @@ java_src += b" {"
 if data_driven:
   java_src += b"""try { data=new byte[%%DLEN%%]; } catch (OutOfMemoryError e) { throw new IOException("Out of memory! Can't load annotator!"); }"""
   if android: java_src += b'context.getAssets().open("annotate.dat").read(data);'
-  else: assert 0, "non-Android data-driven Java not yet implemented" # should have errExit
+  else: java_src += b'this.getClass().getResourceAsStream("/annotate.dat").read(data);'
   if zlib: java_src += br"""
 java.util.zip.Inflater i=new java.util.zip.Inflater();
 i.setInput(data);
@@ -3092,8 +3091,10 @@ java_src += br"""
 }"""
 if not android: java_src += b"""
 public static void main(String[] args) {
-  BufferedReader r=new BufferedReader(new InputStreamReader(System.in)); String s; Annotator a=new Annotator();
-  try { while((s=r.readLine()) != null) System.out.println(a.annotate(s)); } catch(IOException i) { System.out.println("IOException"); }
+  try {
+    BufferedReader r=new BufferedReader(new InputStreamReader(System.in)); String s; Annotator a=new Annotator();
+    while((s=r.readLine()) != null) System.out.println(a.annotate(s));
+  } catch(Exception e) { e.printStackTrace(); System.exit(1); }
 }
 """
 java_src += b"}"
@@ -5961,7 +5962,7 @@ def outputParser(rulesAndConds):
     if data_driven:
       if zlib: dataName = "origData"
       else: dataName = "data"
-      if java: open(jSrc+"/../assets/annotate.dat","wb").write(ddrivn)
+      if java: open(jSrc+cond(android,"/../assets/annotate.dat","/annotate.dat"),"wb").write(ddrivn)
       else:
         outfile.write(b"static unsigned char "+B(dataName)+b"[]=\""+c_escapeRawBytes(ddrivn)+b'\";\n')
         if zlib: outfile.write(c_zlib.replace(b'%%ORIGLEN%%',B(str(origLen))).replace(b'%%ZLIBLEN%%',B(str(len(ddrivn))))+b"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
