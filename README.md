@@ -761,16 +761,16 @@ Options:
  : The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the "cc" command which usually redirects to your "normal" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a **long** time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: cc -o annotator
 
 `--max-or-length=`
- : The maximum number of items allowed in an OR-expression in non table-driven code (used when ybytes is in effect). When an OR-expression becomes larger than this limit, it will be made into a function. 0 means unlimited, which works for tcc and gcc; many other compilers have limits. Default: 100
+ : [**Deprecated**] The maximum number of items allowed in an OR-expression in non table-driven code (used when ybytes is in effect). When an OR-expression becomes larger than this limit, it will be made into a function. 0 means unlimited, which works for tcc and gcc; many other compilers have limits. Default: 100
 
 `--nested-if`
- : Allow C/C#/Java/Go if() blocks (but not switch() constructs) to be nested to unlimited depth.  This probably increases the workload of the compiler's optimiser when reducing size, but may help when optimising for speed.
+ : [**Deprecated**] Allow C/C#/Java/Go if() blocks (but not switch() constructs) to be nested to unlimited depth.  This probably increases the workload of the compiler's optimiser when reducing size, but may help when optimising for speed.
 
 `--no-nested-if`
  : Cancels any earlier `--nested-if` option in Makefile variables etc
 
 `--nested-switch=`
- : Allow C/C#/Java/Go switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for small savings in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.  Setting this to anything other than 0 implies `--nested-if` also.
+ : [**Deprecated**] Allow C/C#/Java/Go switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for small savings in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.  Setting this to anything other than 0 implies `--nested-if` also.
 
 `--outcode=`
  : Character encoding to use in the generated parser and rules summary (default utf-8, must be ASCII-compatible i.e. not utf-16)
@@ -818,7 +818,7 @@ Options:
  : Cancels any earlier `--compress` option in Makefile variables etc
 
 `-D`, `--data-driven`
- : Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take some load off the compiler (so try it if you get errors like clang's "section too large"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a small reduction in execution speed.  Javascript, Python and Dart output is always data-driven anyway.
+ : Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take load off the compiler (so try it if you get errors like clang's "section too large"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a negligible reduction in execution speed.  Deprecated: In future this option will be always on (as having it off is now more trouble than it's worth) so it will no longer be an 'option'.  Javascript, Python and Dart output is always data-driven anyway.
 
 `--no-data-driven`
  : Cancels any earlier `--data-driven` option in Makefile variables etc
@@ -848,7 +848,7 @@ Options:
  : Cancels any earlier `--windows-clipboard` option in Makefile variables etc
 
 `-#`, `--c-sharp`
- : Instead of generating C code, generate C# (not quite as efficient as the C code but close; might be useful for adding an annotator to a C# project; see comments at the start for usage)
+ : [**Deprecated**] Instead of generating C code, generate C# (not quite as efficient as the C code but close; might be useful for adding an annotator to a C# project; see comments at the start for usage)
 
 `--no-c-sharp`
  : Cancels any earlier `--c-sharp` option in Makefile variables etc
@@ -860,7 +860,7 @@ Options:
  : URL for an Android app to browse (`--java` must be set).  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (otherwise it puts a message on stderr explaining what needs to be set)
 
 `--android-template=`
- : File to use as a template for Android start HTML.  This option implies `--android`=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use `--annotation-names`, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery, but **not** Amazon AppStore as they don't want 'competition' to their Silk browser.
+ : File to use as a template for Android start HTML.  This option implies `--android`=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use `--annotation-names`, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery (non-China only from 2022), but **not** Amazon AppStore as they don't want 'competition' to their Silk browser.
 
 `-L`, `--pleco-hanping`
  : In the Android app, make popup definitions link to Pleco or Hanping if installed
@@ -902,7 +902,7 @@ Options:
  : Cancels any earlier `--tts-js` option in Makefile variables etc
 
 `--accept-html=`
- : When generating an Android browser, display the HTML fragment from this file and have the user press Accept before they first use the app.  Some misguided app stores insist you make your users accept a privacy policy even when you don't collect data.  This is bad design for the users (training them to think warnings are unimportant) but the stores might think requiring it gets them out of legal trouble.
+ : [**Deprecated**] When generating an Android browser, display the HTML fragment from this file and have the user press Accept before they first use the app.  Some misguided app stores insist you make your users accept a privacy policy even when you don't collect data.  This is bad design for the users (training them to think warnings are unimportant) but the stores might think requiring it gets them out of legal trouble.
 
 `--existing-ruby-js-fixes=`
  : Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: `--existing-ruby-js-fixes`=@file.js
