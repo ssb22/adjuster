@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.326 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.327 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -491,7 +491,7 @@ if args: errExit("Unknown argument "+repr(args[0]))
 if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
 if sharp_multi and not annotation_names and (browser_extension or existing_ruby_lang_regex): errExit("--sharp-multi requires --annotation-names to be set if --browser-extension or --existing-ruby-lang-regex")
 if existing_ruby_lang_regex:
-    while len(existing_ruby_lang_regex.split(','))<len(annotation_names.split(',')): existing_ruby_lang_regex += br",^\b$"
+    while len(existing_ruby_lang_regex.split(','))<len(annotation_names.split(',')): existing_ruby_lang_regex += r",^\b$"
 if browser_extension:
   javascript = True
   if zlib: errExit("--zlib not currently supported with --browser-extension") # would need to ensure it's decompressed after being read in from annotate-dat.txt
@@ -541,7 +541,7 @@ if extra_js.startswith("@"):
    dat = open(f,"rb").read()
    if fSR:
      fSR = fSR.split(':')
-     for i in xrange(0,len(fSR),2):
+     for i in range(0,len(fSR),2):
        if not B(fSR[i]) in dat: errExit("extra-js with search and replace: unable to find "+repr(fSR[i])+" in "+f)
        dat = dat.replace(B(fSR[i]),B(fSR[i+1]))
    if can_check_syntax:
@@ -1083,7 +1083,7 @@ char *annotate(const char *input"""
   readPtr=writePtr=startPtr=(char*)input;
   outWriteLen = strlen(startPtr)*5+1; /* initial guess (must include the +1 to ensure it's non-0 for OutWrite...'s *= code) */
   afree(); outBytes = malloc(outWriteLen);"""
-  if sharp_multi: c_defs += b" numSharps="+annotMap()+";"
+  if sharp_multi: c_defs += b" numSharps="+annotMap()+b";"
   c_defs += br""" annotation_mode = aMode;
   if(outBytes) { outWritePtr = 0; matchAll(); }
   if(outBytes) OutWriteByte(0);
@@ -1599,7 +1599,7 @@ function annotWalk(n"""
     CheckExistingRuby.a(SetNF.r())
     if for_async: FixupRuby = JsBlock(b"if(nf) { nfOld=nReal;n=n.cloneNode(true);nfNew=document.createElement('span');nfNew.className='_adjust0';nfNew.appendChild(n);nfNew.oldHtml=n.outerHTML;",b"}") # and in for_async, the replaceChild for this cloneNode does not happen unless we ALSO can annotate the rb (so it shouldn't disturb ruby that's completely unrelated to the charsets we annotate)
     else: FixupRuby = JsBlock(b"var nReal = n; if(nf) { n=n.cloneNode(true);",b"}") # if messing with existing ruby, first do it offline for speed (and need to set nReal here because didn't set it above if we're not for_async)
-    if existing_ruby_lang_regex: KeepRuby=JsBlock(b"kR=document.documentElement.lang.match(["+b",".join(b"/"+cond(for_android,B(l).replace(b'\\',br'\\'),B(l))+b"/" for l in existing_ruby_lang_regex.split(','))+b"]["+annotNo+b"]);if(kR){",b"}")
+    if existing_ruby_lang_regex: KeepRuby=JsBlock(b"kR=document.documentElement.lang.match(["+b",".join(b"/"+cond(for_android,B(l).replace(b'\\',br'\\'),B(l))+b"/" for l in B(existing_ruby_lang_regex).split(b','))+b"]["+annotNo+b"]);if(kR){",b"}")
     else: KeepRuby = JsBlock() # unconditional
     if existing_ruby_js_fixes:
       if for_android: KeepRuby.a(B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
@@ -2434,7 +2434,7 @@ if accept_html: android_src += br"""
             }"""
 if android_audio: android_src += br"""
             @JavascriptInterface public void sendToAudio(final String s) {
-                class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { try { browser.loadUrl("javascript:var src='"""+android_audio+br""""+java.net.URLEncoder.encode(s,"utf-8")+"';if(!window.audioElement || window.audioElement.getAttribute('src')!=src){window.audioElement=document.createElement('audio');window.audioElement.setAttribute('src',src)}window.audioElement.play()"); } catch(java.io.UnsupportedEncodingException e) {} Toast.makeText(act, "Sent \""+s+"\" to audio server",Toast.LENGTH_LONG).show(); } };
+                class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { try { browser.loadUrl("javascript:var src='"""+B(android_audio)+br""""+java.net.URLEncoder.encode(s,"utf-8")+"';if(!window.audioElement || window.audioElement.getAttribute('src')!=src){window.audioElement=document.createElement('audio');window.audioElement.setAttribute('src',src)}window.audioElement.play()"); } catch(java.io.UnsupportedEncodingException e) {} Toast.makeText(act, "Sent \""+s+"\" to audio server",Toast.LENGTH_LONG).show(); } };
                 act.runOnUiThread(new InjectorTask());
             }"""
 if epub: android_src += br"""
@@ -2880,18 +2880,18 @@ byte[] decompressed; try { decompressed=new byte[%%ULEN%%]; } catch (OutOfMemory
 i.inflate(decompressed); i.end(); data = decompressed;"""
   java_src += br"addrLen = data[0] & 0xFF;"
   if post_normalise: java_src += b"""
-    dPtr = 1; char[] compressedFreqs;
+    dPtr = 1; char[] rleDat;
     try {
-        compressedFreqs = new String(java.util.Arrays.copyOfRange(data,readAddr(),data.length), "UTF-16LE").toCharArray();
+        rleDat = new String(java.util.Arrays.copyOfRange(data,readAddr(),data.length), "UTF-16LE").toCharArray();
     } catch (UnsupportedEncodingException e) {
         // should never happen with UTF-16LE
         return;
     }
     normalisationTable = new char[65536];
-    int maxRLE = compressedFreqs[0]; char w=0; // Java char is unsigned short
-    for(int cF=0; cF < compressedFreqs.length; cF++) {
-        if(compressedFreqs[cF] <= maxRLE) for(int j=0; j<compressedFreqs[cF]; j++) { normalisationTable[w]=w; w++; }
-        else normalisationTable[w++] = compressedFreqs[cF];
+    int maxRLE = rleDat[0]; char w=0; // Java char is unsigned short
+    for(int cF=0; cF < rleDat.length; cF++) {
+        if(rleDat[cF] <= maxRLE) for(int j=0; j<rleDat[cF]; j++) { normalisationTable[w]=w; w++; }
+        else normalisationTable[w++] = rleDat[cF];
     } while(w!=0) { normalisationTable[w]=w; w++; /* overflows to 0 */ }
 }
 char[] normalisationTable; byte[] origInBytes;"""
@@ -3457,7 +3457,7 @@ class BytecodeAssembler:
         self.addOpcode('s0') ; continue
       assert 1 <= len(a) <= 3 and type(a[0])==int and all(type(b)==bytes for b in a[1:]), repr(a)
       assert 1 <= a[0] <= 255, "bytecode currently supports markup or copy between 1 and 255 bytes only, not %d (but 0 is reserved for expansion)" % a[0]
-      self.addBytes(70+len(a)) # 71=copyBytes 72=o() 73=o2
+      self.addOpcode(['copyBytes','o','o2'][len(a)-1])
       if js_6bit:
         self.addBytes((a[0]+(js_6bit_offset-1))&0xFF)
       else: self.addBytes(a[0]) # num i/p bytes to copy
@@ -3544,7 +3544,7 @@ class BytecodeAssembler:
       if js_utf8:
         string = unicodedata.normalize("NFC",string.decode('utf-8')) # NFC very important for browser_extension: some browsers seem to do it anyway, throwing off data addresses if we haven't accounted for that
         l = len(string) # we count in UCS-2 characters
-        assert all((ord(c) <= 0xFFFF) for c in string), "js_utf8 addressing will be confused by non UCS-2: "+repr(string) # TODO: put surrogate pairs? (and increase l by num pairs; ensure Python will emit separate UTF-8 sequences for each part of the surrogate, if needed by JS; might need to escape the pairs after all addresses computed) + what if we're in dart ?
+        assert all((ord(c) < 0xD800 or 0xE000 < ord(c) <= 0xFFFF) for c in string), "js_utf8 addressing will be confused by non UCS-2: "+repr(string) # Surrogate pairs would cause invalid UTF-8, don't know which if any Javascript or Dart implementations would take them
         # Have checked browsers + Node count combining characters separately, so len(string) should be correct (e.g. u'Moc\u0306nik')
         if 1 <= l < 0x02B0: # can use length-first unichr (avoid combining and modifier marks just in case; also avoid 0xD800+ surrogates)
           string = unichr(l) + string
@@ -3586,7 +3586,7 @@ class BytecodeAssembler:
               self.l[-2] = self.l[-2][:-1]
             self.l.append(dat) ; continue
         # otherwise it's a function, and non-reserved labels are local, so we need to rename them
-        l2l = {}
+        l2l = {} # local label to renamed label
         for i in dat:
             if type(i)==int:
                 if i>0: j=i
@@ -3605,7 +3605,9 @@ class BytecodeAssembler:
       maxRLE = min(bmp[0][0],min(v for k,v in bmp))-1
       assert maxRLE >= 0, "can't have a mapping to 0"
       curPtr = 0
-      def lsbmsb(i): return B(chr(i&0xFF)+chr(i>>8))
+      def lsbmsb(i):
+        assert type(i)==int and 0<=i<=0xFFFF
+        return B(chr(i&0xFF)+chr(i>>8))
       for i in xrange(len(bmp)):
         delta = bmp[i][0]-curPtr
         while delta:
@@ -3636,28 +3638,28 @@ class BytecodeAssembler:
             bytesFromEnd = 0
             lDic = {} # labelNo -> bytesFromEnd
             def LGet(lRef,origOperandsLen):
-              # return the number of bytes between the end of the new instruction and the label.  Since bytesFromEnd includes origOperandsLen, we need to subtract that out, which would then leave bytes from end of code to end of new instruction (no matter what the length of the new instruction will be)
+              # Return the number of bytes between the end of the proposed compact instruction and the label, to see if it's small enough to fit inside the compact instruction.  Since bytesFromEnd includes origOperandsLen, we need to subtract that out, which would then leave bytes from end of code to end of proposed new instruction (whatever its length will be), and then subtracting the bytesFromEnd of the label will give the number of forward bytes we want.
               if not -lRef in lDic: return -1
               return bytesFromEnd-origOperandsLen-lDic[-lRef]
             counts_to_del = set()
             for count in xrange(len(src)-1,-1,-1):
                 i = src[count]
-                if type(i) in [bytes,unicode] and len(i)==1 and 71<=ord(i)<=73 and src[count+ord(i)-70+1]==('return',):
-                  # (74 to 76 = 71 to 73 + return)
-                  src[count] = B(chr(ord(i)+3))
-                  counts_to_del.add(count+ord(i)-70+1)
-                  compacted += 1 ; bytesFromEnd -= 1
-                  compaction_types.add('return')
-                elif type(i)==tuple and type(i[0])==str:
+                if type(i)==tuple and type(i[0])==str:
                     opcode = i[0]
                     i = "-" # for len() at end of block
-                    if opcode=='call' and src[count+2]==('return',):
+                    if opcode in ['copyBytes','o','o2'] and src[count+['copyBytes','o','o2'].index(opcode)+2]==('return',):
+                      # 74 to 76 = 71 to 73 + return
+                      src[count] = B(chr(['copyBytes','o','o2'].index(opcode)+74))
+                      counts_to_del.add(count+['copyBytes','o','o2'].index(opcode)+2)
+                      compacted += 1 ; bytesFromEnd -= 1
+                      compaction_types.add('return')
+                    elif opcode=='call' and src[count+2]==('return',):
                       src[count] = ('jump',)
                       counts_to_del.add(count+2)
                       compacted += 1 ; bytesFromEnd -= 1
                       compaction_types.add(opcode)
                       # can't fall through by setting opcode='jump', as the address will be in the function namespace (integer in tuple, LGet would need adjusting) and is highly unlikely to be within range (TODO: unless we try to arrange the functions to make it so for some cross-calls)
-                    if opcode=='jump' and 0 <= LGet(src[count+1],addrSize) < 0x80: # we can use a 1-byte relative forward jump (up to 128 bytes), useful for 'break;' in a small switch
+                    elif opcode=='jump' and 0 <= LGet(src[count+1],addrSize) < 0x80: # we can use a 1-byte relative forward jump (up to 128 bytes), useful for 'break;' in a small switch
                       offset = LGet(src[count+1],addrSize)
                       if offset == 0:
                         # can remove this jump completely
@@ -3711,7 +3713,7 @@ class BytecodeAssembler:
                 if type(i)==tuple and type(i[0])==str: i = B(chr(BytecodeAssembler.opcodes[i[0]]))
                 elif type(i) in [int,tuple]: # labels
                     if type(i)==int: i2,iKey = i,-i # +ve integers are labels, -ve integers are references to them
-                    else: i2,iKey = i[0],(-i[0],) # reserved labels (a different counter)
+                    else: i2,iKey = i[0],(-i[0],) # reserved labels (a different counter, handled here by putting the key in a tuple)
                     assert type(i2)==int
                     # At this point, if i2<0 then iKey will be the lDic key for looking up the label.
                     if i2 > 0: # label going in here: set lDic etc (without outputting any bytes of course)
@@ -3858,7 +3860,7 @@ if js_6bit: js_start += br"""
         else if (c > 90) { c-=90; 
             var i=-1;if(p<inputLength){var cc=input.charCodeAt(p++)-93; if(cc>118)cc-=20; i=data.slice(dPtr,dPtr+c).indexOf(String.fromCharCode(cc))}
             if (i==-1) i = c;
-            if(i) dPtr += data.charCodeAt(dPtr+c+i-1)-"""+str(js_6bit_offset)+br""";
+            if(i) dPtr += data.charCodeAt(dPtr+c+i-1)-"""+B(str(js_6bit_offset))+br""";
             dPtr += c+c }"""
 else: js_start += br"""
         else if (c > 107) { c-=107;
@@ -4790,10 +4792,10 @@ def orRegexes(escaped_keys):
     ek = escaped_keys[len(ek):]
     for r in orRegexes(ek): yield r
 
-def PairPriorities(markedDown_Phrases,existingFreqs={}):
+def PairPriorities(markedDown_Phrases,existingPris={}):
     markedDown_Phrases = list(markedDown_Phrases)
     assert all(type(p)==list for p in markedDown_Phrases)
-    mdwSet = set(existingFreqs.keys())
+    mdwSet = set(existingPris.keys())
     for p in markedDown_Phrases: mdwSet.update(p)
     assert all(type(w)==unicode for w in mdwSet)
     votes = {} ; lastT = time.time()
@@ -4815,7 +4817,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
             else: direction = -1
             votes[k]=votes.get(k,0)+direction
             if diagnose in k: diagnose_write("Prefer %s over %s: %d vote from %s | %s" % (k+(direction,a,b)))
-    sys.stderr.write("PairPriorities: done\n")
+    sys.stderr.write("PairPriorities: done (%d relationships)\n" % len(votes))
     del markedDown_Phrases
     global closure,gtThan,lessThan
     closure,gtThan, lessThan = set(),{},{}
@@ -4842,11 +4844,12 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
           if r==None: r = False
           diagnose_write("addToClosure(%s,%s) [v=%d] returned %s" % (a,b,abs(v),repr(r)))
     trueClosure,closure = closure,None
-    lastW,lastF,lastPriorW = set(),None,set()
-    for _,w in reversed(sorted((f,w) for w,f in existingFreqs.items())): # highest frequency first
-      if lastW and existingFreqs[w] < lastF:
+    lastW,lastP,lastPriorW = set(),None,set()
+    if existingPris: sys.stderr.write("Processing %d existing priorities...\n" % len(existingPris.items()))
+    for _,w in reversed(sorted((p,w) for w,p in existingPris.items())): # highest priority first
+      if lastP and existingPris[w] < lastP:
         lastPriorW,lastW = lastW,set()
-        lastF = existingFreqs[w]
+        lastP = existingPris[w]
       for W in lastPriorW: addToClosure(W,w)
       lastW.add(w)
     sys.stderr.write("%d words\n" % len(mdwSet))
@@ -4873,7 +4876,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
           _cmpW=True
         if w in tcA:
           if w==diagnose:
-            f0 = existingFreqs.get(w,0)
+            f0 = existingPris.get(w,0)
             found = False
             for i in xrange(len(r)):
               W,f = r[i]
@@ -4890,7 +4893,7 @@ def PairPriorities(markedDown_Phrases,existingFreqs={}):
             l = [f0-1]
           else: l = [r[i][1] for i in xrange(len(r)) if (w,r[i][0]) in trueClosure]
         else: l = []
-        r.append((w,1+max([existingFreqs.get(w,0)-1]+l)))
+        r.append((w,1+max([existingPris.get(w,0)-1]+l)))
     if _cmpW: sys.stderr.write("Finalising: done%s\n" % clear_eol)
     return sorted(r)
 
@@ -5843,8 +5846,8 @@ def outputParser(rulesAndConds):
       if post_normalise:
         md2 = post_normalise_translate(md)
         byteSeq = md2.encode(outcode)
-        if type(conds)==tuple: conds=(conds[0],map(post_normalise_translate,conds[1]),conds[2])
-        else: conds=map(post_normalise_translate,conds)
+        if type(conds)==tuple: conds=(conds[0],list(map(post_normalise_translate,conds[1])),conds[2])
+        else: conds=list(map(post_normalise_translate,conds))
       else: byteSeq = md.encode(outcode)
       action,gotAnnot = matchingAction(rule,glossDic,glossMiss,glosslist,omitlist)
       if not gotAnnot: return # not glosslisted, or some spurious o("{","") rule that got in due to markup corruption
@@ -6038,7 +6041,7 @@ def setup_browser_extension():
   except: pass
   def icons(key,sizes):
     if any(os.path.isfile(dirToUse+os.sep+s+".png") for s in sizes):
-      return b',"'+B(key)+'":{'+b",".join(('"%s":"%s.png"' % (s,s)) for s in sizes if os.path.isfile(dirToUse+os.sep+s+".png"))+b"}"
+      return b',"'+B(key)+b'":{'+b",".join(B('"%s":"%s.png"' % (s,s)) for s in sizes if os.path.isfile(dirToUse+os.sep+s+".png"))+b"}"
     else: return b""
   try: # increment existing version if present
     versionName = re.search(b'"version": *"([^"]*)"',open(dirToUse+"/manifest.json","rb").read()).group(1)
@@ -6053,7 +6056,7 @@ def setup_browser_extension():
   "background": { """+cond(manifest_v3,b'"service_worker": "background.js"',b'"scripts": ["background.js"]')+br""" },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
   """+cond(manifest_v3,b'"action"',b'"browser_action"')+br""":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
-  """+cond(manifest_v3,b'"host_permissions": ["<all_urls>"], "permissions": ["clipboardRead","storage","scripting"]',b'"permissions": ["<all_urls>","clipboardRead"]')+b",%s}") % (B(browser_extension),B(cond(browser_extension_description,'" description": "%s",'%browser_extension_description,"")),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
+  """+cond(manifest_v3,b'"host_permissions": ["<all_urls>"], "permissions": ["clipboardRead","storage","scripting"]',b'"permissions": ["<all_urls>","clipboardRead"]')+b"%s}") % (B(browser_extension),B(cond(browser_extension_description,'" description": "%s",'%browser_extension_description,"")),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
   open(dirToUse+"/background.js","wb").write(js_start+js_end)
   open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
   open(dirToUse+"/config.html","wb").write(extension_config)
@@ -6233,19 +6236,19 @@ if main and not compile_only:
   if priority_list:
     if os.path.exists(priority_list):
       sys.stderr.write("Reading "+priority_list+"\n")
-      def getFreq(line):
-        word,freq = line.decode(outcode).rstrip().rsplit(None,1)
-        try: return word,int(freq)
-        except: return word,float(freq)
-      existingFreqs=dict(getFreq(l) for l in openfile(priority_list) if len(l.strip().split())>=2)
-    else: existingFreqs = {}
+      def getPri(line):
+        word,pri = line.decode(outcode).rstrip().rsplit(None,1)
+        try: return word,int(pri)
+        except: return word,float(pri)
+      existingPris=dict(getPri(l) for l in openfile(priority_list) if len(l.strip().split())>=2)
+    else: existingPris = {}
     sys.stderr.write("Parsing...") ; sys.stderr.flush()
     i=[[markDown(w) for w in splitWords(phrase)] for phrase in splitWords(corpus_unistr,phrases=True)]
     del corpus_unistr
     sys.stderr.write(" calling PairPriorities...\n")
-    out="".join(w+"\t"+str(f)+os.linesep for w,f in PairPriorities(i,existingFreqs) if f).encode(outcode)
+    out="".join(w+"\t"+str(f)+os.linesep for w,f in PairPriorities(i,existingPris) if f).encode(outcode)
     # (don't open the output before here, in case exception)
-    if existingFreqs: sys.stderr.write("Updating "+priority_list+"...")
+    if existingPris: sys.stderr.write("Updating "+priority_list+"...")
     else: sys.stderr.write("Writing "+priority_list+"...")
     sys.stderr.flush()
     openfile(priority_list,'w').write(out)
@@ -6284,7 +6287,7 @@ if main:
      dirName = shell_escape(dirName0)
    if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps after August 2021 ?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
      if "SDK_SSH" in os.environ:
-       remote1 = 'ssh "$SDK_SSH" "cd '+getoutput("mktemp -d")+' && '
+       remote1 = 'ssh "$SDK_SSH" "cd '+"'"+getoutput('ssh "$SDK_SSH" mktemp -d')+"' && KEYSTORE_PASS='"+os.environ.get("KEYSTORE_PASS","")+"' " # TODO: non-argv environ pass?
        remote2 = '"'
        cmd_or_exit('tar -zc . | '+remote1+'tar -zx'+remote2)
      else: remote1=remote2 = ""
@@ -6295,7 +6298,8 @@ if main:
       if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
        a += " --min-sdk-version=1" # older versions of dx don't have that flag, but will be min-sdk=1 anyway
       cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
-     else: cmd_or_exit(remote1+"$BUILD_TOOLS/d8 --min-api 1 --output bin $(find bin -type f -name '*.class')"+remote2)
+     elif remote1: cmd_or_exit(remote1+"$BUILD_TOOLS/d8 --min-api 1 --output bin \$(find bin -type f -name '*.class')"+remote2)
+     else: cmd_or_exit("$BUILD_TOOLS/d8 --min-api 1 --output bin $(find bin -type f -name '*.class')")
      cmd_or_exit(remote1+"cp bin/resources.ap_ bin/"+dirName+".ap_"+remote2)
      cmd_or_exit(remote1+"cd bin && $BUILD_TOOLS/aapt add -0 '' "+dirName+".ap_ classes.dex"+remote2)
      cmd_or_exit(remote1+"rm -f bin/"+dirName0+".apk && $BUILD_TOOLS/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk && rm -f ../"+dirName0+".apk"+remote2)
@@ -6355,7 +6359,7 @@ before the Annogen run (change the examples obviously) :
    # for new apps, which I don't yet know how to make.
    # To upload the update release to Google Play, additionally set:
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
-   # (this is on the local machine, not SDK_SSH)
+   # (this is on the local machine, not SDK_SSH, and must be an absolute path)
    # and optionally:
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
    export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
