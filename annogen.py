@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.327 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.328 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1628,12 +1628,12 @@ function annotWalk(n"""
     r += br"""cP && c.previousSibling!=cP && c.previousSibling.lastChild.nodeType==1) n.insertBefore(document.createTextNode(' '),c); /* space between the last RUBY and the inline link or em etc (but don't do this if the span ended with unannotated punctuation like em-dash or open paren) */"""
   if existing_ruby_shortcut_yarowsky and for_android: r += br"""
             var setR=false; if(!inRuby) {setR=(c.nodeName=='RUBY');if(setR)ssb_local_annotator.setYShortcut(true)}
-            annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href),inRuby||setR);
+            annotWalk(c,document,inLink||(c.nodeName=='A'&&!!c.href)||c.nodeName=='BUTTON',inRuby||setR);
             if(setR)ssb_local_annotator.setYShortcut(false)"""
   else:
     r += b"annotWalk(c"
     if not for_async: r += b",document"
-    if for_android: r += b",inLink||(c.nodeName=='A'&&!!c.href),inRuby||(c.nodeName=='RUBY')"
+    if for_android: r += b",inLink||(c.nodeName=='A'&&!!c.href)||c.nodeName=='BUTTON',inRuby||(c.nodeName=='RUBY')"
     if for_async and CheckExistingRuby: r += b",nfOld,nfNew"
     r += b");"
   r += br"""
@@ -2589,7 +2589,7 @@ android_src += br"""
                 public void onPageFinished(WebView view,String url) {
                     if(AndroidSDK < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.  Also handles displaying the forward button when needed (4.4+ uses different logic for this in onKeyDown, because API19+ reduces frequency of scans when same length, due to it being only a backup to MutationObserver)
                     browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();if(!document.doneFwd && ssb_local_annotator.canGoForward()){var e=document.getElementById('annogenFwdBtn');if(e){e.style.display='inline';document.doneFwd=1}}window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
-                    else browser.evaluateJavascript(js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href);ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})",null);
+                    else browser.evaluateJavascript(js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var i,j;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href)||m.nodeName=='BUTTON';ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}}).observe(document.body,{childList:true,subtree:true})",null);
                 } });"""
 if android_template: android_src += br"""
         if(AndroidSDK >= 3 && AndroidSDK < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
