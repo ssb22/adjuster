@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.328 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.329 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -123,7 +123,7 @@ parser.add_option("--normalise-only",
 cancelOpt("normalise-only")
 
 parser.add_option("--post-normalise",
-                  help="Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This is meant for reducing the size of generated Android apps, and is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.")
+                  help="Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.")
 
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
@@ -642,7 +642,7 @@ if java or javascript or python or c_sharp or golang or dart: c_compiler = None
 try: xrange # Python 2
 except: xrange,unichr,unicode = range,chr,str # Python 3
 if post_normalise:
-  if not (java and data_driven): errExit('--post-normalise currently requires --java and data-driven')
+  if not (javascript or java and data_driven): errExit('--post-normalise currently requires --javascript or --java and data-driven')
   if type("")==type(u""): # Python 3 (this requires 3.5+, TODO: support 3.3/3.4 ?)
     import importlib.util as iu
     s = iu.spec_from_file_location("post.normalise", post_normalise)
@@ -653,6 +653,9 @@ if post_normalise:
   post_normalise = post_normalise.table
   for k,v in list(post_normalise.items()):
     if not (k<=0xFFFF and v<=0xFFFF and len(unichr(k).encode('utf-8'))==len(unichr(v).encode('utf-8'))): del post_normalise[k] # BMP only for now, and only mappings that don't change UTF-8 length so inBytes / origInBytes are sync'd
+    elif k==v: del post_normalise[k] # don't need identity mappings
+  problems = set(post_normalise.keys()).intersection(set(post_normalise.values()))
+  if problems: errExit("--post-normalise table problem: both keys AND values have "+", ".join(hex(h) for h in sorted(list(problems))))
   if type(u"")==type(""): post_normalise_translate = lambda x:x.translate(post_normalise) # Python 3 can use the dictionary as-is
   else: post_normalise_translate = lambda u: u''.join(unichr(post_normalise.get(ord(i),ord(i))) for i in u) # as Python 2 .translate can take only len=256 (at least as documented; some versions can do more but not all tested), so we'd better write it out ourselves
 try:
@@ -3597,7 +3600,7 @@ class BytecodeAssembler:
                 else: self.addRef(l2l[j])
             else: self.l.append(i) # str or tuple just cp
     del self.d2l
-    if post_normalise: # must be AFTER d2l, as EOF is used to end it
+    if post_normalise and not javascript: # must be AFTER d2l, as EOF is used to end it
       normLabel = self.makeLabel()
       self.l.insert(0,-normLabel)
       self.l.append(normLabel)
@@ -3755,6 +3758,22 @@ class BytecodeAssembler:
         except TooNarrow: pass
     assert 0, "can't even assemble it with 255-byte addressing !?!"
 
+def js_escapeRawBytes(s):
+  if js_utf8: # type(s)==type(u"")
+    s = s.replace("\\",r"\\").replace('"',r'\"').replace(chr(8),r"\b").replace(chr(9),r"\t").replace(chr(10),r"\n").replace(chr(12),r"\f").replace(chr(13),r"\r")
+    if ignore_ie8: s = s.replace(chr(11),r"\v")
+    if js_octal: s = re.sub("[\x00-\x1f](?![0-9])",lambda m:r"\%o"%ord(m.group()),s)
+    else: s = re.sub(chr(0)+r"(?![0-9])",r"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
+    return re.sub(b"[\x00-\x1f\x7f]",lambda m:br"\x%02x"%ord(m.group()),s.encode('utf-8'))
+  elif type(s)==type(u""): # if we're being passed a Unicode string when not js_utf8, then we must be being called from post_normalise and we want \uNNNN output
+    return re.sub("[^\x20-\x7e]",lambda m:r"\u%04x"%ord(m.group()),s).encode('latin1')
+  # otherwise typeof(s)==typeof(b"")
+  s = s.replace(b"\\",br"\\").replace(b'"',br'\"').replace(B(chr(8)),br"\b").replace(B(chr(9)),br"\t").replace(B(chr(10)),br"\n").replace(B(chr(12)),br"\f").replace(B(chr(13)),br"\r")
+  if ignore_ie8: s = s.replace(B(chr(11)),br"\v")
+  if js_octal: s = re.sub(b"[\x00-\x1f](?![0-9])",lambda m:br"\%o"%ord(m.group()),s)
+  else: s = re.sub(b'\x00'+br"(?![0-9])",br"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
+  return re.sub(b"[\x00-\x1f\x7f-\xff]",lambda m:br"\x%02x"%ord(m.group()),s)
+
 if not browser_extension:
   js_start = b'/* Javascript '+version_stamp+br"""
 
@@ -3806,6 +3825,12 @@ if not browser_extension:
 if sharp_multi: js_start += b"annotate: function(input,aType) { if(aType==undefined) aType=0;"
 else: js_start += b"annotate: function(input) {"
 if removeSpace: js_start += br" input=input.replace(/\B +\B/g,'');" # TODO: document that we do this (currently only in JS annotator here, and Android app via jsAnnot, although Web Adjuster does it separately in Python before calling the filter).  It deals with software that adds ASCII spaces between Chinese characters of the same word, without deleting spaces between embedded English words (TODO: this 'JS + app' version may still delete spaces between punctuation characters, which may be an issue for consecutive quoted words e.g. 'so-called "word1" "word2"').  If doing it at the nextbyte level, we'd have to update prevbyte; if this or doing it at switchbyte level (e.g. recurse) we'd have to do something about the copy pointer (skip the spaces?) and the near-call distance (and associated buffer sizes in C) so they're best pre-removed, but only from between characters we annotate.
+if post_normalise: js_start += br"""
+var nChars = this.nChars;
+var origInBytes = unescape(encodeURIComponent(input));
+input = input.replace(/./g,function(m){return nChars[m]||m});
+if(this.contextL_u8) { this.contextL_u8=unescape(encodeURIComponent(decodeURIComponent(escape(this.contextL_u8)).replace(/./g,function(m){return nChars[m]||m}))); origInBytes = this.contextL_u8 + origInBytes }
+if(this.contextR_u8) this.contextR_u8=unescape(encodeURIComponent(decodeURIComponent(escape(this.contextR_u8)).replace(/./g,function(m){return nChars[m]||m})));"""
 js_start += br"""
 input = unescape(encodeURIComponent(input)); // to UTF-8
 var data = this.data""" # TODO: if input is a whole html doc, insert css in head (e.g. from annoclip and/or adjuster), and hope there's no stuff that's not to be annotated (form fields etc).  But really want them to be using browser_extension or annotate_page if doing this (TODO add css to annotate_page, already there in browser_extension)
@@ -3985,8 +4010,10 @@ return decodeURIComponent(escape(output.join("")))"""
 if js_6bit: js_start = js_start.replace(b"var numBytes = data.charCodeAt(dPtr++);",b"var numBytes = (data.charCodeAt(dPtr++)-"+B(str(js_6bit_offset-1))+b")&0xFF;")
 if sharp_multi: js_start += br""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat("""+annotMap("aType")+br""")+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
 js_start += br"""; // from UTF-8 back to Unicode
-}"""
-if not browser_extension: js_start += b", // end of annotate method\n" # data: ... \n goes here
+}""" # end of annotate method
+if post_normalise: js_start += b',\nnChars:(Object.fromEntries?Object.fromEntries:function(e){o={};Object.keys(e).forEach(function(k){[k,v]=e[k];o[k]=v});return o})(function(){var t="'+js_escapeRawBytes(u''.join(unichr(c) for c in post_normalise.values()))+b'".split("");return "'+js_escapeRawBytes(u''.join(unichr(c) for c in post_normalise.keys()))+b'".split("").map(function(e,i){return [e,t[i]]})}())'
+if not browser_extension: js_start += b",\n" # data: ... \n goes here
+if post_normalise: js_start = js_start.replace(b"input.slice(copyP",b"origInBytes.slice(copyP").replace(b"push(input.charAt",b"push(origInBytes.charAt")
 js_end = br"""};
 function annotate(input"""
 if sharp_multi: js_end += b",aType"
@@ -5642,21 +5669,6 @@ def c_escapeRawBytes(s): # as it won't be valid outcode; don't want to crash any
   if s.endswith(b'\x00'): s=s[:-1] # as the C compiler will add a terminating 0 anyway
   return re.sub(br"(?<!\\)((?:\\\\)*\\x..)([0-9a-fA-F])",br'\1""\2',zapTrigraphs(s.replace(b'\\',b'\\\\').decode('unicode_escape').encode('unicode_escape').replace(b'"',b'\\"')))
 
-def js_escapeRawBytes(s):
-  assert not zlib # js_utf8 etc not relevant if base64
-  if js_utf8: # type(s)==type(u"")
-    s = s.replace("\\",r"\\").replace('"',r'\"').replace(chr(8),r"\b").replace(chr(9),r"\t").replace(chr(10),r"\n").replace(chr(12),r"\f").replace(chr(13),r"\r")
-    if ignore_ie8: s = s.replace(chr(11),r"\v")
-    if js_octal: s = re.sub("[\x00-\x1f](?![0-9])",lambda m:r"\%o"%ord(m.group()),s)
-    else: s = re.sub(chr(0)+r"(?![0-9])",r"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
-    return re.sub(b"[\x00-\x1f\x7f]",lambda m:br"\x%02x"%ord(m.group()),s.encode('utf-8'))
-  # otherwise typeof(s)==typeof(b"")
-  s = s.replace(b"\\",br"\\").replace(b'"',br'\"').replace(B(chr(8)),br"\b").replace(B(chr(9)),br"\t").replace(B(chr(10)),br"\n").replace(B(chr(12)),br"\f").replace(B(chr(13)),br"\r")
-  if ignore_ie8: s = s.replace(B(chr(11)),br"\v")
-  if js_octal: s = re.sub(b"[\x00-\x1f](?![0-9])",lambda m:br"\%o"%ord(m.group()),s)
-  else: s = re.sub(b'\x00'+br"(?![0-9])",br"\\0",s) # \0 is allowed even if not js_octal (and we need \\ because we're in a regexp replacement)
-  return re.sub(b"[\x00-\x1f\x7f-\xff]",lambda m:br"\x%02x"%ord(m.group()),s)
-
 def txt_escapeRawBytes(s): # for browser_extension
   if js_utf8: return s.encode('utf-8')
   else: return s.decode('latin1').encode('utf-8')
@@ -5885,7 +5897,12 @@ def outputParser(rulesAndConds):
       l = [ll for ll in toReannotateSet if ll and not "\n" in ll] # TODO: handle the case where "\n" is in ll?  (shouldn't happen in 'sensible' annotators)
       def reader_thread(comms):
         comms[0] = True
-        comms[1] = cout.read().decode(outcode).splitlines() # TODO: reannotatorCode instead of outcode?
+        c = cout.read()
+        try: comms[1] = c.decode(outcode).splitlines() # TODO: reannotatorCode instead of outcode?
+        except:
+          sys.stderr.write("Writing invalid reannotator output to reannot-ERR.txt\n")
+          open("reannot-ERR.txt","wb").write(c)
+          comms[1] = None
       if reannotator.startswith('##'): cmd=reannotator[2:]
       elif reannotator[0]=='#': cmd=reannotator[1:]
       else: cmd = reannotator
@@ -5900,6 +5917,7 @@ def outputParser(rulesAndConds):
       cin.write("\n".join(l).encode(outcode)+b"\n") ; cin.close() # TODO: reannotatorCode instead of outcode?
       while comms[1] == False: time.sleep(1)
       l2 = comms[1]
+      if l2==None: raise ("Exception in reader thread, probably UnicodeDecodeError in reannotator output")
       del cin,cout,cmd,comms,sp
       while len(l2)>len(l) and not l2[-1]: del l2[-1] # don't mind extra blank line(s) at end of output
       if not len(l)==len(l2):
