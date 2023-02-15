@@ -118,7 +118,7 @@ Network listening and security settings
 : The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.
 
 `--user` 
-: The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80)—you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user.
+: [DEPRECATED] The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80)—you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user, which is recommended (use nginx etc to redirect from a privileged port if necessary), hence deprecated.
 
 `--address` 
 : The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real_proxy.
@@ -181,13 +181,13 @@ DNS and website settings
 : The site to fetch from if nothing is specified before host_suffix, e.g. example.org (add .0 at the end to specify an HTTPS connection, but see the 'prohibit' option). If default_site is omitted then the user is given a URL box when no site is specified; if it is 'error' then an error is shown in place of the URL box (the text of the error depends on the settings of wildcard_dns and real_proxy).
 
 `--own_server` 
-: Where to find your own web server. This can be something like localhost:1234 or 192.168.0.2:1234. If it is set, then any request that does not match host_suffix will be passed to that server to deal with, unless real_proxy is in effect. You can use this option to put your existing server on the same public port without much reconfiguration. Note: the password option will **not** password-protect your own_server. (You might gain a little responsiveness if you instead set up nginx or similar to direct incoming requests appropriately; see comments in adjuster.py for example nginx settings.)
+: [DEPRECATED] Where to find your own web server. This can be something like localhost:1234 or 192.168.0.2:1234. If it is set, then any request that does not match host_suffix will be passed to that server to deal with, unless real_proxy is in effect. You can use this option to put your existing server on the same public port without much reconfiguration. Note: the password option will **not** password-protect your own_server. Deprecated because you get better responsiveness and robustness if you set up nginx or similar to direct incoming requests appropriately; see comments in adjuster.py for example nginx settings.
 
 `--ownServer_regexp` 
-: If own_server is set, you can set ownServer_regexp to a regular expression to match URL prefixes which should always be handled by your own server even if they match host_suffix. This can be used for example to add extra resources to any site, or to serve additional pages from the same domain, as long as the URLs used are not likely to occur on the sites being adjusted. The regular expression is matched against the requested host and the requested URL, so for example [^/]*/xyz will match any URL starting with /xyz on any host, whereas example.org/xyz will match these on your example.org domain. You can match multiple hosts and URLs by using regular expression grouping.
+: [DEPRECATED] If own_server is set, you can set ownServer_regexp to a regular expression to match URL prefixes which should always be handled by your own server even if they match host_suffix. This can be used for example to add extra resources to any site, or to serve additional pages from the same domain, as long as the URLs used are not likely to occur on the sites being adjusted. The regular expression is matched against the requested host and the requested URL, so for example [^/]*/xyz will match any URL starting with /xyz on any host, whereas example.org/xyz will match these on your example.org domain. You can match multiple hosts and URLs by using regular expression grouping.
 
 `--ownServer_if_not_root`  (default True)
-: When trying to access an empty default_site, if the path requested is not / then redirect to own_server (if set) instead of providing a URL box. If this is False then the URL box will be provided no matter what path was requested.
+: [DEPRECATED] When trying to access an empty default_site, if the path requested is not / then redirect to own_server (if set) instead of providing a URL box. If this is False then the URL box will be provided no matter what path was requested.
 
 `--search_sites` 
 : Comma-separated list of search sites to be made available when the URL box is displayed (if default_site is empty). Each item in the list should be a URL (which will be prepended to the search query), then a space, then a short description of the site. The first item on the list is used by default; the user can specify other items by making the first word of their query equal to the first word of the short description. Additionally, if some of the letters of that first word are in parentheses, the user may specify just those letters. So for example if you have an entry `http://search.example.com/?q=` (e)xample, and the user types 'example test' or 'e test', it will use `http://search.example.com/?q=test`
@@ -436,7 +436,7 @@ Server control options
 : The number of seconds to wait before restarting the 'run' command if it fails
 
 `--ssh_proxy` 
-: host[:port][,URL] which, if set, can help to proxy SSH connections over HTTP if you need to perform server administration from a place with port restrictions.  See comments in adjuster.py for details.
+: [DEPRECATED] host[:port][,URL] which, if set, can help to proxy SSH connections over HTTP if you need to perform server administration from a place with port restrictions.  See comments in adjuster.py for details.  Deprecated as WebSSH does it better.
 
 Media conversion options
 ------------------------
@@ -622,7 +622,7 @@ Logging options
 : Whether or not to log requests that result in the browser being simply redirected to the original site when the redirectFiles option is on.
 
 `--ownServer_useragent_ip`  (default False)
-: If own_server is set, and that server cannot be configured to log the X-Real-Ip header we set when we proxy for it, you can if you wish turn on this option, which will prepend the real IP to the User-Agent header on the first request of each connection (most servers can log User-Agent). This is slightly dangerous: fake IPs can be inserted into the log if keep-alive is used.
+: [DEPRECATED] If own_server is set, and that server cannot be configured to log the X-Real-Ip header we set when we proxy for it, you can if you wish turn on this option, which will prepend the real IP to the User-Agent header on the first request of each connection (most servers can log User-Agent). This is slightly dangerous: fake IPs can be inserted into the log if keep-alive is used.
 
 `--ipNoLog` 
 : A comma-separated list of IP addresses which can use the adjuster without being logged. If your network has a "friendly probing" service then you might want to use this to stop it filling up the logs.  (Any tracebacks it causes will still be logged however.)
