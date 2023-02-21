@@ -134,6 +134,7 @@ elif '--html-options' in sys.argv or '--markdown-options' in sys.argv:
             if html: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","<strong>"+w+"</strong>",help)
             else: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","**"+w+"**",help)
         if html: help=help.replace("DEPRECATED","<strong>Deprecated</strong>")
+        name = name.replace("_","-")
         if html: print ("<dt><kbd>--"+wbrify(name)+"</kbd>"+amp(default)+"</dt><dd>"+wbrify(help.replace(" - ","---"))+"</dd>")
         else: print ("`--"+name+"` "+default+"\n: "+re.sub(" (www[.]example[.][^ ,]*)",r" `\1`",re.sub("(http://[^ ]*(example|192.168)[.][^ ]*)",r"`\1`",help.replace(" - ","---").replace("---",S(u'\u2014'))))+"\n")
 else: # normal run: go ahead with Tornado import

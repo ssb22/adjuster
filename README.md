@@ -126,13 +126,13 @@ Network listening and security settings
 `--password` 
 : The password. If this is set, nobody can connect without specifying ?p= followed by this password. It will then be sent to them as a cookie so they don't have to enter it every time. Notes: (1) If wildcard_dns is False and you have multiple domains in host_suffix, then the password cookie will have to be set on a per-domain basis. (2) On a shared server you probably don't want to specify this on the command line where it can be seen by process-viewing tools; use a configuration file instead. (3) When not in HTML-only mode, browsers that send AJAX requests without cookies might have problems when password is set.
 
-`--password_domain` 
+`--password-domain` 
 : The domain entry in host_suffix to which the password applies. For use when wildcard_dns is False and you have several domains in host_suffix, and only one of them (perhaps the one with an empty default_site) is to be password-protected, with the others public. If this option is used then prominentNotice (if set) will not apply to the passworded domain. You may put the password on two or more domains by separating them with slash (/).
 
-`--auth_error`  (default Authentication error)
+`--auth-error`  (default Authentication error)
 : What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * then this is removed and the page is returned with code 200 (OK) instead of 401 (authorisation required).
 
-`--open_proxy`  (default False)
+`--open-proxy`  (default False)
 : Whether or not to allow running with no password. Off by default as a safeguard against accidentally starting an open proxy.
 
 `--prohibit`  (default wiki.*action=edit)
@@ -141,7 +141,7 @@ Network listening and security settings
 `--prohibitUA`  (default TwitterBot)
 : Comma-separated list of regular expressions which, if they occur in browser strings, result in the browser being redirected to the original site. Use for example if you want certain robots that ignore robots.txt to go direct.
 
-`--real_proxy`  (default False)
+`--real-proxy`  (default False)
 : Whether or not to accept requests with original domains like a "real" HTTP proxy.  Warning: this bypasses the password and implies open_proxy.  Off by default.
 
 `--via`  (default True)
@@ -153,10 +153,10 @@ Network listening and security settings
 `--robots`  (default False)
 : Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.
 
-`--just_me`  (default False)
+`--just-me`  (default False)
 : Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.  If an ident server is not available, an attempt is made to authenticate connections via Linux netstat and /proc.
 
-`--one_request_only`  (default False)
+`--one-request-only`  (default False)
 : Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy): run with --one_request_only and forward the request to its port.  You may also wish to set --seconds if using this.
 
 `--seconds`  (default 0)
@@ -165,46 +165,46 @@ Network listening and security settings
 `--stdio`  (default False)
 : Forward standard input and output to our open port, in addition to being open to normal TCP connections.  This might be useful in conjuction with --one-request-only and --port=-1.
 
-`--upstream_proxy` 
+`--upstream-proxy` 
 : address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options, own_server or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.
 
-`--ip_messages` 
+`--ip-messages` 
 : Messages or blocks for specific IP address ranges (IPv4 only).  Format is ranges|message|ranges|message etc, where ranges are separated by commas; can be individual IPs, or ranges in either 'network/mask' or 'min-max' format; the first matching range-set is selected.  If a message starts with * then its ranges are blocked completely (rest of message, if any, is sent as the only reply to any request), otherwise message is shown on a 'click-through' page (requires Javascript and cookies).  If the message starts with a hyphen (-) then it is considered a minor edit of earlier messages and is not shown to people who selected `do not show again' even if they did this on a different version of the message.  Messages may include HTML.
 
 DNS and website settings
 ------------------------
 
-`--host_suffix`  (default is the machine's domain name)
+`--host-suffix`  (default is the machine's domain name)
 : The last part of the domain name. For example, if the user wishes to change `www.example.com` and should do so by visiting `www.example.com.adjuster.example.org`, then host_suffix is adjuster.example.org. If you do not have a wildcard domain then you can still adjust one site by setting wildcard_dns to False, host_suffix to your non-wildcard domain, and default_site to the site you wish to adjust. If you have more than one non-wildcard domain, you can set wildcard_dns to False, host_suffix to all your domains separated by slash (/), and default_site to the sites these correspond to, again separated by slash (/); if two or more domains share the same default_site then the first is preferred in links and the others are assumed to be for backward compatibility. If wildcard_dns is False and default_site is empty (or if it's a /-separated list and one of its items is empty), then the corresponding host_suffix gives a URL box and sets its domain in a cookie (and adds a link at the bottom of pages to clear this and return to the URL box), but this should be done only as a last resort: you can browse only one domain at a time at that host_suffix, and unless you use HTML-only mode, most links and HTTP redirects to other domains will leave the adjuster (which can negatively affect sites that use auxiliary domains for scripts etc and check Referer, unless you ensure these auxiliary domains are listed elsewhere in default_site), and browsers that don't include cookies in their AJAX requests will have problems. Also, the sites you visit at that host_suffix might be able to see some of each other's cookies etc (leaking privacy) although the URL box page will try to clear site cookies.
 
-`--default_site` 
+`--default-site` 
 : The site to fetch from if nothing is specified before host_suffix, e.g. example.org (add .0 at the end to specify an HTTPS connection, but see the 'prohibit' option). If default_site is omitted then the user is given a URL box when no site is specified; if it is 'error' then an error is shown in place of the URL box (the text of the error depends on the settings of wildcard_dns and real_proxy).
 
-`--own_server` 
+`--own-server` 
 : [DEPRECATED] Where to find your own web server. This can be something like localhost:1234 or 192.168.0.2:1234. If it is set, then any request that does not match host_suffix will be passed to that server to deal with, unless real_proxy is in effect. You can use this option to put your existing server on the same public port without much reconfiguration. Note: the password option will **not** password-protect your own_server. Deprecated because you get better responsiveness and robustness if you set up nginx or similar to direct incoming requests appropriately; see comments in adjuster.py for example nginx settings.
 
-`--ownServer_regexp` 
+`--ownServer-regexp` 
 : [DEPRECATED] If own_server is set, you can set ownServer_regexp to a regular expression to match URL prefixes which should always be handled by your own server even if they match host_suffix. This can be used for example to add extra resources to any site, or to serve additional pages from the same domain, as long as the URLs used are not likely to occur on the sites being adjusted. The regular expression is matched against the requested host and the requested URL, so for example [^/]*/xyz will match any URL starting with /xyz on any host, whereas example.org/xyz will match these on your example.org domain. You can match multiple hosts and URLs by using regular expression grouping.
 
-`--ownServer_if_not_root`  (default True)
+`--ownServer-if-not-root`  (default True)
 : [DEPRECATED] When trying to access an empty default_site, if the path requested is not / then redirect to own_server (if set) instead of providing a URL box. If this is False then the URL box will be provided no matter what path was requested.
 
-`--search_sites` 
+`--search-sites` 
 : Comma-separated list of search sites to be made available when the URL box is displayed (if default_site is empty). Each item in the list should be a URL (which will be prepended to the search query), then a space, then a short description of the site. The first item on the list is used by default; the user can specify other items by making the first word of their query equal to the first word of the short description. Additionally, if some of the letters of that first word are in parentheses, the user may specify just those letters. So for example if you have an entry `http://search.example.com/?q=` (e)xample, and the user types 'example test' or 'e test', it will use `http://search.example.com/?q=test`
 
-`--urlbox_extra_html` 
+`--urlbox-extra-html` 
 : Any extra HTML you want to place after the URL box (when shown), such as a paragraph explaining what your filters do etc.
 
 `--urlboxPath`  (default /)
 : The path of the URL box for use in links to it. This might be useful for wrapper configurations, but a URL box can be served from any path on the default domain. If however urlboxPath is set to something other than / then efforts are made to rewrite links to use it more often when in HTML-only mode with cookie domain, which might be useful for limited-server situations. You can force HTML-only mode to always be on by prefixing urlboxPath with *
 
-`--wildcard_dns`  (default True)
+`--wildcard-dns`  (default True)
 : Set this to False if you do **not** have a wildcard domain and want to process only default_site. Setting this to False does not actually prevent other sites from being processed (for example, a user could override their local DNS resolver to make up for your lack of wildcard domain); if you want to really prevent other sites from being processed then you could also set own_server to deal with unrecognised domains. Setting wildcard_dns to False does stop the automatic re-writing of links to sites other than default_site. Leave it set to True to have **all** sites' links rewritten on the assumption that you have a wildcard domain.
 
 General adjustment options
 --------------------------
 
-`--default_cookies` 
+`--default-cookies` 
 : Semicolon-separated list of name=value cookies to send to all remote sites, for example to set preferences. Any cookies that the browser itself sends will take priority over cookies in this list. Note that these cookies are sent to **all** sites. You can set a cookie only on a specific browser by putting (browser-string) before the cookie name, e.g. (iPad)x=y will set x=y only if 'iPad' occurs in the browser string (to match more than one browser-string keyword, you have to specify the cookie multiple times).
 
 `--headAppend` 
@@ -249,10 +249,10 @@ General adjustment options
 `--delete` 
 : Comma-separated list of regular expressions to delete from HTML documents. Can be used to delete selected items of Javascript and other code if it is causing trouble for your browser. Will also delete from the text of pages; use with caution.
 
-`--delete_css` 
+`--delete-css` 
 : Comma-separated list of regular expressions to delete from CSS documents (but not inline CSS in HTML); can be used to remove, for example, dimension limits that conflict with annotations you add, as an alternative to inserting CSS overrides.  In rare cases you might want to replace the deleted regexp with another, in which case you can use @@ to separate the two, and a second @@ can be used to specify a string in the CSS URL that must be present for the operation to take effect (this could be combined with a codeChanges to add query parameters to the URL if you want the change to occur only when the CSS is loaded from specific HTML pages).
 
-`--delete_doctype`  (default False)
+`--delete-doctype`  (default False)
 : Delete the DOCTYPE declarations from HTML pages. This option is needed to get some old Webkit browsers to apply multiple CSS files consistently.
 
 `--deleteOmit`  (default iPhone, iPad, Android, Macintosh)
@@ -273,10 +273,10 @@ General adjustment options
 `--viewsource`  (default False)
 : Provide a "view source" option. If set, you can see a page's pre-adjustment source code, plus client and server headers, by adding ".viewsource" to the end of a URL (after any query parameters etc)
 
-`--htmlonly_mode`  (default True)
+`--htmlonly-mode`  (default True)
 : Provide a checkbox allowing the user to see pages in "HTML-only mode", stripping out images, scripts and CSS; this might be a useful fallback for very slow connections if a site's pages bring in many external files and the browser cannot pipeline its requests. The checkbox is displayed by the URL box, not at the bottom of every page.
 
-`--htmlonly_css`  (default False)
+`--htmlonly-css`  (default False)
 : Leave images and CSS in the page when in "HTML-only mode", removing only scripts
 
 `--mailtoPath`  (default /@mail@to@__)
@@ -312,7 +312,7 @@ External processing options
 `--htmlUrl`  (default False)
 : Add a line containing the document's URL to the start of what gets sent to htmlFilter (useful for writing filters that behave differently for some sites; not yet implemented for submitBookmarklet, which will show a generic URL). The URL line must not be included in the filter's response.
 
-`--htmlonly_tell_filter`  (default False)
+`--htmlonly-tell-filter`  (default False)
 : Add a line showing the current status of "HTML-only mode" (see htmlonly_mode option) to the start of what gets sent to htmlFilter (before any htmlUrl if present), as "True" or "False" (must not be included in the filter's response).  This may be useful for filters that need to do extra processing if client-side scripts are removed.
 
 `--submitPath` 
@@ -342,61 +342,61 @@ External processing options
 Javascript execution options
 ----------------------------
 
-`--js_interpreter` 
+`--js-interpreter` 
 : Execute Javascript on the server for users who choose "HTML-only mode". You can set js_interpreter to PhantomJS, HeadlessChrome, HeadlessFirefox, Chrome, Firefox, or edbrowse (experimental), and must have the appropriate one installed, along with an appropriate version of Selenium (and ChromeDriver or GeckoDriver if appropriate) if not using edbrowse.  Non-headless Chrome or Firefox requires a display (and might not respond to manual window close) but may help work around bugs in some headless versions.  If you have multiple users, beware logins etc may be shared!  If a URL box cannot be displayed (no wildcard_dns and default_site is full, or processing a "real" proxy request) then htmlonly_mode auto-activates when js_interpreter is set, thus providing a way to partially Javascript-enable browsers like Lynx.  If --viewsource is enabled then js_interpreter URLs may also be followed by .screenshot
 
-`--js_upstream`  (default False)
+`--js-upstream`  (default False)
 : Handle --headAppend, --bodyPrepend, --bodyAppend and --codeChanges upstream of our Javascript interpreter instead of making these changes as code is sent to the client, and make --staticDocs available to our interpreter as well as to the client.  This is for running experimental 'bookmarklets' etc with browsers like Lynx.
 
-`--js_frames`  (default False)
+`--js-frames`  (default False)
 : When using js_interpreter, append the content of all frames and iframes to the main document. This might help with bandwidth reduction and with sites that have complex cross-frame dependencies that can be broken by sending separate requests through the adjuster.
 
-`--js_instances`  (default 1)
+`--js-instances`  (default 1)
 : The number of virtual browsers to load when js_interpreter is in use. Increasing it will take more RAM but may aid responsiveness if you're loading multiple sites at once.
 
-`--js_429`  (default True)
+`--js-429`  (default True)
 : Return HTTP error 429 (too many requests) if js_interpreter queue is too long at page-prefetch time. When used with --multicore, additionally close to new requests any core that's currently processing its full share of js_instances.
 
-`--js_restartAfter`  (default 10)
+`--js-restartAfter`  (default 10)
 : When js_interpreter is in use, restart each virtual browser after it has been used this many times (0=unlimited); might help work around excessive RAM usage in PhantomJS v2.1.1. If you have many --js-instances (and hardware to match) you could also try --js-restartAfter=1 (restart after every request) to work around runaway or unresponsive PhantomJS processes.
 
-`--js_restartMins`  (default 10)
+`--js-restartMins`  (default 10)
 : Restart an idle js_interpreter instance after about this number of minutes (0=unlimited); use this to stop the last-loaded page from consuming CPU etc indefinitely if no more requests arrive at that instance.  Not applicable when --js-restartAfter=1.
 
-`--js_timeout1`  (default 30)
+`--js-timeout1`  (default 30)
 : When js_interpreter is in use, tell it to allow this number of seconds for initial page load. More time is allowed for XMLHttpRequest etc to finish (unless our client cuts the connection in the meantime).
 
-`--js_timeout2`  (default 100)
+`--js-timeout2`  (default 100)
 : When js_interpreter is in use, this value in seconds is treated as a 'hard timeout': if a webdriver process does not respond at all within this time, it is assumed hung and emergency restarted.
 
-`--js_retry`  (default True)
+`--js-retry`  (default True)
 : If a js_interpreter fails, restart it and try the same fetch again while the remote client is still waiting
 
-`--js_fallback`  (default X-Js-Fallback)
+`--js-fallback`  (default X-Js-Fallback)
 : If this is set to a non-empty string and a js_interpreter fails (even after js_retry if set), serve the page without Javascript processing instead of serving an error. The HTTP header specified by this option can tell the client whether or not Javascript was processed when a page is served.
 
-`--js_reproxy`  (default True)
+`--js-reproxy`  (default True)
 : When js_interpreter is in use, have it send its upstream requests back through the adjuster on a different port. This allows js_interpreter to be used for POST forms, fixes its Referer headers when not using real_proxy, monitors AJAX for early completion, prevents problems with file downloads, and enables the js_prefetch option.
 
-`--js_prefetch`  (default True)
+`--js-prefetch`  (default True)
 : When running with js_reproxy, prefetch main pages to avoid holding up a js_interpreter instance if the remote server is down.  Turn this off if you expect most remote servers to be up and you want to detect js_429 issues earlier.
 
-`--js_UA` 
+`--js-UA` 
 : Custom user-agent string for js_interpreter requests, if for some reason you don't want to use the JS browser's default (or the client's if js_reproxy is on and js_prefetch off). If you prefix js_UA with a * then the * is removed and the user-agent string is set by the upstream proxy (--js_reproxy) so scripts running in the JS browser itself will see its original user-agent.
 
-`--js_images`  (default True)
+`--js-images`  (default True)
 : When js_interpreter is in use, instruct it to fetch images just for the benefit of Javascript execution. Setting this to False saves bandwidth but misses out image onload events.
 
-`--js_size`  (default 1024x768)
+`--js-size`  (default 1024x768)
 : The virtual screen dimensions of the browser when js_interpreter is in use (changing it might be useful for screenshots)
 
-`--js_links`  (default True)
+`--js-links`  (default True)
 : When js_interpreter is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.
 
-`--js_multiprocess`  (default True)
+`--js-multiprocess`  (default True)
 : When js_interpreter is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available and working. Recommended: if a webdriver instance gets 'stuck' in a way that somehow hangs its controlling process, we can detect and restart it.
 
-`--ssl_fork`  (default False)
+`--ssl-fork`  (default False)
 : (Unix only) Run SSL-helper proxies as separate processes to stop the main event loop from being stalled by buggy SSL libraries. This costs RAM, but adding --multicore too will limit the number of helpers to one per core instead of one per port, so --ssl-fork --multicore is recommended if you want more js_interpreter instances than cores.
 
 Server control options
@@ -435,7 +435,7 @@ Server control options
 `--runWait`  (default 1)
 : The number of seconds to wait before restarting the 'run' command if it fails
 
-`--ssh_proxy` 
+`--ssh-proxy` 
 : [DEPRECATED] host[:port][,URL] which, if set, can help to proxy SSH connections over HTTP if you need to perform server administration from a place with port restrictions.  See comments in adjuster.py for details.  Deprecated as WebSSH does it better.
 
 Media conversion options
@@ -516,31 +516,31 @@ Character rendering options
 Dynamic DNS options
 -------------------
 
-`--ip_change_command` 
+`--ip-change-command` 
 : An optional script or other shell command to launch whenever the public IP address changes. The new IP address will be added as a parameter; ip_query_url must be set to make this work. The script can for example update any Dynamic DNS services that point to the server.
 
-`--ip_change_tries`  (default 1)
+`--ip-change-tries`  (default 1)
 : Number of times to run ip_change_command if it returns failure (0 means unlimited, which is not recommended).  For example, you can have the script return failure if it doesn't get either an "Updated" or an expected "not changed" response from a Dynamic DNS service (but it is not advisable to expect a host lookup to reflect the change immediately)
 
-`--ip_change_delay`  (default 5)
+`--ip-change-delay`  (default 5)
 : Number of seconds to delay between tries of ip_change_command if it fails
 
-`--ip_query_url` 
+`--ip-query-url` 
 : URL that will return your current public IP address, as a line of text with no markup added. Used for the ip_change_command option. You can set up a URL by placing a CGI script on a server outside your network and having it do: echo Content-type: text/plain;echo;echo $REMOTE_ADDR (but if you want your IPv4 address, ensure the adjuster machine and the outside server are not both configured for IPv6). If you have a known static IP address but still want to run an ip_change_command for it, you can set ip_query_url to the static IP address instead of a URL.
 
-`--ip_query_url2` 
+`--ip-query-url2` 
 : Optional additional URL that might sometimes return your public IP address along with other information. This can for example be a status page served by a local router (`http://user:password@192.168...` is accepted, and if the password is the name of an existing file then its contents are read instead). If set, the following behaviour occurs: Once ip_check_interval has passed since the last ip_query_url check, ip_query_url2 will be queried at an interval of ip_check_interval2 (which can be short), to check that the known IP is still present in its response. Once the known IP is no longer present, ip_query_url will be queried again. This arrangement can reduce the load on ip_query_url while allowing a reduced ip_check_interval for faster response to IP changes, while not completely trusting the local router to report the correct IP at all times. (If it's notoriously unleriable then it might be best **not** to reduce ip_check_interval, in which case at least you'll get a faster response once the initial ip_check_interval wait has passed after the previous IP change; this however might not be suitable if you're behind a router that is frequently rebooting.) See also ip_query_aggressive if the router might report an IP change before connectivity is restored. You may also set ip_query_url2 to the special value 'upnp' if you want it to query a router via UPnP (miniupnpc package required).
 
-`--ip_check_interval`  (default 8000)
+`--ip-check-interval`  (default 8000)
 : Number of seconds between checks of ip_query_url for the ip_change_command option
 
-`--ip_check_interval2`  (default 60)
+`--ip-check-interval2`  (default 60)
 : Number of seconds between checks of ip_query_url2 (if set), for the ip_change_command option
 
-`--ip_query_aggressive`  (default False)
+`--ip-query-aggressive`  (default False)
 : If a query to ip_query_url fails with a connection error or similar, keep trying again until we get a response. This is useful if the most likely reason for the error is that our ISP is down: we want to get the new IP just as soon as we're back online. However, if the error is caused by a problem with ip_query_url itself then this option can lead to excessive traffic, so use with caution. (Log entries are written when this option takes effect, and checking the logs is advisable.)
 
-`--ip_force_interval`  (default 604800)
+`--ip-force-interval`  (default 604800)
 : Number of seconds before ip_change_command (if set) is run even if there was no IP change.  This is to let Dynamic DNS services know that we are still around.  Set to 0 to disable forced updates (a forced update will occur on server startup anyway), otherwise an update will occur on the next IP check after ip_force_interval has elapsed.
 
 `--pimote` 
@@ -564,7 +564,7 @@ Speedup options
 `--ipTrustReal` 
 : IP address of a machine that we trust, for example a machine that is using us as fasterServer. Any traffic coming from this machine with an X-Real-Ip header will be logged as though it originated at the value of its X-Real-Ip header. Setting this to * will cause X-Real-Ip to be trusted from **any** connection.
 
-`--trust_XForwardedFor`  (default False)
+`--trust-XForwardedFor`  (default False)
 : Like ipTrustReal but trusts X-Forwarded-For header from any IP if set to True (use this in an environment where the adjuster can be reached only via a load balancer etc)
 
 `--fasterServerNew`  (default True)
@@ -576,7 +576,7 @@ Speedup options
 `--redirectFiles`  (default False)
 : If, when not functioning as a "real" HTTP proxy, a URL is received that looks like it requires no processing on our part (e.g. an image or downloadable file that the user does not want converted), and if this is confirmed via a HEAD request to the remote server, then redirect the browser to fetch it directly and not via Web Adjuster. This takes bandwidth off the adjuster server, and should mean faster downloads, especially from sites that are better connected than the adjuster machine. However it might not work with sites that restrict "deep linking". (As a precaution, the confirmatory HEAD request is sent with a non-adjusted Referer header to simulate what the browser would send if fetching directly. If this results in an HTML "Referer denied" message then Web Adjuster will proxy the request in the normal way. This precaution might not detect **all** means of deep-linking denial though.)
 
-`--upstream_guard`  (default True)
+`--upstream-guard`  (default True)
 : Modify scripts and cookies sent by upstream sites so they do not refer to the cookie names that our own scripts use. This is useful if you chain together multiple instances of Web Adjuster, such as for testing another installation without coming out of your usual proxy. If however you know that this instance will not be pointed to another, you can set upstream_guard to False to save some processing.
 
 `--skipLinkCheck` 
@@ -591,16 +591,16 @@ Speedup options
 `--multicore`  (default False)
 : (Linux and BSD) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on Mac due to unreliability (other cores can still be used for htmlFilter etc)
 
-`--num_cores`  (default 0)
+`--num-cores`  (default 0)
 : Set the number of CPU cores for the multicore option (0 for auto-detect)
 
 `--internalPort`  (default 0)
 : The first port number to use for internal purposes when ssl_fork is in effect.  Internal ports needed by real_proxy (for SSL) and js_reproxy are normally allocated from the ephemeral port range, but if ssl_fork delegates to independent processes then some of them need to be at known numbers. The default of 0 means one higher than 'port'; several unused ports may be needed starting at this number. If your Tornado is modern enough to support reuse_port then you can have multiple Adjuster instances listening on the same port (e.g. for one_request_only) provided they have different internalPort settings when run with ssl_fork.  Note however that the --stop and --restart options will **not** distinguish between different internalPort settings, only 'port'.
 
-`--fixed_ports`  (default False)
+`--fixed-ports`  (default False)
 : Do not allocate ports (even internal ports) from the ephemeral port range even when this is otherwise possible. This option might help if you are firewalling your loopback interface and want to write specific exceptions (although that still won't work if you're using js_interpreter=HeadlessChrome or similar which opens its own ephemeral ports as well: use containers if you're concerned). Fixed ports may result in failures if internal ports are already taken.
 
-`--compress_responses`  (default True)
+`--compress-responses`  (default True)
 : Use gzip to compress responses for clients that indicate they are compatible with it. You may want to turn this off if your server's CPU is more important than your network bandwidth (e.g. browser on same machine).
 
 Logging options
@@ -609,7 +609,7 @@ Logging options
 `--profile`  (default 0)
 : Log timing statistics every N seconds (only when not idle)
 
-`--profile_lines`  (default 5)
+`--profile-lines`  (default 5)
 : Number of lines to log when profile option is in use (not applicable if using --multicore)
 
 `--renderLog`  (default False)
@@ -621,7 +621,7 @@ Logging options
 `--logRedirectFiles`  (default True)
 : Whether or not to log requests that result in the browser being simply redirected to the original site when the redirectFiles option is on.
 
-`--ownServer_useragent_ip`  (default False)
+`--ownServer-useragent-ip`  (default False)
 : [DEPRECATED] If own_server is set, and that server cannot be configured to log the X-Real-Ip header we set when we proxy for it, you can if you wish turn on this option, which will prepend the real IP to the User-Agent header on the first request of each connection (most servers can log User-Agent). This is slightly dangerous: fake IPs can be inserted into the log if keep-alive is used.
 
 `--ipNoLog` 
