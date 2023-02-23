@@ -5053,9 +5053,9 @@ def typo_report(debugFile,exceptionFile,withAnnot_unistr,msg_unistr):
   if withAnnot_unistr not in typo_data[exceptionFile]:
     if not debugFile in typo_data:
       typo_data[debugFile] = openfile(debugFile,'w')
-      getBuf(sys.stderr).write(bold_on+"Writing to "+debugFile+bold_off+"\n")
-      typo_data[debugFile].write("Put any of the following first-of-line words into %s to avoid being alerted here next time.\n\n" % exceptionFile)
-    typo_data[debugFile].write((msg_unistr+u"\n").encode(terminal_charset,'replace'))
+      getBuf(sys.stderr).write(B(bold_on+"Writing to "+debugFile+bold_off+"\n"))
+      getBuf(typo_data[debugFile]).write(B("Put any of the following first-of-line words into %s to avoid being alerted here next time.\n\n" % exceptionFile))
+    getBuf(typo_data[debugFile]).write((msg_unistr+u"\n").encode(terminal_charset,'replace'))
     typo_data[debugFile].flush() # in case interrupted
 def yarowsky_indicators_wrapped(withAnnot_unistr):
     return getNext(yarowsky_indicators(withAnnot_unistr,False))
