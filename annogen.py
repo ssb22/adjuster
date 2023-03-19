@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.329 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.33 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5764,9 +5764,9 @@ def matchingAction(rule,glossDic,glossMiss,glosslist,omitlist):
       else: toAdd = text_unistr
       if toAdd in reannotateDict:
         au = reannotateDict[toAdd]
-        if au and reannotate_caps and annotation_unistr and not annotation_unistr[0]==annotation_unistr[0].lower():
-          if sharp_multi: au='#'.join(capsFirst(w) for w in au.split('#'))
-          else: au=capsFirst(au)
+        if au and reannotate_caps and annotation_unistr and any(a and not a[0]==a[0].lower() for a in re.split('[ -]',annotation_unistr)):
+          if sharp_multi: au='#'.join(fixCaps(w,annotation_unistr) for w in au.split('#'))
+          else: au=fixCaps(au,annotation_unistr)
         annotation_unistr = au
       else: toReannotateSet.add(toAdd)
     if compress:
@@ -5802,8 +5802,13 @@ def matchingAction(rule,glossDic,glossMiss,glosslist,omitlist):
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
-def capsFirst(s):
+def fixCaps(s,ref,splitOn=(' ','-')):
   if not s: return s # (e.g. annotation omitted for a word in reannotate)
+  for tryS in splitOn:
+    if tryS in ref and tryS in s:
+      s2,ref2 = s.split(tryS),ref.split(tryS)
+      if len(s2)==len(ref2): return tryS.join(fixCaps(s,r,splitOn[splitOn.index(tryS)+1:]) for s,r in zip(s2,ref2))
+  if ref[0]==ref[0].lower(): return s
   return s[0].upper()+s[1:]
 
 def readGlossfile():
