@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.33 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.34 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -34,7 +34,7 @@ if '--html-options' in sys.argv:
   class HTMLOptions:
     def add_option(self,*args,**kwargs):
       if not 'action' in kwargs: args=[a+'=' if a.startswith('--') else a for a in args]
-      print ("<dt><kbd>"+"</kbd>, <kbd>".join(args)+"</kbd></dt><dd>"+re.sub('(?<=[A-Za-z])([/=_])(?=[A-Za-z])',r'<wbr/>\1',re.sub('(--[A-Za-z-]*)',r'<kbd>\1</kbd>',kwargs.get("help","").replace("%default",str(kwargs.get("default","%default"))).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;'))).replace("BEFORE","<strong>before</strong>").replace("AFTER","<strong>after</strong>").replace("ALWAYS","<strong>always</strong>").replace(" ALL "," <strong>all</strong> ").replace(" LONG "," <strong>long</strong> ").replace(" NOT "," <strong>not</strong> ").replace("DEPRECATED","<strong>Deprecated</strong>").replace("WITHOUT","<strong>without</strong>").replace("js:search:replace,","js:<wbr>search:<wbr>replace,<wbr>")+"</dd>")
+      print ("<dt><kbd>"+"</kbd>, <kbd>".join(args)+"</kbd></dt><dd>"+re.sub('(?<=[A-Za-z])([/=_])(?=[A-Za-z])',r'<wbr/>\1',re.sub('(--[A-Za-z-]*)',r'<kbd>\1</kbd>',kwargs.get("help","").replace("%default",str(kwargs.get("default","%default"))).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;'))).replace("BEFORE","<strong>before</strong>").replace("AFTER","<strong>after</strong>").replace("ALWAYS","<strong>always</strong>").replace(" ALL "," <strong>all</strong> ").replace(" LONG "," <strong>long</strong> ").replace(" NOT "," <strong>not</strong> ").replace("WITHOUT","<strong>without</strong>").replace("js:search:replace,","js:<wbr>search:<wbr>replace,<wbr>")+"</dd>")
   parser = HTMLOptions()
   parser.add_option("-h","--help",action=True,help="show this help message and exit")
 elif '--markdown-options' in sys.argv:
@@ -44,7 +44,7 @@ elif '--markdown-options' in sys.argv:
       if not 'action' in kwargs: args=[a+'=' if a.startswith('--') else a for a in args]
       d = str(kwargs.get("default","%default"))
       if "://" in d or "<" in d: d="`"+d+"`"
-      print ("`"+"`, `".join(args)+"`\n : "+re.sub('(--[A-Za-z-]*)',r'`\1`',kwargs.get("help","").replace("%default",d)).replace("BEFORE","**before**").replace("AFTER","**after**").replace("ALWAYS","**always**").replace(" ALL "," **all** ").replace(" LONG "," **long** ").replace(" NOT "," **not** ").replace("DEPRECATED","**Deprecated**").replace("WITHOUT","**without**")+"\n")
+      print ("`"+"`, `".join(args)+"`\n : "+re.sub('(--[A-Za-z-]*)',r'`\1`',kwargs.get("help","").replace("%default",d)).replace("BEFORE","**before**").replace("AFTER","**after**").replace("ALWAYS","**always**").replace(" ALL "," **all** ").replace(" LONG "," **long** ").replace(" NOT "," **not** ").replace("WITHOUT","**without**")+"\n")
   parser = MarkdownOptions()
   parser.add_option("-h","--help",action=True,help="show this help message and exit")
 else: parser = OptionParser()
@@ -128,7 +128,7 @@ parser.add_option("--post-normalise",
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 parser.add_option("-C", "--gloss-closure",
-                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also, using the Unihan variants file specified by this option") # TODO: option to put variant closures into the annotator itself? (generate new rules if not already exist + closure the 'near' tests) but that could unnecessarily increase the annotator size (with --data-driven the increase could be significant unless we implement shared-substringVariants optimisations, and even then it's unclear how this would interact with the space-saving of common-prefix multibyte sequences), + it might not be correct in all cases, e.g. U+91CC in jianti SHOULDN'T be translated to U+88E1/U+88CF in fanti if it's part of a name, although recognising a 'messed-up' name with that substitution might be acceptable. Anyway, using these closures to fill in a missing gloss should be tolerable.
+                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also, using the Unihan variants file specified by this option")
 cancelOpt("gloss-closure")
 parser.add_option("--glossmiss",
                   help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
@@ -160,20 +160,6 @@ cancelOpt("no-input")
 parser.add_option("--c-filename",default="",help="Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota).") # because the main program might not be running on the launch node
 
 parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
-# If compiling an experimental annotator quickly (and don't want to use --data-driven for some reason), then you might try tcc as it compiles fast. If tcc is not available on your system then clang might compile faster than gcc.
-# (BUT tcc can have problems on Raspberry Pi see http://www.raspberrypi.org/phpBB3/viewtopic.php?t=30036&p=263213; can be best to cross-compile, e.g. from a Mac use https://github.com/UnhandledException/ARMx/wiki/Sourcery-G---Lite-for-ARM-GNU-Linux-(2009q3-67)-for-Mac-OS-X and arm-none-linux-gnueabi-gcc)
-# In large rulesets with --max-or-length=0 and --nested-switch, gcc takes time and gcc -Os can take a LOT longer, and CINT, Ch and picoc run out of memory.  Without these options the overhead of gcc's -Os isn't so bad (and does save some room).
-# clang with --max-or-length=100 and --nested-switch=0 is not slowed much by -Os (slowed considerably by -O3). -Os and -Oz gave same size in my tests.
-# on 64-bit distros -m32 won't always work and won't necessarily give a smaller program
-
-parser.add_option("--max-or-length",default=100,help="[DEPRECATED] The maximum number of items allowed in an OR-expression in non table-driven code (used when ybytes is in effect). When an OR-expression becomes larger than this limit, it will be made into a function. 0 means unlimited, which works for tcc and gcc; many other compilers have limits. Default: %default")
-
-parser.add_option("--nested-if",
-                  action="store_true",default=False,
-                  help="[DEPRECATED] Allow C/C#/Java/Go if() blocks (but not switch() constructs) to be nested to unlimited depth.  This probably increases the workload of the compiler's optimiser when reducing size, but may help when optimising for speed.")
-cancelOpt("nested-if")
-parser.add_option("--nested-switch",default=0,
-                  help="[DEPRECATED] Allow C/C#/Java/Go switch() constructs to be nested to about this depth.  Default 0 tries to avoid nesting, as it slows down most C compilers for small savings in executable size.  Setting 1 nests 1 level deeper which can occasionally help get around memory problems with Java compilers.  -1 means nest to unlimited depth, which is not recommended.  Setting this to anything other than 0 implies --nested-if also.") # tcc is still fast (although that doesn't generate the smallest executables anyway)
 
 parser.add_option("--outcode",default="utf-8",
                   help="Character encoding to use in the generated parser and rules summary (default %default, must be ASCII-compatible i.e. not utf-16)")
@@ -213,21 +199,12 @@ cancelOpt("newlines-reset","store_true","ignoreNewlines")
 
 parser.add_option("-z","--compress",
                   action="store_true",default=False,
-                  help="Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but might help if RAM is short; see also --data-driven.")
+                  help="Compress annotation strings in the C code.  This compression is designed for fast on-the-fly decoding, so it saves only a limited amount of space (typically 10-20%) but might help if RAM is short.")
 cancelOpt("compress")
-
-parser.add_option("-D","--data-driven",
-                  action="store_true",default=False,
-                  help="Generate a program that works by interpreting embedded data tables for comparisons, instead of writing these as code.  This can take load off the compiler (so try it if you get errors like clang's \"section too large\"), as well as compiling faster and reducing the resulting binary's RAM size (by 35-40% is typical), at the expense of a negligible reduction in execution speed.  Deprecated: In future this option will be always on (as having it off is now more trouble than it's worth) so it will no longer be an 'option'.  Javascript, Python and Dart output is always data-driven anyway.") # If the resulting binary is compressed (e.g. in an APK), its compressed size will likely not change much (same information content), so I'm specifically saying "RAM size" i.e. when decompressed
-cancelOpt("data-driven")
-parser.add_option("-F","--fast-assemble",
-                  action="store_true",default=False,
-                  help="[DEPRECATED] Skip opcode compaction when using data-driven (slightly speeds up compilation, at the expense of larger code size)") # TODO: consider removing this option now it's no longer very slow anyway
-cancelOpt("fast-assemble")
 
 parser.add_option("-Z","--zlib",
                   action="store_true",default=False,
-                  help="Enable --data-driven and compress the embedded data table using zlib (or pyzopfli if available), and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator with zlib, the decompression code is inlined so there's no runtime zlib dependency, but startup can be ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source (unless you're running on Node.js in which case loading is faster due to the use of Node's \"Buffer\" class).") # compact_opcodes typically still helps no matter what the other options are
+                  help="Compress the embedded data table using zlib (or pyzopfli if available), and include code to call zlib to decompress it on load.  Useful if the runtime machine has the zlib library and you need to save disk space but not RAM (the decompressed table is stored separately in RAM, unlike --compress which, although giving less compression, at least works 'in place').  Once --zlib is in use, specifying --compress too will typically give an additional disk space saving of less than 1% (and a runtime RAM saving that's greater but more than offset by zlib's extraction RAM).  If generating a Javascript annotator with zlib, the decompression code is inlined so there's no runtime zlib dependency, but startup can be ~50% slower so this option is not recommended in situations where the annotator is frequently reloaded from source (unless you're running on Node.js in which case loading is faster due to the use of Node's \"Buffer\" class).")
 cancelOpt("zlib")
 
 parser.add_option("-l","--library",
@@ -239,11 +216,6 @@ parser.add_option("-W","--windows-clipboard",
                   action="store_true",default=False,
                   help="Include C code to read the clipboard on Windows or Windows Mobile and to write an annotated HTML file and launch a browser, instead of using the default cross-platform command-line C wrapper.  See the start of the generated C file for instructions on how to compile for Windows or Windows Mobile.")
 cancelOpt("windows-clipboard")
-
-parser.add_option("-#","--c-sharp",
-                  action="store_true",default=False,
-                  help="[DEPRECATED] Instead of generating C code, generate C# (not quite as efficient as the C code but close; might be useful for adding an annotator to a C# project; see comments at the start for usage)") # Deprecated because no --data-driven option and no known C# users anymore
-cancelOpt("c-sharp")
 
 parser.add_option("--java",
                   help="Instead of generating C code, generate Java, and place the *.java files in the directory specified by this option.  The last part of the directory should be made up of the package name; a double slash (//) should separate the rest of the path from the package name, e.g. --java=/path/to/wherever//org/example/annotator and the main class will be called Annotator.")
@@ -268,12 +240,9 @@ parser.add_option("--android-print",
 cancelOpt("android-print")
 parser.add_option("--known-characters",help="When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other. Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
-parser.add_option("--android-urls",
-                  help="[DEPRECATED] Whitespace-separated list of URL prefixes to offer to be a browser for, when a matching URL is opened by another application in Android 1 through 11. If any path (but not scheme or domain) contains .* then it is treated as a pattern instead of a prefix, but Android cannot filter on query strings (i.e. text after question-mark). On Android 12+ this option won't work at all unless the specified domain(s) approved your app.") # "Starting in Android 12 (API level 31), a generic web intent resolves to an activity in your app only if your app is approved for the specific domain"
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
 parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)")
 cancelOpt("tts-js")
-parser.add_option("--accept-html",help="[DEPRECATED] When generating an Android browser, display the HTML fragment from this file and have the user press Accept before they first use the app.  Some misguided app stores insist you make your users accept a privacy policy even when you don't collect data.  This is bad design for the users (training them to think warnings are unimportant) but the stores might think requiring it gets them out of legal trouble.") # Deprecated because those stores also want ICP filings now, which rules out everybody outside China and I'm told those inside it will find it difficult to file an ICP for a dictionary-like app if they're not a large company (and I'm not aware of any large China-based companies being interested in Annogen)
 parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--existing-ruby-lang-regex",help="Set the Android app or browser extension to remove existing ruby elements unless the document language matches this regular expression. If --sharp-multi is in use, you can separate multiple regexes with comma and any unset will always delete existing ruby.  If this option is not set at all then existing ruby is always kept.")
 parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
@@ -293,17 +262,17 @@ cancelOpt("javascript")
 
 parser.add_option("-6","--js-6bit",
                   action="store_true",default=False,
-                  help="When generating a Javascript annotator, use a 6-bit format for many addresses to reduce escape codes in the data string by making more of it ASCII. Not relevant if using zlib.") # May result in marginally slower JS, but it should be smaller and parse more quickly on initial load, which is normally the dominant factor if you have to reload it on every page.
+                  help="When generating a Javascript annotator, use a 6-bit format for many addresses to reduce escape codes in the data string by making more of it ASCII") # May result in marginally slower JS, but it should be smaller and parse more quickly on initial load, which is normally the dominant factor if you have to reload it on every page.
 cancelOpt("js-6bit")
 
 parser.add_option("-8","--js-octal",
                   action="store_true",default=False,
-                  help="When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode. Not relevant if using zlib.")
+                  help="When generating a Javascript annotator, use octal instead of hexadecimal codes in the data string when doing so would save space. This does not comply with ECMAScript 5 and may give errors in its strict mode.")
 cancelOpt("js-octal")
 
 parser.add_option("-9","--ignore-ie8",
                   action="store_true",default=False,
-                  help="When generating a Javascript annotator, do not make it backward-compatible with Microsoft Internet Explorer 8 and below. This may save a few bytes. Not relevant if using zlib.")
+                  help="When generating a Javascript annotator, do not make it backward-compatible with Microsoft Internet Explorer 8 and below. This may save a few bytes.")
 cancelOpt("ignore-ie8")
 
 parser.add_option("-u","--js-utf8",
@@ -335,9 +304,6 @@ parser.add_option("-Y","--python",
                   action="store_true",default=False,
                   help="Instead of generating C code, generate a Python module.  Similar to the Javascript option, this is for when you can't run your own binaries, and it is table-driven for fast loading.")
 cancelOpt("python")
-
-parser.add_option("--golang",
-                  help="[DEPRECATED] Package name for a Go library to generate instead of C code.  See comments in the generated file for how to run this on a first-generation AppEngine runtime (Go 1.11 or below).  Deprecated because second-generation AppEngine runtimes work differently and the \"flexible\" option can run C code; this option will probably be removed if they shut down the non-flexible free-tier runtimes.")
 
 parser.add_option("--reannotator",
                   help="Shell command through which to pipe each word of the original text to obtain new annotation for that word.  This might be useful as a quick way of generating a new annotator (e.g. for a different topolect) while keeping the information about word separation and/or glosses from the previous annotator, but it is limited to commands that don't need to look beyond the boundaries of each word.  If the command is prefixed by a # character, it will be given the word's existing annotation instead of its original text, and if prefixed by ## it will be given text#annotation.  The command should treat each line of its input independently, and both its input and its output should be in the encoding specified by --outcode.") # TODO: reannotatorCode instead? (see other 'reannotatorCode' TODOs)
@@ -478,8 +444,6 @@ else: normalise_debug = 0
 ybytes_step = int(ybytes_step)
 maxrefs = int(maxrefs)
 ymax_threshold = int(ymax_threshold)
-if not golang: golang = ""
-if nested_switch: nested_if = True
 def errExit(msg):
   assert main # bad news if this happens in non-main module
   try:
@@ -492,9 +456,7 @@ if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option req
 if sharp_multi and not annotation_names and (browser_extension or existing_ruby_lang_regex): errExit("--sharp-multi requires --annotation-names to be set if --browser-extension or --existing-ruby-lang-regex")
 if existing_ruby_lang_regex:
     while len(existing_ruby_lang_regex.split(','))<len(annotation_names.split(',')): existing_ruby_lang_regex += r",^\b$"
-if browser_extension:
-  javascript = True
-  if zlib: errExit("--zlib not currently supported with --browser-extension") # would need to ensure it's decompressed after being read in from annotate-dat.txt
+if browser_extension: javascript = True
 if android_template:
   android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
@@ -566,7 +528,6 @@ if extra_js.rstrip() and not B(extra_js.rstrip()[-1:]) in b';}': errExit("--extr
 if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:],"rb").read()
 if browser_extension and re.search("erHTML *=[^=]",existing_ruby_js_fixes): warn("Code in --existing-ruby-js-fixes that sets innerHTML or outerHTML might result in an extension that's not accepted by Firefox uploads")
 jPackage = None
-if nested_switch: nested_switch=int(nested_switch) # TODO: if java, override it?  or just rely on the help text for --nested-switch (TODO cross-reference it from --java?)
 if java:
   if not '//' in java: errExit("--java must include a // to separate the first part of the path from the package name")
   jSrc,jRest=java.rsplit('//',1)
@@ -579,15 +540,15 @@ def shell_escape(arg):
   if re.match("^[A-Za-z0-9_=/.%+,:@-]*$",arg): return arg
   return "'"+arg.replace("'",r"'\''")+"'"
 if sharp_multi:
-  if c_sharp or python or golang: errExit("sharp-multi not yet implemented in C#, Python or Go")
+  if python: errExit("sharp-multi not yet implemented in Python") # TODO: easy enough
   elif windows_clipboard: errExit("sharp-multi not yet implemented for windows-clipboard") # would need a way to select the annotator, probably necessitating a GUI on Windows
-if java or javascript or python or c_sharp or golang or dart:
-    def cOnly(param): errExit(param+" not yet implemented in any language other than C, so cannot be used with --java, --javascript, --python, --c-sharp, --golang or --dart")
+if java or javascript or python or dart:
+    def cOnly(param): errExit(param+" not yet implemented in any language other than C, so cannot be used with --java, --javascript, --python or --dart")
     if windows_clipboard: cOnly("--windows-clipboard")
     if library: cOnly("--library")
     if not outcode=="utf-8": cOnly("Non utf-8 outcode")
     if compress: cOnly("--compress")
-    if sum(1 for x in [java,javascript,python,c_sharp,golang,dart] if x) > 1:
+    if sum(1 for x in [java,javascript,python,dart] if x) > 1:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
     if java:
       if android and not "/src//" in java: errExit("When using --android, the last thing before the // in --java must be 'src' e.g. --java=/workspace/MyProject/src//org/example/package")
@@ -602,8 +563,6 @@ if java or javascript or python or c_sharp or golang or dart:
     elif c_filename.endswith(".c"):
       if javascript: c_filename = c_filename[:-2]+".js"
       elif dart: c_filename = c_filename[:-2]+".dart"
-      elif c_sharp: c_filename = c_filename[:-2]+".cs"
-      elif golang: c_filename = c_filename[:-2]+".go"
       else: c_filename = c_filename[:-2]+".py"
 elif windows_clipboard:
   if library: errExit("Support for having both --windows-clipboard and --library at the same time is not yet implemented") # ditto
@@ -619,8 +578,7 @@ if dart:
   if dart_datafile and any(x in dart_datafile for x in "'\\$"): errExit("Current implementation cannot cope with ' or \\ or $ in dart_datafile")
 elif dart_datafile: errExit("--dart-datafile requires --dart")
 if zlib:
-  if javascript: warn("--zlib with --javascript has been known to cause string corruption on some browsers and is deprecated")
-  js_6bit = js_utf8 = False
+  if javascript: errExit("--zlib not supported with Javascript")
   del zlib
   try:
     from zopfli import zlib # pip install zopfli
@@ -630,19 +588,14 @@ if zlib:
   except:
     import zlib
     zlib_name = "zlib"
-  data_driven = True
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if dart and not dart_datafile: warn("--zlib without --dart-datafile might not be as efficient as you'd hope (and --zlib prevents the resulting Dart code from being compiled to a \"Web app\" anyway)") # as it requires dart:io
 if rulesFile_only and not rulesFile: warn("This run won't do much (--rulesFile-only set with no --rulesFile)") # might be OK as a partial coverage test
-if data_driven:
-  if c_sharp or golang: errExit("--data-driven and --zlib are not yet implemented in C# or Go")
-elif javascript or python or dart: data_driven = True
-compact_opcodes = data_driven and not fast_assemble
-if java or javascript or python or c_sharp or golang or dart: c_compiler = None
+if java or javascript or python or dart: c_compiler = None
 try: xrange # Python 2
 except: xrange,unichr,unicode = range,chr,str # Python 3
 if post_normalise:
-  if not (javascript or java and data_driven): errExit('--post-normalise currently requires --javascript or --java and data-driven')
+  if not (javascript or java): errExit('--post-normalise currently requires --javascript or --java')
   if type("")==type(u""): # Python 3 (this requires 3.5+, TODO: support 3.3/3.4 ?)
     import importlib.util as iu
     s = iu.spec_from_file_location("post.normalise", post_normalise)
@@ -663,17 +616,8 @@ try:
   terminal_charset = locale.getdefaultlocale()[1]
 except: terminal_charset = None
 if not terminal_charset: terminal_charset = "utf-8"
-if android_urls:
-  if not android: errExit("--android-urls requires --android (you need to set a default URL for direct launch)")
-  try: import urlparse
-  except:
-    try: import urllib.parse as urlparse
-    except: errExit("--android-urls requires urlparse module") # unless we re-implement
-  if "?" in android_urls: errExit("You cannot include a ? in any of your --android-urls (Android does not count query-string as part of the path)")
-else: android_urls = "" # so it can still be .split()
 if existing_ruby_shortcut_yarowsky:
   if not (android and ybytes and glossfile): errExit("--existing-ruby-shortcut-yarowsky makes sense only when generating an Android app with both ybytes and glossfile set")
-  if not data_driven: errExit("Current implementation of --existing-ruby-shortcut-yarowsky requires --data-driven") # (it doesn't have to, but doing so without would require it to be put into the non-datadriven n() test, and as we're probably turning on zlib for Android apps anyway, we might as well implement only for data-driven)
 def T(s):
   if type(s)==type(u""): return s # Python 3
   return s.decode(terminal_charset)
@@ -700,182 +644,6 @@ if not read_input:
   if msg:
     warn("Reading input despite --no-input because "+msg)
     read_input = True
-
-def nearCall(negate,conds,subFuncs,subFuncL):
-  # returns what to put in the if() for ybytes near() lists
-  if not max_or_length or len(conds) <= max_or_length:
-    if java: f=b"a.n"
-    else: f=b"near"
-    ret = b" || ".join(f+b"(\""+B(outLang_escape(c))+b"\")" for c in conds)
-    if negate:
-      if b" || " in ret: ret = b" ! ("+ret+b")"
-      else: ret = b"!"+ret
-    return ret
-  if java: fStart,fEnd = B("package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {"),b"} }" # put functions in separate classes to try to save the constants table of the main class
-  elif golang: fStart,fEnd = b"func NewFunc() bool {",b"}"
-  else: fStart,fEnd = outLang_bool+b" NewFunc() {",b"}"
-  if negate: rTrue,rFalse = outLang_false,outLang_true
-  else: rTrue,rFalse = outLang_true,outLang_false
-  return subFuncCall(fStart+b"\n".join(outLang_shortIf(nearCall(False,conds[i:j],subFuncs,subFuncL),b"return "+rTrue+b";") for i,j in zip(range(0,len(conds),max_or_length),list(range(max_or_length,len(conds),max_or_length))+[len(conds)]))+b"\nreturn "+rFalse+b";"+fEnd,subFuncs,subFuncL)
-
-def outLang_shortIf(cond,statement):
-  if golang: return b"if "+cond+b" {\n  "+statement+b"\n}"
-  else: return b"if("+cond+b") "+statement
-
-def subFuncCall(newFunc,subFuncs,subFuncL):
-  if newFunc in subFuncs:
-    # we generated an identical one before
-    subFuncName=subFuncs[newFunc]
-  else:
-    if java: subFuncName=b"z%X" % len(subFuncs) # (try to save as many bytes as possible because it won't be compiled out and we also have to watch the compiler's footprint; start with z so MainActivity.java etc appear before rather than among this lot in IDE listings)
-    else: subFuncName=b"match%d" % len(subFuncs)
-    subFuncs[newFunc]=subFuncName
-    if java or c_sharp or golang: static=b""
-    else: static=b"static "
-    subFuncL.append(static+newFunc.replace(b"NewFunc",subFuncName,1))
-  if java: return B(jPackage)+b"."+subFuncName+b".f(a)"
-  return subFuncName+b"()" # the call (without a semicolon)
-
-def stringSwitch(byteSeq_to_action_dict,subFuncL,funcName=b"topLevelMatch",subFuncs={},java_localvar_counter=None,nestingsLeft=None): # ("topLevelMatch" is also mentioned in the C code)
-    # make a function to switch on a large number of variable-length string cases without repeated lookahead for each case
-    # (may still backtrack if no words or no suffices match)
-    # byteSeq_to_action_dict is really a byte sequence to [(action, OR-list of Yarowsky-like indicators which are still in Unicode)], the latter will be c_escape()d
-    # can also be byte seq to [(action,(OR-list,nbytes))] but only if OR-list is not empty, so value[1] will always be false if OR-list is empty
-    # so byteSeq_to_action_dict[k][0][0] is 1st action,
-    #    byteSeq_to_action_dict[k][0][1] is conditions,
-    #    byteSeq_to_action_dict[k][1][0] is 2nd action, &c
-    if nestingsLeft==None: nestingsLeft=nested_switch
-    canNestNow = not nestingsLeft==0 # (-1 = unlimited)
-    if java: adot = b"a."
-    else: adot = b""
-    if java or c_sharp or golang: NEXTBYTE = adot+b'nB()'
-    else: NEXTBYTE = b'NEXTBYTE'
-    allBytes = set(b[:1] for b in iterkeys(byteSeq_to_action_dict) if b)
-    ret = []
-    if not java_localvar_counter: # Java and C# don't allow shadowing of local variable names, so we'll need to uniquify them
-      java_localvar_counter=[0]
-    olvc = b"%X" % java_localvar_counter[0] # old localvar counter
-    if funcName:
-        if java: ret.append(b"package "+B(jPackage)+b";\npublic class "+funcName+b" { public static void f("+B(jPackage)+b".Annotator a) {")
-        else:
-          if funcName==b"topLevelMatch" and not c_sharp: stat=b"static " # because we won't call subFuncCall on our result
-          else: stat=b""
-          if golang: ret.append(b"func %s() {" % funcName)
-          else: ret.append(stat+b"void %s() {" % funcName)
-        savePos = len(ret)
-        if java or c_sharp: ret.append(b"{ int oldPos="+adot+b"inPtr;")
-        elif golang: ret.append(b"{ oldPos := inPtr;")
-        else: ret.append(b"{ POSTYPE oldPos=THEPOS;")
-    elif b"" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1:
-        # no funcName, but might still want to come back here as there's a possible action at this level
-        savePos = len(ret)
-        if java or c_sharp:
-          ret.append(b"{ int oP"+olvc+b"="+adot+b"inPtr;")
-          java_localvar_counter[0] += 1
-        elif golang: ret.append(b"{ oldPos := inPtr;")
-        else: ret.append(b"{ POSTYPE oldPos=THEPOS;")
-    else: savePos = None
-    def restorePos():
-      if not savePos==None:
-        if len(b' '.join(ret).split(NEXTBYTE))==2 and not called_subswitch:
-            # only 1 NEXTBYTE after the savePos - just
-            # do a PREVBYTE instead
-            # (note however that splitting on NEXTBYTE
-            # does not necessarily give a reliable value
-            # for max amount of lookahead required if
-            # there's more than 1.  We use max rule len
-            # as an upper bound for that instead.)
-            del ret[savePos]
-            if java: ret.append(b"a.inPtr--;")
-            elif c_sharp or golang: ret.append(b"inPtr--;")
-            else: ret.append(b"PREVBYTE;")
-        elif java or c_sharp:
-          if funcName: ret.append(adot+b"inPtr=oldPos; }")
-          else: ret.append(adot+b"inPtr=oP"+olvc+b"; }")
-        elif golang: ret.append(b"inPtr=oldPos; }")
-        else: ret.append(b"SETPOS(oldPos); }") # restore
-    called_subswitch = False
-    if b"" in byteSeq_to_action_dict and len(byteSeq_to_action_dict) > 1 and len(byteSeq_to_action_dict[b""])==1 and not byteSeq_to_action_dict[b""][0][1] and all((len(a)==1 and a[0][0].startswith(byteSeq_to_action_dict[b""][0][0]) and not a[0][1]) for a in itervalues(byteSeq_to_action_dict)):
-        # there's an action in common for this and all subsequent matches, and no Yarowsky-like indicators, so we can do the common action up-front
-        ret.append(byteSeq_to_action_dict[b""][0][0])
-        l = len(byteSeq_to_action_dict[b""][0][0])
-        byteSeq_to_action_dict = dict((x,[(y[l:],z)]) for x,[(y,z)] in iteritems(byteSeq_to_action_dict))
-        # and, since we'll be returning no matter what,
-        # we can put the inner switch in a new function
-        # (even if not re-used, this helps compiler speed)
-        # + DON'T save/restore pos around it (it itself
-        # will do any necessary save/restore pos)
-        del byteSeq_to_action_dict[b""]
-        if java and (canNestNow or len(byteSeq_to_action_dict)==1): # hang on - better nest (might be using --nested-switch to get around a Java compiler-memory problem; the len condition allows us to always nest a single 'if' rather than creating a new function+class for it)
-          ret += [b"  "+x for x in stringSwitch(byteSeq_to_action_dict,subFuncL,None,subFuncs,java_localvar_counter,nestingsLeft)]
-          restorePos()
-          ret.append(b"return;")
-        else: # ok, new function
-          newFunc = b"\n".join(stringSwitch(byteSeq_to_action_dict,subFuncL,b"NewFunc",subFuncs))
-          ret.append(subFuncCall(newFunc,subFuncs,subFuncL)+b"; return;")
-          del ret[savePos] # will be set to None below
-        byteSeq_to_action_dict[b""] = [(b"",[])] # for the end of this func
-        savePos = None # as setting funcName on stringSwitch implies it'll give us a savePos, and if we didn't set funcName then we called restorePos already above
-    elif allBytes:
-      # deal with all actions except "" first
-      use_if = (len(allBytes)==1)
-      if not use_if:
-        if nestingsLeft > 0: nestingsLeft -= 1
-        ret.append(b"switch("+NEXTBYTE+b") {")
-      for case in sorted(allBytes):
-        if not c_sharp and 32<=ord(case)<127 and case!=b"'": cstr=b"'%c'" % case
-        else:
-          cstr=B(str(ord(case)))
-          if java: cstr = b"(byte)"+cstr
-        if use_if: ret.append(b"if("+NEXTBYTE+b"=="+cstr+b") {")
-        else: ret.append(b"case %s:" % cstr)
-        subDict = dict([(k[1:],v) for k,v in iteritems(byteSeq_to_action_dict) if k and k[:1]==case])
-        inner = stringSwitch(subDict,subFuncL,None,subFuncs,java_localvar_counter,nestingsLeft)
-        if canNestNow or not (inner[0].startswith(b"switch") or (inner[0].startswith(b"if(") and not nested_if)): ret += [b"  "+x for x in inner]
-        else:
-          # Put the inner switch into a different function
-          # which returns 1 if we should return.
-          # (TODO: this won't catch cases where there's a savePos before the inner switch; will still nest in that case.  But it shouldn't lead to big nesting in practice.)
-          if nested_switch: inner = stringSwitch(subDict,subFuncL,None,subFuncs,None,None) # re-do it with full nesting counter
-          if java: myFunc,funcEnd = [B("package "+jPackage+";\npublic class NewFunc { public static boolean f("+jPackage+".Annotator a) {")], b"}}"
-          elif golang: myFunc,funcEnd=[b"func NewFunc() bool {"],b"}"
-          else: myFunc,funcEnd=[outLang_bool+b" NewFunc() {"],b"}"
-          for x in inner:
-            if x.endswith(b"return;"): x=x[:-len(b"return;")]+b"return "+outLang_true+b";"
-            myFunc.append(b"  "+x)
-          ret += (b"  "+outLang_shortIf(subFuncCall(b"\n".join(myFunc)+b"\n  return "+outLang_false+b";\n"+funcEnd,subFuncs,subFuncL),b"return;")).split(b'\n') # if golang, MUST have the \n before the 1st return there (optional for other languages); also must split outLang_shortIf o/p into \n for the above 'for x in inner' rewrite to work
-          called_subswitch=True # as it'll include more NEXTBYTE calls which are invisible to the code below
-        if not (use_if or inner[-1].endswith(b"return;")): ret.append(b"  break;")
-      ret.append(b"}") # end of switch or if
-    restorePos()
-    if funcName:
-      if java: ret.append(b"} }")
-      else: ret.append(b"}")
-    elif b"" in byteSeq_to_action_dict:
-        # if the C code gets to this point, no return; happened - no suffices
-        # so execute one of the "" actions and return
-        # (which one, if any, depends on the Yarowsky-like indicators; there should be at most one "default" action without indicators)
-        default_action = b""
-        for action,conds in byteSeq_to_action_dict[b""]:
-            if conds:
-                assert action, "conds without action in "+repr(byteSeq_to_action_dict[""])
-                if type(conds)==tuple:
-                    negate,conds,nbytes = conds
-                    if java: ret.append(b"a.sn(%d);" % nbytes)
-                    elif c_sharp or golang: ret.append(b"nearbytes=%d;" % nbytes)
-                    else: ret.append(b"setnear(%d);" % nbytes)
-                else: negate = False
-                ret.append(b"if ("+nearCall(negate,conds,subFuncs,subFuncL)+b") {")
-                ret.append((action+b" return;").strip())
-                ret.append(b"}")
-            else: # no conds
-                if default_action:
-                  sys.stderr.write("WARNING! More than one default action in "+repr(byteSeq_to_action_dict[""])+" - earlier one discarded!\n")
-                  if rulesFile: sys.stderr.write("(This might indicate invalid markup in the corpus, but it might just be due to a small change or capitalisation update during an incremental run, which can be ignored.)\n") # TODO: don't write this warning at all if accum.amend_rules was set at the end of analyse() ?
-                  else: sys.stderr.write("(This might indicate invalid markup in the corpus)\n")
-                default_action = action
-        if default_action or not byteSeq_to_action_dict[b""]: ret.append((default_action+b" return;").strip()) # (return only if there was a default action, OR if an empty "" was in the dict with NO conditional actions (e.g. from the common-case optimisation above).  Otherwise, if there were conditional actions but no default, we didn't "match" anything if none of the conditions were satisfied.)
-    return ret # caller does '\n'.join
 
 if compress:
   squashStrings = set() ; squashReplacements = []
@@ -1399,7 +1167,7 @@ enum {
   c_switch4 = b"} else o(numBytes,annot);"
 else: c_switch1=c_switch2=c_switch3=c_switch4=b""
 
-if data_driven or sharp_multi: c_preamble += b'#include <stdlib.h>\n' # for malloc or atoi
+c_preamble += b'#include <stdlib.h>\n'
 if sharp_multi: c_preamble += b'#include <ctype.h>\n'
 if zlib: c_preamble += b'#include "zlib.h"\n'
 if sharp_multi: c_preamble += b"static int numSharps=0;\n"
@@ -1958,6 +1726,7 @@ android_manifest += br"""
 <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter>"""
 if epub: android_manifest += br"""
 <intent-filter> <action android:name="android.intent.action.VIEW" /> <category android:name="android.intent.category.DEFAULT" /> <category android:name="android.intent.category.BROWSABLE" /> <data android:scheme="file"/> <data android:scheme="content"/> <data android:host="*" /> <data android:pathPattern="/.*\\.epub"/> </intent-filter> <intent-filter> <action android:name="android.intent.action.VIEW" /> <category android:name="android.intent.category.DEFAULT" /> <data android:scheme="file"/> <data android:scheme="content"/> <data android:mimeType="application/epub+zip"/> </intent-filter>"""
+android_manifest += b"\n</activity></application></manifest>\n"
 android_layout = br"""<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_height="fill_parent" android:layout_width="fill_parent" android:orientation="vertical">
   <WebView android:id="@+id/browser" android:layout_height="match_parent" android:layout_width="match_parent" />
@@ -1971,7 +1740,6 @@ elif android_template:
 # Another user still found the EPUB link distracting, so let's make it a button (to match the Go button) rather than a 'different'-looking link (if most users want the Web browser then we probably don't want EPUB to be the _first_ thing they notice).
 # As we're using forceDarkAllowed to allow 'force dark mode' on Android 10, we MUST specify background and color.  Left unspecified results in input elements that always have white backgrounds even in dark mode, in which case you get white on white = invisible text.  "inherit" works; background #ededed looks more shaded and does get inverted; background-image linear-gradient does NOT get inverted (so don't use it).
 # And as fewer browsers display "http" users might be less likely to recognise that as the start of the URL, so don't use "http://" for the box's placeholder.
-if accept_html and (not android_template or not "URL_BOX_GOES_HERE" in android_template): errExit("--accept-html currently requires an --android-template with URL_BOX_GOES_HERE or blank")
 android_url_box = br"""<div style="border: thin dotted grey">
 <form style="margin:0em;padding-bottom:0.5ex" onSubmit="var v=this.url.value;if(typeof annotUrlTrans!='undefined'){var u=annotUrlTrans(v);if(typeof u!='undefined')v=u}if(v.slice(0,4)!='http')v='http://'+v;if(v.indexOf('.')==-1)ssb_local_annotator.alert('','','The text you entered is not a Web address. Please enter a Web address like www.example.org');else{this.t.parentNode.style.width='50%';this.t.value='LOADING: PLEASE WAIT';window.location.href=v}return false"><table style="width: 100%"><tr><td style="width:1em;margin:0em;padding:0em;display:none" id=displayMe align=left><button style="width:100%;background:#ededed;color:inherit" onclick="document.forms[document.forms.length-1].url.value='';document.getElementById('displayMe').style.display='none';return false">X</button></td><td style="margin: 0em; padding: 0em"><input type=text style="width:100%;background:inherit;color:inherit" placeholder="Web page" name=url></td><td style="width:1em;margin:0em;padding:0em" align=right><input type=submit name=t value=Go style="width:100%;background:#ededed;color:inherit"></td></tr></table></form>"""
 # Now all other controls:
@@ -2025,7 +1793,6 @@ var m=navigator.userAgent.match(/Android ([0-9]+)\./); if(m && m[1]<5) document.
 var c=ssb_local_annotator.getClip(); if(c && c.match(/^https?:\/\/[-!#%&+,.0-9:;=?@A-Z\/_|~]+$/i)){document.forms[document.forms.length-1].url.value=c;document.getElementById("displayMe").style.display="table-cell"}</script>"""
 # API 19 (4.4) and below has no browser updates.  API 17 (4.2) and below has known shell exploits for CVE-2012-6636 which requires only that a site (or network access point) can inject arbitrary Javascript into the HTTP stream.  Not sure what context the resulting shell runs in, but there are probably escalation attacks available.  TODO: insist on working offline-only on old versions?
 android_url_box += b'</div>'
-if accept_html: android_url_box += b'<div id="popup" style="display:none;z-index:999;position:fixed;top:0px;left:0px;max-height:100%;border:solid red;overflow:auto;background:white;color:black">'+open(accept_html,'rb').read()+b'<div><button onClick="ssb_local_annotator.accept();document.getElementById(\'popup\').style.display=\'none\'">&#x2705; Accept</button> <button onClick="ssb_local_annotator.decline()">&#x274C; Decline</button></div></div><script>if(!ssb_local_annotator.accepted())document.getElementById("popup").style.display="block"</script>'
 if android_template:
   android_template = android_template.replace(b"URL_BOX_GOES_HERE",android_url_box)
   if not b"VERSION_GOES_HERE" in android_template:
@@ -2168,9 +1935,7 @@ if android_template: android_src += br"""
                 includeAllSetting = i;
             }"""
 android_src += br"""
-            @JavascriptInterface public String annotate(String t) """
-if data_driven: android_src += b"throws java.util.zip.DataFormatException "
-android_src += b'{ if(annotator==null) return t; String r=annotator.annotate(t);'
+            @JavascriptInterface public String annotate(String t) throws java.util.zip.DataFormatException { if(annotator==null) return t; String r=annotator.annotate(t);"""
 if sharp_multi: android_src += br"""
                 Matcher m = smPat.matcher(r);
                 StringBuffer sb=new StringBuffer();
@@ -2417,24 +2182,6 @@ android_src += br"""
                 else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
                 if(toast && AndroidSDK<33) Toast.makeText(act, "Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
             }"""
-if accept_html: android_src += br"""
-            @JavascriptInterface public void accept() {
-                android.content.SharedPreferences.Editor e;
-                String s;
-                do {
-                   SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
-                   e = sp.edit();
-                   e.putString("accept","1");
-                } while(!e.commit());
-            }
-            @JavascriptInterface public void decline() {
-                if(!accepted()) act.runOnUiThread(new Runnable(){
-                    @Override public void run() {
-                        act.finish(); }}); // else some site tried to DoS our app: ignore
-            }
-            @JavascriptInterface public boolean accepted() {
-                return getSharedPreferences("ssb_local_annotator",0).getString("accept","0").equals("1");
-            }"""
 if android_audio: android_src += br"""
             @JavascriptInterface public void sendToAudio(final String s) {
                 class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { try { browser.loadUrl("javascript:var src='"""+B(android_audio)+br""""+java.net.URLEncoder.encode(s,"utf-8")+"';if(!window.audioElement || window.audioElement.getAttribute('src')!=src){window.audioElement=document.createElement('audio');window.audioElement.setAttribute('src',src)}window.audioElement.play()"); } catch(java.io.UnsupportedEncodingException e) {} Toast.makeText(act, "Sent \""+s+"\" to audio server",Toast.LENGTH_LONG).show(); } };
@@ -2487,9 +2234,7 @@ if bookmarks: android_src += br"""
                 try { s = createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==jPackage))+br"""
                 return s+getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
             }""" # and even if not bookmarks:
-android_src += b"\n}\n"
-if data_driven: android_src += b"try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this,\"Cannot load annotator data!\",Toast.LENGTH_LONG).show(); String m=e.getMessage(); if(m!=null) Toast.makeText(this,m,Toast.LENGTH_LONG).show(); }" # TODO: should we keep a static synchronized annotator instance, in case some version of Android gives us multiple Activity instances and we start taking up more RAM than necessary?
-else: android_src += b"annotator=new %%JPACKAGE%%.Annotator();"
+android_src += b"\n}\n" + b"try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this,\"Cannot load annotator data!\",Toast.LENGTH_LONG).show(); String m=e.getMessage(); if(m!=null) Toast.makeText(this,m,Toast.LENGTH_LONG).show(); }" # TODO: should we keep a static synchronized annotator instance, in case some version of Android gives us multiple Activity instances and we start taking up more RAM than necessary?
 android_src += br"""
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         final MainActivity act = this;
@@ -2864,25 +2609,21 @@ java_src = br"""package %%JPACKAGE%%;
 import java.io.*;
 public class Annotator {
 public Annotator("""
-if android and data_driven:
+if android:
   # will need a context param to read from assets
   java_src += b"android.content.Context context"
-java_src += b")"
-if data_driven:
-  java_src += b" throws IOException"
-  if zlib: java_src += b",java.util.zip.DataFormatException"
-java_src += b" {"
-if data_driven:
-  java_src += b"""try { data=new byte[%%DLEN%%]; } catch (OutOfMemoryError e) { throw new IOException("Out of memory! Can't load annotator!"); }"""
-  if android: java_src += b'context.getAssets().open("annotate.dat").read(data);'
-  else: java_src += b'this.getClass().getResourceAsStream("/annotate.dat").read(data);'
-  if zlib: java_src += br"""
+java_src += b") throws IOException"
+if zlib: java_src += b",java.util.zip.DataFormatException"
+java_src += b""" { try { data=new byte[%%DLEN%%]; } catch (OutOfMemoryError e) { throw new IOException("Out of memory! Can't load annotator!"); }"""
+if android: java_src += b'context.getAssets().open("annotate.dat").read(data);'
+else: java_src += b'this.getClass().getResourceAsStream("/annotate.dat").read(data);'
+if zlib: java_src += br"""
 java.util.zip.Inflater i=new java.util.zip.Inflater();
 i.setInput(data);
 byte[] decompressed; try { decompressed=new byte[%%ULEN%%]; } catch (OutOfMemoryError e) { throw new IOException("Out of memory! Can't unpack annotator!"); }
 i.inflate(decompressed); i.end(); data = decompressed;"""
-  java_src += br"addrLen = data[0] & 0xFF;"
-  if post_normalise: java_src += b"""
+java_src += br"addrLen = data[0] & 0xFF;"
+if post_normalise: java_src += b"""
     dPtr = 1; char[] rleDat;
     try {
         rleDat = new String(java.util.Arrays.copyOfRange(data,readAddr(),data.length), "UTF-16LE").toCharArray();
@@ -2898,8 +2639,7 @@ i.inflate(decompressed); i.end(); data = decompressed;"""
     } while(w!=0) { normalisationTable[w]=w; w++; /* overflows to 0 */ }
 }
 char[] normalisationTable; byte[] origInBytes;"""
-  else: java_src += b"}" # end c'tor w/out adding extra private data
-else: java_src += b"}" # no data_driven: empty constructor
+else: java_src += b"}" # end c'tor w/out adding extra private data
 java_src += br"""
 int nearbytes;
 byte[] inBytes;
@@ -2969,9 +2709,8 @@ byte[] s2b(String s) {
     return null;
   }
 }"""
-if data_driven:
-  if existing_ruby_shortcut_yarowsky: java_src += b"\npublic boolean shortcut_nearTest=false;"
-  java_src += br"""
+if existing_ruby_shortcut_yarowsky: java_src += b"\npublic boolean shortcut_nearTest=false;"
+java_src += br"""
     byte[] data; int addrLen, dPtr;
     int readAddr() {
         int i,addr=0;
@@ -3049,12 +2788,12 @@ if data_driven:
                 case 90: {
                     int tPtr = readAddr();
                     int fPtr = readAddr();"""
-  if existing_ruby_shortcut_yarowsky: java_src += br"""
+if existing_ruby_shortcut_yarowsky: java_src += br"""
                     if (shortcut_nearTest) {
                         dPtr = (tPtr<fPtr) ? tPtr : fPtr; // relying on BytecodeAssembler addActionDictSwitch behaviour: the higher pointer will be the one that skips past the 'if', so we want the lower one if we want to always take it
                         break;
                     }"""
-  java_src += br"""
+java_src += br"""
                     sn(data[dPtr++] & 0xFF);
                     boolean found = false;
                     while (dPtr < tPtr && dPtr < fPtr) if (n(readRefStr())) { found = true; break; }
@@ -3063,9 +2802,7 @@ if data_driven:
                 }
         }
     }
-"""
-java_src += br"""
-public String annotate(String txt) {"""
+public String annotate(String txt) throws java.util.zip.DataFormatException {"""
 if existing_ruby_shortcut_yarowsky: java_src += br"""
   boolean old_snt = shortcut_nearTest;
   if(txt.length() < 2) shortcut_nearTest=false;
@@ -3077,13 +2814,9 @@ java_src += br"""
   nearbytes=%%YBYTES%%;inBytes=s2b(txt);writePtr=0;needSpace=false;outBuf=new ByteArrayOutputStream();inPtr=0;
   while(inPtr < inBytes.length) {
     int oldPos=inPtr; """
-if data_driven:
-  java_src = java_src.replace(b"annotate(String txt)",b"annotate(String txt) throws java.util.zip.DataFormatException")
-  if post_normalise: java_src += b"dPtr=1+addrLen;" # after byte nBytes, we'll have address of normalisation table, and then the bytecode itself
-  else: java_src += b"dPtr=1;" # just byte nBytes needs to be skipped
-  java_src += b"readData();"
-else: java_src += b"%%JPACKAGE%%.topLevelMatch.f(this);"
-java_src += br"""
+if post_normalise: java_src += b"dPtr=1+addrLen;" # after byte nBytes, we'll have address of normalisation table, and then the bytecode itself
+else: java_src += b"dPtr=1;" # just byte nBytes needs to be skipped
+java_src += br"""readData();
     if (oldPos==inPtr) { needSpace=false; o(nB()); writePtr++; }
   }
   String ret=null; try { ret=new String(outBuf.toByteArray(), "UTF-8"); } catch(UnsupportedEncodingException e) {}"""
@@ -3101,306 +2834,6 @@ public static void main(String[] args) {
 }
 """
 java_src += b"}"
-
-if os.environ.get("ANNOGEN_CSHARP_NO_MAIN",""):
-  cSharp_mainNote = b""
-else: cSharp_mainNote = br"""
-// or just use the Main() at end (compile with csc, and
-// see --help for usage)
-//   (to omit this Main() from the generated file, set
-//    the environment variable ANNOGEN_CSHARP_NO_MAIN before
-//    running Annotator Generator)"""
-
-cSharp_start = b"// C# code "+version_stamp+br"""
-// use: new Annotator(txt).result()
-// (can also set annotation_mode on the Annotator)"""+cSharp_mainNote+br"""
-
-enum Annotation_Mode { ruby_markup, annotations_only, brace_notation };
-
-class Annotator {
-public const string version="""+b'"'+version_stamp+br"""";
-public Annotator(string txt) { nearbytes=%%YBYTES%%; inBytes=System.Text.Encoding.UTF8.GetBytes(txt); inPtr=0; writePtr=0; needSpace=false; outBuf=new System.IO.MemoryStream(); annotation_mode = Annotation_Mode.ruby_markup; }
-int nearbytes;
-public Annotation_Mode annotation_mode;
-byte[] inBytes;
-int inPtr,writePtr; bool needSpace;
-System.IO.MemoryStream outBuf;
-const byte EOF = (byte)0; // TODO: a bit hacky
-byte nB() {
-  if (inPtr==inBytes.Length) return EOF;
-  return inBytes[inPtr++];
-}
-bool near(string s) {
-  byte[] bytes=System.Text.Encoding.UTF8.GetBytes(s);
-  int offset=inPtr, maxPos=inPtr+nearbytes;
-  if (maxPos > inBytes.Length) maxPos = inBytes.Length;
-  maxPos -= bytes.Length;
-  if(offset>nearbytes) offset-=nearbytes; else offset = 0;
-  while(offset <= maxPos) {
-    bool ok=true;
-    for(int i=0; i<bytes.Length; i++) {
-      if(bytes[i]!=inBytes[offset+i]) { ok=false; break; }
-    }
-    if(ok) return true;
-    offset++;
-  }
-  return false;
-}
-void o(byte c) { outBuf.WriteByte(c); }
-void o(string s) { byte[] b=System.Text.Encoding.UTF8.GetBytes(s); outBuf.Write(b,0,b.Length); }
-void s() {
-  if (needSpace) o((byte)' ');
-  else needSpace=true;
-}
-void s0() {
-  if (needSpace) { o((byte)' '); needSpace=false; }
-}
-void c(int numBytes) {
-  outBuf.Write(inBytes,writePtr,numBytes);
-  writePtr += numBytes;
-}
-void o(int numBytes,string annot) {
-  s();
-  switch (annotation_mode) {
-  case Annotation_Mode.annotations_only:
-    o(annot); break;
-  case Annotation_Mode.ruby_markup:
-    o("<ruby><rb>");
-    outBuf.Write(inBytes,writePtr,numBytes);
-    o("</rb><rt>"); o(annot);
-    o("</rt></ruby>"); break;
-  case Annotation_Mode.brace_notation:
-    o("{");
-    outBuf.Write(inBytes,writePtr,numBytes);
-    o("|"); o(annot);
-    o("}"); break;
-  }
-  writePtr += numBytes;
-}
-void o2(int numBytes,string annot,string title) {
-  if (annotation_mode == Annotation_Mode.ruby_markup) {
-    s();
-    o("<ruby title=\""); o(title);
-    o("\"><rb>");
-    outBuf.Write(inBytes,writePtr,numBytes);
-    writePtr += numBytes;
-    o("</rb><rt>"); o(annot);
-    o("</rt></ruby>");
-  } else o(numBytes,annot);
-}
-public string result() {
-  while(inPtr < inBytes.Length) {
-    int oldPos=inPtr;
-    topLevelMatch();
-    if (oldPos==inPtr) { needSpace=false; o(nB()); writePtr++; }
-  }
-  return System.Text.Encoding.UTF8.GetString(outBuf.ToArray());
-}
-"""
-cSharp_end = b"}\n"
-if cSharp_mainNote: cSharp_end += br"""
-class Test {
-  static void Main(string[] args) {
-    Annotation_Mode annotation_mode = Annotation_Mode.ruby_markup;
-    for(int i=0; i<args.Length; i++) {
-      if (args[i]=="--help") {
-        System.Console.WriteLine("Use --ruby to output ruby markup (default)");
-        System.Console.WriteLine("Use --raw to output just the annotations without the base text");
-        System.Console.WriteLine("Use --braces to output as {base-text|annotation}");
-        return;
-      } else if(args[i]=="--ruby") {
-        annotation_mode = Annotation_Mode.ruby_markup;
-      } else if(args[i]=="--raw") {
-        annotation_mode = Annotation_Mode.annotations_only;
-      } else if(args[i]=="--braces") {
-        annotation_mode = Annotation_Mode.brace_notation;
-      }
-    }
-    System.Console.InputEncoding=System.Text.Encoding.UTF8;
-    System.Console.OutputEncoding=System.Text.Encoding.UTF8;
-    Annotator a=new Annotator(System.Console.In.ReadToEnd());
-    a.annotation_mode = annotation_mode;
-    System.Console.Write(a.result());
-  }
-}
-"""
-
-golang_start = b'/* "Go" code '+version_stamp+br"""
-
-To set up a Web service on first-generation AppEngine
-(which uses Go 1.11 or below),
-put this file in a subdirectory of your project, and create a
-top-level .go file with something like:
-
-package server
-import (
-  "net/http"
-  "%%PKG%%"
-)
-func init() {
-    http.HandleFunc("/", %%PKG%%_handler)
-    // add other handlers as appropriate
-}
-func %%PKG%%_handler(w http.ResponseWriter, r *http.Request) {
-    %%PKG%%.Annotate(r.Body,w)
-}
-
-Then in app.yaml:
-application: whatever
-version: 1
-runtime: go
-api_version: go1
-handlers:
-- url: /.*
-  script: _go_app
-
-Then test with: goapp serve
-(and POST to localhost:8080, e.g. via Web Adjuster --htmlFilter="http://localhost:8080")
-
-(To deploy with Web Adjuster also on 1st-gen AppEngine, you'll need two instances, because
-although you could add Web Adjuster on the SAME one - put adjuster's app.yaml into a
-python-api.yaml with "module: pythonapi" - there will be the issue of how to set the
-URL handlers while making sure that Golang's has priority if it's an exception to .*)
-
- */
-
-package %%PKG%%
-
-import (
-  "sync"
-  "bytes"
-  "io"
-)
-// We have a Mutex for thread safety.  TODO: option to put
-// the global variables into a per-instance struct instead
-var mutex sync.Mutex
-
-var inBytes []byte = nil
-var outBuf bytes.Buffer
-var inPtr int
-var writePtr int
-var needSpace bool
-var nearbytes int = 15
-
-func nB() byte {
-   if (inPtr == len(inBytes)) {
-      return 0
-   }
-   tmp := inBytes[inPtr]
-   inPtr++
-   return tmp
-}
-
-func near(s0 string) bool {
-   s := make([]byte, len(s0))
-   copy (s,s0)
-   offset := inPtr
-   maxPos := inPtr + nearbytes
-   if maxPos > len(inBytes) {
-      maxPos = len(inBytes)
-   }
-   maxPos -= len(s)
-   if (offset > nearbytes) {
-      offset -= nearbytes
-   } else {
-      offset = 0
-   }
-   for(offset <= maxPos) {
-      ok := true ; i := 0
-      for (i < len(s)) {
-         if s[i] != inBytes[offset+i] {
-            ok = false ; break
-         }
-         i++
-      }
-      if (ok) {
-         return true
-      }
-      offset++
-   }
-   return false
-}
-
-func oB(c byte) {
-   outBuf.WriteByte(c)
-}
-func oS(s string) {
-   outBuf.WriteString(s)
-}
-func s() {
-   if(needSpace) {
-      oB(' ')
-   } else {
-      needSpace = true
-   }
-}
-func s0() {
-   if(needSpace) {
-      oB(' ')
-      needSpace = false
-   }
-}
-func c(numBytes int) {
-  for (numBytes > 0) {
-    // TODO: does Go have a way to do this in 1 operation?
-    oB(inBytes[writePtr])
-    numBytes--
-    writePtr++
-  }
-}
-func o(numBytes int,annot string) {
-  s()
-  oS("<ruby><rb>")
-  for (numBytes > 0) {
-    // TODO: does Go have a way to do this in 1 operation?
-    oB(inBytes[writePtr])
-    numBytes--
-    writePtr++
-  }
-  oS("</rb><rt>")
-  oS(annot)
-  oS("</rt></ruby>")
-}
-func o2(numBytes int,annot string,title string) {
-  s()
-  oS("<ruby title=\"")
-  oS(title)
-  oS("\"><rb>")
-  for (numBytes > 0) {
-    // TODO: as above
-    oB(inBytes[writePtr])
-    numBytes--
-    writePtr++
-  }
-  oS("</rb><rt>")
-  oS(annot)
-  oS("</rt></ruby>")
-}
-""".replace(b"%%PKG%%",B(golang))
-golang_end=br"""
-func Annotate(src io.Reader, dest io.Writer) {
-   inBuf := new(bytes.Buffer)
-   io.Copy(inBuf, src)
-   mutex.Lock()
-   inBytes = inBuf.Bytes()
-   inBuf.Reset() ; outBuf.Reset()
-   needSpace = false
-   inPtr = 0 ; writePtr = 0
-   for(inPtr < len(inBytes)) {
-      oldPos := inPtr
-      topLevelMatch()
-      if oldPos==inPtr {
-         needSpace = false
-         oB(nB())
-         writePtr++
-      }
-   }
-   // outBuf.WriteTo(dest) // may hold up if still locked, try this instead:
-   outBytes := outBuf.Bytes()
-   mutex.Unlock()
-   dest.Write(outBytes)
-}
-"""
 
 if js_6bit: js_6bit_offset = 35 # any offset between 32 and 63 makes all printable, but 35+ avoids escaping of " at 34 (can't avoid escaping of \ though, unless have a more complex decoder), and low offsets increase the range of compact-switchbyte addressing also.
 else: js_6bit_offset = 0
@@ -3466,7 +2899,6 @@ class BytecodeAssembler:
       else: self.addBytes(a[0]) # num i/p bytes to copy
       for i in a[1:]: self.addRefToString(i)
   def addActionDictSwitch(self,byteSeq_to_action_dict,isFunc=True,labelToJump=None):
-    # a modified stringSwitch for the bytecode
     # Actions aren't strings: they list tuples of either
     # 1, 2 or 3 items for copyBytes, o(), o2()
     # labelToJump is a jump to insert afterwards if not isFunc and if we don't emit an unconditional 'return'.  Otherwise, will ALWAYS end up with a 'return' (even if not isFunc i.e. the main program)
@@ -3635,77 +3067,76 @@ class BytecodeAssembler:
         src = self.l[:] # must start with fresh copy, because compaction modifies src and we don't want a false start with wrong addrSize to affect us
         try:
           compacted = 0 ; compaction_types = set()
-          if compact_opcodes:
-            # The compact opcodes all rely on relative addressing (relative to AFTER the compact instruction) that goes only forward.  Easiest way to deal with that is to work backwards from the end, inlining the compactions, before running a conventional 2-pass assembly.
-            # TODO: Could move the below loop into this one in its entirety, and just assemble backwards.  Most within-function label references point forwards anyway.  (Would still need some backward refs for functions though)
-            bytesFromEnd = 0
-            lDic = {} # labelNo -> bytesFromEnd
-            def LGet(lRef,origOperandsLen):
-              # Return the number of bytes between the end of the proposed compact instruction and the label, to see if it's small enough to fit inside the compact instruction.  Since bytesFromEnd includes origOperandsLen, we need to subtract that out, which would then leave bytes from end of code to end of proposed new instruction (whatever its length will be), and then subtracting the bytesFromEnd of the label will give the number of forward bytes we want.
-              if not -lRef in lDic: return -1
-              return bytesFromEnd-origOperandsLen-lDic[-lRef]
-            counts_to_del = set()
-            for count in xrange(len(src)-1,-1,-1):
-                i = src[count]
-                if type(i)==tuple and type(i[0])==str:
-                    opcode = i[0]
-                    i = "-" # for len() at end of block
-                    if opcode in ['copyBytes','o','o2'] and src[count+['copyBytes','o','o2'].index(opcode)+2]==('return',):
-                      # 74 to 76 = 71 to 73 + return
-                      src[count] = B(chr(['copyBytes','o','o2'].index(opcode)+74))
-                      counts_to_del.add(count+['copyBytes','o','o2'].index(opcode)+2)
-                      compacted += 1 ; bytesFromEnd -= 1
-                      compaction_types.add('return')
-                    elif opcode=='call' and src[count+2]==('return',):
-                      src[count] = ('jump',)
-                      counts_to_del.add(count+2)
-                      compacted += 1 ; bytesFromEnd -= 1
+          # The compact opcodes all rely on relative addressing (relative to AFTER the compact instruction) that goes only forward.  Easiest way to deal with that is to work backwards from the end, inlining the compactions, before running a conventional 2-pass assembly.
+          # TODO: Could move the below loop into this one in its entirety, and just assemble backwards.  Most within-function label references point forwards anyway.  (Would still need some backward refs for functions though)
+          bytesFromEnd = 0
+          lDic = {} # labelNo -> bytesFromEnd
+          def LGet(lRef,origOperandsLen):
+            # Return the number of bytes between the end of the proposed compact instruction and the label, to see if it's small enough to fit inside the compact instruction.  Since bytesFromEnd includes origOperandsLen, we need to subtract that out, which would then leave bytes from end of code to end of proposed new instruction (whatever its length will be), and then subtracting the bytesFromEnd of the label will give the number of forward bytes we want.
+            if not -lRef in lDic: return -1
+            return bytesFromEnd-origOperandsLen-lDic[-lRef]
+          counts_to_del = set()
+          for count in xrange(len(src)-1,-1,-1):
+              i = src[count]
+              if type(i)==tuple and type(i[0])==str:
+                  opcode = i[0]
+                  i = "-" # for len() at end of block
+                  if opcode in ['copyBytes','o','o2'] and src[count+['copyBytes','o','o2'].index(opcode)+2]==('return',):
+                    # 74 to 76 = 71 to 73 + return
+                    src[count] = B(chr(['copyBytes','o','o2'].index(opcode)+74))
+                    counts_to_del.add(count+['copyBytes','o','o2'].index(opcode)+2)
+                    compacted += 1 ; bytesFromEnd -= 1
+                    compaction_types.add('return')
+                  elif opcode=='call' and src[count+2]==('return',):
+                    src[count] = ('jump',)
+                    counts_to_del.add(count+2)
+                    compacted += 1 ; bytesFromEnd -= 1
+                    compaction_types.add(opcode)
+                    # can't fall through by setting opcode='jump', as the address will be in the function namespace (integer in tuple, LGet would need adjusting) and is highly unlikely to be within range (TODO: unless we try to arrange the functions to make it so for some cross-calls)
+                  elif opcode=='jump' and 0 <= LGet(src[count+1],addrSize) < 0x80: # we can use a 1-byte relative forward jump (up to 128 bytes), useful for 'break;' in a small switch
+                    offset = LGet(src[count+1],addrSize)
+                    if offset == 0:
+                      # can remove this jump completely
+                      i = "" # for len() at end of block
+                      compacted += 1
+                      counts_to_del.add(count) # zap jmp
+                    else: src[count] = i = B(chr(0x80 | offset)) # new instr: 0x80|offset
+                    counts_to_del.add(count+1) # zap the label
+                    compacted += addrSize # as we're having a single byte instead of byte + address
+                    bytesFromEnd -= addrSize
+                    compaction_types.add(opcode)
+                  elif opcode=='switchbyte':
+                    numItems = len(src[count+2]) # = ord(src[count+1]) + 1
+                    if 1 <= numItems <= 20:
+                     numLabels = numItems+1 # there's an extra default label at the end
+                     origOperandsLen = 1+numItems+numLabels*addrSize # number + N bytes + the labels
+                     if LGet(src[count+3],origOperandsLen)==0 and all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF-js_6bit_offset for N in xrange(4,3+numLabels)): # 1st label is immediately after the switchbyte, and all others are in range
+                      if javascript or dart: # use printable range
+                        if js_6bit and numItems<=17 and all(0x80<=ord(x)<=0xBF or 0xD4<=ord(x)<=0xEF for x in S(src[count+2])): # if bytes being switched on are all from UTF-8 representations of U+0500 through U+FFFF, move to printable range (in one test this saved 780k for the continuation bytes and another 200k for the rest)
+                          def mv(x):
+                            if x>=0xD4: x -= 20 # or, equivalently, if (x-93)>118, which is done to the input byte in JS before searching on these
+                            return B(chr(x-93))
+                          src[count+2]=b''.join(mv(ord(x)) for x in S(src[count+2]))
+                          i = B(chr(ord(src[count+1])+91)) # and a printable opcode
+                        else: i = B(chr(ord(src[count+1])+108)) # can't make the match bytes printable, but at least we can have a printable opcode 108-127 for short switchbyte in Javascript or Dart
+                      else: i = B(src[count+1]) # 0-19 for short switchbyte in C,Java,Python
+                      src[count] = i = i+src[count+2]+b''.join(B(chr(LGet(src[count+N],origOperandsLen)+js_6bit_offset)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
+                      for ctd in xrange(count+1,count+3+numLabels): counts_to_del.add(ctd)
+                      newOperandsLen = numItems*2 # for each byte, the byte itself and an offset, + 1 more offset as default, - 1 because first is not given
+                      compacted += origOperandsLen-newOperandsLen
+                      bytesFromEnd -= origOperandsLen # will add new opCode + operands below
                       compaction_types.add(opcode)
-                      # can't fall through by setting opcode='jump', as the address will be in the function namespace (integer in tuple, LGet would need adjusting) and is highly unlikely to be within range (TODO: unless we try to arrange the functions to make it so for some cross-calls)
-                    elif opcode=='jump' and 0 <= LGet(src[count+1],addrSize) < 0x80: # we can use a 1-byte relative forward jump (up to 128 bytes), useful for 'break;' in a small switch
-                      offset = LGet(src[count+1],addrSize)
-                      if offset == 0:
-                        # can remove this jump completely
-                        i = "" # for len() at end of block
-                        compacted += 1
-                        counts_to_del.add(count) # zap jmp
-                      else: src[count] = i = B(chr(0x80 | offset)) # new instr: 0x80|offset
-                      counts_to_del.add(count+1) # zap the label
-                      compacted += addrSize # as we're having a single byte instead of byte + address
-                      bytesFromEnd -= addrSize
-                      compaction_types.add(opcode)
-                    elif opcode=='switchbyte':
-                      numItems = len(src[count+2]) # = ord(src[count+1]) + 1
-                      if 1 <= numItems <= 20:
-                       numLabels = numItems+1 # there's an extra default label at the end
-                       origOperandsLen = 1+numItems+numLabels*addrSize # number + N bytes + the labels
-                       if LGet(src[count+3],origOperandsLen)==0 and all(0 <= LGet(src[count+N],origOperandsLen) <= 0xFF-js_6bit_offset for N in xrange(4,3+numLabels)): # 1st label is immediately after the switchbyte, and all others are in range
-                        if javascript or dart: # use printable range
-                          if js_6bit and numItems<=17 and all(0x80<=ord(x)<=0xBF or 0xD4<=ord(x)<=0xEF for x in S(src[count+2])): # if bytes being switched on are all from UTF-8 representations of U+0500 through U+FFFF, move to printable range (in one test this saved 780k for the continuation bytes and another 200k for the rest)
-                            def mv(x):
-                              if x>=0xD4: x -= 20 # or, equivalently, if (x-93)>118, which is done to the input byte in JS before searching on these
-                              return B(chr(x-93))
-                            src[count+2]=b''.join(mv(ord(x)) for x in S(src[count+2]))
-                            i = B(chr(ord(src[count+1])+91)) # and a printable opcode
-                          else: i = B(chr(ord(src[count+1])+108)) # can't make the match bytes printable, but at least we can have a printable opcode 108-127 for short switchbyte in Javascript or Dart
-                        else: i = B(src[count+1]) # 0-19 for short switchbyte in C,Java,Python
-                        src[count] = i = i+src[count+2]+b''.join(B(chr(LGet(src[count+N],origOperandsLen)+js_6bit_offset)) for N in xrange(4,3+numLabels)) # opcode_including_nItems, string of bytes, offsets (assume 1st offset at count+3 is 0 so not listed)
-                        for ctd in xrange(count+1,count+3+numLabels): counts_to_del.add(ctd)
-                        newOperandsLen = numItems*2 # for each byte, the byte itself and an offset, + 1 more offset as default, - 1 because first is not given
-                        compacted += origOperandsLen-newOperandsLen
-                        bytesFromEnd -= origOperandsLen # will add new opCode + operands below
-                        compaction_types.add(opcode)
-                elif type(i) in [int,tuple]: # labels
-                    if type(i)==int: i2 = i
-                    else: i2 = i[0]
-                    assert type(i2)==int
-                    if i2 > 0:
-                        lDic[i] = bytesFromEnd ; i = ""
-                        if bytesFromEnd >> (aBits*addrSize+1): raise TooNarrow() # fair assumption (but do this every label, not every instruction)
-                    else: i = "-"*addrSize # a reference
-                bytesFromEnd += len(i)
-            src=[s for s,i in zip(src,xrange(len(src))) if not i in counts_to_del] # batched up because del is O(n)
-          # End of compact_opcodes
+              elif type(i) in [int,tuple]: # labels
+                  if type(i)==int: i2 = i
+                  else: i2 = i[0]
+                  assert type(i2)==int
+                  if i2 > 0:
+                      lDic[i] = bytesFromEnd ; i = ""
+                      if bytesFromEnd >> (aBits*addrSize+1): raise TooNarrow() # fair assumption (but do this every label, not every instruction)
+                  else: i = "-"*addrSize # a reference
+              bytesFromEnd += len(i)
+          src=[s for s,i in zip(src,xrange(len(src))) if not i in counts_to_del] # batched up because del is O(n)
+          # End of opcode compaction
           lDic = {} # label dictionary: labelNo -> address
           for P in [1,2]:
             r = [B(chr(addrSize))] # List to hold the output bytecode, initialised with a byte indicating how long our addresses will be.
@@ -3750,10 +3181,8 @@ class BytecodeAssembler:
           if zlib:
             self.origLen = ll # needed for efficient malloc in the C code later
             oR,r = r,zlib.compress(r,9)
-            if compact_opcodes: sys.stderr.write("%d bytes (%s compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),zlib_name,ll,compacted,','.join(sorted(list(compaction_types)))))
-            else: sys.stderr.write("%d bytes (%s compressed from %d)\n" % (len(r),zlib_name,ll))
-          elif compact_opcodes: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(sorted(list(compaction_types)))))
-          else: sys.stderr.write("%d bytes\n" % ll)
+            sys.stderr.write("%d bytes (%s compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),zlib_name,ll,compacted,','.join(sorted(list(compaction_types)))))
+          else: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(sorted(list(compaction_types)))))
           return r
         except TooNarrow: pass
     assert 0, "can't even assemble it with 255-byte addressing !?!"
@@ -3807,16 +3236,8 @@ Usage:
    exported by this module if you're using Common.JS.
 
  - On Unix systems with Node.JS, you can run this file in
-   "node" to annotate standard input as a simple test.
+   "node" to annotate standard input as a simple test. */
 """
-  if zlib:
-    js_start += br"""
-   zlib'd version uses Uint8Array so has minimum browser requirements
-   (Chrome 7, Ffx 4, IE10, Op11.6, Safari5.1, 4.2 on iOS)
-   - generate without --zlib to support older browsers.
-*/"""
-  else: js_start += b"*/"
-  js_start += b"\n\n"
 else: js_start = b"" # browser_extension
 js_start += b"var Annotator={\n"
 if not browser_extension:
@@ -3860,14 +3281,10 @@ if js_6bit and not js_utf8:
   js_start += br"""
   if(l && l<123) a = data.slice(a+1,a+l-30);
   else a = data.slice(a+1,data.indexOf(data.charAt(a),a+1));"""
-elif zlib: js_start += br"""
-  if (l != 0) a = data.slice(a+1,a+l+1);
-  else a = data.slice(a+1,data.indexOf(0,a+1));"""
 else: js_start += br"""
   if (l != 0) a = data.slice(a+1,a+l+1);
   else a = data.slice(a+1,data.indexOf('\x00',a+1));"""
-if zlib: js_start += b"return String.fromCharCode.apply(null,a)" # gets UTF-8 from Uint8array
-elif js_utf8: js_start += b"return unescape(encodeURIComponent(a))" # Unicode to UTF-8 (TODO: or keep as Unicode? but copyP things will be in UTF-8, as will the near tests)
+if js_utf8: js_start += b"return unescape(encodeURIComponent(a))" # Unicode to UTF-8 (TODO: or keep as Unicode? but copyP things will be in UTF-8, as will the near tests)
 elif js_6bit: js_start += b"return unescape(a)" # %-encoding
 else: js_start += b"return a"
 js_start += br"""}
@@ -5647,22 +5064,6 @@ def test_manual_rules():
           getNext(test_rule(l,[]))
           diagnose,diagnose_limit,ybytes = od,odl,oy
 
-def java_escape(unistr):
-  ret = []
-  for c in unistr:
-    if c=='"': ret.append(br'\"')
-    elif c=='\\': ret.append(br'\\')
-    elif ord(' ') <= ord(c) <= 127: ret.append(B(c))
-    elif c=='\n': ret.append(br'\n')
-    else: ret.append(br'\u%04x' % ord(c))
-  return b''.join(ret)
-
-def golang_escape(unistr):
-  return unistr.replace('\\','\\\\').replace('"','\\"').replace('\n',r'\n').encode(outcode)
-
-def c_escape(unistr):
-    # returns unistr encoded as outcode and escaped so can be put in C in "..."s
-    return zapTrigraphs(unistr.encode(outcode).replace(b'\\',b'\\\\').replace(b'"',b'\\"').replace(b'\n',b'\\n').replace(b'\r',b'\\r')) # TODO: \r shouldn't occur, error if it does?
 def zapTrigraphs(x): return re.sub(br"\?\?([=/'()<>!-])",br'?""?\1',x) # to get rid of trigraph warnings, TODO might get a marginal efficiency increase if do it to the entire C file at once instead)
 
 def c_escapeRawBytes(s): # as it won't be valid outcode; don't want to crash any editors/viewers of the C file
@@ -5679,15 +5080,11 @@ def dart_escapeRawBytes(s):
 
 def c_length(unistr): return len(unistr.encode(outcode))
 
-if java or c_sharp or golang:
-  if golang: outLang_escape = golang_escape
-  else: outLang_escape = java_escape
-  if java: outLang_bool = b"boolean"
-  else: outLang_bool = b"bool"
+if java:
+  outLang_bool = b"boolean"
   outLang_true = b"true"
   outLang_false = b"false"
 else:
-  outLang_escape = c_escape
   outLang_bool = b"int"
   outLang_true = b"1"
   outLang_false = b"0"
@@ -5770,35 +5167,18 @@ def matchingAction(rule,glossDic,glossMiss,glosslist,omitlist):
         annotation_unistr = au
       else: toReannotateSet.add(toAdd)
     if compress:
-      annotation_bytes0=annotation_unistr.encode(outcode)
-      annotation_bytes = squash(annotation_bytes0)
-      if gloss:
-        gloss_bytes0 = gloss.encode(outcode)
-        gloss_bytes = squash(gloss_bytes0)
-      else: gloss_bytes0 = gloss_bytes = None
-      if not data_driven:
-        if annotation_bytes == annotation_bytes0: annotation_bytes = outLang_escape(annotation_unistr) # (if compress didn't do anything, might as well write a readable string to the C)
-        else: annotation_bytes = c_escapeRawBytes(annotation_bytes)
-        if gloss and gloss_bytes == gloss_bytes0: gloss_bytes = outLang_escape(gloss)
-        elif gloss_bytes: gloss_bytes = c_escapeRawBytes(gloss_bytes)
-    elif data_driven: # data-driven w. no compression:
+      annotation_bytes = squash(annotation_unistr.encode(outcode))
+      if gloss: gloss_bytes = squash(gloss.encode(outcode))
+      else: gloss_bytes = None
+    else: # no compression:
       annotation_bytes = annotation_unistr.encode(outcode)
       if gloss: gloss_bytes = gloss.encode(outcode)
       else: gloss_bytes = None
-    else: # non data-driven, no compression:
-      annotation_bytes = outLang_escape(annotation_unistr)
-      if gloss: gloss_bytes = outLang_escape(gloss)
-      else: gloss_bytes = None
-    if java: adot = b"a." # not used if data_driven
-    else: adot = b""
     bytesToCopy = c_length(text_unistr)
-    if gloss:
-        if data_driven: action.append((bytesToCopy,annotation_bytes,gloss_bytes))
-        else: action.append(adot+b'o2(%d,"%s","%s");' % (bytesToCopy,annotation_bytes,gloss_bytes))
+    if gloss: action.append((bytesToCopy,annotation_bytes,gloss_bytes))
     else:
         glossMiss.add(w)
-        if data_driven: action.append((bytesToCopy,annotation_bytes))
-        else: action.append(adot+b'o(%d,"%s");' % (bytesToCopy,annotation_bytes))
+        action.append((bytesToCopy,annotation_bytes))
     if annotation_unistr or gloss: gotAnnot = True
   return action,gotAnnot
 
@@ -5831,12 +5211,8 @@ def readGlossfile():
 
 def copyBytes(n,checkNeedspace=False): # needSpace unchanged for ignoreNewlines etc; checkNeedspace for open quotes
     if checkNeedspace:
-      if data_driven: return [b's0',(n,)] # copyBytes(n)
-      elif java: return br"a.s0(); a.c(%d);" % n
-      else: return br"s0(); c(%d);" % n
-    if data_driven: return [(n,)] # copyBytes(n)
-    elif java: return br"a.c(%d);" % n
-    else: return br"c(%d);" % n
+      return [b's0',(n,)] # copyBytes(n)
+    else: return [(n,)] # copyBytes(n)
 
 def outputParser(rulesAndConds):
     glossDic, glossMiss, glosslist = readGlossfile()
@@ -5876,7 +5252,6 @@ def outputParser(rulesAndConds):
           if md==md2: # this is the rule that DIDN'T have to be post-normalised, so its action should take priority
             byteSeq_to_action_dict[byteSeq] = [x for x in byteSeq_to_action_dict[byteSeq] if not x[1]==conds]
           else: return # other one probably has priority
-      if not data_driven: action = b' '.join(action)
       byteSeq_to_action_dict[byteSeq].append((action,conds))
     def dryRun(clearReannotator=True): # to prime the reannotator or compressor
       global toReannotateSet, reannotateDict
@@ -5945,18 +5320,13 @@ def outputParser(rulesAndConds):
     longest_rule_len = max(len(b) for b in iterkeys(byteSeq_to_action_dict))
     longest_rule_len += ybytes_max # because buffer len is 2*longest_rule_len, we shift half of it when (readPtr-bufStart +ybytes >= bufLen) and we don't want this shift to happen when writePtr-bufStart = Half_Bufsize-1 and readPtr = writePtr + Half_Bufsize-1 (TODO: could we get away with max(0,ybytes_max-1) instead? but check how this interacts with the line below; things should be safe as they are now).  This line's correction was missing in Annogen v0.599 and below, which could therefore occasionally emit code that, when running from stdin, occasionally replaced one of the document's bytes with an undefined byte (usually 0) while emitting correct annotation for the original byte.  (This could result in bad UTF-8 that crashed the bookmarklet feature of Web Adjuster v0.21 and below.)
     longest_rule_len = max(ybytes_max*2, longest_rule_len) # make sure the half-bufsize is at least ybytes_max*2, so that a read-ahead when pos is ybytes_max from the end, resulting in a shift back to the 1st half of the buffer, will still leave ybytes_max from the beginning, so yar() can look ybytes_max-wide in both directions
-    if data_driven:
-      b = BytecodeAssembler()
-      b.addActionDictSwitch(byteSeq_to_action_dict,False)
-      ddrivn = b.link()
-      if zlib: origLen = b.origLen
-      del b
-    else: ddrivn = None
+    b = BytecodeAssembler()
+    b.addActionDictSwitch(byteSeq_to_action_dict,False)
+    ddrivn = b.link()
+    if zlib: origLen = b.origLen
+    del b
     if javascript:
-      if zlib:
-        import base64
-        return outfile.write(re.sub(br"data\.charCodeAt\(([^)]*)\)",br"data[\1]",js_start).replace(b"indexOf(input.charAt",b"indexOf(input.charCodeAt")+b"data: "+js_inflate+b"(\""+base64.b64encode(ddrivn)+b"\","+B(str(origLen))+b")\n"+js_end+b"\n")
-      elif browser_extension: return outfile.write(txt_escapeRawBytes(ddrivn))
+      if browser_extension: return outfile.write(txt_escapeRawBytes(ddrivn))
       else: return outfile.write(js_start+b"data: \""+js_escapeRawBytes(ddrivn)+b"\",\n"+js_end+b"\n") # not Uint8Array (even if browser compatibility is known): besides taking more source space, it's typically ~25% slower to load than string, even from RAM
     elif dart:
       if dart_datafile:
@@ -5978,31 +5348,18 @@ def outputParser(rulesAndConds):
       return outfile.write(py_end+b"\n")
     elif java:
       start = java_src.replace(b"%%JPACKAGE%%",B(jPackage))
-      if data_driven:
-        start = start.replace(b"%%DLEN%%",B(str(len(ddrivn))))
-        if zlib: start = start.replace(b"%%ULEN%%",B(str(origLen)))
-    elif c_sharp: start = cSharp_start
-    elif golang: start = golang_start
+      start = start.replace(b"%%DLEN%%",B(str(len(ddrivn))))
+      if zlib: start = start.replace(b"%%ULEN%%",B(str(origLen)))
     else: start = c_start
     outfile.write(start.replace(b'%%LONGEST_RULE_LEN%%',B(str(longest_rule_len))).replace(b"%%YBYTES%%",B(str(ybytes_max))).replace(b"%%PAIRS%%",pairs)+b"\n")
-    if data_driven:
-      if zlib: dataName = "origData"
-      else: dataName = "data"
-      if java: open(jSrc+cond(android,"/../assets/annotate.dat","/annotate.dat"),"wb").write(ddrivn)
-      else:
-        outfile.write(b"static unsigned char "+B(dataName)+b"[]=\""+c_escapeRawBytes(ddrivn)+b'\";\n')
-        if zlib: outfile.write(c_zlib.replace(b'%%ORIGLEN%%',B(str(origLen))).replace(b'%%ZLIBLEN%%',B(str(len(ddrivn))))+b"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
-        outfile.write(c_datadrive+b"\n")
-      del ddrivn
-    else: # not data_driven
-      subFuncL = []
-      ret = stringSwitch(byteSeq_to_action_dict,subFuncL)
-      if java:
-        for f in subFuncL: open(java+os.sep+S(f[f.index(b"class ")+6:].split(None,1)[0])+".java","wb").write(f)
-        open(java+os.sep+"topLevelMatch.java","wb").write(b"\n".join(ret))
-      elif golang: outfile.write(b"\n".join(subFuncL + ret).replace(b';\n',b'\n')+b"\n") # (this 'elif' line is not really necessary but it might save someone getting worried about too many semicolons)
-      else: outfile.write(b"\n".join(subFuncL+ret)+b"\n")
-      del subFuncL,ret
+    if zlib: dataName = "origData"
+    else: dataName = "data"
+    if java: open(jSrc+cond(android,"/../assets/annotate.dat","/annotate.dat"),"wb").write(ddrivn)
+    else:
+      outfile.write(b"static unsigned char "+B(dataName)+b"[]=\""+c_escapeRawBytes(ddrivn)+b'\";\n')
+      if zlib: outfile.write(c_zlib.replace(b'%%ORIGLEN%%',B(str(origLen))).replace(b'%%ZLIBLEN%%',B(str(len(ddrivn))))+b"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
+      outfile.write(c_datadrive+b"\n")
+    del ddrivn
     if android:
       open(java+os.sep+"MainActivity.java","wb").write(android_src.replace(b"%%JPACKAGE%%",B(jPackage)).replace(b'%%ANDROID-URL%%',B(android)))
       open(java+os.sep+"BringToFront.java","wb").write(android_bringToFront.replace(b"%%JPACKAGE%%",B(jPackage)))
@@ -6020,8 +5377,6 @@ def outputParser(rulesAndConds):
       open(jSrc+"/../res/values/styles.xml","wb").write(b'<resources><style name="AppBaseTheme" parent="android:Theme.Light"></style><style name="AppTheme" parent="AppBaseTheme"><item name="android:forceDarkAllowed">true</item></style></resources>\n') # won't compile on SDKs that don't know about API 29, e.g. Ubuntu 22.04's packages: could try using introspection to call setForceDarkAllowed() (but need to solve the 'missing d8' problem first if want to upload the resulting APK)
       open(jSrc+"/../res/values/strings.xml","wb").write(B('<?xml version="1.0" encoding="utf-8"?>\n<resources><string name="app_name">'+app_name.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')+'</string></resources>\n'))
       open(jSrc+"/../res/xml/network_security_config.xml","wb").write(b'<?xml version="1.0" encoding="utf-8"?>\n<network-security-config><base-config cleartextTrafficPermitted="true" /></network-security-config>\n')
-    elif c_sharp: outfile.write(cSharp_end)
-    elif golang: outfile.write(golang_end)
     elif not java: outfile.write(c_end)
     outfile.write(b"\n")
     del byteSeq_to_action_dict
@@ -6052,7 +5407,7 @@ def update_android_manifest():
     else: x=x.path
     if ".*" in x: return B('android:pathPattern="%s"' % (x,))
     else: return B('android:pathPrefix="%s"' % (x,))
-  manifest = android_manifest.replace(b'%%JPACKAGE%%',B(jPackage)).replace(b'android:versionCode="1"',b'android:versionCode="'+versionCode+b'"').replace(b'android:versionName="1.0"',b'android:versionName="'+versionName+b'"').replace(b'android:sharedUserId=""',b'android:sharedUserId="'+sharedUID+b'"').replace(b'android:sharedUserId="" ',b'') + b''.join((b'\n<intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="%s" android:host="%s" %s /></intent-filter>'%(B(urlparse.urlparse(x).scheme),B(urlparse.urlparse(x).netloc),B(pathQ(x)))) for x in android_urls.split()) + b"\n</activity></application></manifest>\n"
+  manifest = android_manifest.replace(b'%%JPACKAGE%%',B(jPackage)).replace(b'android:versionCode="1"',b'android:versionCode="'+versionCode+b'"').replace(b'android:versionName="1.0"',b'android:versionName="'+versionName+b'"').replace(b'android:sharedUserId=""',b'android:sharedUserId="'+sharedUID+b'"').replace(b'android:sharedUserId="" ',b'')
   if not manifest==old_manifest:
     open(jSrc+"/../AndroidManifest.xml","wb").write(manifest)
   else: assert not android_upload, "Couldn't bump version code in "+repr(manifest)

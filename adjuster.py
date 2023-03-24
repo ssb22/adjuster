@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.224 (c) 2012-23 Silas S. Brown"
+"Web Adjuster v3.23 (c) 2012-23 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -133,7 +133,6 @@ elif '--html-options' in sys.argv or '--markdown-options' in sys.argv:
         for w in ["lot","not","all","Important","between","any"]:
             if html: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","<strong>"+w+"</strong>",help)
             else: help=re.sub("(?<![A-Za-z])"+w.upper()+"(?![A-Za-z])","**"+w+"**",help)
-        if html: help=help.replace("DEPRECATED","<strong>Deprecated</strong>")
         name = name.replace("_","-")
         if html: print ("<dt><kbd>--"+wbrify(name)+"</kbd>"+amp(default)+"</dt><dd>"+wbrify(help.replace(" - ","---"))+"</dd>")
         else: print ("`--"+name+"` "+default+"\n: "+re.sub(" (www[.]example[.][^ ,]*)",r" `\1`",re.sub("(http://[^ ]*(example|192.168)[.][^ ]*)",r"`\1`",help.replace(" - ","---").replace("---",S(u'\u2014'))))+"\n")
@@ -209,15 +208,14 @@ define("config",help="Name of the configuration file to read, if any. The proces
 define("version",help="Just print program version and exit")
 
 heading("Network listening and security settings")
-define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix); setting it to 0 disables request-processing entirely (for if you want to use only the Dynamic DNS and watchdog options); setting it to -1 selects a local port in the ephemeral port range, in which case address and port will be written in plain form to standard output if it's not a terminal and --background is set (see also --just-me).")
+define("port",default=28080,help="The port to listen on. Setting this to 80 will make it the main Web server on the machine (which will likely require root access on Unix); setting it to 0 disables request-processing entirely (for if you want to use only the Dynamic DNS option); setting it to -1 selects a local port in the ephemeral port range, in which case address and port will be written in plain form to standard output if it's not a terminal and --background is set (see also --just-me).")
 # e.g. to run over an SSH tunnel, where you can't reserve a port number on the remote machine but can use a known port on the local machine:
 # ssh -N -L 28080:$(ssh MachineName python adjuster.py --background --port=-1 --publicPort=28080 --just-me --restart --pidfile=adjuster.pid) MachineName
 # This can be combined with --one-request-only (inefficient!) if you don't want the process to hang around afterwards, e.g. from an inetd script on your local port 28080:
 # ssh MachineName 'python adjuster.py --background --port=-1 --publicPort=28080 --just-me --one-request-only --seconds=60 --stdio 2>/dev/null'
 # You probably want to set up a ControlPath if repeatedly SSH'ing.
 # 
-define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but some other server has been configured to forward incoming connections.")
-define("user",help="[DEPRECATED] The user name to run as, instead of root. This is for Unix machines where port is less than 1024 (e.g. port=80) - you can run as root to open the privileged port, and then drop privileges. Not needed if you are running as an ordinary user, which is recommended (use nginx etc to redirect from a privileged port if necessary), hence deprecated.")
+define("publicPort",default=0,help="The port to advertise in URLs etc, if different from 'port' (the default of 0 means no difference). Used for example if a firewall prevents direct access to our port but a server like nginx is configured to forward incoming connections.")
 define("address",default="",help="The address to listen on. If unset, will listen on all IP addresses of the machine. You could for example set this to localhost if you want only connections from the local machine to be received, which might be useful in conjunction with --real_proxy.")
 define("password",help="The password. If this is set, nobody can connect without specifying ?p= followed by this password. It will then be sent to them as a cookie so they don't have to enter it every time. Notes: (1) If wildcard_dns is False and you have multiple domains in host_suffix, then the password cookie will have to be set on a per-domain basis. (2) On a shared server you probably don't want to specify this on the command line where it can be seen by process-viewing tools; use a configuration file instead. (3) When not in HTML-only mode, browsers that send AJAX requests without cookies might have problems when password is set.")
 define("password_domain",help="The domain entry in host_suffix to which the password applies. For use when wildcard_dns is False and you have several domains in host_suffix, and only one of them (perhaps the one with an empty default_site) is to be password-protected, with the others public. If this option is used then prominentNotice (if set) will not apply to the passworded domain. You may put the password on two or more domains by separating them with slash (/).")
@@ -226,7 +224,7 @@ define("password_domain",help="The domain entry in host_suffix to which the pass
 # what the tool is.  prominentNotice DOES apply even to the
 # password_domain if prominentNotice=="htmlFilter".
 # 
-define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected; if it is set to http:// and nothing else, the request will be passed to the server specified by own_server (if set). If the markup begins with a * then this is removed and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
+define("auth_error",default="Authentication error",help="What to say when password protection is in use and a correct password has not been entered. HTML markup is allowed in this message. As a special case, if this begins with http:// or https:// then it is assumed to be the address of a Web site to which the browser should be redirected. If the markup begins with a * then this is removed and the page is returned with code 200 (OK) instead of 401 (authorisation required).") # TODO: basic password form? or would that encourage guessing
 define("open_proxy",default=False,help="Whether or not to allow running with no password. Off by default as a safeguard against accidentally starting an open proxy.")
 define("prohibit",multiple=True,default="wiki.*action=edit",help="Comma-separated list of regular expressions specifying URLs that are not allowed to be fetched unless --real_proxy is in effect. Browsers requesting a URL that contains any of these will be redirected to the original site. Use for example if you want people to go direct when posting their own content to a particular site (this is of only limited use if your server also offers access to any other site on the Web, but it might be useful when that's not the case). Include ^https in the list to prevent Web Adjuster from fetching HTTPS pages for adjustment and return over normal HTTP. This access is enabled by default now that many sites use HTTPS for public pages that don't really need to be secure, just to get better placement on some search engines, but if sending confidential information to the site then beware you are trusting the Web Adjuster machine and your connection to it, plus its certificate verification might not be as thorough as your browser's.")
 define("prohibitUA",multiple=True,default="TwitterBot",help="Comma-separated list of regular expressions which, if they occur in browser strings, result in the browser being redirected to the original site. Use for example if you want certain robots that ignore robots.txt to go direct.")
@@ -242,7 +240,7 @@ define("one_request_only",default=False,help="Shut down after handling one reque
 define("seconds",default=0,help="The maximum number of seconds for which to run the server (0 for unlimited).  If a time limit is set, the server will shut itself down after the specified length of time.")
 define("stdio",default=False,help="Forward standard input and output to our open port, in addition to being open to normal TCP connections.  This might be useful in conjuction with --one-request-only and --port=-1.")
 
-define("upstream_proxy",help="address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options, own_server or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.")
+define("upstream_proxy",help="address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.")
 # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies. The ":port"-only option rewrites URLs in requests but NOT ones referred to in documents: we assume the proxy can cope with that.
 
 define("ip_messages",help="Messages or blocks for specific IP address ranges (IPv4 only).  Format is ranges|message|ranges|message etc, where ranges are separated by commas; can be individual IPs, or ranges in either 'network/mask' or 'min-max' format; the first matching range-set is selected.  If a message starts with * then its ranges are blocked completely (rest of message, if any, is sent as the only reply to any request), otherwise message is shown on a 'click-through' page (requires Javascript and cookies).  If the message starts with a hyphen (-) then it is considered a minor edit of earlier messages and is not shown to people who selected `do not show again' even if they did this on a different version of the message.  Messages may include HTML.")
@@ -265,39 +263,11 @@ define("host_suffix",default=getfqdn_default,help="The last part of the domain n
 # (In the current code, setting host_suffix to a public IP address should work: most browsers set Host: to the IP if requesting a URL by IP, and then the IP will be used in rewrites if it's the first thing specified for its corresponding default_site.  But adjuster will need to be reconfigured and restarted on every change of the public IP.)
 define("default_site",help="The site to fetch from if nothing is specified before host_suffix, e.g. example.org (add .0 at the end to specify an HTTPS connection, but see the 'prohibit' option). If default_site is omitted then the user is given a URL box when no site is specified; if it is 'error' then an error is shown in place of the URL box (the text of the error depends on the settings of wildcard_dns and real_proxy).")
 # --- using .0 here rather than https:// prefix because / is a separator: see the host_suffix help text (TODO: change the separator? but don't break existing installations)
-define("own_server",help="[DEPRECATED] Where to find your own web server. This can be something like localhost:1234 or 192.168.0.2:1234. If it is set, then any request that does not match host_suffix will be passed to that server to deal with, unless real_proxy is in effect. You can use this option to put your existing server on the same public port without much reconfiguration. Note: the password option will NOT password-protect your own_server. Deprecated because you get better responsiveness and robustness if you set up nginx or similar to direct incoming requests appropriately; see comments in adjuster.py for example nginx settings.")
-# without much reconfiguration: might just need to change which port number it listens on.
-# Alternatively you could set nginx (or similar) to reverse-proxy the host_suffix domains to the adjuster, e.g.:
-# location / {
-#   proxy_set_header X-Real-Ip $remote_addr;
-#   proxy_set_header Host $host;
-#   proxy_pass_header Server;
-#   access_log off;
-#   proxy_pass http://localhost:<YOUR-ADJUSTER-PORT-HERE>;
-#   proxy_max_temp_file_size 0;
-#   proxy_read_timeout 130s;  # or whatever; default 60s
-#        # - may need to be longer, especially if using
-#        #    file conversion with waitpage=False on a
-#        #    low-powered server and there are big files
-# }
-# inside a "server" block with appropriate server_name(s)
-# (and set ipTrustReal to 127.0.0.1 in Adjuster's config,
-# and set publicPort to the port nginx runs on e.g. 80),
-# but if you're not already using nginx then you either
-# have to either port your existing server to nginx or get
-# nginx to reverse-proxy for your other server, so for
-# small installations it might be simpler just to set
-# own_server, unless it's vitally important that
-# own_server is not held up in any way when the adjuster
-# is under heavy CPU load.
 
-define("ownServer_regexp",help="[DEPRECATED] If own_server is set, you can set ownServer_regexp to a regular expression to match URL prefixes which should always be handled by your own server even if they match host_suffix. This can be used for example to add extra resources to any site, or to serve additional pages from the same domain, as long as the URLs used are not likely to occur on the sites being adjusted. The regular expression is matched against the requested host and the requested URL, so for example [^/]*/xyz will match any URL starting with /xyz on any host, whereas example.org/xyz will match these on your example.org domain. You can match multiple hosts and URLs by using regular expression grouping.")
-define("ownServer_if_not_root",default=True,help="[DEPRECATED] When trying to access an empty default_site, if the path requested is not / then redirect to own_server (if set) instead of providing a URL box. If this is False then the URL box will be provided no matter what path was requested.")
-# TODO: "ownServer even if root" option, i.e. option to make host_suffix by itself go to own_server?  Or make ownServer_if_not_root permanent?  The logic that deals with off-site Location: redirects assumes the URL box will normally be at / (TODO document this?)
 define('search_sites',multiple=True,help="Comma-separated list of search sites to be made available when the URL box is displayed (if default_site is empty). Each item in the list should be a URL (which will be prepended to the search query), then a space, then a short description of the site. The first item on the list is used by default; the user can specify other items by making the first word of their query equal to the first word of the short description. Additionally, if some of the letters of that first word are in parentheses, the user may specify just those letters. So for example if you have an entry http://search.example.com/?q= (e)xample, and the user types 'example test' or 'e test', it will use http://search.example.com/?q=test")
 define("urlbox_extra_html",help="Any extra HTML you want to place after the URL box (when shown), such as a paragraph explaining what your filters do etc.")
 define("urlboxPath",default="/",help="The path of the URL box for use in links to it. This might be useful for wrapper configurations, but a URL box can be served from any path on the default domain. If however urlboxPath is set to something other than / then efforts are made to rewrite links to use it more often when in HTML-only mode with cookie domain, which might be useful for limited-server situations. You can force HTML-only mode to always be on by prefixing urlboxPath with *")
-define("wildcard_dns",default=True,help="Set this to False if you do NOT have a wildcard domain and want to process only default_site. Setting this to False does not actually prevent other sites from being processed (for example, a user could override their local DNS resolver to make up for your lack of wildcard domain); if you want to really prevent other sites from being processed then you could also set own_server to deal with unrecognised domains. Setting wildcard_dns to False does stop the automatic re-writing of links to sites other than default_site. Leave it set to True to have ALL sites' links rewritten on the assumption that you have a wildcard domain.") # will then say "(default True)"
+define("wildcard_dns",default=True,help="Set this to False if you do NOT have a wildcard domain and want to process only default_site. Setting this to False does not actually prevent other sites from being processed (for example, a user could override their local DNS resolver to make up for your lack of wildcard domain); if you want to really prevent other sites from being processed then you should get nginx or similar to block incoming requests for the wrong domain. Setting wildcard_dns to False does stop the automatic re-writing of links to sites other than default_site. Leave it set to True to have ALL sites' links rewritten on the assumption that you have a wildcard domain.") # will then say "(default True)"
 
 heading("General adjustment options")
 define("default_cookies",help="Semicolon-separated list of name=value cookies to send to all remote sites, for example to set preferences. Any cookies that the browser itself sends will take priority over cookies in this list. Note that these cookies are sent to ALL sites. You can set a cookie only on a specific browser by putting (browser-string) before the cookie name, e.g. (iPad)x=y will set x=y only if 'iPad' occurs in the browser string (to match more than one browser-string keyword, you have to specify the cookie multiple times).") # TODO: site-specific option
@@ -322,7 +292,7 @@ define("bodyAppendGoesAfter",help="If this is set to a regular expression matchi
 define("bodyPrepend",help="Code to place at the start of the BODY section of every HTML document that has one.")
 # bodyPrepend may be a useful place to put some scripts. For example, a script that changes a low-vision stylesheet according to screen size might be better in the BODY than in the HEAD, because some Webkit-based browsers do not make screen size available when processing the HEAD of the starting page. # but sometimes it still goes wrong on Chromium startup; probably a race condition; might be worth re-running the script at end of page load just to make sure
 define("prominentNotice",help="Text to add as a prominent notice to processed sites (may include HTML). If the browser has sufficient Javascript support, this will float relative to the browser window and will contain an 'acknowledge' button to hide it (for the current site in the current browsing session). Use prominentNotice if you need to add important information about how the page has been modified. If you set prominentNotice to the special value \"htmlFilter\", then the output of the htmlFilter option (if any) will be placed as a prominent notice; this can be used if you want to provide extra information or links derived from the content of the page. Note: if you include Javascript document.write() code in prominentNotice, check that document.readyState is not 'complete' or you might find the document is erased on some website/browser combinations when a site script somehow causes your script to be re-run after the document stream is closed. In some rare cases you might also need to verify that document.cookie does not contain _WA_warnOK=1") # e.g. if the site does funny things with the browser cache.  Rewriting the innerHTML manipulation to appendChild doesn't fix the need to check document.readyState
-define("staticDocs",help="url#path of static documents to add to every website, e.g. /_myStatic/#/var/www (make sure the first part is something not likely to be used by the websites you visit). This can be used to supply extra Javascript (e.g. for bodyPrepend to load) if it needs to be served from the same domain. Note: staticDocs currently overrides the password and own_server options.")
+define("staticDocs",help="url#path of static documents to add to every website, e.g. /_myStatic/#/var/www (make sure the first part is something not likely to be used by the websites you visit). This can be used to supply extra Javascript (e.g. for bodyPrepend to load) if it needs to be served from the same domain. The password option does not apply to staticDocs.") # You could just do this with nginx, but staticDocs can also be used with js-upstream so we should probably keep this option for experiments
 define("delete",multiple=True,help="Comma-separated list of regular expressions to delete from HTML documents. Can be used to delete selected items of Javascript and other code if it is causing trouble for your browser. Will also delete from the text of pages; use with caution.")
 define("delete_css",multiple=True,help="Comma-separated list of regular expressions to delete from CSS documents (but not inline CSS in HTML); can be used to remove, for example, dimension limits that conflict with annotations you add, as an alternative to inserting CSS overrides.  In rare cases you might want to replace the deleted regexp with another, in which case you can use @@ to separate the two, and a second @@ can be used to specify a string in the CSS URL that must be present for the operation to take effect (this could be combined with a codeChanges to add query parameters to the URL if you want the change to occur only when the CSS is loaded from specific HTML pages).")
 define("delete_doctype",default=False,help="Delete the DOCTYPE declarations from HTML pages. This option is needed to get some old Webkit browsers to apply multiple CSS files consistently.")
@@ -410,62 +380,9 @@ define("pidfile",default="",help="Write our process ID to this file when running
 # WorkingDirectory= and User= need to be set
 # can also set Environment=LD_PRELOAD=... if needed
 # then do: sudo systemctl enable --now /path/to/adjuster.service
-define("watchdog",default=0,help="(Linux only) Ping the system's watchdog every this number of seconds, so the watchdog can reboot the system if for any reason Web Adjuster stops functioning. The default value of 0 means do not ping the watchdog. If your machine's unattended boot is no longer reliable, beware of unnecessary reboot if you remotely stop the adjuster and are unable to restart it.")
-# watchdog beware: e.g. some old Raspberry Pis no longer boot 100% of the time and have watchdogs that cannot be cleanly closed with 'V'
-define("watchdogWait",default=0,help="When the watchdog option is set, wait this number of seconds before stopping the watchdog pings. This causes the watchdog pings to be sent from a separate thread and therefore not stopped when the main thread is busy; they are stopped only when the main thread has not responded for watchdogWait seconds. This can be used to work around the limitations of a hardware watchdog that cannot be set to wait that long.")
-# --- such as the Raspberry Pi's Broadcom chip which defaults to 10 seconds and has max 15; you could say watchdog=5 and watchdogWait=60 (if you have an RPi which actually reboots when the watchdog goes off, see above)
-define("watchdogDevice",default="/dev/watchdog",help="The watchdog device to use (set this to /dev/null to check main-thread responsiveness without actually pinging the watchdog)")
 define("browser",help="The Web browser command to run. If this is set, Web Adjuster will run the specified command (which is assumed to be a web browser), and will exit when this browser exits. This is useful in conjunction with --real_proxy to have a personal proxy run with the browser. You still need to set the browser to use the proxy; this can sometimes be done via browser command line or environment variables.")
 define("run",help="A command to run that is not a browser. If set, Web Adjuster will run the specified command and will restart it if it stops. The command will be stopped when Web Adjuster is shut down. This could be useful, for example, to run an upstream proxy.")
 define("runWait",default=1,help="The number of seconds to wait before restarting the 'run' command if it fails")
-define("ssh_proxy",help="[DEPRECATED] host[:port][,URL] which, if set, can help to proxy SSH connections over HTTP if you need to perform server administration from a place with port restrictions.  See comments in adjuster.py for details.  Deprecated as WebSSH does it better.")
-# - If set host (and optional port, defaults to 22), then CONNECT requests for that server are accepted even without real_proxy.  Use (e.g.) ssh -o ProxyCommand "nc -X connect -x adjuster.example.org:80 %h %p" ssh-host
-# - This however won't work if the adjuster is running on a virtual hosting provider (like OpenShift) which doesn't support CONNECT (and many of them don't even support streaming 1-way connections like proxy2ssh, even if we modify Tornado to do that).  But you can set ,URL and write a ProxyCommand like this:
-"""# ---------- cut here ----------
-#!/usr/bin/env python2
-host_name = host_name_or_IP = "you need to set this"
-path_part_of_URL = "/you need to set this too"
-import sys,socket,select,time,os ; lastPostTime = 0
-def connect():
-  global s ; s=socket.socket() ; s.connect((host_name_or_IP,80))
-connect()
-def post(dat):
-  global lastPostTime
-  if not lastPostTime: dat="new connection"
-  s.sendall('POST %s HTTP/1.1\r\nHost: %s\r\nConnection: keep-alive\r\nContent-Length: %d\r\n\r\n%s' % (path_part_of_URL,host_name,len(dat),dat)) ; r="" ; rx = True
-  while rx and not "\r\n\r\n" in r:
-    try: rx = s.recv(1024)
-    except socket.error: break
-    r += rx
-  if not "\r\n\r\n" in r: # probably keep-alive interrupted by virtualiser
-    connect() ; return post(dat)
-  cl=r[r.index(':',r.index("\nContent-Length:"))+1:].lstrip() ; cl=cl[:cl.index('\r')] ; cl=int(cl) ; r=r[r.index("\r\n\r\n")+4:]
-  while len(r) < cl:
-    rx = s.recv(1024) ; assert rx ; r += rx
-  r = r[:cl] ; sys.stdout.write(r) ; sys.stdout.flush()
-  lastPostTime = time.time()
-interval = 1
-while True:
-  read = []
-  while 0 in select.select([0], [], [], 0)[0]:
-    rx = os.read(0,1) ; assert rx ; read.append(rx)
-  if read or time.time() > lastPostTime+interval: post("".join(read))
-  if read: interval = 1
-  elif interval < 30: interval *= 2
-  time.sleep(0.1)
-# ---------- cut here ---------- """
-# and if you then need to forward to the adjuster from a CGI
-# script (for example because the adjuster itself can't be
-# run on port 80) then try something like this:
-"""# ---------- cut here ----------
-#!/bin/bash
-URL=http://localhost:28080/LetMeIn # or whatever
-T=$(mktemp /dev/shm/XXXXXX) ; cat > $T
-T2=$(mktemp /dev/shm/XXXXXX)
-wget --post-file $T -q -O - "$URL" > $T2
-echo "Content-Length: $(wc -c < $T2)" # please don't "chunk" it
-echo ; cat $T2 ; rm $T $T2
-# ---------- cut here ---------- """
 
 heading("Media conversion options")
 define("bitrate",default=0,help="Audio bitrate for MP3 files, or 0 to leave them unchanged. If this is set to anything other than 0 then the 'lame' program must be present. Bitrate is normally a multiple of 8. If your mobile device has a slow link, try 16 for speech.")
@@ -562,11 +479,9 @@ define("renderLog",default=False,help="Whether or not to log requests for charac
 define("logUnsupported",default=False,help="Whether or not to log attempts at requests using unsupported HTTP methods. Note that this can sometimes generate nearly as many log entries as renderLog if some browser (or malware) tries to do WebDAV PROPFIND requests on each of the images.")
 define("logRedirectFiles",default=True,help="Whether or not to log requests that result in the browser being simply redirected to the original site when the redirectFiles option is on.")
 # (Since redirectFiles still results in a HEAD request being sent to the remote site, the logRedirectFiles option defaults to True in case you need it to diagnose "fair use of remote site via adjuster" problems)
-define("ownServer_useragent_ip",default=False,help="[DEPRECATED] If own_server is set, and that server cannot be configured to log the X-Real-Ip header we set when we proxy for it, you can if you wish turn on this option, which will prepend the real IP to the User-Agent header on the first request of each connection (most servers can log User-Agent). This is slightly dangerous: fake IPs can be inserted into the log if keep-alive is used.") # (and it might break some user-agent detection)
 define("ipNoLog",multiple=True,help="A comma-separated list of IP addresses which can use the adjuster without being logged. If your network has a \"friendly probing\" service then you might want to use this to stop it filling up the logs.  (Any tracebacks it causes will still be logged however.)")
 define("squashLogs",default=True,help="Try to remove some duplicate information from consecutive log entries, to make logs easier to check. You might want to set this to False if you plan to use automatic search tools on the logs. Currently not supported with multicore, and will automatically be set to False if multicore is enabled.")
 # (squashLogs: word 'some' is important as not all duplicate info is guaranteed to be removed. TODO: move BrowserLogger to the collection process so can collate for multicore?)
-define("whois",default=False,help="Try to log the Internet service provider for each IP address in the logs.  Requires the 'whois' program.  The extra information is written as separate log entries when it becomes available, and not for recent duplicate IPs or IPs that do not submit valid requests.")
 define("errorHTML",default="Adjuster error has been logged",help="What to say when an uncaught exception (due to a misconfiguration or programming error) has been logged. HTML markup is allowed in this message. If for some reason you have trouble accessing the log files, the traceback can usually be included in the page itself by placing {traceback} in the message.")
 # errorHTML TODO: this currently requires Tornado 2.1+ (document this? see TODO in write_error)
 define("logDebug",default=False,help="Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules. On Unix you may also toggle this at runtime by sending SIGUSR1 to the process(es).") # see debuglog()
@@ -654,7 +569,6 @@ def convert_to_real_host(requested_host,cookie_host=None):
     # Converts the host name requested by the user into the
     # actual host that we should request, or returns "" if
     # we should display the URL entry box etc.
-    # Returns -1 if we should pass to options.own_server.
     if requested_host:
       requested_host = B(requested_host)
       port=B(":"+str(options.publicPort))
@@ -667,12 +581,11 @@ def convert_to_real_host(requested_host,cookie_host=None):
         elif requested_host == B(h):
             d = defaultSite(n)
             if d: return B(d)
-            elif B(cookie_host)==B(h): return 0 # special type of (false) value to tell the code that we're handling this request ourselves but possibly via ownServer_if_not_root
+            elif B(cookie_host)==B(h): return 0
             else: return B(cookie_host)
         n += 1
       if options.real_proxy: return orig_requested_host
-    if options.own_server: return -1
-    else: return B(defaultSite())
+    return B(defaultSite())
 def convert_to_via_host(requested_host):
     if not requested_host: requested_host = "" # ??
     else: requested_host = S(requested_host)
@@ -924,16 +837,13 @@ def preprocessOptions():
         # If we get here, someone tried to put "version" in a config file.  Flag this as an error to save confusion.  (If it were on the command line, we wouldn't get here: we process it before loading Tornado.  TODO: if they DO try to put it in a config file, they might set some type other than string and get a less clear error message from tornado.options.)
         errExit("--version is for the command line only, not for config files")
     if options.one_request_only:
-        if options.multicore or options.fasterServer or options.whois or options.own_server or options.ssh_proxy:
-            errExit("--one-request-only is not compatible with multicore, fasterServer, whois, own_server or ssh_proxy")
-            # (TODO: it could be MADE compatible with fasterServer, whois, etc, but that would need more work.  watchdog works in theory but is inadvisable unless you're running this in some kind of loop)
+        if options.multicore or options.fasterServer: errExit("--one-request-only is not compatible with multicore or fasterServer")
         if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
             warn("pdfepubkeep and waitpage won't work with --one-request-only: clearing them")
             options.pdfepubkeep = options.waitpage = False
         if options.js_interpreter and not options.js_instances==1:
             errExit("--one-request-only doesn't make sense with a js_instances value other than 1")
             # (well we could start N instances if you like, but what's the point? - this probably indicates 'wrong config= option' or something, so flag it)
-    if options.restart and options.watchdog and options.watchdogDevice=="/dev/watchdog" and options.user and os.getuid(): errExit("This configuration looks like it should be run as root.") # if the process we're restarting has the watchdog open, and the watchdog is writable only by root (which is probably at least one of the reasons why options.user is set), there's no guarantee that stopping that other process will properly terminate the watchdog, and we won't be able to take over, = sudden reboot
     if options.host_suffix==getfqdn_default:
         if wsgi_mode and os.environ.get("SERVER_NAME",""):
             # if we're running as a CGI, the server may have been configured to respond to more than one domain, in which case we want to prefer SERVER_NAME to getfqdn
@@ -1101,11 +1011,6 @@ def preprocessOptions():
         class E:
             def handle(*args): return False
         extensions = E()
-    global ownServer_regexp
-    if options.ownServer_regexp:
-        if not options.own_server: errExit("Cannot set ownServer_regexp if own_sever is not set")
-        ownServer_regexp = re.compile(options.ownServer_regexp)
-    else: ownServer_regexp = None
     global ipMatchingFunc
     if options.ip_messages: ipMatchingFunc=ipv4ranges_func(options.ip_messages)
     else: ipMatchingFunc = None
@@ -1158,11 +1063,6 @@ def preprocessOptions():
     if options.useLXML: check_LXML()
     global allowConnectHost,allowConnectPort,allowConnectURL
     allowConnectHost=allowConnectPort=allowConnectURL=None
-    if options.ssh_proxy:
-        if ',' in options.ssh_proxy: sp,allowConnectURL = options.ssh_proxy.split(',',1)
-        else: sp = options.ssh_proxy
-        if ':' in sp: allowConnectHost,allowConnectPort=sp.rsplit(':',1)
-        else: allowConnectHost,allowConnectPort = sp,"22"
     if not options.default_site: options.default_site = ""
     # (so we can .split it even if it's None or something)
     if not options.js_interpreter:
@@ -1276,46 +1176,10 @@ def shutdown429():
     try: CrossProcess429.q.put(("quit","quit"))
     except: pass
 
-#@file: log-whois-etc.py
+#@file: log-browser.py
 # --------------------------------------------------
-# WHOIS logging and browser logging
+# browser logging
 # --------------------------------------------------
-
-class WhoisLogger:
-    def __init__(self):
-        # Do NOT read options here - haven't been read yet
-        # (can be constructed even if not options.whois)
-        self.recent_whois = []
-        self.thread_running = False
-    def __call__(self,ip):
-        if ip in self.recent_whois: return
-        if len(self.recent_whois) > 20: # TODO: configure?
-            self.recent_whois.pop(0)
-        self.recent_whois.append(ip)
-        self.reCheck(ip)
-    def reCheck(self,ip):
-        if self.thread_running: # allow only one at once
-            IOLoopInstance().add_timeout(time.time()+1,lambda *args:self.reCheck(ip))
-            return
-        self.thread_running = True
-        threading.Thread(target=whois_thread,args=(ip,self)).start()
-def getWhois(ip):
-    lines = getoutput("whois '"+S(ip).replace("'",'')+"'").split('\n')
-    if any(l and l.lower().split()[0]=="descr:" for l in lines): checkList = ["descr:"] # ,"netname:","address:"
-    else: checkList = ["orgname:"]
-    ret = []
-    for l in lines:
-        if len(l.split())<2: continue
-        field,value = l.split(None,1) ; field=field.lower()
-        if field in checkList or (field=="country:" and ret) and not value in ret: ret.append(value) # omit 1st country: from RIPE/APNIC/&c, and de-dup
-    return ", ".join(ret)
-def whois_thread(ip,logger):
-    helper_threads.append('whois')
-    try: address = getWhois(ip)
-    except Exception as e: address = repr(e) # e.g. UnicodeDecodeError on Python 3 if whois returns non-UTF8
-    logger.thread_running = False
-    if address: logging.info("whois "+ip+": "+address)
-    helper_threads.remove('whois')
 
 helper_threads = []
 
@@ -1326,7 +1190,6 @@ class BrowserLogger:
     # Do NOT read options here - they haven't been read yet
     self.lastBrowser = None
     self.lastIp = self.lastMethodStuff = None
-    self.whoisLogger = WhoisLogger()
   def __call__(self,req):
     if req.request.remote_ip in options.ipNoLog: return
     try: ch = req.cookie_host()
@@ -1337,9 +1200,8 @@ class BrowserLogger:
     if S(req.method)=="CONNECT" or B(req.uri).startswith(B("http://")) or B(req.uri).startswith(B("https://")): host="" # URI will have everything
     elif hasattr(req,"suppress_logger_host_convert"): host = req.host
     else: host=B(convert_to_real_host(req.host,ch))
-    if host in [-1,B("error")]: host=req.host # -1 for own_server (but this shouldn't happen as it was turned into a CONNECT; we don't mind not logging own_server because it should do so itself)
+    if host in [-1,B("error")]: host=req.host
     elif host: host=protocolWithHost(host)
-    # elif host==0: host="http://"+ch # e.g. adjusting one of the ownServer_if_not_root pages (TODO: uncomment this?)
     else: host=""
     browser = req.headers.get("User-Agent",None)
     if browser:
@@ -1366,7 +1228,6 @@ class BrowserLogger:
         msg = S(ip)+S(r)+S(browser)
     else: msg = '%s "%s %s%s %s" %s' % (S(req.remote_ip), S(req.method), S(host), S(req.uri), S(req.version), S(browser)) # could add "- - [%s]" with time.strftime("%d/%b/%Y:%X") if don't like Tornado-logs date-time format (and - - - before the browser %s)
     logging.info(msg.replace('\x1b','[ESC]')) # make sure we are terminal safe, in case of malformed URLs
-    if options.whois and hasattr(req,"valid_for_whois"): self.whoisLogger(req.remote_ip)
 
 def initLogging_preListen():
     global nullLog, accessLog
@@ -1768,14 +1629,12 @@ def openPortsEtc():
     stopFunc = open_extra_ports()
     if stopFunc: # we're a child process (--ssl-fork)
         assert not options.background or early_fork
-        dropPrivileges()
         # can't double-fork (our PID is known), hence early_fork above
         start_multicore(True) ; schedule_retries()
         if profile_forks_too: open_profile()
     else: # we're not a child process of --ssl-fork
       try:
         if options.port: listen_on_port(makeMainApplication(),options.port,options.address,options.browser)
-        openWatchdog() ; dropPrivileges()
         open_upnp() # make sure package avail if needed
         if not early_fork: banner()
         if options.background and not early_fork:
@@ -1789,7 +1648,6 @@ def openPortsEtc():
         else: open_profile_pjsOnly()
         if options.js_interpreter: init_webdrivers(coreNo*js_per_core,js_per_core)
         if not options.multicore: setupRunAndBrowser() # (equivalent is done by start_multicore if multicore)
-        watchdog.start() # ALL cores if multicore (since only one needs to be up for us to be still working) although TODO: do we want this only if not coreNo so as to ensure Dynamic_DNS_updater is still up?
         checkServer.setup() # (TODO: if we're multicore, can we propagate to other processes ourselves instead of having each core check the fasterServer?  Low priority because how often will a multicore box need a fasterServer)
         if not coreNo:
             CrossProcess429.startThread()
@@ -1848,9 +1706,6 @@ def banner(delayed=False):
         if upstream_rewrite_ssl: ret.append("--upstream-proxy back-connection helper is listening on 127.0.0.1:%d" % (upstream_proxy_port+1,))
         if options.stdio: ret.append("Listening on standard input")
     else: ret.append("Not listening (--port=0 set)")
-    if options.watchdog:
-        ret.append("Writing "+options.watchdogDevice+" every %d seconds" % options.watchdog)
-        if options.watchdogWait: ret.append("(abort if unresponsive for %d seconds)" % options.watchdogWait)
     if options.ssl_fork and not options.background: ret.append("To inspect processes, use: pstree "+str(os.getpid()))
     ret = "\n".join(ret)+"\n"
     if delayed: ret=ret.replace("Listening","Will listen").replace("Writing","Will write") # for --ssl-fork --background, need early fork (TODO: unless write a PID somewhere)
@@ -1909,7 +1764,6 @@ def main():
     announceShutdown()
     options.pimote = "" # so pimote_thread stops
     for v in kept_tempfiles.values(): unlink(v)
-    if watchdog: watchdog.stop()
     stop_threads() # must be last thing
 
 def plural(number):
@@ -1942,7 +1796,7 @@ def stop_threads():
     msg = "Terminating %d helper thread%s (%s)" % (len(ht),plural(len(ht)),", ".join(ht))
     # in case someone needs our port quickly.
     # Most likely "runaway" thread is ip_change_command if you did a --restart shortly after the server started.
-    # TODO it would be nice if the port can be released at the IOLoop.instance.stop, and make sure os.system doesn't dup any /dev/watchdog handle we might need to release, so that it's not necessary to stop the threads
+    # TODO it would be nice if the port can be released at the IOLoop.instance.stop, so that it's not necessary to stop the threads
     if writeMsg: sys.stderr.write(msg+"\n")
     stop_threads0()
 def stop_threads0():
@@ -1997,7 +1851,6 @@ def listen_on_port(application,port,address,browser,core="all",**kwargs):
         # tried 6 times over 3 seconds, can't open the port
         if browser:
             # there's probably another adjuster instance, in which case we probably want to let the browser open a new window and let our listen() fail
-            dropPrivileges()
             runBrowser()
         raise Exception("Can't open port "+repr(port)+" (tried for 3 seconds, "+e.strerror+")")
     i = len(theServers.setdefault(core,[])) ; c = core
@@ -2131,18 +1984,8 @@ def check_LXML():
 
 #@file: unix.py
 # --------------------------------------------------
-# More setup: Unix forking, privileges etc
+# More setup: Unix forking etc
 # --------------------------------------------------
-
-def dropPrivileges():
-    if options.user and not os.getuid():
-        # need to drop privileges
-        import pwd ; pwd=pwd.getpwnam(options.user)
-        os.setuid(pwd[2])
-        # and help our external programs so they
-        # don't try to load root's preferences etc
-        os.environ['HOME'] = pwd[5]
-        os.environ['USER']=os.environ['LOGNAME']=options.user
 
 def unixfork():
     if os.fork(): sys.exit()
@@ -2158,7 +2001,6 @@ def notifyReady():
     try: import sdnotify # sudo pip install sdnotify
     except ImportError: return
     sdnotify.SystemdNotifier().notify("READY=1") # we send READY=1 so you can do an adjuster.service (w/out --background) with Type=notify and ExecStart=/usr/bin/python /path/to/adjuster.py --config=...
-# TODO: also send "WATCHDOG=1" so can use WatchdogSec ? (but multicore / js_interpreter could be a problem)
 
 #@file: curl-setup.py
 # --------------------------------------------------
@@ -3146,12 +2988,11 @@ class RequestForwarder(RequestHandler):
     def connect(self, *args, **kwargs):
       try: host, port = S(self.request.uri).split(':')
       except: host,port = None,None
-      is_sshProxy = (host,port)==(allowConnectHost,allowConnectPort)
-      if host and (options.real_proxy or self.isPjsUpstream or self.isSslUpstream or is_sshProxy) and not (self.isPjsUpstream and options.js_interpreter in ["HeadlessFirefox","Firefox"] and host in block_headless_firefox): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below), but at any rate support ssh_proxy if set
+      if host and (options.real_proxy or self.isPjsUpstream or self.isSslUpstream) and not (self.isPjsUpstream and options.js_interpreter in ["HeadlessFirefox","Firefox"] and host in block_headless_firefox): # support tunnelling if real_proxy (but we might not be able to adjust anything, see below)
         upstream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
         client = self.request.connection.stream
         # See note about Tornado versions in writeAndClose
-        if not is_sshProxy and not self.isSslUpstream and int(port)==443:
+        if not self.isSslUpstream and int(port)==443:
             # We can change the host/port to ourselves
             # and adjust the SSL site (assuming this CONNECT
             # is for an SSL site)
@@ -3294,20 +3135,15 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         if val: val += ", "
         self.request.headers[header] = val+toAdd
 
-    def forwardFor(self,server,serverType="ownServer"):
+    def forwardFor(self,server,logName):
         server = S(server)
         debuglog("forwardFor "+server+self.debugExtras())
         if wsgi_mode: raise Exception("Not implemented for WSGI mode") # no .connection
-        if server==options.own_server and options.ownServer_useragent_ip:
-            r = S(self.request.headers.get("User-Agent",""))
-            if r: r=" "+r
-            r="("+S(self.request.remote_ip)+")"+r
-            self.request.headers["User-Agent"]=r
         upstream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
         client = self.request.connection.stream
         if ':' in server: host, port = server.split(':')
         else: host, port = server, 80
-        doCallback(self,upstream.connect,lambda *args:(readUntilClose(upstream,lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,serverType+" client",client,data)),readUntilClose(client,lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,serverType+" upstream",upstream,data))),(host, int(port)))
+        doCallback(self,upstream.connect,lambda *args:(readUntilClose(upstream,lambda data:writeAndClose(client,data),lambda data:writeOrError(upstream,logName+" client",client,data)),readUntilClose(client,lambda data:writeAndClose(upstream,data),lambda data:writeOrError(client,logName+" upstream",upstream,data))),(host, int(port)))
         try: self.request.uri = self.request.original_uri
         except: pass
         upstream.write(B(self.request.method)+B(" ")+B(self.request.uri)+B(" ")+B(self.request.version)+B("\r\n")+B("\r\n".join(("%s: %s" % (k,v)) for k,v in (list(h for h in self.request.headers.get_all() if not h[0].lower()=="x-real-ip")+[("X-Real-Ip",self.request.remote_ip)]))+"\r\n\r\n")+B(self.request.body))
@@ -3879,11 +3715,8 @@ document.forms[0].i.focus()
             if self.handleSpecificIPs(): return
             # TODO: Slow down heavy users by self.request.remote_ip ?
             if extensions.handle("http://"+self.request.host+self.request.uri,self):
-                self.request.suppress_logger_host_convert = self.request.valid_for_whois = True
+                self.request.suppress_logger_host_convert = True
                 return self.myfinish()
-            if ownServer_regexp and ownServer_regexp.match(self.request.host+self.request.uri):
-                self.request.headers["Connection"] = "close" # MUST use 'Connection: Close' here, as keepalive can go wrong if it subsequently fetches a URL that DOESN'T match ownServer_regexp but comes from the same domain and this goes to ownServer incorrectly.  TODO mention it in the help text?, TODO might we occasionally need something similar for ownServer_if_not_root etc?, TODO at lower priority: if we can reasonably repeat the requests then do that insntead of using forwardFor
-                return self.forwardFor(options.own_server)
             if cssReload_cookieSuffix and cssReload_cookieSuffix in self.request.uri:
                 ruri,rest = self.request.uri.split(cssReload_cookieSuffix,1)
                 self.setCookie_with_dots(rest)
@@ -3891,18 +3724,11 @@ document.forms[0].i.focus()
         self.cookieViaURL = None
         if self.isPjsUpstream or self.isSslUpstream: realHost = self.request.host
         else: realHost = convert_to_real_host(self.request.host,self.cookie_host(checkReal=False)) # don't need checkReal if return value will be passed to convert_to_real_host anyway
-        if realHost == -1:
-            return self.forwardFor(options.own_server)
-            # (TODO: what if it's keep-alive and some browser figures out our other domains are on the same IP and tries to fetch them through the same connection?  is that supposed to be allowed?)
-        elif realHost==0 and options.ownServer_if_not_root: realHost=options.own_server # asking by cookie to adjust the same host, so don't forwardFor() it but fetch it normally and adjust it
         if type(realHost)==bytes and not bytes==str:
             realHost = S(realHost)
         isProxyRequest = self.isPjsUpstream or self.isSslUpstream or (options.real_proxy and realHost == self.request.host)
         if not isProxyRequest and not self.isPjsUpstream and not self.isSslUpstream and (self.request.host=="localhost" or self.request.host.startswith("localhost:")) and not "localhost" in options.host_suffix: return self.redirect("http://"+hostSuffix(0)+publicPortStr()+self.request.uri) # save confusion later (e.g. set 'HTML-only mode' cookie on 'localhost' but then redirect to host_suffix and cookie is lost).  Bugfix 0.314: do not do this redirect if we're a real proxy for another server on localhost
-        self.request.valid_for_whois = True # (if options.whois, don't whois unless it gets this far, e.g. don't whois any that didn't even match "/(.*)" etc)
         maybeRobots = (not self.isPjsUpstream and not self.isSslUpstream and not options.robots and self.request.uri=="/robots.txt")
-        # don't actually serveRobots yet, because MIGHT want to pass it to own_server (see below)
-        
         self.is_password_domain=False # needed by doResponse2
         if options.password and not options.real_proxy and not self.isPjsUpstream and not self.isSslUpstream:
           # whether or not open_proxy, because might still have password (perhaps on password_domain), anyway the doc for open_proxy says "allow running" not "run"
@@ -3922,9 +3748,8 @@ document.forms[0].i.focus()
           if not self.authenticates_ok(host) and not (submitPathIgnorePassword and self.request.uri.startswith(submitPathForTest)):
               self.request.suppress_logger_host_convert = True
               if options.auth_error=="http://":
-                  if options.own_server: return self.forwardFor(options.own_server)
-                  elif maybeRobots: return self.serveRobots()
-                  else: options.auth_error = "auth_error set incorrectly (own_server not set)" # see auth_error help (TODO: is it really a good idea to say this HERE?)
+                  if maybeRobots: return self.serveRobots()
+                  else: options.auth_error = "auth_error set incorrectly" # see auth_error help (TODO: is it really a good idea to say this HERE?)
               elif maybeRobots: return self.serveRobots()
               self.add_nocache_headers() # in case they try the exact same request again after authenticating (unlikely if they add &p=..., but they might come back to the other URL later, and refresh is particularly awkward if we redirect)
               if options.auth_error.startswith("http://") or options.auth_error.startswith("https://"): return self.redirect(options.auth_error)
@@ -3950,8 +3775,7 @@ document.forms[0].i.focus()
         if realHost=="error" and not maybeRobots:
             return self.serve_hostError()
         if not realHost: # default_site(s) not set
-            if options.own_server and options.ownServer_if_not_root and len(self.request.path)>1: return self.forwardFor(options.own_server)
-            elif maybeRobots or any(re.search(x,self.request.headers.get("User-Agent","")) for x in options.prohibitUA): return self.serveRobots()
+            if maybeRobots or any(re.search(x,self.request.headers.get("User-Agent","")) for x in options.prohibitUA): return self.serveRobots()
             # Serve URL box
             self.set_css_from_urlbox()
             if self.getArg("try"): return self.serve_URLbox() # we just set the stylesheet
@@ -4661,7 +4485,7 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install watchdog browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog whois own_server ownServer_regexp ssh_proxy js_reproxy ssl_fork just_me one_request_only seconds stdio'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+    for opt in 'config user address background restart stop install browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog js_reproxy ssl_fork just_me one_request_only seconds stdio'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt): warn("'%s' option may not work in WSGI mode" % opt)
     options.js_reproxy = False # for now (see above)
@@ -4669,7 +4493,6 @@ def make_WSGI_application():
     if (options.pdftotext or options.epubtotext or options.epubtozip) and (options.pdfepubkeep or options.waitpage):
         options.pdfepubkeep=0 ; options.waitpage = False
         warn("pdfepubkeep and waitpage may not work in WSGI mode; clearing them") # both rely on one process doing all requests (not guaranteed in WSGI mode), and both rely on ioloop's add_timeout being FULLY functional
-    options.own_server = "" # for now, until we get forwardFor to work (TODO, and update the above list of ignored options accordingly)
     import tornado.wsgi
     if not hasattr(tornado.wsgi,"WSGIApplication"): errExit("Tornado 6+ does not support our WSGI mode. Use Tornado 5 or below.")
     handlers = [("(.*)",SynchronousRequestForwarder)]
@@ -5041,7 +4864,7 @@ def runFilter(req,cmd,text,callback,textmode=True):
         cmd = eval(cmd[1:]) # (normally a function name, but any Python expression that evaluates to a callable is OK, TODO: document this?  and incidentally if it evaluates to a string that's OK as well; the string will be given to an external command)
     if not type(cmd)==type(""):
         out = B(cmd(text))
-        return IOLoopInstance().add_timeout(time.time(),lambda *args:callback(out,"")) # give watchdog ping a chance to work between cmd and callback
+        return IOLoopInstance().add_timeout(time.time(),lambda *args:callback(out,"")) # yield
     elif cmd.startswith("http://") or cmd.startswith("https://"):
         return httpfetch(req,cmd,method="POST",body=text,callback=lambda r:(curlFinished(),callback(B(r.body),"")))
     def subprocess_thread():
@@ -6247,7 +6070,7 @@ def imgDecode(code):
 
 #@file: ping.py
 # --------------------------------------------------
-# Support pinging watchdogs and Dynamic DNS services
+# Support pinging Dynamic DNS services and PiMote
 # --------------------------------------------------
 
 class Dynamic_DNS_updater:
@@ -6403,55 +6226,6 @@ def open_upnp():
         miniupnpc = miniupnpc.UPnP()
         miniupnpc.discoverdelay=200
 
-watchdog = None
-def openWatchdog():
-    global watchdog
-    watchdog = WatchdogPings()
-class WatchdogPings:
-    def __init__(self):
-        if options.watchdog:
-            self.wFile = open(options.watchdogDevice, 'wb')
-        else: self.wFile = None
-        # then call start() after privileges are dropped
-    def start(self):
-        if not self.wFile: return # no watchdog
-        if options.watchdogWait: threading.Thread(target=self.separate_thread,args=()).start()
-        self.ping()
-    def stop(self):
-        if not self.wFile: return # no watchdog
-        options.watchdog = 0 # tell any separate_thread() to stop (that thread is not counted in helper_threads)
-        self.wFile.write('V') # this MIGHT be clean exit, IF the watchdog supports it (not all of them do, so it might not be advisable to use the watchdog option if you plan to stop the server without restarting it)
-        self.wFile.close()
-    def separate_thread(self): # version for watchdogWait
-        # (does not adjust helper_threads / can't be "runaway")
-        global watchdog_mainServerResponded # a flag.  Do NOT timestamp with time.time() - it can go wrong if NTP comes along and re-syncs the clock by a large amount
-        def respond(*args):
-            global watchdog_mainServerResponded
-            debuglog("watchdogWait: responding",stillIdle=True)
-            watchdog_mainServerResponded = True
-        respond() ; stopped = 0 ; sleptSinceResponse = 0
-        while options.watchdog:
-            if watchdog_mainServerResponded:
-                self.ping()
-                if stopped:
-                    logging.info("Main thread responded, restarting watchdog ping")
-                    stopped = 0
-                watchdog_mainServerResponded = False
-                sleptSinceResponse = 0
-                IOLoopInstance().add_callback(respond)
-            elif sleptSinceResponse < options.watchdogWait: self.ping() # keep waiting for it
-            elif not stopped:
-                logging.error("Main thread unresponsive, stopping watchdog ping. lastDebugMsg: "+lastDebugMsg)
-                stopped = 1 # but don't give up (it might respond just in time)
-            time.sleep(options.watchdog)
-            sleptSinceResponse += options.watchdog # "dead reckoning" to avoid time.time()
-    def ping(self):
-        if not options.watchdogWait: debuglog("pinging watchdog",logRepeats=False,stillIdle=True) # ONLY if run from MAIN thread, otherwise it might overwrite the real lastDebugMsg of where we were stuck
-        self.wFile.write('a') ; self.wFile.flush()
-        if not options.watchdogWait: # run from main thread
-            IOLoopInstance().add_timeout(time.time()+options.watchdog,lambda *args:self.ping())
-        # else one ping only (see separate_thread)
-
 #@file: delegate.py
 # --------------------------------------------------
 # Support for "slow server delegates to fast server"
@@ -6528,7 +6302,7 @@ checkServer=checkServer()
 # Debugging and status dumps
 # --------------------------------------------------
 
-lastDebugMsg = "None" # for 'stopping watchdog ping'
+lastDebugMsg = "None"
 def debuglog(msg,logRepeats=True,stillIdle=False):
     # This function *must* return None.
     global lastDebugMsg, profileIdle
