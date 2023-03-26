@@ -1,10 +1,11 @@
 PORTNAME=		adjuster
 DISTVERSIONPREFIX=	v
-DISTVERSION=		3.15
+DISTVERSION=		3.23
 CATEGORIES=		www
 
 MAINTAINER=	ssb22@cam.ac.uk
 COMMENT=	Apply custom processing to Web pages
+WWW=	http://ssb22.user.srcf.net/adjuster/
 
 LICENSE=	APACHE20
 LICENSE_FILE=	${WRKDIR}/${GH_PROJECT}-${PORTVERSION}/LICENSE
