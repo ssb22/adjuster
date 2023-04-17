@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.34 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.341 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2239,7 +2239,7 @@ android_src += br"""
         browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
         final MainActivity act = this;
         browser.setWebViewClient(new WebViewClient() {
-                @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! (phone too old?)",Toast.LENGTH_LONG).show(); if(AndroidSDK<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
+                @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! Carrier redirect? Old phone?",Toast.LENGTH_LONG).show(); if(AndroidSDK<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
                 @TargetApi(4) public boolean shouldOverrideUrlLoading(WebView view,String url) {
                     if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) {
                         // Let the default browser download this file, but prefer not to let EPUB-reader apps intercept the URL: we want it _downloaded_ so we can annotate it, but some users might get confused, so give preference to Chrome or Kindle Silk, starting the Chooser only if neither is installed
@@ -3514,21 +3514,6 @@ if (typeof require != "undefined" && typeof module != "undefined" && require.mai
 } else if (typeof module != "undefined" && module.exports) { // Common.js
   module.exports = Annotator;
 }
-"""
-
-if browser_extension:
-  # we can assume window.atob
-  js_inflate = br"""(function(dat,expandLen){var buf=new Uint8Array(expandLen);dat=(function(r){for(var e=new Uint8Array(r.length),t=0,n=e.length;t<n;t++)e[t]=r.charCodeAt(t);return e})(atob(dat));"""
-else: js_inflate = br"""(function(dat,expandLen){
-  var buf=new Uint8Array(expandLen); dat=
-  "undefined"!=typeof window && window.atob ?
-    function(r){for(var e=new Uint8Array(r.length),t=0,n=e.length;t<n;t++)e[t]=r.charCodeAt(t);return e}(atob(dat))
-  :"undefined"!=typeof Buffer ? new Buffer(dat,"base64")
-  :function(r){var e,t,n={},f=65,a=0,o=0,i=new Uint8Array(r.length),d=0,l=String.fromCharCode,v=r.length;for(e="";f<91;)e+=l(f++);for(e+=e.toLowerCase()+"0123456789+/",f=0;f<64;f++)n[e.charAt(f)]=f;for(e=0;e<v;e++)for(a=(a<<6)+(f=n[r.charAt(e)]),o+=6;8<=o;)((t=a>>>(o-=8)&255)||e<v-2)&&(i[d++]=t);return i}(dat);"""
-js_inflate += br"""
-/* Inflate code taken from UZip.js (c) 2019 "Photopea" (MIT-licensed), cut down and JSCompress'd: */
-function inflate(e,r){var t,n,E={iR:function(e,r){return E.F.inflate(e,r)},inflate:function(e,r){e[0],e[1];return E.iR(new Uint8Array(e.buffer,e.byteOffset+2,e.length-6),r)}};return E.F={},E.F.inflate=function(e,r){var t=Uint8Array;if(3==e[0]&&0==e[1])return r||new t(0);var n=E.F,f=n._F,i=n._E,o=n.dT,a=n.mC,u=n.cm,l=n.g7,d=n.U;for(var s,h,v,F,_,w,p=0,g=0,b=0,U=0,m=0;0==p;)if(p=f(e,m,1),s=f(e,m+1,2),m+=3,0!=s){if(1==s&&(_=d.flm,w=d.fm,g=511,b=31),2==s){h=i(e,m,5)+257,v=i(e,m+5,5)+1,F=i(e,m+10,4)+4;m+=14;for(var y=0;y<38;y+=2)d.it[y]=0,d.it[y+1]=0;for(var C=1,y=0;y<F;y++){var A=i(e,m+3*y,3);C<(d.it[1+(d.ordr[y]<<1)]=A)&&(C=A)}m+=3*F,a(d.it,C),u(d.it,C,d.im),_=d.lm,w=d.dm,m=o(d.im,(1<<C)-1,h+v,e,m,d.tt);var x=n.cO(d.tt,0,h,d.lt),g=(1<<x)-1,T=n.cO(d.tt,h,v,d.dt),b=(1<<T)-1;a(d.lt,x),u(d.lt,x,_),a(d.dt,T),u(d.dt,T,w)}for(;;){var k=_[l(e,m)&g];m+=15&k;k=k>>>4;if(k>>>8==0)r[U++]=k;else{if(256==k)break;var z=U+k-254;264<k&&(z=U+((M=d.ldef[k-257])>>>3)+i(e,m,7&M),m+=7&M);var M=w[l(e,m)&b];m+=15&M;var M=M>>>4,M=d.ddef[M],S=(M>>>4)+f(e,m,15&M);for(m+=15&M;U<z;)r[U]=r[U++-S],r[U]=r[U++-S],r[U]=r[U++-S],r[U]=r[U++-S];U=z}}}else{0!=(7&m)&&(m+=8-(7&m));x=4+(m>>>3),T=e[x-4]|e[x-3]<<8;r.set(new t(e.buffer,e.byteOffset+x,T),U),m=x+T<<3,U+=T}return r.length==U?r:r.slice(0,U)},E.F.dT=function(e,r,t,n,f,i){for(var o=E.F._E,a=E.F.g7,u=0;u<t;){var l=e[a(n,f)&r];f+=15&l;var d=l>>>4;if(d<=15)i[u]=d,u++;else{var c=0,l=0;16==d?(l=3+o(n,f,2),f+=2,c=i[u-1]):17==d?(l=3+o(n,f,3),f+=3):18==d&&(l=11+o(n,f,7),f+=7);for(var s=u+l;u<s;)i[u]=c,u++}}return f},E.F.cO=function(e,r,t,n){for(var f=0,i=0,o=n.length>>>1;i<t;){var a=e[i+r];n[i<<1]=0,f<(n[1+(i<<1)]=a)&&(f=a),i++}for(;i<o;)n[i<<1]=0,n[1+(i<<1)]=0,i++;return f},E.F.mC=function(e,r){for(var t,n,f,i=E.F.U,o=e.length,a=i.bl_count,u=0;u<=r;u++)a[u]=0;for(u=1;u<o;u+=2)a[e[u]]++;var l=i.next_code,d=0;for(a[0]=0,t=1;t<=r;t++)d=d+a[t-1]<<1,l[t]=d;for(n=0;n<o;n+=2)0!=(f=e[n+1])&&(e[n]=l[f],l[f]++)},E.F.cm=function(e,r,t){for(var n=e.length,f=E.F.U.r5,i=0;i<n;i+=2)if(0!=e[i+1])for(var o=i>>1,a=e[i+1],u=o<<4|a,a=r-a,l=e[i]<<a,d=l+(1<<a);l!=d;)t[f[l]>>>15-r]=u,l++},E.F.rC=function(e,r){for(var t=E.F.U.r5,n=15-r,f=0;f<e.length;f+=2){var i=e[f]<<r-e[f+1];e[f]=t[i]>>>n}},E.F._E=function(e,r,t){return(e[r>>>3]|e[1+(r>>>3)]<<8)>>>(7&r)&(1<<t)-1},E.F._F=function(e,r,t){return(e[r>>>3]|e[1+(r>>>3)]<<8|e[2+(r>>>3)]<<16)>>>(7&r)&(1<<t)-1},E.F.g7=function(e,r){return(e[r>>>3]|e[1+(r>>>3)]<<8|e[2+(r>>>3)]<<16)>>>(7&r)},E.F.U=(t=Uint16Array,n=Uint32Array,{next_code:new t(16),bl_count:new t(16),ordr:[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15],of0:[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258,999,999,999],exb:[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0,0,0,0],ldef:new t(32),df0:[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,65535,65535],dxb:[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,0,0],ddef:new n(32),flm:new t(512),flt:[],fm:new t(32),fdt:[],lm:new t(32768),lt:[],tt:[],dm:new t(32768),dt:[],im:new t(512),it:[],r5:new t(32768),lhst:new n(286),dhst:new n(30),ihst:new n(19),lits:new n(15e3),strt:new t(65536),prev:new t(32768)}),function(){for(var e=E.F.U,r=0;r<32768;r++){var t=r;t=(4278255360&(t=(4042322160&(t=(3435973836&(t=(2863311530&t)>>>1|(1431655765&t)<<1))>>>2|(858993459&t)<<2))>>>4|(252645135&t)<<4))>>>8|(16711935&t)<<8,e.r5[r]=(t>>>16|t<<16)>>>17}function n(e,r,t){for(;0!=r--;)e.push(0,t)}for(r=0;r<32;r++)e.ldef[r]=e.of0[r]<<3|e.exb[r],e.ddef[r]=e.df0[r]<<4|e.dxb[r];n(e.flt,144,8),n(e.flt,112,9),n(e.flt,24,7),n(e.flt,8,8),E.F.mC(e.flt,9),E.F.cm(e.flt,9,e.flm),E.F.rC(e.flt,9),n(e.fdt,32,5),E.F.mC(e.fdt,5),E.F.cm(e.fdt,5,e.fm),E.F.rC(e.fdt,5),n(e.it,19,0),n(e.lt,286,0),n(e.dt,30,0),n(e.tt,320,0)}(),E.inflate(e,r)}
-return inflate(dat,buf) })
 """
 
 extension_rubycss = b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important;}"
