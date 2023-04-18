@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.341 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.342 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -116,11 +116,6 @@ parser.add_option("--keep-whitespace",
 
 parser.add_option("--normalised-file",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to write a copy of the normalised input for diagnostic purposes.  If this is set to the same as --infile then it will be assumed the input file has already been normalised (use with care).")
-parser.add_option("--normalise-only",
-                  action="store_true",
-                  default=False,
-                  help="Exit after normalising the input")
-cancelOpt("normalise-only")
 
 parser.add_option("--post-normalise",
                   help="Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.")
@@ -130,12 +125,6 @@ parser.add_option("--glossfile",
 parser.add_option("-C", "--gloss-closure",
                   help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also, using the Unihan variants file specified by this option")
 cancelOpt("gloss-closure")
-parser.add_option("--glossmiss",
-                  help="Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)") # (default sorted alphabetically, but you can pipe through sort -rn to get most freq 1st)
-parser.add_option("--glossmiss-hide",
-                  help="Comma-separated list of references to hide from the glossmiss file (does not affect the glossmiss-omit option)")
-parser.add_option("--glossmiss-match",
-                  help="If supplied, any references not matching this regular expression will be hidden from the glossmiss file (does not affect the glossmiss-omit option)")
 parser.add_option("-M","--glossmiss-omit",
                   action="store_true",
                   default=False,
@@ -149,13 +138,6 @@ parser.add_option("--manualrules",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
 
 #  =========== OUTPUT OPTIONS ==============
-
-parser.add_option("--rulesFile",help="Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will be read from it and incrementally updated. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.") # You may however change whether or not a --single-words / --max-words option applies to the new examples (but hopefully shouldn't have to)
-
-parser.add_option("-n","--no-input",
-                  action="store_true",default=False,
-                  help="Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.")
-cancelOpt("no-input")
 
 parser.add_option("--c-filename",default="",help="Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota).") # because the main program might not be running on the launch node
 
@@ -182,13 +164,20 @@ parser.add_option("--maxrefs",default=3,
 
 parser.add_option("-R","--norefs",
                   action="store_true",default=False,
-                  help="Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if --no-input is specified.") # the speed difference is not so great as of v0.593, but needed anyway if --no-input is set
+                  help="Don't write references in the rules summary.  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if --no-input is specified.") # the speed difference is not so great as of v0.593, but needed anyway if --no-input is set
 cancelOpt("norefs")
 
-parser.add_option("--rulesFile-only",
+parser.add_option("--rulesFile",help="Filename of a binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then either --write-rules or --read-rules must be specified.")
+
+parser.add_option("--write-rules",
                   action="store_true",default=False,
-                  help="Don't generate a parser or a rules summary, just update rulesFile")
-cancelOpt("rulesFile-only")
+                  help="Write rulesFile instead of generating a parser or a rules summary.  You will then need to rerun with --read-rules later.")
+cancelOpt("write-rules")
+
+parser.add_option("--read-rules",
+                  action="store_true",default=False,
+                  help="Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required.")
+cancelOpt("read-rules")
 
 parser.add_option("-E","--newlines-reset",
                   action="store_false",
@@ -383,14 +372,14 @@ parser.add_option("--checkpoint",help="Periodically save checkpoint files in the
 parser.add_option("--checkpoint-period",default=1000,help="Approximate number of seconds between checkpoints (default %default).  Setting this to 0 disables periodic checkpoints but still allows use of checkpoint directory for concurrency or ExitASAP processing.")
 
 parser.add_option("-d","--diagnose",help="Output some diagnostics for the specified word. Use this option to help answer \"why doesn't it have a rule for...?\" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).")
-parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: %default")
+parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases to print diagnostics for (0 means unlimited). Default: %default")
 parser.add_option("-m","--diagnose-manual",
                   action="store_true",default=False,
                   help="Check and diagnose potential failures of --manualrules")
 cancelOpt("diagnose-manual")
 parser.add_option("-q","--diagnose-quick",
                   action="store_true",default=False,
-                  help="Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics WITHOUT these disadvantages by loading a --rulesFile instead.")
+                  help="Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.")
 cancelOpt("diagnose-quick")
 
 parser.add_option("--priority-list",help="Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2 or .xz file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.")
@@ -590,7 +579,10 @@ if zlib:
     zlib_name = "zlib"
   if windows_clipboard: warn("--zlib with --windows-clipboard is inadvisable because ZLib is not typically present on Windows platforms. If you really want it, you'll need to figure out the compiler options and library setup for it.")
   if dart and not dart_datafile: warn("--zlib without --dart-datafile might not be as efficient as you'd hope (and --zlib prevents the resulting Dart code from being compiled to a \"Web app\" anyway)") # as it requires dart:io
-if rulesFile_only and not rulesFile: warn("This run won't do much (--rulesFile-only set with no --rulesFile)") # might be OK as a partial coverage test
+if rulesFile:
+  if not (read_rules or write_rules): errExit("rulesFile requires --read-rules or --write-rules")
+  elif read_rules and write_rules: errExit("--read-rules and --write-rules are mutually exclusive")
+elif read_rules or write_rules: errExit("--read-rules or --write-rules requires rulesFile")
 if java or javascript or python or dart: c_compiler = None
 try: xrange # Python 2
 except: xrange,unichr,unicode = range,chr,str # Python 3
@@ -624,26 +616,16 @@ def T(s):
 if keep_whitespace: keep_whitespace = set(T(keep_whitespace).split(','))
 if ymax_limitwords: ymax_limitwords = set(T(ymax_limitwords).split(','))
 if multiword_end_avoid: multiword_end_avoid = set(T(multiword_end_avoid).split(','))
-if glossmiss_hide: glossmiss_hide = set(T(glossmiss_hide).split(','))
 if status_prefix: status_prefix += ": "
 else: status_prefix = ""
 if diagnose: diagnose=T(diagnose)
 diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
-read_input = not no_input
 if not reference_sep: norefs=True
-if not read_input:
-  def f():
-    if diagnose_manual: return "--diagnose-manual is set"
-    if normalise_only: return "--normalise-only is set"
-    if not norefs:
-      if not no_summary: return "summary is required (and without norefs)"
-      if glossmiss: return "--glossmiss is set (and without norefs)"
-  msg=f()
-  if msg:
-    warn("Reading input despite --no-input because "+msg)
-    read_input = True
+if read_rules:
+  if diagnose_manual: errExit("--diagnose-manual is not compatible with --read-rules")
+  if not norefs and not no_summary: errExit("--read-rules requires either --no-summary or --norefs") # otherwise input will need to be read to find the references in the summary
 
 if compress:
   squashStrings = set() ; squashReplacements = []
@@ -4070,7 +4052,6 @@ def read_and_normalise():
   if diagnose and not suppress and not diagnose in corpus_unistr:
     diagnose_write(diagnose+" was in the corpus before normalisation, but not after")
     if loaded_from_checkpoint: diagnose_write("You might want to remove "+checkpoint+os.sep+'normalised* and redo the diagnose')
-  if normalise_only: sys.exit()
 
 def normWord(w,allWords,cu_nosp):
   hTry = typo = None
@@ -4754,47 +4735,22 @@ class RulesAccumulator:
     self.rulesAsWordlists = list() # all rules as words (list of lists) (used if not ybytes, TODO: integrate with rulesAsWordlists_By1stWord?)
     self.rejectedRules = set()
     self.seenPhrases = set() # de-duplicate, might speed up
-    self.amend_rules = False
-    if rulesFile: self.load()
   def save(self):
     sys.stderr.write("\nPickling rules to %s... " % rulesFile) ; sys.stderr.flush()
     f = openfile(rulesFile,'w')
-    pickle.Pickler(f,-1).dump((self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists,self.seenPhrases))
+    pickle.Pickler(f,-1).dump((self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists))
     # (don't save self.rejectedRules, there might be better clues next time)
     f.close() ; sys.stderr.write("done")
     sys.stderr.flush()
   def load(self):
-    if not os.path.isfile(rulesFile):
-      sys.stderr.write("%s does not exist, starting with blank rules\n" % rulesFile)
-      return
     sys.stderr.write("Unpickling rules from %s... " % rulesFile) ; sys.stderr.flush()
     f = openfile(rulesFile)
-    self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists,self.seenPhrases = pickle.Unpickler(f).load()
+    self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists = pickle.Unpickler(f).load()
     sys.stderr.write("done\n")
-    self.amend_rules = True
-    self.newRules = set()
-  def remove_old_rules(self,words): # for incremental runs - removes previously-discovered rules that would have been suggested by this new phrase but that no longer 'work' with the rest of the corpus due to alterations elsewhere.  DOES NOT remove old rules that are not suggested by any phrase in the corpus because the phrases that suggested them have been removed or changed (TODO: might want an option for that, although fundamentally you shouldn't be relying on incremental runs if you're making a lot of changes to the corpus)
-    for w in set(words):
-      rulesAsWordlists = self.rulesAsWordlists_By1stWord.get(w,[])
-      i=0
-      while i<len(rulesAsWordlists):
-        if max_words and len(rulesAsWordlists[i])>max_words:
-          i += 1 ; continue # better leave that one alone if we're not reconsidering rules that long (e.g. running again with single_words when previous run wasn't)
-        rule = wspJoin(rulesAsWordlists[i])
-        if rule not in self.newRules and checkCoverage(rulesAsWordlists[i],words,[False]*len(words)): # rule would apply to the new phrase
-          yBytesRet = []
-          if not getNext(test_rule(rule,yBytesRet)) or potentially_bad_overlap(self.rulesAsWordlists,rulesAsWordlists[i]): # re-test fails.  In versions v0.543 and below, we just removed ALL rules that would apply to the new phrase, to see if they would be re-generated.  But that caused problems because addRulesForPhrase can return early if all(covered) due to other (longer) rules and we might be removing a perfectly good short rule that's needed elsewhere.  So we now re-test before removal.
-            self.rejectedRules.add(rule)
-            if not ybytes: self.rulesAsWordlists.discard(rulesAsWordlists[i])
-            del rulesAsWordlists[i] ; del self.rules[rule]
-            continue
-          self.newRules.add(rule) # still current - add to newRules now to save calling test_rule again
-          if len(yBytesRet): self.rules[rule] = yBytesRet[0] # overriding what it was before (since we've re-done test_rule for it, which might have returned a new set of Yarowsky-like indicators for the new version of the corpus)
-        i += 1
   def addRulesForPhrase(self,phrase,canBackground=False):
     if phrase in self.seenPhrases or (diagnose_quick and diagnose):
-      # if diagnose and (diagnose_quick or self.amend_rules) and mdStart+diagnose+mdEnd in phrase: pass # look at it again for diagnostics.  But do we accept a diagnose that spans multiple words?  should be pointed out by --diagnose-quick below if uncommented
-      if diagnose and (diagnose_quick or self.amend_rules) and diagnose in markDown(phrase): pass # this version accepts diagnose of multiple words (and might also let some phrases through where it matches on an overlap)
+      # if diagnose and diagnose_quick and mdStart+diagnose+mdEnd in phrase: pass # look at it again for diagnostics.  But do we accept a diagnose that spans multiple words?  should be pointed out by --diagnose-quick below if uncommented
+      if diagnose and diagnose_quick and diagnose in markDown(phrase): pass # this version accepts diagnose of multiple words (and might also let some phrases through where it matches on an overlap)
       else:
         yield 0,0 ; return # TODO: document that this means the total 'covered' figure in the progress status is AFTER phrase de-duplication (otherwise we'd have to look up what the previous values were last time we saw it - no point doing that just for a quick statistic)
     self.seenPhrases.add(phrase)
@@ -4805,7 +4761,6 @@ class RulesAccumulator:
     # first see how much is covered by existing rules
     # (don't have to worry about the order, as we've been
     # careful about overlaps)
-    if self.amend_rules: self.remove_old_rules(words) # NB if yignore this might not remove all, but still removes all that affect checkCoverage below
     for w in set(words):
       for ruleAsWordlist in self.rulesAsWordlists_By1stWord.get(w,[]):
         k = wspJoin(ruleAsWordlist)
@@ -4822,7 +4777,7 @@ class RulesAccumulator:
           def f():
            for w in set(ruleAsWordlist):
             for r2 in self.rulesAsWordlists_By1stWord.get(w,[]):
-              # if len(r2) >= len(c2): continue # as an optimisation, but this shouldn't be necessary if we're doing phrases in increasing length unless running incrementally
+              # if len(r2) >= len(c2): continue # as an optimisation, but this shouldn't be necessary if we're doing phrases in increasing length
               # if not yarowsky_multiword and len(r2)>1: continue # but self.rules[k] will be False below anyway, so this won't be much of a speedup, just saves one wspJoin
               k = wspJoin(r2)
               if self.rules[k] and checkCoverage(r2,ruleAsWordlist,c2,self.rules[k]) and all(c2): return
@@ -4845,16 +4800,12 @@ class RulesAccumulator:
         if not ybytes: self.rulesAsWordlists.append(ruleAsWordlist)
         if not ruleAsWordlist[0] in self.rulesAsWordlists_By1stWord: self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]] = []
         self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]].append(ruleAsWordlist)
-        if self.amend_rules: self.newRules.add(rule)
         handle_diagnose_limit(rule)
         if all(covered):
           yield len(covered),len(covered) ; return
     # If get here, failed to completely cover the phrase.
     # ruleAsWordlist should be set to the whole-phrase rule.
     yield sum(1 for x in covered if x),len(covered)
-  def rulesAndConds(self):
-    if self.amend_rules: return [(k,v) for k,v in self.rules.items() if not k in self.newRules] + [(k,v) for k,v in self.rules.items() if k in self.newRules] # new rules must come last for incremental runs, so they will override existing actions in byteSeq_to_action_dict when small changes have been made to the annotation of the same word (e.g. capitalisation-normalisation has been changed by the presence of new material)
-    else: return self.rules.items()
 
 def handle_diagnose_limit(rule):
   global diagnose,diagnose_limit
@@ -5005,10 +4956,9 @@ def analyse():
     flush_background(backgrounded)
     try: executor.shutdown(False) # if wordLen never exceeded 1 so it didn't get shut down above, might as well free up other processes now
     except: pass
-    if rulesFile: accum.save()
     if diagnose_manual: test_manual_rules()
-    if rulesFile_only: sys.exit(0)
-    return sorted(accum.rulesAndConds()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
+    if write_rules: accum.save(),sys.exit(0)
+    return sorted(accum.rules.items()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
 try: import Queue as queue # Python 2
 except: import queue # Python 3
 def flush_background(backgrounded,why="",covered=0,toCover=0):
@@ -5177,7 +5127,7 @@ def fixCaps(s,ref,splitOn=(' ','-')):
   return s[0].upper()+s[1:]
 
 def readGlossfile():
-    glossDic = {} ; glossMiss = set() ; glosslist = set()
+    glossDic = {} ; glosslist = set()
     if glossfile:
         for l in openfile(glossfile):
             if not l.strip(): continue
@@ -5192,7 +5142,7 @@ def readGlossfile():
             if not word or not gloss: continue
             if annot: glossDic[(word,annot)] = gloss
             else: glossDic[word] = gloss
-    return glossDic,glossMiss,glosslist
+    return glossDic,glosslist
 
 def copyBytes(n,checkNeedspace=False): # needSpace unchanged for ignoreNewlines etc; checkNeedspace for open quotes
     if checkNeedspace:
@@ -5200,7 +5150,8 @@ def copyBytes(n,checkNeedspace=False): # needSpace unchanged for ignoreNewlines 
     else: return [(n,)] # copyBytes(n)
 
 def outputParser(rulesAndConds):
-    glossDic, glossMiss, glosslist = readGlossfile()
+    glossDic, glosslist = readGlossfile()
+    glossMiss = set() # helps gloss_closure avoid repeated lookups
     if words_omit:
       omitlist=set(w.strip() for w in openfile(words_omit).read().decode(incode).split('\n')) # TODO: glosscode?
       if diagnose and diagnose in omitlist: diagnose_write(diagnose+" is in words_omit file")
@@ -5301,7 +5252,6 @@ def outputParser(rulesAndConds):
     for l in read_manual_rules():
       if diagnose_manual and l in rulesAndConds: getBuf(sys.stderr).write(("\nINFO: Possible unnecessary manual rule '%s'\n" % l).encode(terminal_charset))
       addRule(l,[],byteSeq_to_action_dict,True)
-    write_glossMiss(glossMiss)
     longest_rule_len = max(len(b) for b in iterkeys(byteSeq_to_action_dict))
     longest_rule_len += ybytes_max # because buffer len is 2*longest_rule_len, we shift half of it when (readPtr-bufStart +ybytes >= bufLen) and we don't want this shift to happen when writePtr-bufStart = Half_Bufsize-1 and readPtr = writePtr + Half_Bufsize-1 (TODO: could we get away with max(0,ybytes_max-1) instead? but check how this interacts with the line below; things should be safe as they are now).  This line's correction was missing in Annogen v0.599 and below, which could therefore occasionally emit code that, when running from stdin, occasionally replaced one of the document's bytes with an undefined byte (usually 0) while emitting correct annotation for the original byte.  (This could result in bad UTF-8 that crashed the bookmarklet feature of Web Adjuster v0.21 and below.)
     longest_rule_len = max(ybytes_max*2, longest_rule_len) # make sure the half-bufsize is at least ybytes_max*2, so that a read-ahead when pos is ybytes_max from the end, resulting in a shift back to the 1st half of the buffer, will still leave ybytes_max from the beginning, so yar() can look ybytes_max-wide in both directions
@@ -5428,32 +5378,16 @@ def setup_browser_extension():
   global c_filename
   c_filename = dirToUse+"/annotate-dat.txt"
 
-def write_glossMiss(glossMiss):
-  if not glossmiss: return
-  sys.stderr.write("Writing glossmiss (norefs=%s) to %s...\n" % (repr(norefs),glossmiss))
-  gm = openfile(glossmiss,'w')
-  count = 1 ; t = time.time() ; prndProg=False
-  for w in sorted(list(glossMiss)):
-    try: num = str(len(getOkStarts(w)))+'\t'
-    except: num = '?\t' # num occurrences in e.g.s
-    a,b,r = markDown(w),annotationOnly(w),refs(w,True)
-    if a and b and not r=="\t": gm.write((num+a+"\t"+b+r+os.linesep).encode(incode)) # TODO: glosscode ? glossMissCode ??
-    if time.time() >= t + 2:
-      sys.stderr.write(("(%d of %d)" % (count,len(glossMiss)))+clear_eol) ; sys.stderr.flush()
-      t = time.time() ; prndProg = True
-    count += 1
-  if prndProg: sys.stderr.write("done"+clear_eol+"\n")
-
 if norefs:
-  def refs(*args): return ""
+  def refs(rule): return ""
 else:
-  def refs(rule,omit=False):
+  def refs(rule):
     if rule in precalc_sets:
       def findStarts():
         for x in sorted(precalc_sets[rule]): yield x
     else:
       k = getNext(splitWords(rule))
-      if not k in precalc_sets: return "" # can happen in some incremental-run glossMiss situations: just omit that reference in the debug file
+      if not k in precalc_sets: return "" # TODO: this should no longer happen now we've removed incremental-run functionality
       walen = len(rule)
       def findStarts():
         for x in sorted(precalc_sets[k]):
@@ -5486,8 +5420,7 @@ else:
       if not app in ret: ret.append(app)
       rmPos += 1
     if not ret: return ""
-    elif not omit: return "\t"+"; ".join(ret)
-    else: return "\t"+"; ".join(r for r in ret if not r in glossmiss_hide and (not glossmiss_match or re.match(glossmiss_match,r))) # (if all in omit, still return the \t to indicate we did find some)
+    else: return "\t"+"; ".join(ret)
 
 def outputRulesSummary(rulesAndConds):
     # (called "summary" because we don't here specify which part
@@ -5497,13 +5430,9 @@ def outputRulesSummary(rulesAndConds):
     if summary_omit: omit=set(openfile(summary_omit).read().splitlines())
     else: omit=[]
     count = 1 ; t = time.time()
-    # If incremental or manualrules, some rules might now have been overridden by newer ones.  Rules listed later take priority in byteSeq_to_action_dict.  This should remove earlier duplicate (markedDown,conds) combinations from the summary:
-    d = {}
-    for r,c in rulesAndConds:
-      d[(markDown(r),repr(c))] = (r,c)
-    # Now sort so diff is possible between 2 summaries
+    # Sort so diff is possible between 2 summaries
     # (case-insensitive because capitalisation may change)
-    d = sorted(((annotationOnly(r),markDown(r),r,c) for r,c in d.values()),key=lambda x:(x[0].lower(),)+x[1:])
+    d = sorted(((annotationOnly(r),markDown(r),r,c) for r,c in rulesAndConds),key=lambda x:(x[0].lower(),)+x[1:])
     # Can now do the summary:
     for annot,orig,rule,conditions in d:
         if time.time() >= t + 2:
@@ -5533,7 +5462,7 @@ if isatty(sys.stdout):
     if summary_only:
         warn("Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'")
         c_filename = None
-    elif not java and main and not priority_list and not normalise_only and not browser_extension and not rulesFile_only: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
+    elif not java and main and not priority_list and not browser_extension and not write_rules: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
 def openfile(fname,mode='r'):
     lzma = bz2 = None
@@ -5592,9 +5521,12 @@ if main and not compile_only:
  if checkpoint:
   try: os.mkdir(checkpoint)
   except: pass
- if no_input:
-   rulesAndConds = RulesAccumulator().rulesAndConds() # should load rulesFile
- if read_input:
+ if read_rules:
+   ra = RulesAccumulator()
+   ra.load()
+   rulesAndConds = sorted(ra.rules.items())
+   del ra
+ else:
   read_and_normalise()
   if priority_list:
     if os.path.exists(priority_list):
@@ -5618,10 +5550,9 @@ if main and not compile_only:
     sys.stderr.write(" done\n")
     sys.exit()
   generate_map() ; setup_other_globals()
-  if not no_input:
-    setup_parallelism() # re-copy globals to cores
-    try: rulesAndConds = analyse()
-    finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
+  setup_parallelism() # re-copy globals to cores
+  try: rulesAndConds = analyse()
+  finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
   del _gp_cache
 
 def cmd_or_exit(cmd):

@@ -611,7 +611,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.341
+Options for Annotator Generator v3.342
 ===========================
 
 Usage: annogen.py [options]
@@ -676,12 +676,6 @@ Options:
 `--normalised-file=`
  : Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to write a copy of the normalised input for diagnostic purposes.  If this is set to the same as `--infile` then it will be assumed the input file has already been normalised (use with care).
 
-`--normalise-only`
- : Exit after normalising the input
-
-`--no-normalise-only`
- : Cancels any earlier `--normalise-only` option in Makefile variables etc
-
 `--post-normalise=`
  : Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.
 
@@ -694,15 +688,6 @@ Options:
 `--no-gloss-closure`
  : Cancels any earlier `--gloss-closure` option in Makefile variables etc
 
-`--glossmiss=`
- : Name of an optional file to which to write information about words recognised by the annotator that are missing in glossfile (along with frequency counts and references, if available)
-
-`--glossmiss-hide=`
- : Comma-separated list of references to hide from the glossmiss file (does not affect the glossmiss-omit option)
-
-`--glossmiss-match=`
- : If supplied, any references not matching this regular expression will be hidden from the glossmiss file (does not affect the glossmiss-omit option)
-
 `-M`, `--glossmiss-omit`
  : Omit rules containing any word not mentioned in glossfile.  Might be useful if you want to train on a text that uses proprietary terms and don't want to accidentally 'leak' those terms (assuming they're not accidentally included in glossfile also).  Words may also be listed in glossfile with an empty gloss field to indicate that no gloss is available but rules using this word needn't be omitted.
 
@@ -714,15 +699,6 @@ Options:
 
 `--manualrules=`
  : Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from `--diagnose-manual`.
-
-`--rulesFile=`
- : Filename of an optional auxiliary binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then the rules will be written to it (in binary format) as well as to the output. Additionally, if the file already exists then rules will be read from it and incrementally updated. This might be useful if you have made some small additions to the examples and would like these to be incorporated without a complete re-run. It might not work as well as a re-run but it should be faster. If using a rulesFile then you must keep the same input (you may make small additions etc, but it won't work properly if you delete many examples or change the format between runs) and you must keep the same ybytes-related options if any.
-
-`-n`, `--no-input`
- : Don't process new input, just use the rules that were previously stored in rulesFile. This can be used to increase speed if the only changes made are to the output options. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change). For the glossmiss and summary options to work correctly, unchanged input should be provided.
-
-`--no-no-input`
- : Cancels any earlier `--no-input` option in Makefile variables etc
 
 `--c-filename=`
  : Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota).
@@ -752,16 +728,25 @@ Options:
  : The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is 3.
 
 `-R`, `--norefs`
- : Don't write references in the rules summary (or the glossmiss file).  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if `--no-input` is specified.
+ : Don't write references in the rules summary.  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if `--no-input` is specified.
 
 `--no-norefs`
  : Cancels any earlier `--norefs` option in Makefile variables etc
 
-`--rulesFile-only`
- : Don't generate a parser or a rules summary, just update rulesFile
+`--rulesFile=`
+ : Filename of a binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then either `--write-rules` or `--read-rules` must be specified.
 
-`--no-rulesFile-only`
- : Cancels any earlier `--rulesFile-only` option in Makefile variables etc
+`--write-rules`
+ : Write rulesFile instead of generating a parser or a rules summary.  You will then need to rerun with `--read-rules` later.
+
+`--no-write-rules`
+ : Cancels any earlier `--write-rules` option in Makefile variables etc
+
+`--read-rules`
+ : Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required.
+
+`--no-read-rules`
+ : Cancels any earlier `--read-rules` option in Makefile variables etc
 
 `-E`, `--newlines-reset`
  : Have the annotator reset its state on every newline byte. By default newlines do not affect state such as whether a space is required before the next word, so that if the annotator is used with Web Adjuster's htmlText option (which defaults to using newline separators) the spacing should be handled sensibly when there is HTML markup in mid-sentence.
@@ -1022,7 +1007,7 @@ Options:
  : Output some diagnostics for the specified word. Use this option to help answer "why doesn't it have a rule for...?" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).
 
 `--diagnose-limit=`
- : Maximum number of phrases to print diagnostics for (0 means unlimited); can be useful when trying to diagnose a common word in rulesFile without re-evaluating all phrases that contain it. Default: 10
+ : Maximum number of phrases to print diagnostics for (0 means unlimited). Default: 10
 
 `-m`, `--diagnose-manual`
  : Check and diagnose potential failures of `--manualrules`
@@ -1031,7 +1016,7 @@ Options:
  : Cancels any earlier `--diagnose-manual` option in Makefile variables etc
 
 `-q`, `--diagnose-quick`
- : Ignore all phrases that do not contain the word specified by the `--diagnose` option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.  You may get quick diagnostics **without** these disadvantages by loading a `--rulesFile` instead.
+ : Ignore all phrases that do not contain the word specified by the `--diagnose` option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.
 
 `--no-diagnose-quick`
  : Cancels any earlier `--diagnose-quick` option in Makefile variables etc
