@@ -5663,8 +5663,8 @@ before the Annogen run (change the examples obviously) :
 You may also wish to create some icons in res/drawable*
    (using Android Studio or the earlier ADT tools).
 
-On Google Play you may wish to set Release management
-   - Pre-launch report - Settings - Enable pre-launch
+On Google Play you may wish to set Release management -
+   Pre-launch report - Settings - Enable pre-launch
    reports to OFF, or it'll report issues on the websites
    you link to (and maybe crashes due to Firebase issues),
    which (if you don't want them) is wasting resources.
