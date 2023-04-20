@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.342 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.343 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -4706,7 +4706,7 @@ def cc_testR(ybr,before,after):
 if removeSpace: wspJoin = lambda l: "".join(l)
 else: wspJoin = lambda l: " ".join(l)
 
-def potentially_bad_overlap(rulesAsWordlists,newRuleAsWords):
+def potentially_bad_overlap(rulesAsWordlists_By1stWord,newRuleAsWords):
     # Allow overlaps only if rule(s) being overlapped are
     # entirely included within newRule.  Otherwise could
     # get problems generating closures of overlaps.
@@ -4714,7 +4714,8 @@ def potentially_bad_overlap(rulesAsWordlists,newRuleAsWords):
     # Additionally, if allow_overlaps, allow ANY overlap as
     # long as it's not found in the marked-down text.
     if len(newRuleAsWords)==1 or primitive or ybytes: return False
-    for ruleAsWordlist in rulesAsWordlists:
+    for v in rulesAsWordlists_By1stWord.values():
+      for ruleAsWordlist in v:
         if len(ruleAsWordlist)==1: continue
         if not len(ruleAsWordlist)==len(newRuleAsWords) and longerStartsOrEndsWithTheShorter(ruleAsWordlist,newRuleAsWords): continue
         for overlapSize in range(1,min(len(x) for x in [newRuleAsWords,ruleAsWordlist])):
@@ -4730,22 +4731,21 @@ def longerStartsOrEndsWithTheShorter(l1,l2):
 
 class RulesAccumulator:
   def __init__(self):
-    self.rules = {}
-    self.rulesAsWordlists_By1stWord = {} # starting word -> list of possible rules (as wordlists) that might apply
-    self.rulesAsWordlists = list() # all rules as words (list of lists) (used if not ybytes, TODO: integrate with rulesAsWordlists_By1stWord?)
+    self.rules = {} # wspJoin(ruleAsWordlist) -> (negate, indicator-list, nbytes) or just indicator-list (if empty or negate,nbytes is default), TODO: may have to change this if using json instead of cPickle for readable rulesFile, since json does not distinguish between tuple and list
+    self.rulesAsWordlists_By1stWord = {} # starting word -> list (order unimportant) of possible rules (as wordlists) that might apply, used internally for faster checks
     self.rejectedRules = set()
     self.seenPhrases = set() # de-duplicate, might speed up
   def save(self):
     sys.stderr.write("\nPickling rules to %s... " % rulesFile) ; sys.stderr.flush()
     f = openfile(rulesFile,'w')
-    pickle.Pickler(f,-1).dump((self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists))
+    pickle.Pickler(f,-1).dump((self.rules,self.rulesAsWordlists_By1stWord))
     # (don't save self.rejectedRules, there might be better clues next time)
     f.close() ; sys.stderr.write("done")
     sys.stderr.flush()
   def load(self):
     sys.stderr.write("Unpickling rules from %s... " % rulesFile) ; sys.stderr.flush()
     f = openfile(rulesFile)
-    self.rules,self.rulesAsWordlists_By1stWord,self.rulesAsWordlists = pickle.Unpickler(f).load()
+    self.rules,self.rulesAsWordlists_By1stWord = pickle.Unpickler(f).load()
     sys.stderr.write("done\n")
   def addRulesForPhrase(self,phrase,canBackground=False):
     if phrase in self.seenPhrases or (diagnose_quick and diagnose):
@@ -4789,7 +4789,7 @@ class RulesAccumulator:
           yield r ; yield getNext(rGen)
           r = getNext(rGen)
         del rGen
-        if not r or potentially_bad_overlap(self.rulesAsWordlists,ruleAsWordlist):
+        if not r or potentially_bad_overlap(self.rulesAsWordlists_By1stWord,ruleAsWordlist):
             self.rejectedRules.add(rule) # so we don't waste time evaluating it again (TODO: make sure rejectedRules doesn't get too big?)
             continue
         if len(yBytesRet): self.rules[rule] = yBytesRet[0]
@@ -4797,7 +4797,6 @@ class RulesAccumulator:
         if yarowsky_half_thorough: k = []
         else: k = self.rules[rule]
         checkCoverage(ruleAsWordlist,words,covered,k) # changes 'covered'
-        if not ybytes: self.rulesAsWordlists.append(ruleAsWordlist)
         if not ruleAsWordlist[0] in self.rulesAsWordlists_By1stWord: self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]] = []
         self.rulesAsWordlists_By1stWord[ruleAsWordlist[0]].append(ruleAsWordlist)
         handle_diagnose_limit(rule)
