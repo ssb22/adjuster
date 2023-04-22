@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.343 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.344 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -164,7 +164,7 @@ parser.add_option("--maxrefs",default=3,
 
 parser.add_option("-R","--norefs",
                   action="store_true",default=False,
-                  help="Don't write references in the rules summary.  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if --no-input is specified.") # the speed difference is not so great as of v0.593, but needed anyway if --no-input is set
+                  help="Don't write references in the rules summary.  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).") # the speed difference is not so great as of v0.593
 cancelOpt("norefs")
 
 parser.add_option("--rulesFile",help="Filename of a binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then either --write-rules or --read-rules must be specified.")

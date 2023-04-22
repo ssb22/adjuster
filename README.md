@@ -611,7 +611,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.342
+Options for Annotator Generator v3.344
 ===========================
 
 Usage: annogen.py [options]
@@ -728,7 +728,7 @@ Options:
  : The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is 3.
 
 `-R`, `--norefs`
- : Don't write references in the rules summary.  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).  This option is automatically turned on if `--no-input` is specified.
+ : Don't write references in the rules summary.  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).
 
 `--no-norefs`
  : Cancels any earlier `--norefs` option in Makefile variables etc
