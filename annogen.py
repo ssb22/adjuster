@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.344 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.345 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -178,6 +178,11 @@ parser.add_option("--read-rules",
                   action="store_true",default=False,
                   help="Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required.")
 cancelOpt("read-rules")
+
+parser.add_option("-J","--rules-json",
+                  action="store_true",default=False,
+                  help="Use JSON instead of a binary format for rulesFile")
+cancelOpt("json-rules")
 
 parser.add_option("-E","--newlines-reset",
                   action="store_false",
@@ -3996,6 +4001,7 @@ def checkpoint_exit(doIt=1):
     sys.stderr.write("\nExitASAP found: exit\n")
     raise SystemExit
   else: return True
+if rules_json: import json,codecs # but still pickle for checkpoints
 try: import cPickle as pickle
 except:
   try: import pickle
@@ -4731,22 +4737,10 @@ def longerStartsOrEndsWithTheShorter(l1,l2):
 
 class RulesAccumulator:
   def __init__(self):
-    self.rules = {} # wspJoin(ruleAsWordlist) -> (negate, indicator-list, nbytes) or just indicator-list (if empty or negate,nbytes is default), TODO: may have to change this if using json instead of cPickle for readable rulesFile, since json does not distinguish between tuple and list
-    self.rulesAsWordlists_By1stWord = {} # starting word -> list (order unimportant) of possible rules (as wordlists) that might apply, used internally for faster checks
+    self.rules = {} # wspJoin(ruleAsWordlist) -> (negate-type, indicator-list, nbytes) or just indicator-list (if empty or negate,nbytes is default)
+    self.rulesAsWordlists_By1stWord = {} # starting word -> list (order unimportant) of possible rules (as wordlists) that might apply, used internally by addRulesForPhrase for faster checks
     self.rejectedRules = set()
     self.seenPhrases = set() # de-duplicate, might speed up
-  def save(self):
-    sys.stderr.write("\nPickling rules to %s... " % rulesFile) ; sys.stderr.flush()
-    f = openfile(rulesFile,'w')
-    pickle.Pickler(f,-1).dump((self.rules,self.rulesAsWordlists_By1stWord))
-    # (don't save self.rejectedRules, there might be better clues next time)
-    f.close() ; sys.stderr.write("done")
-    sys.stderr.flush()
-  def load(self):
-    sys.stderr.write("Unpickling rules from %s... " % rulesFile) ; sys.stderr.flush()
-    f = openfile(rulesFile)
-    self.rules,self.rulesAsWordlists_By1stWord = pickle.Unpickler(f).load()
-    sys.stderr.write("done\n")
   def addRulesForPhrase(self,phrase,canBackground=False):
     if phrase in self.seenPhrases or (diagnose_quick and diagnose):
       # if diagnose and diagnose_quick and mdStart+diagnose+mdEnd in phrase: pass # look at it again for diagnostics.  But do we accept a diagnose that spans multiple words?  should be pointed out by --diagnose-quick below if uncommented
@@ -4805,6 +4799,31 @@ class RulesAccumulator:
     # If get here, failed to completely cover the phrase.
     # ruleAsWordlist should be set to the whole-phrase rule.
     yield sum(1 for x in covered if x),len(covered)
+
+def saveRules(rulesAndConds):
+  sys.stderr.write("\nSaving rules to %s... " % rulesFile) ; sys.stderr.flush()
+  f = openfile(rulesFile,'w')
+  if rules_json:
+    d = [] # rulesAndConds is already sorted list
+    for k,v in rulesAndConds:
+      if type(v)==tuple: d.append((k,(True,(v[0],sorted(v[1]),v[2]))))
+      else: d.append((k,(False,sorted(v))))
+    json.dump(d,codecs.getwriter("utf-8")(f),indent=4,ensure_ascii=False)
+  else: pickle.Pickler(f,-1).dump(rulesAndConds)
+  f.close() ; sys.stderr.write("done")
+  sys.stderr.flush()
+def loadRules():
+  sys.stderr.write("Loading rules from %s... " % rulesFile) ; sys.stderr.flush()
+  f = openfile(rulesFile)
+  if rules_json:
+    rulesAndConds = []
+    for k,v in json.load(codecs.getreader("utf-8")(f)):
+      isTuple,v = v
+      if isTuple: v=tuple(v)
+      rulesAndConds.append((k,v))
+  else: rulesAndConds = pickle.Unpickler(f).load()
+  sys.stderr.write("done\n")
+  return rulesAndConds
 
 def handle_diagnose_limit(rule):
   global diagnose,diagnose_limit
@@ -4956,8 +4975,9 @@ def analyse():
     try: executor.shutdown(False) # if wordLen never exceeded 1 so it didn't get shut down above, might as well free up other processes now
     except: pass
     if diagnose_manual: test_manual_rules()
-    if write_rules: accum.save(),sys.exit(0)
-    return sorted(accum.rules.items()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
+    rules = sorted(accum.rules.items()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
+    if write_rules: saveRules(rules), sys.exit(0)
+    else: return rules
 try: import Queue as queue # Python 2
 except: import queue # Python 3
 def flush_background(backgrounded,why="",covered=0,toCover=0):
@@ -5520,11 +5540,7 @@ if main and not compile_only:
  if checkpoint:
   try: os.mkdir(checkpoint)
   except: pass
- if read_rules:
-   ra = RulesAccumulator()
-   ra.load()
-   rulesAndConds = sorted(ra.rules.items())
-   del ra
+ if read_rules: rulesAndConds = loadRules()
  else:
   read_and_normalise()
   if priority_list:
