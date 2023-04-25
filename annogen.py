@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.345 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.346 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -4806,8 +4806,9 @@ def saveRules(rulesAndConds):
   if rules_json:
     d = [] # rulesAndConds is already sorted list
     for k,v in rulesAndConds:
-      if type(v)==tuple: d.append((k,(True,(v[0],sorted(v[1]),v[2]))))
-      else: d.append((k,(False,sorted(v))))
+      if not v: d.append(k)
+      elif type(v)==tuple: d.append((k,(v[0],sorted(v[1]),v[2])))
+      else: d.append((k,sorted(v)))
     json.dump(d,codecs.getwriter("utf-8")(f),indent=4,ensure_ascii=False)
   else: pickle.Pickler(f,-1).dump(rulesAndConds)
   f.close() ; sys.stderr.write("done")
@@ -4817,10 +4818,12 @@ def loadRules():
   f = openfile(rulesFile)
   if rules_json:
     rulesAndConds = []
-    for k,v in json.load(codecs.getreader("utf-8")(f)):
-      isTuple,v = v
-      if isTuple: v=tuple(v)
-      rulesAndConds.append((k,v))
+    for item in json.load(codecs.getreader("utf-8")(f)):
+      if type(item)==list:
+        k,v = item
+        if len(v)==3 and type(v[1])==list: v=tuple(v)
+        rulesAndConds.append((k,v))
+      else: rulesAndConds.append((item,[]))
   else: rulesAndConds = pickle.Unpickler(f).load()
   sys.stderr.write("done\n")
   return rulesAndConds
