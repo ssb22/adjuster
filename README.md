@@ -611,7 +611,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.346
+Options for Annotator Generator v3.347
 ===========================
 
 Usage: annogen.py [options]
@@ -707,22 +707,16 @@ Options:
  : The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the "cc" command which usually redirects to your "normal" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a **long** time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: cc -o annotator
 
 `--outcode=`
- : Character encoding to use in the generated parser and rules summary (default utf-8, must be ASCII-compatible i.e. not utf-16)
+ : Character encoding to use in the generated parser or rules summary (default utf-8, must be ASCII-compatible i.e. not utf-16)
 
-`-S`, `--summary-only`
- : Don't generate a parser, just write the rules summary to standard output
+`-S`, `--summary`
+ : Write a rules summary to standard output instead of generating a parser
 
-`--no-summary-only`
- : Cancels any earlier `--summary-only` option in Makefile variables etc
-
-`-N`, `--no-summary`
- : Don't add a large rules-summary comment at the end of the parser code
-
-`--no-no-summary`
- : Cancels any earlier `--no-summary` option in Makefile variables etc
+`--no-summary`
+ : Cancels any earlier `--summary` option in Makefile variables etc
 
 `-O`, `--summary-omit=`
- : Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary (but still included in the parser).  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.
+ : Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary.  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.
 
 `--maxrefs=`
  : The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is 3.
@@ -743,7 +737,7 @@ Options:
  : Cancels any earlier `--write-rules` option in Makefile variables etc
 
 `--read-rules`
- : Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required.
+ : Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required (unless you're using `--summary` without `--norefs`).
 
 `--no-read-rules`
  : Cancels any earlier `--read-rules` option in Makefile variables etc
@@ -851,7 +845,7 @@ Options:
  : Cancels any earlier `--compile-only` option in Makefile variables etc
 
 `-j`, `--javascript`
- : Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run your own binaries.  The JS will be table-driven to make it load faster (and `--no-summary` will also be set).  See comments at the start for usage.
+ : Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run your own binaries.  The JS will be table-driven to make it load faster.  See comments at the start for usage.
 
 `--no-javascript`
  : Cancels any earlier `--javascript` option in Makefile variables etc

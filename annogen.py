@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.346 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.347 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -144,20 +144,15 @@ parser.add_option("--c-filename",default="",help="Where to write the C, C#, Pyth
 parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
 
 parser.add_option("--outcode",default="utf-8",
-                  help="Character encoding to use in the generated parser and rules summary (default %default, must be ASCII-compatible i.e. not utf-16)")
+                  help="Character encoding to use in the generated parser or rules summary (default %default, must be ASCII-compatible i.e. not utf-16)")
 
-parser.add_option("-S", "--summary-only",
+parser.add_option("-S", "--summary",
                   action="store_true",default=False,
-                  help="Don't generate a parser, just write the rules summary to standard output")
-cancelOpt("summary-only")
-
-parser.add_option("-N","--no-summary",
-                  action="store_true",default=False,
-                  help="Don't add a large rules-summary comment at the end of the parser code")
-cancelOpt("no-summary")
+                  help="Write a rules summary to standard output instead of generating a parser")
+cancelOpt("summary")
 
 parser.add_option("-O", "--summary-omit",
-                  help="Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary (but still included in the parser).  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.")
+                  help="Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary.  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.")
 
 parser.add_option("--maxrefs",default=3,
                   help="The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is %default.")
@@ -176,7 +171,7 @@ cancelOpt("write-rules")
 
 parser.add_option("--read-rules",
                   action="store_true",default=False,
-                  help="Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required.")
+                  help="Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required (unless you're using --summary without --norefs).")
 cancelOpt("read-rules")
 
 parser.add_option("-J","--rules-json",
@@ -251,7 +246,7 @@ cancelOpt("compile-only")
 
 parser.add_option("-j","--javascript",
                   action="store_true",default=False,
-                  help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run your own binaries.  The JS will be table-driven to make it load faster (and --no-summary will also be set).  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
+                  help="Instead of generating C code, generate JavaScript.  This might be useful if you want to run an annotator on a device that has a JS interpreter but doesn't let you run your own binaries.  The JS will be table-driven to make it load faster.  See comments at the start for usage.") # but it's better to use the C version if you're in an environment where 'standard input' makes sense
 cancelOpt("javascript")
 
 parser.add_option("-6","--js-6bit",
@@ -628,9 +623,7 @@ diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
 if not reference_sep: norefs=True
-if read_rules:
-  if diagnose_manual: errExit("--diagnose-manual is not compatible with --read-rules")
-  if not norefs and not no_summary: errExit("--read-rules requires either --no-summary or --norefs") # otherwise input will need to be read to find the references in the summary
+if read_rules and diagnose_manual: errExit("--diagnose-manual is not compatible with --read-rules")
 
 if compress:
   squashStrings = set() ; squashReplacements = []
@@ -5337,13 +5330,6 @@ def outputParser(rulesAndConds):
     elif not java: outfile.write(c_end)
     outfile.write(b"\n")
     del byteSeq_to_action_dict
-    if no_summary or not rulesAndConds: return
-    if reannotator:
-        outfile.write(b"\n/* Tab-delimited rules summary not yet implemented with reannotator option */\n")
-        return
-    outfile.write(b"\n/* Tab-delimited summary of the rules: (total %d)\n" % len(rulesAndConds))
-    outputRulesSummary(rulesAndConds)
-    outfile.write(b"*/\n")
 
 def update_android_manifest():
   try: manifest = old_manifest = open(jSrc+"/../AndroidManifest.xml",'rb').read()
@@ -5446,8 +5432,7 @@ else:
 
 def outputRulesSummary(rulesAndConds):
     # (called "summary" because we don't here specify which part
-    # of the annotation goes with which part of the text, plus
-    # we remove /* and */ so it can be placed into a C comment)
+    # of the annotation goes with which part of the text)
     sys.stderr.write("Writing rules summary...\n")
     if summary_omit: omit=set(openfile(summary_omit).read().splitlines())
     else: omit=[]
@@ -5474,14 +5459,14 @@ def outputRulesSummary(rulesAndConds):
                   else: negate=b""
                   toPrn += b"if"+negate+b" within "+B(str(nbytes))+b" bytes of "+b" or ".join(code(c) for c in conds)
                 else: toPrn += b"if near "+b" or ".join(code(c) for c in conditions)
-        if not toPrn in omit: outfile.write((toPrn+refs(rule).encode(outcode)).replace(b'/*',b'').replace(b'*/',b'')+b"\n")
+        if not toPrn in omit: outfile.write((toPrn+refs(rule).encode(outcode))+b"\n")
     if ybytes: extraTab='\t'
     else: extraTab = ''
     for l in read_manual_rules(): outfile.write((markDown(l)+'\t'+annotationOnly(l)+extraTab+'\t--manualrules '+manualrules).encode(outcode)+b"\n")
     sys.stderr.write("done"+clear_eol+"\n")
 
 if isatty(sys.stdout):
-    if summary_only:
+    if summary:
         warn("Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'")
         c_filename = None
     elif not java and main and not priority_list and not browser_extension and not write_rules: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
@@ -5543,7 +5528,9 @@ if main and not compile_only:
  if checkpoint:
   try: os.mkdir(checkpoint)
   except: pass
- if read_rules: rulesAndConds = loadRules()
+ if read_rules:
+   rulesAndConds = loadRules()
+   if summary and not norefs: read_and_normalise(),generate_map() # refs() needs precalc_sets, m2c_map and corpus_unistr
  else:
   read_and_normalise()
   if priority_list:
@@ -5584,7 +5571,7 @@ if main and not compile_only:
  if browser_extension: setup_browser_extension()
  if c_filename: outfile = openfile(c_filename,'w')
  else: outfile = getBuf(sys.stdout)
- if summary_only: outputRulesSummary(rulesAndConds)
+ if summary: outputRulesSummary(rulesAndConds)
  else: outputParser(rulesAndConds)
  del rulesAndConds
  outfile.close() ; sys.stderr.write("Output complete\n")
