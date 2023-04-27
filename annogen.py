@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.347 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.348 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -144,34 +144,18 @@ parser.add_option("--c-filename",default="",help="Where to write the C, C#, Pyth
 parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
 
 parser.add_option("--outcode",default="utf-8",
-                  help="Character encoding to use in the generated parser or rules summary (default %default, must be ASCII-compatible i.e. not utf-16)")
-
-parser.add_option("-S", "--summary",
-                  action="store_true",default=False,
-                  help="Write a rules summary to standard output instead of generating a parser")
-cancelOpt("summary")
-
-parser.add_option("-O", "--summary-omit",
-                  help="Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary.  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.")
-
-parser.add_option("--maxrefs",default=3,
-                  help="The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is %default.")
-
-parser.add_option("-R","--norefs",
-                  action="store_true",default=False,
-                  help="Don't write references in the rules summary.  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).") # the speed difference is not so great as of v0.593
-cancelOpt("norefs")
+                  help="Character encoding to use in the generated parser (default %default, must be ASCII-compatible i.e. not utf-16)")
 
 parser.add_option("--rulesFile",help="Filename of a binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then either --write-rules or --read-rules must be specified.")
 
 parser.add_option("--write-rules",
                   action="store_true",default=False,
-                  help="Write rulesFile instead of generating a parser or a rules summary.  You will then need to rerun with --read-rules later.")
+                  help="Write rulesFile instead of generating a parser.  You will then need to rerun with --read-rules later.")
 cancelOpt("write-rules")
 
 parser.add_option("--read-rules",
                   action="store_true",default=False,
-                  help="Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required (unless you're using --summary without --norefs).")
+                  help="Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required.")
 cancelOpt("read-rules")
 
 parser.add_option("-J","--rules-json",
@@ -318,11 +302,6 @@ parser.add_option("-o", "--allow-overlaps",
                   help="Normally, the analyser avoids generating rules that could overlap with each other in a way that would leave the program not knowing which one to apply.  If a short rule would cause overlaps, the analyser will prefer to generate a longer rule that uses more context, and if even the entire phrase cannot be made into a rule without causing overlaps then the analyser will give up on trying to cover that phrase.  This option allows the analyser to generate rules that could overlap, as long as none of the overlaps would cause actual problems in the example phrases. Thus more of the examples can be covered, at the expense of a higher risk of ambiguity problems when applying the rules to other texts.  See also the -y option.")
 cancelOpt("allow-overlaps")
 
-parser.add_option("-P", "--primitive",
-                  action="store_true",default=False,
-                  help="Don't bother with any overlap or conflict checks at all, just make a rule for each word. The resulting parser is not likely to be useful, but the summary might be.")
-cancelOpt("primitive")
-
 parser.add_option("-y","--ybytes",default=0,
                   help="Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed when seed collocations can be used to distinguish between them, and the analysis is likely to be faster.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of (non-whitespace) bytes between them.")
 parser.add_option("--ybytes-max",default=0,
@@ -360,7 +339,7 @@ parser.add_option("--normalise-debug",default=1,
 
 parser.add_option("-1","--single-words",
                   action="store_true",default=False,
-                  help="Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.")
+                  help="Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly.")
 cancelOpt("single-words")
 parser.add_option("--max-words",default=0,
                   help="Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one (or try 3 if --yarowsky-half-thorough is in use).")  # (There was a bug in annogen versions before 0.58 that caused --max-words to additionally limit how far away from the start of its phrase a rule-example must be placed; this has now been fixed.  There was also a bug that resulted in too many extra rules being tested over already-catered-for phrases; as this has now been fixed, the additional benefit of a --max-words limit is now reduced, but you might want to put one in anyway.  That second bug also had the effect of the coverage % being far too low in the progress stats.)
@@ -422,7 +401,6 @@ def warn(msg):
 if "PyPy" in sys.version: warn("with annogen, PyPy is likely to run 60% slower than python") # (not to mention concurrent.futures being less likely to be available)
 
 if checkpoint_period: checkpoint_period=int(checkpoint_period)
-if primitive and ybytes: warn("primitive will override ybytes")
 if ybytes: ybytes=int(ybytes)
 if ybytes_max: ybytes_max=int(ybytes_max)
 else: ybytes_max = ybytes
@@ -431,7 +409,6 @@ else: yarowsky_debug = 0
 if normalise_debug: normalise_debug=int(normalise_debug)
 else: normalise_debug = 0
 ybytes_step = int(ybytes_step)
-maxrefs = int(maxrefs)
 ymax_threshold = int(ymax_threshold)
 def errExit(msg):
   assert main # bad news if this happens in non-main module
@@ -622,7 +599,6 @@ if diagnose: diagnose=T(diagnose)
 diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
-if not reference_sep: norefs=True
 if read_rules and diagnose_manual: errExit("--diagnose-manual is not compatible with --read-rules")
 
 if compress:
@@ -4636,8 +4612,7 @@ def test_rule(withAnnot_unistr,yBytesRet,canBackground=None):
     # (If we deal only in rules that ALWAYS work, we can
     # build them up incrementally without "cross-talk")
     # yield "backgrounded" = task has been backgrounded; getNext collects job handle, then getNext collects result (nb we default to NOT canBackground, as test_rule is called from several places of which ONE can handle backgrounding)
-    if primitive: yield True
-    elif ybytes and (yarowsky_multiword or not re.search(multiWordPattern,withAnnot_unistr)):
+    if ybytes and (yarowsky_multiword or not re.search(multiWordPattern,withAnnot_unistr)):
         # Doesn't have to be always right, but put the indicators in yBytesRet
         ybrG = yarowsky_indicators(withAnnot_unistr,canBackground)
         ybr = getNext(ybrG)
@@ -4712,7 +4687,7 @@ def potentially_bad_overlap(rulesAsWordlists_By1stWord,newRuleAsWords):
     # (If newRule not allowed, caller to try a longer one)
     # Additionally, if allow_overlaps, allow ANY overlap as
     # long as it's not found in the marked-down text.
-    if len(newRuleAsWords)==1 or primitive or ybytes: return False
+    if len(newRuleAsWords)==1 or ybytes: return False
     for v in rulesAsWordlists_By1stWord.values():
       for ruleAsWordlist in v:
         if len(ruleAsWordlist)==1: continue
@@ -5386,90 +5361,7 @@ def setup_browser_extension():
   global c_filename
   c_filename = dirToUse+"/annotate-dat.txt"
 
-if norefs:
-  def refs(rule): return ""
-else:
-  def refs(rule):
-    if rule in precalc_sets:
-      def findStarts():
-        for x in sorted(precalc_sets[rule]): yield x
-    else:
-      k = getNext(splitWords(rule))
-      if not k in precalc_sets: return "" # TODO: this should no longer happen now we've removed incremental-run functionality
-      walen = len(rule)
-      def findStarts():
-        for x in sorted(precalc_sets[k]):
-          if corpus_unistr[m2c_map[x]:m2c_map[x]+walen]==rule: yield x
-    starts = findStarts()
-    global refMap
-    try: refMap
-    except:
-      refMap = [(m.end(),m.group(1)) for m in re.finditer(re.escape(reference_sep)+"(.*?)"+re.escape(ref_name_end), corpus_unistr, flags=re.DOTALL)]
-      i = 0
-      while True:
-        if i+1 >= len(refMap): break
-        if refMap[i][1] == refMap[i+1][1]: del refMap[i+1]
-        else: i += 1
-    rmPos = 0 ; ret = []
-    while len(ret) < maxrefs and rmPos < len(refMap):
-      s = refMap[rmPos][0] ; i = -1
-      while i < s:
-        try: i = getNext(starts)
-        except StopIteration: break
-        i = m2c_map[i]
-      if i < s: break
-      rmE = len(refMap)-1
-      while refMap[rmE][0] > i:
-        mid = int((rmPos+rmE)/2)
-        if mid==rmPos or refMap[mid][0] > i: rmE = mid
-        else: rmPos = mid
-      rmPos = rmE
-      app=refMap[rmPos][1]
-      if not app in ret: ret.append(app)
-      rmPos += 1
-    if not ret: return ""
-    else: return "\t"+"; ".join(ret)
-
-def outputRulesSummary(rulesAndConds):
-    # (called "summary" because we don't here specify which part
-    # of the annotation goes with which part of the text)
-    sys.stderr.write("Writing rules summary...\n")
-    if summary_omit: omit=set(openfile(summary_omit).read().splitlines())
-    else: omit=[]
-    count = 1 ; t = time.time()
-    # Sort so diff is possible between 2 summaries
-    # (case-insensitive because capitalisation may change)
-    d = sorted(((annotationOnly(r),markDown(r),r,c) for r,c in rulesAndConds),key=lambda x:(x[0].lower(),)+x[1:])
-    # Can now do the summary:
-    for annot,orig,rule,conditions in d:
-        if time.time() >= t + 2:
-          sys.stderr.write(("(%d of %d)%s\r" % (count,len(rulesAndConds),clear_eol))) ; sys.stderr.flush()
-          t = time.time()
-        count += 1
-        def code(x):
-          if not x.strip(): return repr(x)
-          else: return x.encode(outcode).replace(b'\n',br'\n').replace(b'\t',br'\t')
-        toPrn = code(orig)+b"\t"+code(annot)
-        if ybytes:
-            toPrn += b"\t"
-            if conditions:
-                if type(conditions)==tuple:
-                  negate,conds,nbytes = conditions[:3]
-                  if negate: negate=b" not"
-                  else: negate=b""
-                  toPrn += b"if"+negate+b" within "+B(str(nbytes))+b" bytes of "+b" or ".join(code(c) for c in conds)
-                else: toPrn += b"if near "+b" or ".join(code(c) for c in conditions)
-        if not toPrn in omit: outfile.write((toPrn+refs(rule).encode(outcode))+b"\n")
-    if ybytes: extraTab='\t'
-    else: extraTab = ''
-    for l in read_manual_rules(): outfile.write((markDown(l)+'\t'+annotationOnly(l)+extraTab+'\t--manualrules '+manualrules).encode(outcode)+b"\n")
-    sys.stderr.write("done"+clear_eol+"\n")
-
-if isatty(sys.stdout):
-    if summary:
-        warn("Rules summary will be written to STANDARD OUTPUT\nYou might want to redirect it to a file or a pager such as 'less'")
-        c_filename = None
-    elif not java and main and not priority_list and not browser_extension and not write_rules: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
+if isatty(sys.stdout) and not java and main and not priority_list and not browser_extension and not write_rules: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
 def openfile(fname,mode='r'):
     lzma = bz2 = None
@@ -5528,9 +5420,7 @@ if main and not compile_only:
  if checkpoint:
   try: os.mkdir(checkpoint)
   except: pass
- if read_rules:
-   rulesAndConds = loadRules()
-   if summary and not norefs: read_and_normalise(),generate_map() # refs() needs precalc_sets, m2c_map and corpus_unistr
+ if read_rules: rulesAndConds = loadRules()
  else:
   read_and_normalise()
   if priority_list:
@@ -5571,9 +5461,7 @@ if main and not compile_only:
  if browser_extension: setup_browser_extension()
  if c_filename: outfile = openfile(c_filename,'w')
  else: outfile = getBuf(sys.stdout)
- if summary: outputRulesSummary(rulesAndConds)
- else: outputParser(rulesAndConds)
- del rulesAndConds
+ outputParser(rulesAndConds) ; del rulesAndConds
  outfile.close() ; sys.stderr.write("Output complete\n")
 if main:
  if android:

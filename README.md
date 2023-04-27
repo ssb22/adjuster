@@ -611,7 +611,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.347
+Options for Annotator Generator v3.348
 ===========================
 
 Usage: annogen.py [options]
@@ -707,37 +707,19 @@ Options:
  : The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the "cc" command which usually redirects to your "normal" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a **long** time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: cc -o annotator
 
 `--outcode=`
- : Character encoding to use in the generated parser or rules summary (default utf-8, must be ASCII-compatible i.e. not utf-16)
-
-`-S`, `--summary`
- : Write a rules summary to standard output instead of generating a parser
-
-`--no-summary`
- : Cancels any earlier `--summary` option in Makefile variables etc
-
-`-O`, `--summary-omit=`
- : Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) specifying what should be omitted from the rules summary.  Each line should be a word or phrase, a tab, and its annotation (without the mstart/mmid/mend markup).  If any rule in the summary exactly matches any of the lines in this text file, then that rule will be omitted from the summary.  Use for example to take out of the summary any entries that correspond to things you already have in your dictionary, so you can see what's new.
-
-`--maxrefs=`
- : The maximum number of example references to record in each summary line, if references are being recorded (0 means unlimited).  Default is 3.
-
-`-R`, `--norefs`
- : Don't write references in the rules summary.  Use this if you need to specify reference-sep and ref-name-end for the ref-pri option but you don't actually want references in the summary (which speeds up summary generation slightly).
-
-`--no-norefs`
- : Cancels any earlier `--norefs` option in Makefile variables etc
+ : Character encoding to use in the generated parser (default utf-8, must be ASCII-compatible i.e. not utf-16)
 
 `--rulesFile=`
  : Filename of a binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then either `--write-rules` or `--read-rules` must be specified.
 
 `--write-rules`
- : Write rulesFile instead of generating a parser or a rules summary.  You will then need to rerun with `--read-rules` later.
+ : Write rulesFile instead of generating a parser.  You will then need to rerun with `--read-rules` later.
 
 `--no-write-rules`
  : Cancels any earlier `--write-rules` option in Makefile variables etc
 
 `--read-rules`
- : Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required (unless you're using `--summary` without `--norefs`).
+ : Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required.
 
 `--no-read-rules`
  : Cancels any earlier `--read-rules` option in Makefile variables etc
@@ -928,12 +910,6 @@ Options:
 `--no-allow-overlaps`
  : Cancels any earlier `--allow-overlaps` option in Makefile variables etc
 
-`-P`, `--primitive`
- : Don't bother with any overlap or conflict checks at all, just make a rule for each word. The resulting parser is not likely to be useful, but the summary might be.
-
-`--no-primitive`
- : Cancels any earlier `--primitive` option in Makefile variables etc
-
 `-y`, `--ybytes=`
  : Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed when seed collocations can be used to distinguish between them, and the analysis is likely to be faster.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of (non-whitespace) bytes between them.
 
@@ -986,7 +962,7 @@ Options:
  : When `--capitalisation` is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default 1) for investigation of possible typos in the corpus
 
 `-1`, `--single-words`
- : Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly. It is like -P (primitive) but without removing the conflict checks.
+ : Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly.
 
 `--no-single-words`
  : Cancels any earlier `--single-words` option in Makefile variables etc
