@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.348 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.3481 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -161,7 +161,7 @@ cancelOpt("read-rules")
 parser.add_option("-J","--rules-json",
                   action="store_true",default=False,
                   help="Use JSON instead of a binary format for rulesFile")
-cancelOpt("json-rules")
+cancelOpt("rules-json")
 
 parser.add_option("-E","--newlines-reset",
                   action="store_false",
