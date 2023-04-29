@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.3481 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.349 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -28,6 +28,7 @@
 # although some early ones are missing.
 
 import sys,os,os.path,tempfile,time,re,subprocess,unicodedata
+import json,codecs
 from optparse import OptionParser
 if '--html-options' in sys.argv:
   print ("Usage: annogen.py [options]<p>Options:<dl>")
@@ -146,7 +147,7 @@ parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compi
 parser.add_option("--outcode",default="utf-8",
                   help="Character encoding to use in the generated parser (default %default, must be ASCII-compatible i.e. not utf-16)")
 
-parser.add_option("--rulesFile",help="Filename of a binary file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then either --write-rules or --read-rules must be specified.")
+parser.add_option("--rulesFile",help="Filename of a JSON file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then either --write-rules or --read-rules must be specified.")
 
 parser.add_option("--write-rules",
                   action="store_true",default=False,
@@ -157,11 +158,6 @@ parser.add_option("--read-rules",
                   action="store_true",default=False,
                   help="Read rulesFile from a previous run, and apply the output options to it. You should still specify the input formatting options (which should not change), and any glossfile or manualrules options (which may change), but no input is required.")
 cancelOpt("read-rules")
-
-parser.add_option("-J","--rules-json",
-                  action="store_true",default=False,
-                  help="Use JSON instead of a binary format for rulesFile")
-cancelOpt("rules-json")
 
 parser.add_option("-E","--newlines-reset",
                   action="store_false",
@@ -3970,7 +3966,6 @@ def checkpoint_exit(doIt=1):
     sys.stderr.write("\nExitASAP found: exit\n")
     raise SystemExit
   else: return True
-if rules_json: import json,codecs # but still pickle for checkpoints
 try: import cPickle as pickle
 except:
   try: import pickle
@@ -4771,28 +4766,24 @@ class RulesAccumulator:
 def saveRules(rulesAndConds):
   sys.stderr.write("\nSaving rules to %s... " % rulesFile) ; sys.stderr.flush()
   f = openfile(rulesFile,'w')
-  if rules_json:
-    d = [] # rulesAndConds is already sorted list
-    for k,v in rulesAndConds:
-      if not v: d.append(k)
-      elif type(v)==tuple: d.append((k,(v[0],sorted(v[1]),v[2])))
-      else: d.append((k,sorted(v)))
-    json.dump(d,codecs.getwriter("utf-8")(f),indent=4,ensure_ascii=False)
-  else: pickle.Pickler(f,-1).dump(rulesAndConds)
+  d = [] # rulesAndConds is already a sorted list
+  for k,v in rulesAndConds:
+    if not v: d.append(k)
+    elif type(v)==tuple: d.append((k,(v[0],sorted(v[1]),v[2])))
+    else: d.append((k,sorted(v)))
+  json.dump(d,codecs.getwriter("utf-8")(f),indent=4,ensure_ascii=False)
   f.close() ; sys.stderr.write("done")
   sys.stderr.flush()
 def loadRules():
   sys.stderr.write("Loading rules from %s... " % rulesFile) ; sys.stderr.flush()
   f = openfile(rulesFile)
-  if rules_json:
-    rulesAndConds = []
-    for item in json.load(codecs.getreader("utf-8")(f)):
-      if type(item)==list:
-        k,v = item
-        if len(v)==3 and type(v[1])==list: v=tuple(v)
-        rulesAndConds.append((k,v))
-      else: rulesAndConds.append((item,[]))
-  else: rulesAndConds = pickle.Unpickler(f).load()
+  rulesAndConds = []
+  for item in json.load(codecs.getreader("utf-8")(f)):
+    if type(item)==list:
+      k,v = item
+      if len(v)==3 and type(v[1])==list: v=tuple(v)
+      rulesAndConds.append((k,v))
+    else: rulesAndConds.append((item,[]))
   sys.stderr.write("done\n")
   return rulesAndConds
 
