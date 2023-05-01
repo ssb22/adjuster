@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.349 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.35 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -85,14 +85,8 @@ def cancelOpt(opt,act="store_false",dst=None):
   parser.add_option("--no-"+opt,action=act,dest=dst,help="Cancels any earlier --"+opt+" option in Makefile variables etc")
 cancelOpt("mreverse")
 
-parser.add_option("--reference-sep",
-                   help="Reference separator code used in the example input.  If you want to keep example source references for each rule, you can label the input with 'references' (chapter and section numbers or whatever), and use this option to specify what keyword or other markup the input will use between each 'reference'.  The name of the next reference will be whatever text immediately follows this string.  Note that the reference separator, and the reference name that follows it, should not be part of the text itself and should therefore not be part of any annotation markup.  If this option is not set then references will not be tracked.")
-
-parser.add_option("--ref-name-end",default=" ",
-                  help="Sets what the input uses to END a reference name.  The default is a single space, so that the first space after the reference-sep string will end the reference name.")
-
-parser.add_option("--ref-pri",
-                  help="Name of a reference to be considered \"high priority\" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a \"default\" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high priority reference then the first annotation found in that reference will be considered the ideal \"default\" even if it's in a minority in the examples; everything else will be considered as an exception.")
+parser.add_option("--end-pri",
+                  help="Treat words that occur in the examples before this delimeter as having \"high priority\" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a \"default\" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high-priority section at the start, then the first annotation found there will be taken as the ideal \"default\" even if it's in a minority in the examples; everything else will be taken as an exception.")
 
 parser.add_option("-s", "--spaces",
                   action="store_false",
@@ -322,7 +316,7 @@ parser.add_option("--yarowsky-multiword",
 cancelOpt("yarowsky-multiword")
 parser.add_option("--yarowsky-thorough",
                   action="store_true",default=False,
-                  help="Recheck Yarowsky seed collocations when considering if any multiword rule would be needed to reproduce the examples.  This could risk 'overfitting' the example set.") # (more likely to come up with rules that aren't really needed and end with 1st half of a sandhi etc)
+                  help="Recheck Yarowsky seed collocations when checking if any multiword rule would be needed to reproduce the examples.  This could risk 'overfitting' the example set.") # (more likely to come up with rules that aren't really needed and end with 1st half of a sandhi etc)
 cancelOpt("yarowsky-thorough")
 parser.add_option("--yarowsky-half-thorough",
                   action="store_true",default=False,
@@ -335,10 +329,10 @@ parser.add_option("--normalise-debug",default=1,
 
 parser.add_option("-1","--single-words",
                   action="store_true",default=False,
-                  help="Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly.")
+                  help="Do not generate any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly.")
 cancelOpt("single-words")
 parser.add_option("--max-words",default=0,
-                  help="Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one (or try 3 if --yarowsky-half-thorough is in use).")  # (There was a bug in annogen versions before 0.58 that caused --max-words to additionally limit how far away from the start of its phrase a rule-example must be placed; this has now been fixed.  There was also a bug that resulted in too many extra rules being tested over already-catered-for phrases; as this has now been fixed, the additional benefit of a --max-words limit is now reduced, but you might want to put one in anyway.  That second bug also had the effect of the coverage % being far too low in the progress stats.)
+                  help="Limits the number of words in a rule.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one (or try 3 if --yarowsky-half-thorough is in use).")  # (There was a bug in annogen versions before 0.58 that caused --max-words to additionally limit how far away from the start of its phrase a rule-example must be placed; this has now been fixed.  There was also a bug that resulted in too many extra rules being tested over already-catered-for phrases; as this has now been fixed, the additional benefit of a --max-words limit is now reduced, but you might want to put one in anyway.  That second bug also had the effect of the coverage % being far too low in the progress stats.)
 parser.add_option("--multiword-end-avoid",
                   help="Comma-separated list of words (without annotation markup) that should be avoided at the end of a multiword rule (e.g. sandhi likely to depend on the following word)")
 
@@ -414,7 +408,6 @@ def errExit(msg):
   except: pass # works only if got past outfile opening
   sys.stderr.write(msg+"\n") ; sys.exit(1)
 if args: errExit("Unknown argument "+repr(args[0]))
-if ref_pri and not (reference_sep and ref_name_end): errExit("ref-pri option requires reference-sep and ref-name-end to be set")
 if sharp_multi and not annotation_names and (browser_extension or existing_ruby_lang_regex): errExit("--sharp-multi requires --annotation-names to be set if --browser-extension or --existing-ruby-lang-regex")
 if existing_ruby_lang_regex:
     while len(existing_ruby_lang_regex.split(','))<len(annotation_names.split(',')): existing_ruby_lang_regex += r",^\b$"
@@ -4445,7 +4438,7 @@ def getReallyBadStarts(badStarts,nonAnnot):
       append(b) # to reallyBadStarts
     return reallyBadStarts
 def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,try_harder=True):
-    # try to find either positive or negative Yarowsky-like indicators, whichever gives a smaller set (or only negative ones if force_negate, used by ref_pri).  Negative indicators might be useful if there are many matches and only a few special exceptions.  (If not force_negate, then negative indicators are used only if they cover 100% of the exceptions; see below re negate==None)
+    # try to find either positive or negative Yarowsky-like indicators, whichever gives a smaller set (or only negative ones if force_negate, used by end_pri yPriorityDic logic).  Negative indicators might be useful if there are many matches and only a few special exceptions.  (If not force_negate, then negative indicators are used only if they cover 100% of the exceptions; see below re negate==None)
     def bytesAround(start): return within_Nbytes(start+len(nonAnnot),nbytes)
     okStrs=list(set(bytesAround(s) for s in okStarts))
     badStrs=list(set(bytesAround(s) for s in badStarts))
@@ -4824,13 +4817,9 @@ def generate_map():
         if k not in precalc_sets: precalc_sets[k]=set()
         precalc_sets[k].add(downLenSoFar)
     yPriorityDic = {}
-    if ref_pri and ybytes:
+    if end_pri and ybytes:
       sys.stderr.write("yPriorityDic ... ")
-      for s in re.finditer(re.escape(reference_sep+ref_pri+ref_name_end), corpus_unistr):
-        s = s.start()+len(reference_sep+ref_pri+ref_name_end)
-        e = corpus_unistr.find(reference_sep,s)
-        if e==-1: e=len(corpus_unistr)
-        for w in splitWords(corpus_unistr[s:e]):
+      for w in splitWords(corpus_unistr[:corpus_unistr.index(end_pri)]): # (throws error if --ref-end is not in the corpus)
           wd = markDown(w)
           if wd in yPriorityDic: continue
           if diagnose==wd: diagnose_write("yPriorityDic[%s] = %s" % (wd,w))

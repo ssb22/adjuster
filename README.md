@@ -611,7 +611,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.349
+Options for Annotator Generator v3.35
 ===========================
 
 Usage: annogen.py [options]
@@ -643,14 +643,8 @@ Options:
 `--no-mreverse`
  : Cancels any earlier `--mreverse` option in Makefile variables etc
 
-`--reference-sep=`
- : Reference separator code used in the example input.  If you want to keep example source references for each rule, you can label the input with 'references' (chapter and section numbers or whatever), and use this option to specify what keyword or other markup the input will use between each 'reference'.  The name of the next reference will be whatever text immediately follows this string.  Note that the reference separator, and the reference name that follows it, should not be part of the text itself and should therefore not be part of any annotation markup.  If this option is not set then references will not be tracked.
-
-`--ref-name-end=`
- : Sets what the input uses to END a reference name.  The default is a single space, so that the first space after the reference-sep string will end the reference name.
-
-`--ref-pri=`
- : Name of a reference to be considered "high priority" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a "default" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high priority reference then the first annotation found in that reference will be considered the ideal "default" even if it's in a minority in the examples; everything else will be considered as an exception.
+`--end-pri=`
+ : Treat words that occur in the examples before this delimeter as having "high priority" for Yarowsky-like seed collocations (if these are in use).  Normally the Yarowsky-like logic tries to identify a "default" annotation based on what is most common in the examples, with the exceptions indicated by collocations.  If however a word is found in a high-priority section at the start, then the first annotation found there will be taken as the ideal "default" even if it's in a minority in the examples; everything else will be taken as an exception.
 
 `-s`, `--spaces`
  : Set this if you are working with a language that uses whitespace in its non-markedup version (not fully tested).  The default is to assume that there will not be any whitespace in the language, which is correct for Chinese and Japanese.
@@ -938,7 +932,7 @@ Options:
  : Cancels any earlier `--yarowsky-multiword` option in Makefile variables etc
 
 `--yarowsky-thorough`
- : Recheck Yarowsky seed collocations when considering if any multiword rule would be needed to reproduce the examples.  This could risk 'overfitting' the example set.
+ : Recheck Yarowsky seed collocations when checking if any multiword rule would be needed to reproduce the examples.  This could risk 'overfitting' the example set.
 
 `--no-yarowsky-thorough`
  : Cancels any earlier `--yarowsky-thorough` option in Makefile variables etc
@@ -956,13 +950,13 @@ Options:
  : When `--capitalisation` is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default 1) for investigation of possible typos in the corpus
 
 `-1`, `--single-words`
- : Do not consider any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly.
+ : Do not generate any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly.
 
 `--no-single-words`
  : Cancels any earlier `--single-words` option in Makefile variables etc
 
 `--max-words=`
- : Limits the number of words in a rule; rules longer than this are not considered.  0 means no limit.  `--single-words` is equivalent to `--max-words`=1.  If you need to limit the search time, and are using -y, it should suffice to use `--single-words` for a quick annotator or `--max-words`=5 for a more thorough one (or try 3 if `--yarowsky-half-thorough` is in use).
+ : Limits the number of words in a rule.  0 means no limit.  `--single-words` is equivalent to `--max-words`=1.  If you need to limit the search time, and are using -y, it should suffice to use `--single-words` for a quick annotator or `--max-words`=5 for a more thorough one (or try 3 if `--yarowsky-half-thorough` is in use).
 
 `--multiword-end-avoid=`
  : Comma-separated list of words (without annotation markup) that should be avoided at the end of a multiword rule (e.g. sandhi likely to depend on the following word)
