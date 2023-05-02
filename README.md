@@ -611,7 +611,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.35
+Options for Annotator Generator v3.351
 ===========================
 
 Usage: annogen.py [options]
@@ -666,9 +666,6 @@ Options:
 
 `--keep-whitespace=`
  : Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the `--annot-whitespace` option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).
-
-`--normalised-file=`
- : Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to write a copy of the normalised input for diagnostic purposes.  If this is set to the same as `--infile` then it will be assumed the input file has already been normalised (use with care).
 
 `--post-normalise=`
  : Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.
@@ -949,6 +946,9 @@ Options:
 `--normalise-debug=`
  : When `--capitalisation` is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default 1) for investigation of possible typos in the corpus
 
+`--normalise-cache=`
+ : Optional file to use to cache the result of normalisation. Adding .gz, .bz2 or .xz for compression is acceptable.
+
 `-1`, `--single-words`
  : Do not generate any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly.
 
@@ -960,12 +960,6 @@ Options:
 
 `--multiword-end-avoid=`
  : Comma-separated list of words (without annotation markup) that should be avoided at the end of a multiword rule (e.g. sandhi likely to depend on the following word)
-
-`--checkpoint=`
- : Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.
-
-`--checkpoint-period=`
- : Approximate number of seconds between checkpoints (default 1000).  Setting this to 0 disables periodic checkpoints but still allows use of checkpoint directory for concurrency or ExitASAP processing.
 
 `-d`, `--diagnose=`
  : Output some diagnostics for the specified word. Use this option to help answer "why doesn't it have a rule for...?" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).

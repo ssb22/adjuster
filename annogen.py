@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.35 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.351 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -108,9 +108,6 @@ parser.add_option("-w", "--annot-whitespace",
 cancelOpt("annot-whitespace")
 parser.add_option("--keep-whitespace",
                   help="Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the --annot-whitespace option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).")
-
-parser.add_option("--normalised-file",
-                  help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file) to write a copy of the normalised input for diagnostic purposes.  If this is set to the same as --infile then it will be assumed the input file has already been normalised (use with care).")
 
 parser.add_option("--post-normalise",
                   help="Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.")
@@ -326,6 +323,8 @@ parser.add_option("--yarowsky-debug",default=1,
                   help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
 parser.add_option("--normalise-debug",default=1,
                   help="When --capitalisation is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default %default) for investigation of possible typos in the corpus")
+parser.add_option("--normalise-cache",
+                  help="Optional file to use to cache the result of normalisation. Adding .gz, .bz2 or .xz for compression is acceptable.")
 
 parser.add_option("-1","--single-words",
                   action="store_true",default=False,
@@ -335,10 +334,6 @@ parser.add_option("--max-words",default=0,
                   help="Limits the number of words in a rule.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one (or try 3 if --yarowsky-half-thorough is in use).")  # (There was a bug in annogen versions before 0.58 that caused --max-words to additionally limit how far away from the start of its phrase a rule-example must be placed; this has now been fixed.  There was also a bug that resulted in too many extra rules being tested over already-catered-for phrases; as this has now been fixed, the additional benefit of a --max-words limit is now reduced, but you might want to put one in anyway.  That second bug also had the effect of the coverage % being far too low in the progress stats.)
 parser.add_option("--multiword-end-avoid",
                   help="Comma-separated list of words (without annotation markup) that should be avoided at the end of a multiword rule (e.g. sandhi likely to depend on the following word)")
-
-parser.add_option("--checkpoint",help="Periodically save checkpoint files in the specified directory.  These files can save time when starting again after a reboot (and it's easier than setting up Condor etc).  As well as a protection against random reboots, this can be used for scheduled reboots: if file called ExitASAP appears in the checkpoint directory, annogen will checkpoint, remove the ExitASAP file, and exit.  After a run has completed, the checkpoint directory should be removed, unless you want to re-do the last part of the run for some reason.")
-# (Condor can checkpoint an application on Win/Mac/Linux but is awkward to set up.  Various Linux and BSD application checkpoint approaches also exist, and virtual machines can have their state saved.  On the other hand the physical machine might have a 'hibernate' option which is easier.)
-parser.add_option("--checkpoint-period",default=1000,help="Approximate number of seconds between checkpoints (default %default).  Setting this to 0 disables periodic checkpoints but still allows use of checkpoint directory for concurrency or ExitASAP processing.")
 
 parser.add_option("-d","--diagnose",help="Output some diagnostics for the specified word. Use this option to help answer \"why doesn't it have a rule for...?\" issues. This option expects the word without markup and uses the system locale (UTF-8 if it cannot be detected).")
 parser.add_option("--diagnose-limit",default=10,help="Maximum number of phrases to print diagnostics for (0 means unlimited). Default: %default")
@@ -390,7 +385,6 @@ def warn(msg):
   # else it should have already been written
 if "PyPy" in sys.version: warn("with annogen, PyPy is likely to run 60% slower than python") # (not to mention concurrent.futures being less likely to be available)
 
-if checkpoint_period: checkpoint_period=int(checkpoint_period)
 if ybytes: ybytes=int(ybytes)
 if ybytes_max: ybytes_max=int(ybytes_max)
 else: ybytes_max = ybytes
@@ -3949,34 +3943,7 @@ def markUp(text,annotation):
   if mreverse: text,annotation = annotation,text
   return markupStart + text + markupMid + annotation + markupEnd
     
-def checkpoint_exit(doIt=1):
-  if not checkpoint: return
-  try: open(checkpoint+os.sep+"ExitASAP")
-  except: return
-  if doIt:
-    assert main, "Only annogen's main module should call checkpoint_exit with doIt=1"
-    os.remove(checkpoint+os.sep+"ExitASAP")
-    sys.stderr.write("\nExitASAP found: exit\n")
-    raise SystemExit
-  else: return True
-try: import cPickle as pickle
-except:
-  try: import pickle
-  except: pickle = None
-def read_checkpoint():
-  t = pickle.Unpickler(open(checkpoint+os.sep+'checkpoint','rb')).load()
-  sys.stderr.write("Checkpoint loaded from %d phrases\n" % t[0])
-  return t
-def write_checkpoint(t):
-  pickle.Pickler(open(checkpoint+os.sep+'checkpoint-NEW','wb'),-1).dump(t) # better write to checkpoint-NEW, in case we reboot or have an OS-level "Out of memory" condition *while* checkpointing
-  try: os.rename(checkpoint+os.sep+'checkpoint-NEW',checkpoint+os.sep+'checkpoint')
-  except OSError: # OS can't do it atomically?
-    rm_f(checkpoint+os.sep+'checkpoint')
-    try: os.rename(checkpoint+os.sep+'checkpoint-NEW',checkpoint+os.sep+'checkpoint')
-    except OSError: pass
-  checkpoint_exit()
-
-def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,lastUpdate,phraseLastCheckpoint,lastCheckpoint,coverP,nRej,startTime):
+def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,lastUpdate,startTime,coverP,nRej):
   phraseSec = (phraseNo-phraseLastUpdate)*1.0/(time.time()-lastUpdate)
   if phraseSec < 100:
     phraseSecS = "%.1f" % phraseSec
@@ -3984,8 +3951,8 @@ def status_update(phraseNo,numPhrases,wordsThisPhrase,nRules,phraseLastUpdate,la
   progress = status_prefix + "%s phrase/sec (%d%%/#w=%d) rules=%d cover=%d%%" % (phraseSecS,int(100.0*phraseNo/numPhrases),wordsThisPhrase,nRules,coverP)
   if warn_yarowsky: progress += (" rej=%d" % nRej)
   if time_estimate:
-    if phraseNo-phraseLastCheckpoint < 10: phraseMin = phraseSec*60 # current 'instantaneous' speed
-    else: phraseMin = (phraseNo-phraseLastCheckpoint)*60/(time.time()-lastCheckpoint) # longer-term average
+    if phraseNo < 10: phraseMin = phraseSec*60 # current 'instantaneous' speed
+    else: phraseMin = phraseNo*60/(time.time()-startTime) # longer-term average
     minsLeft = (numPhrases-phraseNo)/phraseMin
     if minsLeft>60*24: progress += " %dd+" % int(minsLeft/60/24)
     elif minsLeft>60: progress += " %dh+" % int(minsLeft/60)
@@ -4011,10 +3978,10 @@ def read_and_normalise():
     diagnose_write(diagnose+" is not present in the corpus, even before normalisation")
     suppress = True
   else: suppress = False
-  loaded_from_checkpoint = normalise() # will change corpus_unistr
+  loaded_from_cache = normalise() # will change corpus_unistr
   if diagnose and not suppress and not diagnose in corpus_unistr:
     diagnose_write(diagnose+" was in the corpus before normalisation, but not after")
-    if loaded_from_checkpoint: diagnose_write("You might want to remove "+checkpoint+os.sep+'normalised* and redo the diagnose')
+    if loaded_from_cache: diagnose_write("You might want to remove "+normalise_cache+' and redo the diagnose')
 
 def normWord(w,allWords,cu_nosp):
   hTry = typo = None
@@ -4074,21 +4041,16 @@ def normBatch(words):
   return r,typoR
 
 def normalise():
-    if normalised_file == infile: return
     global capitalisation # might want to temp change it
     if (capitalisation or priority_list) and annot_whitespace: return
     global corpus_unistr,allWords,cu_nosp
-    if checkpoint:
+    if normalise_cache:
       try:
-        f=open_try_bz2(checkpoint+os.sep+'normalised','r')
-        corpus_unistr = f.read().decode('utf-8')
+        corpus_unistr = openfile(normalise_cache).read().decode('utf-8')
         sys.stderr.write("Normalised copy loaded\n")
-        return True # loaded from checkpoint
-      except: # if re-generating 'normalised', will also need to regenerate 'map' and 'checkpoint' if present
-        assert main, "normalise checkpoint not readable in non-main module"
-        rm_f(checkpoint+os.sep+'map.bz2') ; rm_f(checkpoint+os.sep+'map')
-        rm_f(checkpoint+os.sep+'checkpoint')
-    else: assert main, "normalise called in non-main module and checkpoint isn't even set"
+        return True # loaded from cache
+      except: pass
+    assert main, "normalise called in non-main module"
     sys.stderr.write("Normalising...");sys.stderr.flush()
     old_caps = capitalisation
     if priority_list: capitalisation = True # no point keeping it at False
@@ -4146,10 +4108,8 @@ def normalise():
     for exp in orRegexes(re.escape(k) for k in iterkeys(dic)):
       corpus_unistr = re.sub(exp,lambda k:dic[k.group(0)],corpus_unistr)
     sys.stderr.write(" done\n")
-    if normalised_file: openfile(normalised_file,'w').write(corpus_unistr.encode(incode))
-    if checkpoint and capitalisation==old_caps: open_try_bz2(checkpoint+os.sep+'normalised','w').write(corpus_unistr.encode('utf-8'))
+    if normalise_cache and capitalisation==old_caps: openfile(normalised_file,'w').write(corpus_unistr.encode('utf-8'))
     capitalisation = old_caps
-    checkpoint_exit()
 def getAllWords():
   allWords = {}
   for phrase in splitWords(corpus_unistr,phrases=True):
@@ -4790,12 +4750,6 @@ def handle_diagnose_limit(rule):
 
 def generate_map():
     global m2c_map, precalc_sets, yPriorityDic
-    if checkpoint:
-      try:
-        f=open_try_bz2(checkpoint+os.sep+'map','r')
-        m2c_map,precalc_sets,yPriorityDic = pickle.Unpickler(f).load()
-        return sys.stderr.write("Corpus map loaded\n")
-      except: pass
     assert main, "Only main should generate corpus map"
     sys.stderr.write("Generating corpus map... ")
     m2c_map = {} ; precalc_sets = {}
@@ -4825,8 +4779,6 @@ def generate_map():
           if diagnose==wd: diagnose_write("yPriorityDic[%s] = %s" % (wd,w))
           yPriorityDic[wd] = w
     sys.stderr.write("done\n")
-    if checkpoint: pickle.Pickler(open_try_bz2(checkpoint+os.sep+'map','w'),-1).dump((m2c_map,precalc_sets,yPriorityDic))
-    checkpoint_exit()
 
 executor = None
 def setup_parallelism(): # returns number of cores
@@ -4888,11 +4840,8 @@ def analyse():
     covered = 0 # number of phrases we managed to 'cover' with our rules
     toCover = 0 # number of phrases we TRIED to cover (==covered if 100%)
     phraseNo = 0 ; wordLen = None
-    if checkpoint:
-      try: phraseNo,wordLen,covered,toCover,accum.__dict__ = read_checkpoint()
-      except: pass
-    phraseLastUpdate = phraseLastCheckpoint = phraseNo
-    lastUpdate = lastCheckpoint = startTime = time.time()
+    phraseLastUpdate = phraseNo
+    lastUpdate = startTime = time.time()
     backgrounded = [] ; phrases = get_phrases()
     while phraseNo < len(phrases):
         if type(phrases[phraseNo])==int:
@@ -4903,17 +4852,10 @@ def analyse():
             except: pass
           covered,toCover = flush_background(backgrounded," for #w change",covered,toCover)
           phraseNo += 1 ; continue
-        if toCover:
-          if checkpoint and (checkpoint_exit(0) or (checkpoint_period and time.time() >= lastCheckpoint + checkpoint_period)):
-            covered,toCover = flush_background(backgrounded," for checkpoint",covered,toCover)
-            sys.stderr.write("Checkpointing..."+clear_eol+"\r")
-            sys.stderr.flush()
-            write_checkpoint((phraseNo,wordLen,covered,toCover,accum.__dict__))
-            lastCheckpoint = time.time() ; phraseLastCheckpoint = phraseNo
         if time.time() >= lastUpdate + 2:
           if toCover: cov=int(100.0*covered/toCover)
           else: cov = 0
-          status_update(phraseNo,len(phrases),wordLen,len(accum.rules),phraseLastUpdate,lastUpdate,phraseLastCheckpoint,lastCheckpoint,cov,len(accum.rejectedRules),startTime)
+          status_update(phraseNo,len(phrases),wordLen,len(accum.rules),phraseLastUpdate,lastUpdate,startTime,cov,len(accum.rejectedRules))
           lastUpdate = time.time() ; phraseLastUpdate = phraseNo
         aRules = accum.addRulesForPhrase(phrases[phraseNo],wordLen==1) # We're saying canBackground only if wordLen==1 because longer phrases can be backgrounded only if they're guaranteed not to have mutual effects.  Could look into when we can do that (or a separate pass through adding all len-1 rules 1st) and remove the executor.shutdown above, but test corpus is showing NO large collocation checks needed at #w=2+ anyway, so this work would not actually save generation time.
         arr = getNext(aRules)
@@ -5370,9 +5312,6 @@ def openfile(fname,mode='r'):
     if fname.endswith(".gz"):
         import gzip ; return gzip.GzipFile(fileobj=fileobj,mode=mode)
     else: return fileobj
-def open_try_bz2(fname,mode='r'): # use .bz2 iff available (for checkpoints)
-  try: return openfile(fname+".bz2",mode)
-  except: return openfile(fname,mode)
 def rm_f(fname):
   try: os.remove(fname)
   except OSError: pass
@@ -5397,9 +5336,6 @@ except:
 
 if main and not compile_only:
  set_title("annogen")
- if checkpoint:
-  try: os.mkdir(checkpoint)
-  except: pass
  if read_rules: rulesAndConds = loadRules()
  else:
   read_and_normalise()
