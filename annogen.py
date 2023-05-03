@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.351 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.352 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -542,6 +542,7 @@ if zlib:
 if rulesFile:
   if not (read_rules or write_rules): errExit("rulesFile requires --read-rules or --write-rules")
   elif read_rules and write_rules: errExit("--read-rules and --write-rules are mutually exclusive")
+  if priority_list: errExit("can't set both rulesFile and priority-list") # because PairPriorities uses corpus, not rules
 elif read_rules or write_rules: errExit("--read-rules or --write-rules requires rulesFile")
 if java or javascript or python or dart: c_compiler = None
 try: xrange # Python 2
@@ -4108,7 +4109,7 @@ def normalise():
     for exp in orRegexes(re.escape(k) for k in iterkeys(dic)):
       corpus_unistr = re.sub(exp,lambda k:dic[k.group(0)],corpus_unistr)
     sys.stderr.write(" done\n")
-    if normalise_cache and capitalisation==old_caps: openfile(normalised_file,'w').write(corpus_unistr.encode('utf-8'))
+    if normalise_cache and capitalisation==old_caps: openfile(normalise_cache,'w').write(corpus_unistr.encode('utf-8'))
     capitalisation = old_caps
 def getAllWords():
   allWords = {}
@@ -4773,7 +4774,7 @@ def generate_map():
     yPriorityDic = {}
     if end_pri and ybytes:
       sys.stderr.write("yPriorityDic ... ")
-      for w in splitWords(corpus_unistr[:corpus_unistr.index(end_pri)]): # (throws error if --ref-end is not in the corpus)
+      for w in splitWords(corpus_unistr[:corpus_unistr.index(end_pri)]): # (throws error if --end-pri is not in the corpus)
           wd = markDown(w)
           if wd in yPriorityDic: continue
           if diagnose==wd: diagnose_write("yPriorityDic[%s] = %s" % (wd,w))
