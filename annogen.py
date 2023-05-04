@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.352 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.353 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -108,6 +108,9 @@ parser.add_option("-w", "--annot-whitespace",
 cancelOpt("annot-whitespace")
 parser.add_option("--keep-whitespace",
                   help="Comma-separated list of words (without annotation markup) for which whitespace and hyphenation should always be kept even without the --annot-whitespace option.  Use when you know the variation is legitimate. This option expects words to be encoded using the system locale (UTF-8 if it cannot be detected).")
+
+parser.add_option("--suffix",
+                  help="Comma-separated list of annotations that can be considered optional suffixes for normalisation") # e.g. use --suffix=r if you have Mandarin Pinyin with inconsistent -r additions
 
 parser.add_option("--post-normalise",
                   help="Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.")
@@ -3922,6 +3925,7 @@ def splitWords(text,phrases=False):
 
 markupPattern = re.compile(re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),flags=re.DOTALL)
 wordPattern = re.escape(markupStart)+'.*?'+re.escape(markupEnd)
+if suffix: suffix = re.compile('(?:'+'|'.join('(?:'+re.escape(i)+')' for i in T(suffix).split(','))+')(?='+re.escape(markupEnd)+r'|\s)')
 multiWordPattern = re.escape(markupEnd)+".*?"+re.escape(markupStart) # indicates there could be more than one word
 phrasePattern = re.compile(wordPattern+r'(\s*'+wordPattern+r')*',flags=re.DOTALL+re.UNICODE)
 wordPattern = re.compile(wordPattern,flags=re.DOTALL)
@@ -3998,6 +4002,22 @@ def normWord(w,allWords,cu_nosp):
       # To simplify rules, make it always lower.
       w = wl
       if hTry: hTry.add(w.replace('-',''))
+  if suffix:
+    num = len(re.findall(suffix,w))
+    if num:
+      for N in xrange(2**num-1,0,-1):
+        bits = bin(N)[2:]
+        class BitDel:
+          def __init__(self): nCalls=0
+          def __call__(self,m):
+            nCalls += 1
+            if bits[nCalls-1]=="1": return ""
+            else: return m.group()
+        wT = re.sub(suffix,BitDel(),w)
+        if wT in allWords: # TODO: if there's always capitalisation on the deleted-suffix version but never capitalisation on the with-suffix version, then neither the above branch nor this branch will run and the word won't get normalised
+          w = wT # TODO: or make the other word the same as this (like hTry)
+          if hTry: hTry.add(w.replace('-',''))
+          break
   if annot_whitespace or (keep_whitespace and markDown(w) in keep_whitespace): return w,None,typo
   if not re.search(wspPattern,w): return w,hTry,typo
   nowsp = re.sub(wspPattern,"",w)
