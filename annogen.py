@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.353 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.354 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3989,8 +3989,10 @@ def read_and_normalise():
     if loaded_from_cache: diagnose_write("You might want to remove "+normalise_cache+' and redo the diagnose')
 
 def normWord(w,allWords,cu_nosp):
-  hTry = typo = None
-  if '-' in w: hTry=set([w.replace('-','')]) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
+  hTry,typo = set(),None
+  if '-' in w: hTry.add(w.replace('-','')) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
+  wN = re.sub(suffix,'',w)
+  if not w==wN: hTry.add(wN) # normalise on having the suffix in
   if not capitalisation:
     wl = w.lower() # (as long as it's all Unicode strings, .lower() and .upper() work with accents etc)
     if not w==wl and wl in allWords:
@@ -4001,23 +4003,9 @@ def normWord(w,allWords,cu_nosp):
       if allWords[wl]*5 < allWords[w] and allWords[wl] <= normalise_debug: typo = (wl,(u"%s (%d instances) overrides %s (%d instances)" % (wl,allWords[wl],w,allWords[w])))
       # To simplify rules, make it always lower.
       w = wl
-      if hTry: hTry.add(w.replace('-',''))
-  if suffix:
-    num = len(re.findall(suffix,w))
-    if num:
-      for N in xrange(2**num-1,0,-1):
-        bits = bin(N)[2:]
-        class BitDel:
-          def __init__(self): nCalls=0
-          def __call__(self,m):
-            nCalls += 1
-            if bits[nCalls-1]=="1": return ""
-            else: return m.group()
-        wT = re.sub(suffix,BitDel(),w)
-        if wT in allWords: # TODO: if there's always capitalisation on the deleted-suffix version but never capitalisation on the with-suffix version, then neither the above branch nor this branch will run and the word won't get normalised
-          w = wT # TODO: or make the other word the same as this (like hTry)
-          if hTry: hTry.add(w.replace('-',''))
-          break
+      if '-' in w: hTry.add(w.replace('-',''))
+      wN = re.sub(suffix,'',w)
+      if not w==wN: hTry.add(wN)
   if annot_whitespace or (keep_whitespace and markDown(w) in keep_whitespace): return w,None,typo
   if not re.search(wspPattern,w): return w,hTry,typo
   nowsp = re.sub(wspPattern,"",w)
@@ -4056,7 +4044,8 @@ def normBatch(words):
     if hTry:
       hTry.add(w2.replace('-','')) # in case not already there
       for h in hTry:
-        if h in allWords: r.append((h,w2))
+        if not h==w2 and h in allWords:
+          r.append((h,w2))
     if not w==w2: r.append((w,w2))
     if typo: typoR.append(typo)
   return r,typoR
