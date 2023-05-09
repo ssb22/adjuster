@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.354 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.355 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -111,6 +111,9 @@ parser.add_option("--keep-whitespace",
 
 parser.add_option("--suffix",
                   help="Comma-separated list of annotations that can be considered optional suffixes for normalisation") # e.g. use --suffix=r if you have Mandarin Pinyin with inconsistent -r additions
+parser.add_option("--suffix-minlen",
+                  default=1,
+                  help="Minimum length of word (in Unicode characters) to apply suffix normalisation")
 
 parser.add_option("--post-normalise",
                   help="Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.")
@@ -587,6 +590,7 @@ diagnose_limit = int(diagnose_limit)
 max_words = int(max_words)
 if single_words: max_words = 1
 if read_rules and diagnose_manual: errExit("--diagnose-manual is not compatible with --read-rules")
+suffix_minlen=int(suffix_minlen)
 
 if compress:
   squashStrings = set() ; squashReplacements = []
@@ -3991,8 +3995,10 @@ def read_and_normalise():
 def normWord(w,allWords,cu_nosp):
   hTry,typo = set(),None
   if '-' in w: hTry.add(w.replace('-','')) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
-  wN = re.sub(suffix,'',w)
-  if not w==wN: hTry.add(wN) # normalise on having the suffix in
+  md = markDown(w)
+  if suffix and len(md)>=suffix_minlen:
+    wN = re.sub(suffix,'',w)
+    if not w==wN: hTry.add(wN) # normalise on having the suffix in
   if not capitalisation:
     wl = w.lower() # (as long as it's all Unicode strings, .lower() and .upper() work with accents etc)
     if not w==wl and wl in allWords:
@@ -4011,7 +4017,7 @@ def normWord(w,allWords,cu_nosp):
   nowsp = re.sub(wspPattern,"",w)
   if not capitalisation and not nowsp.lower()==nowsp and nowsp.lower() in allWords: nowsp = nowsp.lower()
   if nowsp in allWords: return nowsp,hTry,typo # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set the relative authority of the reference (TODO)
-  ao,md = annotationOnly(w),markDown(w)
+  ao = annotationOnly(w)
   aoS = ao.split()
   if len(md.split())==1 and len(md) <= 5 and len(aoS) <= len(md): # TODO: 5 configurable?  don't want different_ways_of_splitting to take too long
     # if not too many chars, try different ways of

@@ -611,7 +611,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.354
+Options for Annotator Generator v3.355
 ===========================
 
 Usage: annogen.py [options]
@@ -669,6 +669,9 @@ Options:
 
 `--suffix=`
  : Comma-separated list of annotations that can be considered optional suffixes for normalisation
+
+`--suffix-minlen=`
+ : Minimum length of word (in Unicode characters) to apply suffix normalisation
 
 `--post-normalise=`
  : Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.
