@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.355 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.356 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3992,9 +3992,13 @@ def read_and_normalise():
     diagnose_write(diagnose+" was in the corpus before normalisation, but not after")
     if loaded_from_cache: diagnose_write("You might want to remove "+normalise_cache+' and redo the diagnose')
 
+collapsed_separators = ['',"'",u"\u2019"] # TODO: customise
+def addHyphenReplacements(hTry,w):
+  for r in collapsed_separators:
+    hTry.add(w.replace('-',r))
 def normWord(w,allWords,cu_nosp):
   hTry,typo = set(),None
-  if '-' in w: hTry.add(w.replace('-','')) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
+  if '-' in w: addHyphenReplacements(hTry,w) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
   md = markDown(w)
   if suffix and len(md)>=suffix_minlen:
     wN = re.sub(suffix,'',w)
@@ -4009,17 +4013,26 @@ def normWord(w,allWords,cu_nosp):
       if allWords[wl]*5 < allWords[w] and allWords[wl] <= normalise_debug: typo = (wl,(u"%s (%d instances) overrides %s (%d instances)" % (wl,allWords[wl],w,allWords[w])))
       # To simplify rules, make it always lower.
       w = wl
-      if '-' in w: hTry.add(w.replace('-',''))
+      if '-' in w: addHyphenReplacements(hTry,w)
       wN = re.sub(suffix,'',w)
       if not w==wN: hTry.add(wN)
   if annot_whitespace or (keep_whitespace and markDown(w) in keep_whitespace): return w,None,typo
-  if not re.search(wspPattern,w): return w,hTry,typo
-  nowsp = re.sub(wspPattern,"",w)
-  if not capitalisation and not nowsp.lower()==nowsp and nowsp.lower() in allWords: nowsp = nowsp.lower()
-  if nowsp in allWords: return nowsp,hTry,typo # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set the relative authority of the reference (TODO)
+  r = trySplit(wspPattern,w,md)
+  if r: return r,hTry,typo
+  elif r==False: # no space found in w
+    r = trySplit("-",w,md) # hTry will normalise to putting the hyphen in if there's a without-hyphen version, but if there's a version that splits at the hyphen into separate words, we normalise to that instead as if the hyphen were a space (TODO: optionally?)
+    if r: return r,hTry,typo
+  return w,hTry,typo
+def trySplit(splitPattern,w,md):
+  if not re.search(splitPattern,w): return False
+  if not splitPattern=="-": # (don't try runTogether on hyphens: that's hTry, as we want to normalise it to keeping the hyphen)
+   for r in collapsed_separators:
+    runTogether = re.sub(splitPattern,r,w)
+    if not capitalisation and not runTogether.lower()==runTogether and runTogether.lower() in allWords: return runTogether.lower()
+    if runTogether in allWords: return runTogether # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set relative normalisation authority (TODO)
   ao = annotationOnly(w)
-  aoS = ao.split()
-  if len(md.split())==1 and len(md) <= 5 and len(aoS) <= len(md): # TODO: 5 configurable?  don't want different_ways_of_splitting to take too long
+  annotList = ao.split()
+  if len(md.split())==1 and len(md) <= 5 and len(annotList) <= len(md): # TODO: 5 configurable?  don't want different_ways_of_splitting to take too long
     # if not too many chars, try different ways of
     # assigning each word to chars, and see if any
     # of these exist in the corpus; if any does,
@@ -4027,22 +4040,23 @@ def normWord(w,allWords,cu_nosp):
     # situations - the latter shouldn't necessarily be
     # converted into the former, but the former might
     # be convertible into the latter to simplify rules
-    if capitalisation: aoS2 = aoS
-    else: aoS2 = [w0.lower() for w0 in aoS]
-    for charBunches in different_ways_of_splitting(md,len(aoS)):
-      mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS2)]
-      if "".join(mw) in cu_nosp:
+    if capitalisation: annotListLower = annotList
+    else: annotListLower = [w0.lower() for w0 in annotList]
+    for charBunches in different_ways_of_splitting(md,len(annotList)):
+      mwList = [markUp(c,w0) for c,w0 in zip(charBunches,annotList)]
+      if capitalisation: mwLowerList = mList
+      else: mwLowerList = [markUp(c,w0) for c,w0 in zip(charBunches,annotListLower)]
+      mw = "".join(mwList)
+      mw_lower = "".join(mwLowerList)
+      if mw_lower in cu_nosp or (not mw==mw_lower and mw in cu_nosp): # split version (lower-case or not) is in corpus
         # we're about to return a split version of the words, but we now have to pretend it went through the initial capitalisation logic that way (otherwise could get unnecessarily large collocation checks)
-        if not capitalisation:
-          mw = [markUp(c,w0) for c,w0 in zip(charBunches,aoS)] # the original capitalisation. for selective .lower()
-          for i in range(len(mw)):
-            w0 = mw[i]
-            wl = w0.lower()
-            if not w0==wl and wl in allWords:
-              mw[i] = wl
-        return "".join(mw),hTry,typo
-      # TODO: is there ANY time where we want multiword to take priority over the nowsp (no-whitespace) version above?  or even REPLACE multiword occurrences in the corpus with the 1-word nowsp version?? (must be VERY CAREFUL doing that)
-  return w,hTry,typo
+        if not capitalisation: # check original capitalisation. for selective .lower()
+          for i in range(len(annotList)):
+            wl = mwLowerList[i]
+            if not mwList[i]==wl and wl in allWords:
+              mwList[i] = wl
+        return "".join(mwList)
+      # TODO: is there ANY time where we want multiword to take priority over the runTogether version above?  or even REPLACE multiword occurrences in the corpus with the runTogether version?? (must be VERY CAREFUL doing that)
 def normBatch(words):
   r,typoR = [],[]
   for w in words:
