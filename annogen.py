@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.356 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.357 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3996,7 +3996,7 @@ collapsed_separators = ['',"'",u"\u2019"] # TODO: customise
 def addHyphenReplacements(hTry,w):
   for r in collapsed_separators:
     hTry.add(w.replace('-',r))
-def normWord(w,allWords,cu_nosp):
+def normWord(w,allWords):
   hTry,typo = set(),None
   if '-' in w: addHyphenReplacements(hTry,w) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
   md = markDown(w)
@@ -4030,10 +4030,12 @@ def trySplit(splitPattern,w,md):
     runTogether = re.sub(splitPattern,r,w)
     if not capitalisation and not runTogether.lower()==runTogether and runTogether.lower() in allWords: return runTogether.lower()
     if runTogether in allWords: return runTogether # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set relative normalisation authority (TODO)
+    # TODO: do we check for annot[0]+annot[1:].lower() version too
   ao = annotationOnly(w)
-  annotList = ao.split()
-  if len(md.split())==1 and len(md) <= 5 and len(annotList) <= len(md): # TODO: 5 configurable?  don't want different_ways_of_splitting to take too long
-    # if not too many chars, try different ways of
+  if splitPattern=="-": annotList = ao.split("-")
+  else: annotList = ao.split()
+  if len(md.split())==1 and len(annotList) <= len(md):
+    # Try different ways of
     # assigning each word to chars, and see if any
     # of these exist in the corpus; if any does,
     # assume we have "ABC|a bc" <= "A|a BC|bc" type
@@ -4043,24 +4045,20 @@ def trySplit(splitPattern,w,md):
     if capitalisation: annotListLower = annotList
     else: annotListLower = [w0.lower() for w0 in annotList]
     for charBunches in different_ways_of_splitting(md,len(annotList)):
-      mwList = [markUp(c,w0) for c,w0 in zip(charBunches,annotList)]
-      if capitalisation: mwLowerList = mList
-      else: mwLowerList = [markUp(c,w0) for c,w0 in zip(charBunches,annotListLower)]
-      mw = "".join(mwList)
-      mw_lower = "".join(mwLowerList)
-      if mw_lower in cu_nosp or (not mw==mw_lower and mw in cu_nosp): # split version (lower-case or not) is in corpus
-        # we're about to return a split version of the words, but we now have to pretend it went through the initial capitalisation logic that way (otherwise could get unnecessarily large collocation checks)
-        if not capitalisation: # check original capitalisation. for selective .lower()
+      mwLowerList = [markUp(c,w0) for c,w0 in zip(charBunches,annotListLower)]
+      if "".join(mwLowerList) in cu_lower_nospaces:
+        if not capitalisation:
           for i in range(len(annotList)):
+            wu = markUp(charBunches[i],annotList[i])
             wl = mwLowerList[i]
-            if not mwList[i]==wl and wl in allWords:
-              mwList[i] = wl
-        return "".join(mwList)
+            if not wu==wl and not wl in allWords:
+              mwLowerList[i] = wu # restore original caps
+        return "".join(mwLowerList)
       # TODO: is there ANY time where we want multiword to take priority over the runTogether version above?  or even REPLACE multiword occurrences in the corpus with the runTogether version?? (must be VERY CAREFUL doing that)
 def normBatch(words):
   r,typoR = [],[]
   for w in words:
-    w2,hTry,typo = normWord(w,allWords,cu_nosp)
+    w2,hTry,typo = normWord(w,allWords)
     if hTry:
       hTry.add(w2.replace('-','')) # in case not already there
       for h in hTry:
@@ -4073,7 +4071,7 @@ def normBatch(words):
 def normalise():
     global capitalisation # might want to temp change it
     if (capitalisation or priority_list) and annot_whitespace: return
-    global corpus_unistr,allWords,cu_nosp
+    global corpus_unistr,allWords,cu_lower_nospaces
     if normalise_cache:
       try:
         corpus_unistr = openfile(normalise_cache).read().decode('utf-8')
@@ -4106,8 +4104,8 @@ def normalise():
             ff = 1
         if ff: allWords = getAllWords() # re-generate
       del cu0
-    cu_nosp = re.sub(wspPattern,"",corpus_unistr)
-    if not capitalisation: cu_nosp = cu_nosp.lower()
+    cu_lower_nospaces = re.sub(wspPattern,"",corpus_unistr) # doesn't matter that spaces inside annotation are also taken out by this, since it's used only for searching for words that don't have spaces in their annotation in the split logic
+    if not capitalisation: cu_lower_nospaces = cu_lower_nospaces.lower()
     sys.stderr.write(":") ; sys.stderr.flush()
     tmp = corpus_unistr ; del corpus_unistr
     numCores = setup_parallelism()
@@ -4117,7 +4115,7 @@ def normalise():
     for c in xrange(numCores-1): jobs.append(executor.submit(normBatch,allWL[c*perCore:(c+1)*perCore]))
     if numCores>1: allWL=allWL[(numCores-1)*perCore:]
     results = [normBatch(allWL)]
-    del allWords,cu_nosp
+    del allWords,cu_lower_nospaces
     for j in jobs: results.append(j.result())
     sys.stderr.write(".") ; sys.stderr.flush()
     dic = {}
