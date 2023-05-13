@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.357 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.358 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5269,12 +5269,6 @@ def update_android_manifest():
   if android_upload:
     sys.stderr.write("AndroidManifest.xml: bumping versionCode for upload\n (assuming you've taken care of versionName separately, if needed)\n") # (might not be needed if the previous upload wasn't actually released for example)
     versionCode = B(str(int(versionCode)+1))
-  def pathQ(x):
-    x = urlparse.urlparse(x)
-    if x.query: x=x.path+"?"+x.query
-    else: x=x.path
-    if ".*" in x: return B('android:pathPattern="%s"' % (x,))
-    else: return B('android:pathPrefix="%s"' % (x,))
   manifest = android_manifest.replace(b'%%JPACKAGE%%',B(jPackage)).replace(b'android:versionCode="1"',b'android:versionCode="'+versionCode+b'"').replace(b'android:versionName="1.0"',b'android:versionName="'+versionName+b'"').replace(b'android:sharedUserId=""',b'android:sharedUserId="'+sharedUID+b'"').replace(b'android:sharedUserId="" ',b'')
   if not manifest==old_manifest:
     open(jSrc+"/../AndroidManifest.xml","wb").write(manifest)
