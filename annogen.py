@@ -39,7 +39,8 @@ if '--html-options' in sys.argv:
   parser = HTMLOptions()
   parser.add_option("-h","--help",action=True,help="show this help message and exit")
 elif '--markdown-options' in sys.argv:
-  print ("Usage: annogen.py [options]\n\nOptions:\n\n")
+  l = "Options for "+__doc__[:__doc__.index("(c)")].strip()
+  print (l) ; print ("="*len(l)) ; print ("")
   class MarkdownOptions:
     def add_option(self,*args,**kwargs):
       if not 'action' in kwargs: args=[a+'=' if a.startswith('--') else a for a in args]
