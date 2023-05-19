@@ -1,6 +1,6 @@
 # adjuster
 
-Web Adjuster + Annotator Generator from http://ssb22.user.srcf.net/adjuster/
+Web Adjuster + Annotator Generator + TermLayout from http://ssb22.user.srcf.net/adjuster/
 
 (also mirrored at http://ssb22.gitlab.io/adjuster just in case)
 
