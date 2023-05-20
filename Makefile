@@ -23,7 +23,4 @@ update-readme:
 	python adjuster.py --markdown-options > adjuster.1.ronn
 	python annogen.py --markdown-options > annogen.1.ronn
 	ronn -r --organization="Silas S. Brown" *.ronn
-	rm adjuster.1.ronn annogen.1.ronn
-	mkdir -p man
-	mv *.1 man
-	git add man/*.1
+	rm adjuster.1.ronn annogen.1.ronn ; mv *.1 man/
