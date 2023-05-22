@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.358 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.359 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5412,26 +5412,19 @@ if main:
      dirName0 = S(getoutput("pwd|sed -e s,.*./,,"))
      dirName = shell_escape(dirName0)
    if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps after August 2021 ?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
-     if "SDK_SSH" in os.environ:
-       remote1 = 'ssh "$SDK_SSH" "cd '+"'"+getoutput('ssh "$SDK_SSH" mktemp -d')+"' && KEYSTORE_PASS='"+os.environ.get("KEYSTORE_PASS","")+"' " # TODO: non-argv environ pass?
-       remote2 = '"'
-       cmd_or_exit('tar -zc . | '+remote1+'tar -zx'+remote2)
-     else: remote1=remote2 = ""
-     cmd_or_exit(remote1+"$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_"+remote2) # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
-     cmd_or_exit(remote1+"find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile"+remote2) # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
-     if not remote1 and os.path.exists(os.environ["BUILD_TOOLS"]+"/dx"): # older SDK (not currently supported if SDK_SSH set, TODO?)
+     cmd_or_exit("$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
+     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
+     if os.path.exists(os.environ["BUILD_TOOLS"]+"/dx"): # older SDK
       a = " -JXmx4g --force-jumbo" # -J option must go first
       if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
        a += " --min-sdk-version=1" # older versions of dx don't have that flag, but will be min-sdk=1 anyway
       cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
-     elif remote1: cmd_or_exit(remote1+"$BUILD_TOOLS/d8 --min-api 1 --output bin \$(find bin -type f -name '*.class')"+remote2)
      else: cmd_or_exit("$BUILD_TOOLS/d8 --min-api 1 --output bin $(find bin -type f -name '*.class')")
-     cmd_or_exit(remote1+"cp bin/resources.ap_ bin/"+dirName+".ap_"+remote2)
-     cmd_or_exit(remote1+"cd bin && $BUILD_TOOLS/aapt add -0 '' "+dirName+".ap_ classes.dex"+remote2)
-     cmd_or_exit(remote1+"rm -f bin/"+dirName0+".apk && $BUILD_TOOLS/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk && rm -f ../"+dirName0+".apk"+remote2)
-     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit(remote1+"$BUILD_TOOLS/apksigner sign --ks $KEYSTORE_FILE --v1-signer-name $KEYSTORE_USER --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out ../"+dirName+".apk bin/"+dirName+".apk"+remote2)
-     cmd_or_exit(remote1+"rm -f bin/"+dirName0+".ap_ bin/"+dirName0+".apk"+remote2)
-     if remote1: cmd_or_exit(remote1+"P=\$(pwd) && cd .. && cat "+dirName+".apk && rm -rf "+dirName+".apk \$P"+remote2+" > ../"+dirName+".apk")
+     cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
+     cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add -0 '' "+dirName+".ap_ classes.dex")
+     cmd_or_exit("rm -f bin/"+dirName0+".apk && $BUILD_TOOLS/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk && rm -f ../"+dirName0+".apk")
+     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("$BUILD_TOOLS/apksigner sign --ks $KEYSTORE_FILE --v1-signer-name $KEYSTORE_USER --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out ../"+dirName+".apk bin/"+dirName+".apk")
+     cmd_or_exit("rm -f bin/"+dirName0+".ap_ bin/"+dirName0+".apk")
      if not can_track_android: cmd_or_exit("du -h ../"+dirName+".apk")
    if can_track_android:
      import httplib2,googleapiclient.discovery,oauth2client.service_account # pip install google-api-python-client (or pip install --upgrade google-api-python-client if yours is too old).  Might need pip install oauth2client also.
@@ -5476,16 +5469,14 @@ before the Annogen run (change the examples obviously) :
    # The app will be compatible with Android 1.0+
    # but SDK 24+ is required on the build machine.
    # SDK 24 was released mid-2016.  If you have an older Intel-based machine whose main OS cannot be upgraded, you may be able to install a newer SDK on a virtual machine, e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless'
-   # On non-Intel architectures, things are more complicated.  Ubuntu 22.04's multi-architecture android-sdk-build-tools package is not suitable (even together with google-android-platform-24-installer) because it doesn't provide the necessary update to app signing in SDK 24.  But if you're running on something like an OCI Ampere A1 server, you could make a separate, lower-spec'd x86 machine available just for the Android SDK builds (you'll need an X11 connection to it to download and install Android Studio), and set
-   export SDK_SSH='machine-name'
-   # Annogen will copy the files to be compiled to this machine and run the SDK tools there.
+   # On non-Intel architectures, I suggest installing box64 (and box86 is also useful for 32-bit binaries), and installing the x86 Android SDK (you'll need an X11 connection to it to download and install Android Studio).  Ubuntu 22.04's multi-architecture android-sdk-build-tools package is not suitable (even together with google-android-platform-24-installer) because it doesn't provide the necessary update to app signing in SDK 24.
 
    # You can upload the apk to Google Play to update an existing app.
    # Since August 2021, Google Play enforces a different 'bundle' format
    # for new apps, which I don't yet know how to make.
    # To upload the update release to Google Play, additionally set:
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
-   # (this is on the local machine, not SDK_SSH, and must be an absolute path)
+   # (must be an absolute path)
    # and optionally:
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
    export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
