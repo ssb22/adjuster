@@ -9,3 +9,4 @@ test:
 	python3 -c 'import annogen as a;a.jsAnnot(False,True)'
 	python2 -c 'import annogen as a;a.delete_existing_ruby=True;a.jsAnnot(False,True)'
 	python3 -c 'import annogen as a;a.delete_existing_ruby=True;a.jsAnnot(False,True)'
+.PHONY: test
