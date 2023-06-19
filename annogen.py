@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.3591 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.3592 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1461,8 +1461,8 @@ try{nfOld.parentNode.replaceChild(nfNew,nfOld)}catch(err){ /* already done */ }
   if for_async: r += br"""
 document.annotWalkOff=1;
 chrome.runtime.sendMessage(true,function(r){if(r!=-1){document.aType=r;annotWalk(document)}document.annotWalkOff=(r==-1)});
-new window.MutationObserver(function(mut){var i,j;if(!document.annotWalkOff)for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}}).observe(document.body,{childList:true,subtree:true});
-"""
+new window.MutationObserver(function(mut){var i,j;if(!document.annotWalkOff){document.annotWalkOff=1;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}window.setTimeout(function(){document.annotWalkOff=0},10)}}).observe(document.body,{childList:true,subtree:true});
+""" # TODO: even with annotWalkOff temporarily set to suppress the nested observer trigger, long popups on pages with their own ruby can still take 16+secs on older PCs
   elif for_android: r += br"if(!ssb_local_annotator.getIncludeAll())document.addEventListener('copy',function(e){var s=window.getSelection(),i,c=document.createElement('div');for(i=0;i < s.rangeCount;i++)c.appendChild(s.getRangeAt(i).cloneContents());e.clipboardData.setData('text/plain',c.innerHTML.replace(/<rt.*?<[/]rt>/g,'').replace(/<.*?>/g,''));e.preventDefault()});" # work around user-select:none not always working (and newlines sometimes being added anyway)
   if not for_async:
     r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
