@@ -1,6 +1,24 @@
 .\" generated with Ronn-NG/v0.9.1
 .\" http://github.com/apjanke/ronn-ng/tree/0.9.1
 .TH "ADJUSTER" "1" "June 2023" "Silas S. Brown"
+Web Adjuster is a Tornado\-based, domain\-rewriting proxy for applying custom processing to Web pages\. It is particularly meant for users of smartphones etc as these might not support browser extensions\. Web Adjuster can:
+.IP "\[ci]" 4
+Add a custom stylesheet to change size, layout and colours
+.IP "\[ci]" 4
+Add custom Javascript to all pages, allowing many desktop browser extensions to work as\-is on a smartphone or tablet
+.IP "\[ci]" 4
+Run a custom program to change the markup, or to change or annotate text for language tools (see for example Annotator Generator)
+.IP "\[ci]" 4
+Render images for a language or text size not supported by the browser (this function requires the Python Imaging Library and suitable fonts)
+.IP "\[ci]" 4
+Down\-sample MP3 audio to save bandwidth, and add plain text versions of PDF and EPUB files (helper programs are required for these functions)
+.IP "\[ci]" 4
+Remove problematic markup from pages, etc\.
+.IP "" 0
+.P
+\fIDomain rewriting\fR means you do not need to be able to change the device's proxy settings\(emyou simply go to a different address\. However, \fIonly the domain part is different\fR, so most in\-site scripting should work as\-is, without needing delicate alterations to its URI handling\. For example, if you have a server called \fBadjuster\.example\.org\fR and you want to see \fBwww\.example\.com\fR, simply go to \fBwww\.example\.com\.adjuster\.example\.org\fR\. Your server ideally needs a wildcard domain, but you can manage without one in some cases, and Web Adjuster can also be a "real" HTTP proxy for local use on a desktop etc\.
+.P
+Because it is based on a single\-threaded event\-driven Tornado server, Web Adjuster can efficiently handle connections even on a low\-power machine like the original Raspberry Pi\. (Add\-on programs run in other threads, but this is seldom a slow\-down in practice\.) Tornado also makes Web Adjuster easier to set up: it is a separate, self\-contained server that doesn't need to be worked into the configuration of another one\(emit can listen on an alternate port (and can be password protected)\(embut if you prefer you can configure it to share port 80 with another server\.
 .SH "General options"
 .TP
 \fB\-\-config\fR

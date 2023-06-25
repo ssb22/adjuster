@@ -1,6 +1,22 @@
 .\" generated with Ronn-NG/v0.9.1
 .\" http://github.com/apjanke/ronn-ng/tree/0.9.1
 .TH "ANNOGEN" "1" "June 2023" "Silas S. Brown"
+Annotator Generator is an examples\-driven generator of fast text annotators\. "Annotate" in this context means to add pronunciation or other information to each word, and/or to split text into words in a language that does not use spaces\.
+.IP "\[ci]" 4
+You supply a corpus of pre\-annotated texts for Annotator Generator to work out the rules and exceptions
+.IP "\[ci]" 4
+Annotator Generator creates table\-driven code in C, Java, Javascript, Dart or Python with 2 and 3 compatibility
+.IP "\[ci]" 4
+The resulting program should be able to annotate any text that contains words or phrases similar to those found in the examples
+.IP "\[ci]" 4
+It can output the annotations alone or it can combine them with the original text using HTML Ruby markup or simple braces
+.IP "\[ci]" 4
+If anything is unclear (didn't happen in the examples, or there's not enough context to figure out which example should be applied) then the program will leave it unannotated so you can pass it to a backup annotation program if you have one\.
+.IP "\[ci]" 4
+If you have no backup annotator then try setting the \fB\-y\fR option, which makes Annotator Generator try harder to find context\-independent rules with context\-dependent exceptions, so as to annotate as much text as possible\.
+.IP "\[ci]" 4
+Generated annotators can act as filters for Web Adjuster; options are also provided for generating Android apps, browser extensions, and clipboard annotators for Windows and Windows Mobile, or you could format the annotations on a Unix terminal
+.IP "" 0
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 show this help message and exit
@@ -385,4 +401,22 @@ Cancels any earlier \fB\-\-single\-core\fR option in Makefile variables etc
 .TP
 \fB\-p\fR, \fB\-\-status\-prefix=\fR
 Label to add at the start of the status line, for use if you batch\-run annogen in multiple configurations and want to know which one is currently running
-
+.SH "Legal considerations"
+Annotator code will contain individual words and some phrases from the original corpus (and these can be read even by people who do not have the unannotated version); with regards to copyright law, I expect the annotator code will count as an "index" to the collection, the copyright of which exists separately to that of the original collection, but laws do vary by country and I am not a solicitor so please act judiciously\.
+.P
+Legally obtaining that original annotated corpus is up to you\. \fIIf you are in the UK\fR the government says non\-commercial text mining is allowed (terms of use prohibiting non\-commercial mining are unenforceable), provided you:
+.IP "1." 4
+respect network stability (i\.e\. wait a long time between each download),
+.IP "2." 4
+connect directly to the publisher (this law bypasses the publisher's terms of use, not those of third\-party search engines like Google),
+.IP "3." 4
+use the result only for mining, not for republishing the original text (so you can't publish your unprocessed crawl dumps either),
+.IP "4." 4
+and still respect any prohibitions against sharing whatever mining tools you made for the site (as this law is only about text mining, not about the sharing of tools)\.
+.IP "" 0
+.P
+Laws outside the UK are different (and I'm not a lawyer) so check carefully\. But if the website's terms don't actually prohibit writing an unpublished scraper for non\-commercial mining purposes, perhaps you won't need a legal exception\(embut you should still respect their bandwidth and do it slowly, both for moral reasons (it's the right thing to do) and pragmatic ones (you won't want their sysadmins and service providers taking action against you)\.
+.SH "Citation"
+If you need to cite a peer\-reviewed paper:
+.P
+Silas S\. Brown\. Web Annotation with Modified\-Yarowsky and Other Algorithms\. Overload 112 (December 2012) pp\.4\-7\.

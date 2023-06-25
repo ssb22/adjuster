@@ -20,7 +20,16 @@ update-readme:
 	echo >> n
 	awk -- 'BEGIN {p=0} /^Copyright and Trademarks/ {p=1} // {if(p) print}' < README.md >> n
 	mv n README.md
-	python adjuster.py --markdown-options > adjuster.1.ronn
-	python annogen.py --markdown-options > annogen.1.ronn
+	(echo "# adjuster";echo) > adjuster.1.ronn
+	awk -- 'BEGIN {p=0} /^Web Adjuster is a/ {p=1} /^Installation/ {p=0} // {if(p) print}' < README.md | sed -e 's/“/"/g' -e 's/”/"/g' -e "s/’/'/g" >> adjuster.1.ronn
+	python adjuster.py --markdown-options >> adjuster.1.ronn
+	(echo "# annogen";echo) > annogen.1.ronn
+	awk -- 'BEGIN {p=0} /^Annotator Generator is a/ {p=1} /^Legal considerations/ {p=0} // {if(p) print}' < README.md | sed -e 's/“/"/g' -e 's/”/"/g' -e "s/’/'/g" >> annogen.1.ronn
+	python annogen.py --markdown-options >> annogen.1.ronn
+	echo >> annogen.1.ronn
+	awk -- 'BEGIN {p=0} /^Legal considerations/ {p=1} /^TermLayout/ {p=0} // {if(p) print}' < README.md | sed -e 's/“/"/g' -e 's/”/"/g' -e "s/’/'/g" >> annogen.1.ronn
+	(echo "# termlayout";echo) > termlayout.1.ronn
+	awk -- 'BEGIN {p=0} /^TermLayout/ {p=1} /^Options for Web Adjuster/ {p=0} // {if(p) print}' < README.md | sed -e 's/“/"/g' -e 's/”/"/g' -e "s/’/'/g" >> termlayout.1.ronn
 	ronn -r --organization="Silas S. Brown" *.ronn
-	rm adjuster.1.ronn annogen.1.ronn ; mv *.1 man/
+	rm adjuster.1.ronn annogen.1.ronn termlayout.1.ronn
+	mv *.1 man/
