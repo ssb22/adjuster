@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.3592 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.3593 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5408,7 +5408,7 @@ if main:
    can_track_android = (can_compile_android and android_upload) or ("GOOGLE_PLAY_TRACK" in os.environ and "SERVICE_ACCOUNT_KEY" in os.environ and not os.environ.get("ANDROID_NO_RETRACK",""))
    if can_compile_android and compile_only and android_upload: update_android_manifest() # AndroidManifest.xml will not have been updated, so we'd better do it now
    if can_compile_android or can_track_android:
-     os.chdir(jSrc+"/..")
+     cwd = os.getcwd() ; os.chdir(jSrc+"/..")
      dirName0 = S(getoutput("pwd|sed -e s,.*./,,"))
      dirName = shell_escape(dirName0)
    if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps after August 2021 ?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
@@ -5438,7 +5438,7 @@ if main:
          sys.stderr.write("now\n")
        sys.stderr.write("Logging in... ")
        sys.stderr.flush()
-       service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
+       service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.path.join(cwd,os.environ['SERVICE_ACCOUNT_KEY']),'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
        if android_upload:
          sys.stderr.write("uploading... ")
@@ -5476,7 +5476,6 @@ before the Annogen run (change the examples obviously) :
    # for new apps, which I don't yet know how to make.
    # To upload the update release to Google Play, additionally set:
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
-   # (must be an absolute path)
    # and optionally:
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
    export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
