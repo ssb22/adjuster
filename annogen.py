@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.3593 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.3594 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1721,14 +1721,20 @@ if(ssb_local_annotator.canCustomZoom()) document.write('<div style="display:inli
 if sharp_multi and annotation_names: android_url_box += br"""
 modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+br"""];document.write('<select style="margin-top: 0.5ex" onChange="ssb_local_annotator.setAnnotNo(this.selectedIndex<0?0:this.selectedIndex);location.reload()">');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)document.write('<option'+(i==c?' selected':'')+'>'+modeNames[i]+'</option>');document.write('</select> ');"""
 if known_characters:
-  l = [re.sub(b'\s+',b'',l) for l in open(known_characters,'rb').readlines()]
-  l = [i for i in l if i]
-  if len(l) % 10: warn("UI code currently assumes known_characters line count will be a multiple of 10, but it isn't.  Last option will be too high.") # TODO handle this properly?
-  l = b'['+b','.join(b"'"+b"".join(l[s:s+10])+b"'" for s in xrange(0,len(l),10))+b']'
+  L = [i for i in [re.sub(b'\s+',b'',l) for l in open(known_characters,'rb').readlines()] if i]
+  l = [] ; s = 0
+  while s < len(L):
+    if s>=800: inc=100
+    elif s>=300: inc=50
+    elif s>=100: inc=20
+    else: inc=10
+    if s+inc > len(L): warn("UI code currently assumes known_characters line count will be a round number, but it isn't.  Last option will be too high.") # TODO handle this properly?
+    l.append(b"".join(L[s:s+inc])) ; s += inc
+  l = b'['+b','.join(b"'"+i+b"'" for i in l)+b']'
   android_url_box += br"""
-var zinFreq="""+l+br""",known=ssb_local_annotator.getKnownCharacters();
-document.write('<select style="margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(zinFreq.slice(0,this.selectedIndex<0?0:this.selectedIndex).join('+"''"+'));location.reload()"><option'+(known==""?' selected':'')+'>Annotate all</option>');
-for(var dx=0,k='';dx<zinFreq.length;dx++) document.write('<option'+(known==(k+=zinFreq[dx])?' selected':'')+'>Leave '+((1+dx)*10)+' known</option>');
+var hFreq="""+l+br""",known=ssb_local_annotator.getKnownCharacters();
+document.write('<select style="margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(hFreq.slice(0,this.selectedIndex<0?0:this.selectedIndex).join('+"''"+'));location.reload()"><option'+(known==""?' selected':'')+'>Annotate all</option>');
+for(var dx=0,N=10,k='';dx<hFreq.length;dx++,N+=(N>=800?100:N>=300?50:N>=100?20:10)) document.write('<option'+(known==(k+=hFreq[dx])?' selected':'')+'>Leave '+N+' known</option>');
 document.write('</select> ');""" # TODO: could add a 'custom' option that's selected if none of the others are, but will need some way of editing it (and might need to nicely handle the case of 'frequency table corrected during an app upgrade')
 android_url_box += br"""
 document.write('<button style="margin-top: 0.5ex;background:#ededed;color:inherit;padding-left:0px;padding-right:0.2ex" onclick="ssb_local_annotator.setIncludeAll(!ssb_local_annotator.getIncludeAll());location.reload();return false"><input type=checkbox'+(ssb_local_annotator.getIncludeAll()?' checked':'')+'>Include """
@@ -5408,7 +5414,7 @@ if main:
    can_track_android = (can_compile_android and android_upload) or ("GOOGLE_PLAY_TRACK" in os.environ and "SERVICE_ACCOUNT_KEY" in os.environ and not os.environ.get("ANDROID_NO_RETRACK",""))
    if can_compile_android and compile_only and android_upload: update_android_manifest() # AndroidManifest.xml will not have been updated, so we'd better do it now
    if can_compile_android or can_track_android:
-     cwd = os.getcwd() ; os.chdir(jSrc+"/..")
+     os.chdir(jSrc+"/..")
      dirName0 = S(getoutput("pwd|sed -e s,.*./,,"))
      dirName = shell_escape(dirName0)
    if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps after August 2021 ?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
@@ -5438,7 +5444,7 @@ if main:
          sys.stderr.write("now\n")
        sys.stderr.write("Logging in... ")
        sys.stderr.flush()
-       service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.path.join(cwd,os.environ['SERVICE_ACCOUNT_KEY']),'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
+       service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
        if android_upload:
          sys.stderr.write("uploading... ")
@@ -5476,6 +5482,7 @@ before the Annogen run (change the examples obviously) :
    # for new apps, which I don't yet know how to make.
    # To upload the update release to Google Play, additionally set:
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
+   # (must be an absolute path)
    # and optionally:
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
    export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
