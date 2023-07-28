@@ -611,7 +611,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.3595
+Options for Annotator Generator v3.3596
 =======================================
 
 `-h`, `--help`
@@ -777,7 +777,10 @@ Options for Annotator Generator v3.3595
  : Cancels any earlier `--android-print` option in Makefile variables etc
 
 `--known-characters=`
- : When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other. Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.
+ : When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other (see `--freq-count` for one way to generate it). Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.
+
+`--freq-count=`
+ : Name of a file to write that is suitable for the known-characters option, taken from the input examples (which should be representative of typical use).  Any post-normalise table provided will be used to determine which characters are equivalent.
 
 `--android-audio=`
  : When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.

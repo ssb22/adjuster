@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.3595 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.3596 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -205,7 +205,8 @@ parser.add_option("--android-print",
                   action="store_true",default=False,
                   help="When generating an Android browser, include code to provide a Print option (usually print to PDF) and a simple highlight-selection option. The Print option will require Android 4.4, but the app should still run without it on earlier versions of Android.")
 cancelOpt("android-print")
-parser.add_option("--known-characters",help="When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other. Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.")
+parser.add_option("--known-characters",help="When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other (see --freq-count for one way to generate it). Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.")
+parser.add_option("--freq-count",help="Name of a file to write that is suitable for the known-characters option, taken from the input examples (which should be representative of typical use).  Any post-normalise table provided will be used to determine which characters are equivalent.")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
 parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)")
@@ -418,6 +419,7 @@ if android_template:
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
 if known_characters and not android: errExit("--known-characters requires --android")
+if known_characters and freq_count: errExit("--known-characters and --freq-count must be on separate runs in the current implementation") # otherwise need to postpone loading known_characters
 if known_characters and not android_template and not ("ANDROID_NO_UPLOAD" in os.environ and "GOOGLE_PLAY_TRACK" in os.environ): warn("known-characters without android-template means you call the Javascript functions yourself")
 if android_print and not bookmarks: errExit("The current implementation of --android-print requires --bookmarks to be set as well")
 if android_audio:
@@ -555,7 +557,7 @@ if java or javascript or python or dart: c_compiler = None
 try: xrange # Python 2
 except: xrange,unichr,unicode = range,chr,str # Python 3
 if post_normalise:
-  if not (javascript or java): errExit('--post-normalise currently requires --javascript or --java')
+  if not (javascript or java or freq_count): errExit('--post-normalise currently requires --javascript or --java (or --freq-count)')
   if type("")==type(u""): # Python 3 (this requires 3.5+, TODO: support 3.3/3.4 ?)
     import importlib.util as iu
     s = iu.spec_from_file_location("post.normalise", post_normalise)
@@ -4077,7 +4079,6 @@ def normBatch(words):
 
 def normalise():
     global capitalisation # might want to temp change it
-    if (capitalisation or priority_list) and annot_whitespace: return
     global corpus_unistr,allWords,cu_lower_nospaces
     if normalise_cache:
       try:
@@ -4086,6 +4087,7 @@ def normalise():
         return True # loaded from cache
       except: pass
     assert main, "normalise called in non-main module"
+    if (capitalisation and annot_whitespace) or priority_list or freq_count: return # TODO: might want to normalise at least the word breaks if priority_list (but it loads it anyway if cached)
     sys.stderr.write("Normalising...");sys.stderr.flush()
     old_caps = capitalisation
     if priority_list: capitalisation = True # no point keeping it at False
@@ -4455,16 +4457,16 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
     if not force_negate:
       didFind = [] # for append(True) when something found, used only by diagnostics
       diagnostics.append((didFind,"",pRet,pCovered))
-      toCheck.append((didFind,okStrs,pAppend,pCovered,unique_substrings(okStrs,markedUp_unichars,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))) # a generator and associated parameters for positive indicators
+      toCheck.append((didFind,okStrs,pAppend,pCovered,unique_substrings(okStrs,lambda txt:txt in pOmit,lambda txt:sum(1 for s in okStrs if txt in s)))) # a generator and associated parameters for positive indicators
     diagnose_extra = []
     if force_negate or 5*len(okStrs) > len(badStrs) or not okStrs: # and for negative indicators, if appropriate: (changed in v0.6892: still check for negative indicators if len(okStrs) is similar to len(badStrs) even if not strictly greater, but don't bother if len(okStrs) is MUCH less)
       didFind = []
       diagnostics.append((didFind,"negative",nRet,nCovered))
-      toCheck.append((didFind,badStrs,nAppend,nCovered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s))))
+      toCheck.append((didFind,badStrs,nAppend,nCovered,unique_substrings(badStrs,lambda txt:txt in nOmit,lambda txt:sum(1 for s in badStrs if txt in s))))
       if try_harder and okStrs and not force_negate:
         didFind = []
         diagnostics.append((didFind,"overmatch-negative",n2Ret,n2Covered))
-        toCheck.append((didFind,badStrs,nAppend2,n2Covered,unique_substrings(badStrs,markedUp_unichars,lambda txt:txt in avoidSelf,lambda txt:(sum(1 for s in badStrs if txt in s),-sum(1 for s in okStrs if txt in s))))) # a harder try to find negative indicators (added in v0.6896): allow over-matching (equivalent to under-matching positive indicators) if it's the only way to get all badStrs covered (v3.264: only don't try creating an indicator from the word itself which would render the rule a no-op).  May be useful if the word can occur in isolation.
+        toCheck.append((didFind,badStrs,nAppend2,n2Covered,unique_substrings(badStrs,lambda txt:txt in avoidSelf,lambda txt:(sum(1 for s in badStrs if txt in s),-sum(1 for s in okStrs if txt in s))))) # a harder try to find negative indicators (added in v0.6896): allow over-matching (equivalent to under-matching positive indicators) if it's the only way to get all badStrs covered (v3.264: only don't try creating an indicator from the word itself which would render the rule a no-op).  May be useful if the word can occur in isolation.
     elif nonAnnot==diagnose: diagnose_extra.append("Not checking for negative indicators as 5*%d>%d=%s." % (len(okStrs),len(badStrs),repr(5*len(okStrs)>len(badStrs))))
     while toCheck and negate==None:
       for i in range(len(toCheck)):
@@ -4554,15 +4556,15 @@ def badInfo(badStarts,nonAnnot,for_tty=True):
    else: ret += (u" (%s <<%s>> %s)" % (toRead[contextStart:wordStart],toRead[wordStart:wordEnd],toRead[wordEnd:contextEnd])).replace("\n","\\n").replace("\r","\\r")
   return ret
 
-def unique_substrings(texts,allowedChars,omitFunc,valueFunc):
-    # yield unique substrings of texts, in increasing length, with equal lengths sorted by highest score returned by valueFunc, and omitting any where omitFunc is true, or that uses any character not in allowedChars (allowedChars==None means all allowed)
-    if allowedChars:
-        # remove non-allowedChars from texts, splitting into smaller strings as necessary
+def unique_substrings(texts,omitFunc,valueFunc):
+    # yield unique substrings of texts, in increasing length, with equal lengths sorted by highest score returned by valueFunc, and omitting any where omitFunc is true, or that uses any character not in markedUp_unichars (unless yarowsky_all set)
+    if not yarowsky_all:
+        # remove non-allowed chars from texts, splitting into smaller strings as necessary
         texts2 = [] ; append=texts2.append
         for text in texts:
             start = 0
             for i in xrange(len(text)):
-                if not text[i] in allowedChars:
+                if not text[i] in markedUp_unichars:
                     if i>start: append(text[start:i])
                     start=i+1
             if start<len(text): append(text[start:])
@@ -4866,9 +4868,9 @@ def setup_other_globals():
       if k in bigramCache:
         bigramCache[k].append(i)
         if len(bigramCache[k]) > 100: del bigramCache[k]
-    global markedUp_unichars
-    if yarowsky_all: markedUp_unichars = None
-    else: markedUp_unichars = set(list(u"".join(markDown(p) for p in get_phrases() if not type(p)==int)))
+    if freq_count or not yarowsky_all:
+      global markedUp_unichars
+      markedUp_unichars = set(list(u"".join(markDown(p) for p in get_phrases() if not type(p)==int)))
 
 def analyse():
     accum = RulesAccumulator()
@@ -5119,7 +5121,7 @@ def outputParser(rulesAndConds):
       byteSeq_to_action_dict[openQuote] = [(copyBytes(len(openQuote),checkNeedspace=True),[])]
     def addRule(rule,conds,byteSeq_to_action_dict,manualOverride=False):
       md = md2 = markDown(rule)
-      if post_normalise:
+      if post_normalise and (javascript or java):
         md2 = post_normalise_translate(md)
         byteSeq = md2.encode(outcode)
         if type(conds)==tuple: conds=(conds[0],list(map(post_normalise_translate,conds[1])),conds[2])
@@ -5390,6 +5392,19 @@ if main and not compile_only:
     sys.stderr.write(" done\n")
     sys.exit()
   generate_map() ; setup_other_globals()
+  if freq_count:
+    sys.stderr.write("Writing "+freq_count+"...") ; sys.stderr.flush()
+    counts = {}
+    for c in post_normalise_translate(corpus_unistr):
+      if c in markedUp_unichars and c.strip():
+        if not c in counts: counts[c] = 0
+        counts[c] += 1
+    cSets = {}
+    for k,v in iteritems(post_normalise):
+      if not unichr(v) in cSets: cSets[unichr(v)]=unichr(v)
+      cSets[unichr(v)] += unichr(k)
+    openfile(freq_count,'w').write((u"\n".join(cSets.get(c,c) for _,c in list(reversed(sorted((n,c) for c,n in iteritems(counts))))[:1000])+u"\n").encode('utf-8')) # TODO: customise the 1000 (maybe greater increment after 1000)
+    sys.stderr.write(" done\n")
   setup_parallelism() # re-copy globals to cores
   try: rulesAndConds = analyse()
   finally: sys.stderr.write("\n") # so status line is not overwritten by 1st part of traceback on interrupt etc
