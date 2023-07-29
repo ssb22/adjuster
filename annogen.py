@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.3596 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.3597 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -4087,7 +4087,7 @@ def normalise():
         return True # loaded from cache
       except: pass
     assert main, "normalise called in non-main module"
-    if (capitalisation and annot_whitespace) or priority_list or freq_count: return # TODO: might want to normalise at least the word breaks if priority_list (but it loads it anyway if cached)
+    if (capitalisation and annot_whitespace) or priority_list: return # TODO: might want to normalise at least the word breaks if priority_list (but it loads it anyway if cached)
     sys.stderr.write("Normalising...");sys.stderr.flush()
     old_caps = capitalisation
     if priority_list: capitalisation = True # no point keeping it at False
