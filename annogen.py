@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.3597 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.3598 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1185,12 +1185,12 @@ jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body)
 if android_template: jsAddRubyCss += b"-webkit-user-select:'+(ssb_local_annotator.getIncludeAll()?'text':'none')+' !important;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way, but other users want the annotations (and copying one word at a time via the popup box is slow).  This (plus our JS fix) narrows things down only if Copy is in use, not extended popup options e.g. Translate. (Incidentally, user-select:all on rb doesn't work in Android 10 as of 2021-01, so better use 'text' or 'auto')
 jsAddRubyCss += b"display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+b", ".join(annotation_font)+b" !important;}"
 jsAddRubyCss += b"rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}" # for 3line mode (assumes rt/rb and rt/rt/rb)
-if known_characters: jsAddRubyCss += b"rt.known{display: none !important}"
 jsAddRubyCss += b"rp{display:none!important}"+B(extra_css).replace(b'\\',br'\\').replace(b'"',br'\"').replace(b"'",br"\\'")+b"'"
 if epub: jsAddRubyCss += b"+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += b"+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; }'+(ssb_local_annotator.printNeedsCssHack()?' rt { font-family: sans-serif !important; }':'')+' }'"
 if android_template: jsAddRubyCss += b"+(ssb_local_annotator.getDevCSS()?'ruby:not([title]){border:thin blue solid} ruby[title~=\\\"||\\\"]{border:thin blue dashed}':'')" # (use *= instead of ~= if the || is not separated on both sides with space)
 jsAddRubyCss += b"+'</style>'"
+if known_characters: jsAddRubyCss += b"+'<style id=\"ssb_hide0\">rt.known{display: none !important}</style>'"
 def sort20px(singleQuotedStr): # 20px is relative to zoom
   assert singleQuotedStr.startswith(b"'") and singleQuotedStr.endswith(b"'")
   if not android_template: return singleQuotedStr
@@ -1986,10 +1986,10 @@ if known_characters and glossfile: # TODO: might want a way of getting this choi
                                 String[] items=new String[2];
                                 items[0]=new String("Show all"); items[1]=new String("Hide known");
                                 d.setItems(items,new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int hideOrNot) {
-                                    if(hideOrNot==1) act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
+                                    if(hideOrNot==0) act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
 "javascript:var h=document.getElementById('ssb_hide0');if(h)h.parentNode.removeChild(h)"
 ); } }); else act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
-"javascript:var h=document.getElementById('ssb_hide0');if(!h){h=document.createElement('span');h.setAttribute('id','ssb_hide0');h.innerHTML='<style>ruby rt.known { display:table-header-group !important } </style>';document.body.insertBefore(h,document.body.firstChild.nextSibling)}"
+"javascript:var h=document.getElementById('ssb_hide0');if(!h){h=document.createElement('span');h.setAttribute('id','ssb_hide0');h.innerHTML='<style>rt.known{display:none!important}</style>';document.body.insertBefore(h,document.body.firstChild.nextSibling)}"
 ); } }); } }); } else"""
 if glossfile: android_src += br"""
                             d.setTitle("Choose a format:");
