@@ -1190,7 +1190,7 @@ if epub: jsAddRubyCss += b"+((location.href.slice(0,12)=='http://epub/')?'ol{lis
 if android_print: jsAddRubyCss += b"+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; }'+(ssb_local_annotator.printNeedsCssHack()?' rt { font-family: sans-serif !important; }':'')+' }'"
 if android_template: jsAddRubyCss += b"+(ssb_local_annotator.getDevCSS()?'ruby:not([title]){border:thin blue solid} ruby[title~=\\\"||\\\"]{border:thin blue dashed}':'')" # (use *= instead of ~= if the || is not separated on both sides with space)
 jsAddRubyCss += b"+'</style>'"
-if known_characters: jsAddRubyCss += b"+'<style id=\"ssb_hide0\">rt.known{display: none !important}</style>'"
+if known_characters: jsAddRubyCss += b"+'<style id=\\\"ssb_hide0\\\">rt.known{display: none !important}</style>'"
 def sort20px(singleQuotedStr): # 20px is relative to zoom
   assert singleQuotedStr.startswith(b"'") and singleQuotedStr.endswith(b"'")
   if not android_template: return singleQuotedStr
