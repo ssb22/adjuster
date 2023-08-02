@@ -1766,9 +1766,7 @@ def main():
     for v in kept_tempfiles.values(): unlink(v)
     stop_threads() # must be last thing
 
-def plural(number):
-    if number == 1: return ""
-    else: return "s"
+def plural(number): return "" if number==1 else "s"
 def stop_threads():
     shutdown429()
     if quitFuncToCall: quitFuncToCall()
@@ -2874,8 +2872,7 @@ class RequestForwarder(RequestHandler):
                 if v: self.removeArgument(adjust_domain_cookieName,quote(v))
             if v:
                 self.cookieViaURL = v
-                if v==adjust_domain_none: return None
-                else: return v
+                return None if v==adjust_domain_none else v
         return self.getCookie(adjust_domain_cookieName,adjust_domain_none)
 
     def readCookies(self):

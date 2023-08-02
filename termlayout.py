@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works with either Python 2 or Python 3)
 
-# TermLayout v0.13 (c) 2014-2015,2020 Silas S. Brown
+# TermLayout v0.14 (c) 2014-2015,2020,2023 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -657,10 +657,7 @@ def ansiAttributesForTag(tag):
             try: r,g,b = int(clr[-6:-4],16),int(clr[-4:-2],16),int(clr[-2:],16)
             except: return []
             threshold = max([r,g,b])/4
-            def contrib(v):
-                if v > threshold: return 1
-                else: return 0
-            r,g,b = [contrib(n) for n in [r,g,b]]
+            r,g,b = [(1 if n>threshold else 0) for n in [r,g,b]]
             clr = priSecList[r*1+g*2+b*4]
         if clr in priSecList: return f(30+priSecList.index(clr)) # TODO: check aliases like "purple" ??
     return []

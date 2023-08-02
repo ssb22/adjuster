@@ -1258,10 +1258,6 @@ class JsBlock:
   def r(self):
     return self.start+b"".join(self.mid)+self.end
 
-def cond(a,b,c):
-  if a: return b
-  else: return c
-
 def jsAnnot(for_android=True,for_async=False):
   # Android or browser JS-based DOM annotator.  Return value becomes the js_common string in the Android Java: must be escaped as if in single-quoted Java string.
   # for_android True: provides AnnotIfLenChanged, annotScan, all_frames_docs etc
@@ -1320,7 +1316,7 @@ function annotWalk(n"""
     CheckExistingRuby.a(SetNF.r())
     if for_async: FixupRuby = JsBlock(b"if(nf) { nfOld=nReal;n=n.cloneNode(true);nfNew=document.createElement('span');nfNew.className='_adjust0';nfNew.appendChild(n);nfNew.oldHtml=n.outerHTML;",b"}") # and in for_async, the replaceChild for this cloneNode does not happen unless we ALSO can annotate the rb (so it shouldn't disturb ruby that's completely unrelated to the charsets we annotate)
     else: FixupRuby = JsBlock(b"var nReal = n; if(nf) { n=n.cloneNode(true);",b"}") # if messing with existing ruby, first do it offline for speed (and need to set nReal here because didn't set it above if we're not for_async)
-    if existing_ruby_lang_regex: KeepRuby=JsBlock(b"kR=document.documentElement.lang.match(["+b",".join(b"/"+cond(for_android,B(l).replace(b'\\',br'\\'),B(l))+b"/" for l in B(existing_ruby_lang_regex).split(b','))+b"]["+annotNo+b"]);if(kR){",b"}")
+    if existing_ruby_lang_regex: KeepRuby=JsBlock(b"kR=document.documentElement.lang.match(["+b",".join(b"/"+(B(l).replace(b'\\',br'\\') if for_android else B(l))+b"/" for l in B(existing_ruby_lang_regex).split(b','))+b"]["+annotNo+b"]);if(kR){",b"}")
     else: KeepRuby = JsBlock() # unconditional
     if existing_ruby_js_fixes:
       if for_android: KeepRuby.a(B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
@@ -4352,7 +4348,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     run_in_background = canBackground and len(okStarts) > 500 and executor # In a test with 300, 500, 700 and 900, the 500 threshold was fastest on concurrent.futures, but by just a few seconds.
     may_take_time = canBackground and len(okStarts) > 1000
     if may_take_time:
-      getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),cond(run_in_background,"backgrounding","could take some time"))).encode(terminal_charset,'replace'))
+      getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),"backgrounding" if run_in_background else "could take some time")).encode(terminal_charset,'replace'))
       if len(badStarts) <= yarowsky_debug: typo_report("yarowsky-debug.txt","allow-exceptions.txt",withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
     if run_in_background:
       job = executor.submit(yarowsky_indicators_wrapped,withAnnot_unistr) # recalculate the above on the other CPU in preference to passing, as memory might not be shared
@@ -5238,7 +5234,7 @@ def outputParser(rulesAndConds):
     outfile.write(start.replace(b'%%LONGEST_RULE_LEN%%',B(str(longest_rule_len))).replace(b"%%YBYTES%%",B(str(ybytes_max))).replace(b"%%PAIRS%%",pairs)+b"\n")
     if zlib: dataName = "origData"
     else: dataName = "data"
-    if java: open(jSrc+cond(android,"/../assets/annotate.dat","/annotate.dat"),"wb").write(ddrivn)
+    if java: open(jSrc+("/../assets/annotate.dat" if android else "/annotate.dat"),"wb").write(ddrivn)
     else:
       outfile.write(b"static unsigned char "+B(dataName)+b"[]=\""+c_escapeRawBytes(ddrivn)+b'\";\n')
       if zlib: outfile.write(c_zlib.replace(b'%%ORIGLEN%%',B(str(origLen))).replace(b'%%ZLIBLEN%%',B(str(len(ddrivn))))+b"\n") # rather than using sizeof() because we might or might not want to include the compiler's terminating nul byte
@@ -5299,13 +5295,13 @@ def setup_browser_extension():
     versionName = b'.'.join(versionName)
   except: versionName = b"0.1"
   open(dirToUse+"/manifest.json","wb").write((br"""{
-  "manifest_version": """+cond(manifest_v3,b"3",b"2")+br""",
+  "manifest_version": """+(b"3" if manifest_v3 else b"2")+br""",
   "name": "%s",%s
   "version": "%s",
-  "background": { """+cond(manifest_v3,b'"service_worker": "background.js"',b'"scripts": ["background.js"]')+br""" },
+  "background": { """+(b'"service_worker": "background.js"' if manifest_v3 else b'"scripts": ["background.js"]')+br""" },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
-  """+cond(manifest_v3,b'"action"',b'"browser_action"')+br""":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
-  """+cond(manifest_v3,b'"host_permissions": ["<all_urls>"], "permissions": ["clipboardRead","storage","scripting"]',b'"permissions": ["<all_urls>","clipboardRead"]')+b"%s}") % (B(browser_extension),B(cond(browser_extension_description,'" description": "%s",'%browser_extension_description,"")),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
+  """+(b'"action"' if manifest_v3 else b'"browser_action"')+br""":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
+  """+(b'"host_permissions": ["<all_urls>"], "permissions": ["clipboardRead","storage","scripting"]' if manifest_v3 else b'"permissions": ["<all_urls>","clipboardRead"]')+b"%s}") % (B(browser_extension),B((('" description": "%s",'%browser_extension_description) if browser_extension_description else "")),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
   open(dirToUse+"/background.js","wb").write(js_start+js_end)
   open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
   open(dirToUse+"/config.html","wb").write(extension_config)
