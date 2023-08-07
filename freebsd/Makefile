@@ -20,8 +20,11 @@ SHEBANG_FILES=	*.py
 
 NO_ARCH=	yes
 
-PLIST_FILES=	bin/adjuster \
-		bin/annogen \
-		bin/termlayout
+PLIST_FILES=	bin/adjuster   \
+		bin/annogen            \
+		bin/termlayout         \
+		man/man1/adjuster.1.gz \
+		man/man1/annogen.1.gz  \
+		man/man1/termlayout.1.gz
 
 .include <bsd.port.mk>
