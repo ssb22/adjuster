@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.3598 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.3599 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2440,7 +2440,7 @@ android_src += br"""
     @TargetApi(19)
     void runTimerLoop() {
         if(AndroidSDK >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
-            final Handler theTimer = new Handler();
+            final Handler theTimer = new Handler(Looper.getMainLooper());
             theTimer.postDelayed(new Runnable() {
                 @Override public void run() {
                     final Runnable r = this;
@@ -2474,7 +2474,7 @@ android_src += br"""
                 browser.goBack();
                 if(AndroidSDK<19) return true; // before Android 4.4 we can't evaluateJavascript, and unclear if we can loadUrl javascript: when we don't have onPageFinished on back, but AnnotMonitor runs at a higher frequency so we let that do it instead of this
                 needJsCommon=3;
-                final Handler theTimer=new Handler();
+                final Handler theTimer=new Handler(Looper.getMainLooper());
                 theTimer.postDelayed(new Runnable() {
                   int tried=0;
                   @Override public void run() {
