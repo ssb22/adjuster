@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.231 (c) 2012-23 Silas S. Brown"
+"Web Adjuster v3.232 (c) 2012-23 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -4482,7 +4482,7 @@ def make_WSGI_application():
     global main
     def main(): raise Exception("Cannot run main() after running make_WSGI_application()")
     preprocessOptions()
-    for opt in 'config user address background restart stop install browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog js_reproxy ssl_fork just_me one_request_only seconds stdio'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
+    for opt in 'config address background restart stop install browser run ip_change_command fasterServer ipTrustReal renderLog logUnsupported ipNoLog js_reproxy ssl_fork just_me one_request_only seconds stdio'.split(): # also 'port' 'logRedirectFiles' 'squashLogs' but these have default settings so don't warn about them
         # (js_interpreter itself should work in WSGI mode, but would be inefficient as the browser will be started/quit every time the WSGI process is.  But js_reproxy requires additional dedicated ports being opened on the proxy: we *could* do that in WSGI mode by setting up a temporary separate service, but we haven't done it.)
         if eval('options.'+opt): warn("'%s' option may not work in WSGI mode" % opt)
     options.js_reproxy = False # for now (see above)
