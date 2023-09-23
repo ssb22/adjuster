@@ -611,8 +611,8 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.3599
-=======================================
+Options for Annotator Generator v3.36
+=====================================
 
 `-h`, `--help`
  : show this help message and exit
@@ -997,6 +997,9 @@ Options for Annotator Generator v3.3599
 
 `--no-single-core`
  : Cancels any earlier `--single-core` option in Makefile variables etc
+
+`--cores-command=`
+ : Command to run when changing the number of CPU cores in use (with new number as a parameter); this can run a script to pause/resume any lower-priority load
 
 `-p`, `--status-prefix=`
  : Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running

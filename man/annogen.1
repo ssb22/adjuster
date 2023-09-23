@@ -402,6 +402,9 @@ Use only one CPU core even when others are available on Unix
 \fB\-\-no\-single\-core\fR
 Cancels any earlier \fB\-\-single\-core\fR option in Makefile variables etc
 .TP
+\fB\-\-cores\-command=\fR
+Command to run when changing the number of CPU cores in use (with new number as a parameter); this can run a script to pause/resume any lower\-priority load
+.TP
 \fB\-p\fR, \fB\-\-status\-prefix=\fR
 Label to add at the start of the status line, for use if you batch\-run annogen in multiple configurations and want to know which one is currently running
 .SH "Legal considerations"

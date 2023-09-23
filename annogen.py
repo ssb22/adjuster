@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.3599 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.36 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -365,6 +365,7 @@ parser.add_option("-0","--single-core",
                   action="store_true",default=False,
                   help="Use only one CPU core even when others are available on Unix")
 cancelOpt("single-core")
+parser.add_option("--cores-command",help="Command to run when changing the number of CPU cores in use (with new number as a parameter); this can run a script to pause/resume any lower-priority load")
 
 parser.add_option("-p","--status-prefix",help="Label to add at the start of the status line, for use if you batch-run annogen in multiple configurations and want to know which one is currently running")
 
@@ -4122,6 +4123,7 @@ def normalise():
     results = [normBatch(allWL)]
     del allWords,cu_lower_nospaces
     for j in jobs: results.append(j.result())
+    if cores_command: os.system(cores_command+" 1")
     sys.stderr.write(".") ; sys.stderr.flush()
     dic = {}
     for SR,typos in results:
@@ -4828,7 +4830,9 @@ def setup_parallelism(): # returns number of cores
       global our_test_value ; our_test_value = True
       if x.submit(test_global,None).result():
         executor = x
-        return multiprocessing.cpu_count()
+        cores = multiprocessing.cpu_count()
+        if cores_command: os.system("%s %d" % (cores_command,cores))
+        return cores
       else: x.shutdown(False) # ProcessPoolExecutor did not propagate globals at time of construction (which probably means we're running on Windows, or Python 3 on Mac), would need to write to filesystem like versions of annogen before 3.183
     except: pass
     return 1
@@ -4884,6 +4888,7 @@ def analyse():
             try: executor.shutdown(False)
             except: pass
           covered,toCover = flush_background(backgrounded," for #w change",covered,toCover)
+          if wordLen > 1 and cores_command: os.system(cores_command+" 1")
           phraseNo += 1 ; continue
         if time.time() >= lastUpdate + 2:
           if toCover: cov=int(100.0*covered/toCover)
@@ -4898,6 +4903,7 @@ def analyse():
           covered += coveredA ; toCover += toCoverA
         phraseNo += 1
     flush_background(backgrounded)
+    if cores_command: os.system(cores_command+" 1")
     try: executor.shutdown(False) # if wordLen never exceeded 1 so it didn't get shut down above, might as well free up other processes now
     except: pass
     if diagnose_manual: test_manual_rules()
@@ -5345,6 +5351,10 @@ def rm_f(fname):
 
 import atexit
 def set_title(t):
+  if t:
+    try:
+      from setproctitle import setproctitle ; setproctitle(t)
+    except: pass # TODO: could also try others from adjuster
   if not isatty(sys.stderr): return
   if t: atexit.register(set_title,"")
   is_screen = (term=="screen" and os.environ.get("STY",""))
@@ -5460,7 +5470,8 @@ if main:
        if android_upload:
          sys.stderr.write("uploading... ")
          sys.stderr.flush()
-         v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode'] ; sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
+         v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode']
+         sys.stderr.write("\rUploaded "+dirName+".apk (version code "+str(v)+")\n")
          open(jSrc+"/../.last-versionCode","w").write(str(v))
        else: v = int(open(jSrc+"/../.last-versionCode").read().strip()) # if this fails, you probably didn't run annogen v0.691+ to compile the APK before trying to change track (see instructions printed when GOOGLE_PLAY_TRACK environment variable is not set)
        if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":T(os.environ["GOOGLE_PLAY_CHANGELOG"])}],u'status':u'completed'}],u'track':trackToUse}).execute() # needs to be "en-US" as just "en" is dropped by the Store, although it does say you can "add as supported language in your app's Store Listing"
