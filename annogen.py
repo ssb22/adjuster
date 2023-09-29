@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.36 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.361 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2632,27 +2632,6 @@ public void s() {
 }
 public void s0() {
   if (needSpace) { o((byte)' '); needSpace=false; }
-}
-public void c(int numBytes) { /* copyBytes */
-  for(;numBytes>0;numBytes--)
-    o(inBytes[writePtr++]); /* needSpace unchanged */
-}
-public void o(int numBytes,String annot) {
-  s();
-  o("<ruby><rb>");
-  for(;numBytes>0;numBytes--)
-    o(inBytes[writePtr++]);
-  o("</rb><rt>"); o(annot);
-  o("</rt></ruby>");
-}
-public void o2(int numBytes,String annot,String title) {
-  s();
-  o("<ruby title=\""); o(title);
-  o("\"><rb>");
-  for(;numBytes>0;numBytes--)
-    o(inBytes[writePtr++]);
-  o("</rb><rt>"); o(annot);
-  o("</rt></ruby>");
 }
 byte[] s2b(String s) {
   // Convert string to bytes - version that works before Android API level 9 i.e. in Java 5 not 6.  (Some versions of Android Lint sometimes miss the fact that s.getBytes(UTF8) where UTF8==java.nio.charset.Charset.forName("UTF-8") won't always work.)  We could do an API9+ version and use @android.annotation.TargetApi(9) around the class, but anyway we'd rather not have to generate a special Android-specific version of Annotator as well as putting Android stuff in a separate class.)
