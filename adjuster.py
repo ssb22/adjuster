@@ -621,7 +621,7 @@ def convert_to_requested_host(real_host,cookie_host=None):
 def dedot(domain):
     # - means . but -- is a real - (OK as 2 dots can't come together and a - can't come immediately after a dot in domain names, so --- = -., ---- = --, ----- = --. etc)
     domain = S(domain)
-    d2 = domain.replace("-","--").replace(".","-")
+    d2 = domain.replace("-","--").replace(".","-") # this scheme, which I invented in 2012, was adopted by Google Translate (at the domain 'translate.goog') in 2018
     if len(d2) > 63: return domain # We can't do it because RFC 1035 puts a 63-byte limit on each label (so our cross-domain preferences cookies can't work on very long domains, TODO document this?)
     else: return d2
 def redot(domain): return B(domain).replace(B("--"),B("@MINUS@")).replace(B("-"),B(".")).replace(B("@MINUS@"),B("-"))
