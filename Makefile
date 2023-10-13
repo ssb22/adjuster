@@ -6,7 +6,6 @@ install:
 	$(INSTALL_SCRIPT) termlayout.py $(DESTDIR)/$(PREFIX)/bin/termlayout
 	$(INSTALL_MAN) man/adjuster.1 $(DESTDIR)/$(PREFIX)/man/man1/
 	$(INSTALL_MAN) man/annogen.1 $(DESTDIR)/$(PREFIX)/man/man1/
-	$(INSTALL_MAN) man/termlayout.1 $(DESTDIR)/$(PREFIX)/man/man1/
 INSTALL_SCRIPT ?= cp
 INSTALL_MAN ?= cp
 DESTDIR ?= /usr
@@ -23,7 +22,7 @@ update-readme:
 	mv n README.md
 	(echo "# adjuster";echo) > adjuster.1.ronn
 	awk -- 'BEGIN {p=0} /^Web Adjuster is a/ {p=1} /^Installation/ {p=0} // {if(p) print}' < README.md | sed -e 's/“/"/g' -e 's/”/"/g' -e "s/’/'/g" >> adjuster.1.ronn
-	python adjuster.py --markdown-options >> adjuster.1.ronn
+	python adjuster.py --markdown-options | sed -e 's/[|]/\\|/g' >> adjuster.1.ronn
 	(echo "# annogen";echo) > annogen.1.ronn
 	awk -- 'BEGIN {p=0} /^Annotator Generator is a/ {p=1} /^Legal considerations/ {p=0} // {if(p) print}' < README.md | sed -e 's/“/"/g' -e 's/”/"/g' -e "s/’/'/g" >> annogen.1.ronn
 	python annogen.py --markdown-options >> annogen.1.ronn

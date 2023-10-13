@@ -83,7 +83,7 @@ Forward standard input and output to our open port, in addition to being open to
 address:port of a proxy to send our requests through\. This can be used to adapt existing proxy\-only mediators to domain rewriting, or for a caching proxy\. Not used for ip_query_url options or fasterServer\. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite\. This can be used to make an existing HTTP\-only proxy process HTTPS pages\.
 .TP
 \fB\-\-ip\-messages\fR
-
+Messages or blocks for specific IP address ranges (IPv4 only)\. Format is ranges|message|ranges|message etc, where ranges are separated by commas; can be individual IPs, or ranges in either 'network/mask' or 'min\-max' format; the first matching range\-set is selected\. If a message starts with * then its ranges are blocked completely (rest of message, if any, is sent as the only reply to any request), otherwise message is shown on a 'click\-through' page (requires Javascript and cookies)\. If the message starts with a hyphen (\-) then it is considered a minor edit of earlier messages and is not shown to people who selected `do not show again' even if they did this on a different version of the message\. Messages may include HTML\.
 .SH "DNS and website settings"
 .TP
 \fB\-\-host\-suffix\fR (default is the machine's domain name)
