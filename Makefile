@@ -6,6 +6,7 @@ install:
 	$(INSTALL_SCRIPT) termlayout.py $(DESTDIR)/$(PREFIX)/bin/termlayout
 	$(INSTALL_MAN) man/adjuster.1 $(DESTDIR)/$(PREFIX)/man/man1/
 	$(INSTALL_MAN) man/annogen.1 $(DESTDIR)/$(PREFIX)/man/man1/
+	$(INSTALL_MAN) man/termlayout.1 $(DESTDIR)/$(PREFIX)/man/man1/
 INSTALL_SCRIPT ?= cp
 INSTALL_MAN ?= cp
 DESTDIR ?= /usr
