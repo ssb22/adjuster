@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.361 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.362 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5283,6 +5283,7 @@ def setup_browser_extension():
   "manifest_version": """+(b"3" if manifest_v3 else b"2")+br""",
   "name": "%s",%s
   "version": "%s",
+  "browser_specific_settings": { "gecko_android": {}},
   "background": { """+(b'"service_worker": "background.js"' if manifest_v3 else b'"scripts": ["background.js"]')+br""" },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
   """+(b'"action"' if manifest_v3 else b'"browser_action"')+br""":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
