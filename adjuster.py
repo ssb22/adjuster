@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.232 (c) 2012-23 Silas S. Brown"
+"Web Adjuster v3.233 (c) 2012-23 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -3120,7 +3120,8 @@ class RequestForwarder(RequestHandler):
         warn=self.checkBrowser(["IEMobile 6","IEMobile 7","Opera Mobi"],"<h3>WARNING: Your browser might not save this file</h3>You are using {B}, which has been known to try to display text attachments in its own window using very small print, giving no option to save to a file. You might get better results in IEMobile 8+ or Opera Mini (although the latter may have a more limited range of font sizes in the browser itself).") # TODO: make this warning configurable?  See comment after set_header("Content-Disposition",...) below for details
         self.doResponse2(("""%s<h1>File conversion in progress</h1>The result should start downloading soon. If it does not, try <script><!--
 document.write('<a href="javascript:location.reload(true)">refreshing this page</a>')
-//--></script><noscript>refreshing this page</noscript>.%s%s<hr>This is %s</body></html>""" % (htmlhead("File conversion in progress"),backScript,warn,serverName_html)),True,False)
+//-->
+</script><noscript>refreshing this page</noscript>.%s%s<hr>This is %s</body></html>""" % (htmlhead("File conversion in progress"),backScript,warn,serverName_html)),True,False)
         # TODO: if (and only if) refreshing from this page, might then need a final 'conversion finished' page before serving the attachment, so as not to leave an 'in progress' page up afterwards
         return True
     def inProgress_run(self): return hasattr(self,"inProgress_has_run") and self.inProgress_has_run
@@ -3517,11 +3518,13 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             # TODO: what if their browser doesn't submit in the correct charset?  for example some versions of Lynx need -display_charset=UTF-8 otherwise they might double-encode pasted-in UTF-8 and remove A0 bytes even though it appears to display correctly (and no, adding accept-charset won't help: that's for if the one to be accepted differs from the document's)
             return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3>Upload Text</h3>%s:<p><span style="float:right"><input type="submit" value="Upload"><script><!--
 document.write(' (Ctrl-Enter) | <a href="javascript:history.go(-1)">Back</a>')
-//--></script></span><br><textarea name="i" style="width:100%%;clear:both;height:60%%" rows="5" cols="20" placeholder="Type or paste your text here"
+//-->
+</script></span><br><textarea name="i" style="width:100%%;clear:both;height:60%%" rows="5" cols="20" placeholder="Type or paste your text here"
 onKeyDown="if((event.ctrlKey||event.metaKey) && (event.keyCode==13 || event.which==13)) document.forms[0].submit(); else return true;">
 </textarea></form>%s<script><!--
 document.forms[0].i.focus()
-//--></script></body></html>""" % (htmlhead("Upload Text - Web Adjuster").replace("<body>",""),options.submitPath,options.submitPrompt,bookmarklet(submit_url,local_submit_url,options.submitBookmarkletDomain and self.willRejectLetsEncryptOct2021())+urlbox_footer)),"noFilterOptions",False)
+//-->
+</script></body></html>""" % (htmlhead("Upload Text - Web Adjuster").replace("<body>",""),options.submitPath,options.submitPrompt,bookmarklet(submit_url,local_submit_url,options.submitBookmarkletDomain and self.willRejectLetsEncryptOct2021())+urlbox_footer)),"noFilterOptions",False)
         if type(txt) == list: # came from the POST form
             txt = txt[0].strip()
             # On at least some browsers (e.g. some Safari versions), clicking one of our JS reload links after the POST text has been shown will reload the form (instead of re-submitting the POST text) and can scroll to an awkward position whether the code below calls focus() or not.  Could at least translate to GET if it's short enough (don't want to start storing things on the adjuster machine - that would require a shared database if load-balancing)
@@ -4616,16 +4619,18 @@ def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
         if force_htmlonly_mode: r += '<input type="checkbox" id="pr" disabled="disabled" checked="checked"> <label for="pr">HTML-only mode</label>'
         else: r += '<input type="checkbox" id="pr" name="pr"'+htmlonly_checked+'> <label for="pr">HTML-only mode</label>'
     if options.submitPath: r += '<p><input type="submit" name="sPath" value="Upload your own text"></p>'
-    r += '</form><script><!--\ndocument.forms[0].q.focus();\n//--></script>'
+    r += '</form><script><!--\ndocument.forms[0].q.focus();\n//-->\n</script>'
     if options.urlbox_extra_html: r += options.urlbox_extra_html
     return r+'</body></html>'
 
 backScript="""<script><!--
 document.write('<br><a href="javascript:history.go(-1)">Back to previous page</a>')
-//--></script>"""
+//-->
+</script>"""
 backScriptNoBr="""<script><!--
 document.write('<a href="javascript:history.go(-1)">Back to previous page</a> ')
-//--></script>"""
+//-->
+</script>"""
 # (HTML5 defaults type to text/javascript, as do all pre-HTML5 browsers including NN2's 'script language="javascript"' thing, so we might as well save a few bytes)
 
 #@file: ruby-css.py
@@ -4662,7 +4667,8 @@ rubyScript += rubyScript_fonts
 rubyEndScript = """
 <script><!--
 function treewalk(n) { var c;for(c=n.firstChild;c;c=c.nextSibling) { if (c.nodeType==1 && c.nodeName!="SCRIPT" && c.nodeName!="TEXTAREA" && !(c.nodeName=="A" && c.href)) { treewalk(c); if(c.nodeName=="RUBY" && c.title && !c.clkAdded) {c.addEventListener('click',(function(c){return function(){alert(c.title)}})(c)); c.clkAdded=1 } } } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);
-//--></script>""" # don't use onclick= as our bookmarklets could be incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
+//-->
+</script>""" # don't use onclick= as our bookmarklets could be incompatible with sites that say unsafe-inline in their Content-Security-Policy headers
 
 #@file: bookmarklet.py
 # --------------------------------------------------
@@ -4698,7 +4704,7 @@ def bookmarklet(submit_url,local_submit_url,warn_letsEncrypt):
         else: warn_letsEncrypt = ""
     else: locProto = warn_letsEncrypt = ""
     # XMLHttpRequest requires MSIE7 (or Firefox, Chrome, etc), so we should be OK to use try...catch (introduced in MSIE6) if we can use it. IE5 and 6 could use ActiveXObject("Microsoft.XMLHTTP") but I haven't checked if Windows Mobile 2003SE/5/6/6.1 implements it (or bookmarklets). Some browsers' handling of Content-Security-Policy would prevent our bookmarklet from being run at all (with no explanation given to the user), but if it DOES run and just isn't allowed to make XMLHttpRequests then we can say something.
-    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPhone/),a=n.match(/Android/),p=n.match(/iPad/),c="",t=0,j="javascript:",u="{var r;try{r=new XMLHttpRequest();r.open(\'GET\','+locProto.replace('"',"'")+"'"+submit_url+'",v="\',false);r.send();r=r.responseText}catch(e){r=0;alert(\'Bookmarklet cannot contact Web Adjuster. If this is not a network or server problem, you may need to find a browser extension that disables Content Security Policy.\')}eval(r)}"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var b=d.body;var fs=d.createElement(\'frameset\'),h=d.createElement(\'html\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(b.firstChild)h.appendChild(b.removeChild(b.firstChild));b.appendChild(fs);window.doneMasterFrame=1;window.setTimeout(function(){if(!window.frames[0].document.body.innerHTML){var d=document;var b=d.body;while(b.firstChild)b.removeChild(b.firstChild);while(h.firstChild)b.appendChild(h.removeChild(h.firstChild));alert(\'The bookmarklet cannot annotate the whole site because your browser does not seem to have the frames loophole it needs. Falling back to annotating this page only. (To avoid this message in future, install the not Plus bookmarklet.)\')}},1000)}"+u+"B";u=j+u+"b";if(i||a||p){t="'+local_submit_url+'"+(i?"i":p?"p":"a");u="#"+u;u2="#"+u2}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a||p)?"On "+(i?"iPhone":p?"iPad":"Android")+", you can install a special kind of bookmark (called a &#8216;bookmarklet&#8217;), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;'+warn_letsEncrypt.replace('"','_IHQ_')+r'<span class=noIOS>Basic bookmarklet'+plural(len(names))+' (to process <b>one page</b> when activated): </span>'+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'<span class=noIOS>. Advanced bookmarklet'+plural(len(names))+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'</span>&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural(len(names))+'</a></span>').replace('@]@','"')+'");if(i||p) document.write("<style>.noIOS{display:none;visibility:hidden}</style>")}\n//--></script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
+    return '<script><!--\nif(typeof XMLHttpRequest!="undefined"&&typeof JSON!="undefined"&&JSON.parse&&document.getElementById&&document.readyState!="complete"){var n=navigator.userAgent;var i=n.match(/iPhone/),a=n.match(/Android/),p=n.match(/iPad/),c="",t=0,j="javascript:",u="{var r;try{r=new XMLHttpRequest();r.open(\'GET\','+locProto.replace('"',"'")+"'"+submit_url+'",v="\',false);r.send();r=r.responseText}catch(e){r=0;alert(\'Bookmarklet cannot contact Web Adjuster. If this is not a network or server problem, you may need to find a browser extension that disables Content Security Policy.\')}eval(r)}"; var u2=j+"if(window.doneMasterFrame!=1){var d=document;var b=d.body;var fs=d.createElement(\'frameset\'),h=d.createElement(\'html\');fs.appendChild(d.createElement(\'frame\'));fs.firstChild.src=self.location;while(b.firstChild)h.appendChild(b.removeChild(b.firstChild));b.appendChild(fs);window.doneMasterFrame=1;window.setTimeout(function(){if(!window.frames[0].document.body.innerHTML){var d=document;var b=d.body;while(b.firstChild)b.removeChild(b.firstChild);while(h.firstChild)b.appendChild(h.removeChild(h.firstChild));alert(\'The bookmarklet cannot annotate the whole site because your browser does not seem to have the frames loophole it needs. Falling back to annotating this page only. (To avoid this message in future, install the not Plus bookmarklet.)\')}},1000)}"+u+"B";u=j+u+"b";if(i||a||p){t="'+local_submit_url+'"+(i?"i":p?"p":"a");u="#"+u;u2="#"+u2}else c=" onclick=_IHQ_alert(\'To use this bookmarklet, first drag it to your browser toolbar. (If your browser does not have a toolbar, you probably have to paste text manually.)\');return false_IHQ_";document.write(((i||a||p)?"On "+(i?"iPhone":p?"iPad":"Android")+", you can install a special kind of bookmark (called a &#8216;bookmarklet&#8217;), and activate":"On some browsers, you can drag a \'bookmarklet\' to the toolbar, and press")+" it later to use this service on the text of another site. '+quote_for_JS_doublequotes(r'<span id="bookmarklet"><a href="#bookmarklet" onClick="document.getElementById('+"'bookmarklet'"+r').innerHTML=&@]@+@]@quot;'+warn_letsEncrypt.replace('"','_IHQ_')+r'<span class=noIOS>Basic bookmarklet'+plural(len(names))+' (to process <b>one page</b> when activated): </span>'+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'</a>') for name in names)).replace(r'"','_IHQ_')+c.reset()+'<span class=noIOS>. Advanced bookmarklet'+plural(len(names))+' (to process <b>a whole site</b> when activated, but with the side-effect of resetting the current page and getting the address bar \'stuck\'): '+(' | '.join(('<a href="@]@+(t?(t+@]@'+c.noInc()+'@]@):\'\')+u2+@]@'+c()+'@]@+v+@]@"@]@+c+@]@>'+name+'+</a>') for name in names)).replace(r'"','_IHQ_')+'</span>&@]@+@]@quot;.replace(/_IHQ_/g,\'&@]@+@]@quot;\');return false">Show bookmarklet'+plural(len(names))+'</a></span>').replace('@]@','"')+'");if(i||p) document.write("<style>.noIOS{display:none;visibility:hidden}</style>")}\n//-->\n</script>' # JSON.parse is needed (rather than just using eval) because we'll also need JSON.stringify (TODO: unless we fall back to our own slower encoding; TODO: could also have a non-getElementById fallback that doesn't hide the bookmarklets)
     # 'loophole': https://bugzilla.mozilla.org/show_bug.cgi?id=1123694 (+ 'seem to' because I don't know if the timeout value is enough; however we don't want it to hang around too long) (don't do else h=null if successful because someone else may hv used that var?)
     # 'resetting the current page': so you lose anything you typed in text boxes etc
     # (DO hide bookmarklets by default, because don't want to confuse users if they're named the same as the immediate-action filter selections at the bottom of the page)
@@ -5595,7 +5601,8 @@ def html_additions(html,toAdd,slow_CSS_switch,cookieHostToSet,jsCookieString,can
     headAppend = B("")
     if set_window_onerror: headAppend += B(r"""<script><!--
 window.onerror=function(msg,url,line){alert(msg); return true}
---></script>""")
+//-->
+</script>""")
     cssToAdd,attrsToAdd = toAdd
     if cssToAdd:
         # do this BEFORE options.headAppend, because someone might want to refer to it in a script in options.headAppend (although bodyPrepend is a better place to put 'change the href according to screen size' scripts, as some Webkit-based browsers don't make screen size available when processing the HEAD of the 1st document in the session)
@@ -5619,10 +5626,12 @@ window.onerror=function(msg,url,line){alert(msg); return true}
             else: cond='document.cookie.indexOf("adjustCssSwitch=1")>-1' # CSS should be off by default, so un-disable the 'link rel' only if we have a cookie saying it should be on
             bodyPrepend += B("""<script><!--
 if(document.getElementById) { var a=document.getElementById('adjustCssSwitch'); a.disabled=true; if(%s) {a.disabled=false;window.onload=function(e){a.disabled=true;a.disabled=false}} }
-//--></script>""" % cond)
+//-->
+</script>""" % cond)
             bodyAppend += B(r"""<script><!--
 if(document.getElementById && !%s && document.readyState!='complete') document.write(" %s: "+'<a href="#" onclick="document.cookie=\'adjustCssSwitch=1;domain=%s;expires=%s;path=/\';document.cookie=\'adjustCssSwitch=1;domain=.%s;expires=%s;path=/\';window.scrollTo(0,0);document.getElementById(\'adjustCssSwitch\').disabled=false;return false">On<\/a> | <a href="#" onclick="document.cookie=\'adjustCssSwitch=0;domain=%s;expires=%s;path=/\';document.cookie=\'adjustCssSwitch=0;domain=.%s;expires=%s;path=/\';window.scrollTo(0,0);document.getElementById(\'adjustCssSwitch\').disabled=true;return false">Off<\/a> ')
-//--></script>""" % (detect_iframe,cssName,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires)) # (hope it helps some MSIE versions to set cookies 1st, THEN scroll, and only THEN change the document. Also using onclick= rather than javascript: URLs)
+//-->
+</script>""" % (detect_iframe,cssName,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires)) # (hope it helps some MSIE versions to set cookies 1st, THEN scroll, and only THEN change the document. Also using onclick= rather than javascript: URLs)
             #" # (this comment helps XEmacs21's syntax highlighting)
         else: # no cssName: stylesheet always on
           headAppend += B('<link rel="stylesheet" type="text/css" href="%s"%s>' % (cssToAdd,link_close))
@@ -5636,7 +5645,8 @@ if(document.getElementById && !%s && document.readyState!='complete') document.w
         if options.renderCheck and not "adjustNoRender=1" in jsCookieString: bodyPrepend += B(r"""<script><!--
 if(!%s && %s) { document.cookie='adjustNoRender=1;domain=%s;expires=%s;path=/';document.cookie='adjustNoRender=1;domain=.%s;expires=%s;path=/';location.reload(true)
 }
-//--></script>""" % (detect_iframe,detect_renderCheck(),cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires))
+//-->
+</script>""" % (detect_iframe,detect_renderCheck(),cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires))
         if options.renderName:
             if options.renderCheck and "adjustNoRender=1" in jsCookieString: extraCondition="!"+detect_renderCheck() # don't want the adjustNoRender=0 (fonts ON) link visible if detect_renderCheck is true, because it won't work anyway (any attempt to use it will be reversed by the script, and if we work around that then legacy pre-renderCheck cookies could interfere; anyway, if implementing some kind of 'show the switch anyway' option, might also have to address showing it on renderOmit browsers)
             else: extraCondition=None
@@ -5644,10 +5654,12 @@ if(!%s && %s) { document.cookie='adjustNoRender=1;domain=%s;expires=%s;path=/';d
     if cookie_host:
         if enable_adjustDomainCookieName_URL_override: bodyAppend += B(r"""<script><!--
 if(!%s&&document.readyState!='complete')document.write('<a href="http://%s?%s=%s">Back to URL box<\/a>')
-//--></script><noscript><a href="http://%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none),cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none)))
+//-->
+</script><noscript><a href="http://%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none),cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none)))
         else: bodyAppend += B(r"""<script><!--
 if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';if(location.href==\'http://%s\')location.reload(true);else location.href=\'http://%s?nocache=\'+Math.random()">Back to URL box<\/a>')
-//--></script>""" % (detect_iframe,adjust_domain_cookieName,S(adjust_domain_none),cookieExpires,cookieHostToSet+publicPortStr()+options.urlboxPath,cookieHostToSet+publicPortStr()+options.urlboxPath)) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
+//-->
+</script>""" % (detect_iframe,adjust_domain_cookieName,S(adjust_domain_none),cookieExpires,cookieHostToSet+publicPortStr()+options.urlboxPath,cookieHostToSet+publicPortStr()+options.urlboxPath)) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
     if options.headAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): headAppend += B(options.headAppend)
     if options.highlighting and not options.js_upstream:
         bodyPrepend += B("""<div id="adjust0_HL" style="display: none; position: fixed !important; background: white !important; color: black !important; right: 0px; top: 3em; size: 130% !important; border: thin red solid !important; cursor: pointer !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important;">""")
@@ -5684,7 +5696,8 @@ var leaveTags=%s;function adjust0_HighlRange(n,range,colour,lastID,startStr,load
 } // adjust0_HighlRange
 function adjust0_HighlSel(colour) { adjust0_HighlRange(document.body,document.oldRange,colour,"",""); }
 if(new Range().intersectsNode) document.addEventListener('selectionchange',function(){var e=document.getElementById('adjust0_HL');if(window.getSelection().isCollapsed) window.setTimeout(function(){e.style.display='none'},100);else{e.style.display='block';document.oldRange=window.getSelection().getRangeAt(0)}})
-//--></script>""" % (repr([t.upper() for t in options.leaveTags]),)) # (need to save to oldRange because some browsers collapse selection before highlighter-button's click event is processed, even if it's an href)
+//-->
+</script>""" % (repr([t.upper() for t in options.leaveTags]),)) # (need to save to oldRange because some browsers collapse selection before highlighter-button's click event is processed, even if it's an href)
         bodyAppend += B("""<script><!--
 if(window.localStorage!=undefined) {
   function findNode(dirs) {
@@ -5710,7 +5723,8 @@ if(window.localStorage!=undefined) {
     }
   }
 }
-//--></script>""")
+//-->
+</script>""")
     if options.headAppendRuby and not is_password_domain=="PjsUpstream":
         bodyPrepend += B(rubyScript)
         if IsEdge: bodyPrepend += B("<table><tr><td>") # bug observed in Microsoft Edge 17, only when printing: inline-table with table-header-group gobbles whitespace before next inline-table, unless whole document is wrapped in a table cell
@@ -5724,10 +5738,12 @@ if(window.localStorage!=undefined) {
         if slow_CSS_switch: # use a slow version for this as well (TODO document that we do this?) (TODO the detect_iframe exclusion of the whole message)
             if not "_WA_warnOK=1" in jsCookieString: bodyPrepend += B("<div id=_WA_warn0 "+styleAttrib+">")+B(pn)+B(r"""<script><!--
 if(document.readyState!='complete'&&document.cookie.indexOf("_WA_warnOK=1")==-1)document.write("<br><button style=\"color: black !important;background:#c0c0c0 !important;border: white solid !important\" onClick=\"document.cookie='_WA_warnOK=1;path=/';location.reload(true)\">Acknowledge<\/button>")
-//--></script></div><script><!--
+//-->
+</script></div><script><!--
 if(document.getElementById) document.getElementById('_WA_warn0').style.position="fixed"
 }
-//--></script>""")
+//-->
+</script>""")
             #" # (this comment helps XEmacs21's syntax highlighting)
         else: bodyPrepend += B("<div id=_WA_warn0 "+styleAttrib+">")+B(pn)+B(r"""</div><script><!--
 if(document.getElementById) {
@@ -5740,7 +5756,8 @@ if(document.getElementById) {
   if(f) document.body.removeChild(document.getElementById('_WA_warn0'));
   else w.innerHTML += "<br><button style=\"color: black !important;background:#c0c0c0 !important;border: white solid !important\" onClick=\"document.cookie='_WA_warnOK=1;path=/';document.body.removeChild(document.getElementById('_WA_warn0'))\">Acknowledge</button>";
 }}
-//--></script>""")
+//-->
+</script>""")
         #" # (this comment helps XEmacs21's syntax highlighting)
         # (Above code works around a bug in MSIE 9 by setting the cookie BEFORE doing the removeChild.  Otherwise the cookie does not persist.)
         if options.prominentNotice=="htmlFilter": bodyPrepend = bodyPrepend.replace(B("document.cookie='_WA_warnOK=1;path=/';"),B("")) # don't set the 'seen' cookie if the notice will be different on every page and if that's the whole point of htmlFilter
@@ -5854,16 +5871,20 @@ def reloadSwitchJS(cookieName,jsCookieString,flipLogic,readableName,cookieHostTo
     else: extraCondition = ""
     if cssReload_cookieSuffix and isOn: return r"""<script><!--
 if(!%s%s&&document.readyState!='complete')document.write(" %s: On | "+'<a href="'+location.href.replace(location.hash,"")+'%s%s=%s">Off<\/a> ')
-//--></script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOff) # TODO: create a unique id for the link and # it ? (a test of this didn't always work on Opera Mini though)
+//-->
+</script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOff) # TODO: create a unique id for the link and # it ? (a test of this didn't always work on Opera Mini though)
     elif cssReload_cookieSuffix: return r"""<script><!--
 if(!%s%s&&document.readyState!='complete')document.write(" %s: "+'<a href="'+location.href.replace(location.hash,"")+'%s%s=%s">On<\/a> | Off ')
-//--></script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOn)
+//-->
+</script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOn)
     elif isOn: return r"""<script><!--
 if(!%s%s&&document.readyState!='complete')document.write(" %s: On | "+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">Off<\/a> ')
-//--></script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOff,cookieHostToSet,cookieExpires,cookieName,setOff,cookieHostToSet,cookieExpires)
+//-->
+</script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOff,cookieHostToSet,cookieExpires,cookieName,setOff,cookieHostToSet,cookieExpires)
     else: return r"""<script><!--
 if(!%s%s&&document.readyState!='complete')document.write(" %s: "+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">On<\/a> | Off ')
-//--></script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOn,cookieHostToSet,cookieExpires,cookieName,setOn,cookieHostToSet,cookieExpires)
+//-->
+</script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOn,cookieHostToSet,cookieExpires,cookieName,setOn,cookieHostToSet,cookieExpires)
 
 def reloadSwitchJSMultiple(cookieName,jsCookieString,flipInitialItems,readableNames,cookieHostToSet,cookieExpires):
     # flipInitialItems: for adjustNoFilter compatibility between one and multiple items, 1 means off, 0 (default) means 1st item, 2 means 2nd etc.  (Currently, this function is only ever called with flipInitialItems==True)
@@ -5899,7 +5920,7 @@ if(!%s&&document.readyState!='complete'){document.write("%s: """ % (detect_ifram
     if spanStart: r.append('<"+"/span>')
     r.append(' ")')
     if spanStart: r.append(r';if(document.getElementById){var v=document.getElementById("adjustNoFilter");if(v.innerHTML){v.OIH=v.innerHTML;if(v.OIH==v.innerHTML)v.innerHTML="<a href=\"#adjustNoFilter\" onClick=\"this.parentNode.innerHTML=this.parentNode.OIH;return false\">More<"+"/A>"; }}') # (hide the span by default, if browser has enough JS support to do it) (TODO: could do it with non-innerHTML DOM functionality if necessary, but that's more long-winded and might also need to look out for non-working 'this' functionality)
-    r.append('}\n//--></script>')
+    r.append('}\n//-->\n</script>')
     return "".join(r)
 
 def findFilter(reqH,filterNo):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.362 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.363 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1580,7 +1580,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
   p=pOrig; copyP=p;
   matchAll();
   free(pOrig);
-  OutWriteStr("<script><!--\nif(navigator.userAgent.match('Edge/'))document.write('</td></tr></table>')\n//--></script><script><!--\nfunction treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!=\"SCRIPT\" && c.nodeName!=\"TEXTAREA\" && !(c.nodeName==\"A\" && c.href)) { treewalk(c); if(c.nodeName==\"RUBY\" && c.title && !c.onclick) c.onclick=function(){alert(this.title)} } c=c.nextSibling } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);\n//--></script></body></html>");
+  OutWriteStr("<script><!--\nif(navigator.userAgent.match('Edge/'))document.write('</td></tr></table>')\n//-->\n</script><script><!--\nfunction treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!=\"SCRIPT\" && c.nodeName!=\"TEXTAREA\" && !(c.nodeName==\"A\" && c.href)) { treewalk(c); if(c.nodeName==\"RUBY\" && c.title && !c.onclick) c.onclick=function(){alert(this.title)} } c=c.nextSibling } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);\n//-->\n</script></body></html>");
   fclose(outFile);
   TCHAR fn2[sizeof(fname)]; int i;
   for(i=0; fname[i]; i++) fn2[i]=fname[i]; fn2[i]=(TCHAR)0;
