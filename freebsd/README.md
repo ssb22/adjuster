@@ -7,3 +7,5 @@ under `/usr/ports/www/adjuster`, porting discussion was on [issue 258459](https:
 
 FreeBSD users should be able to install it via `pkg install adjuster`
 and then use the commands `adjuster`, `annogen` or `termlayout`
+
+Update to version 3.233 is on [issue 274589](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=274589)
