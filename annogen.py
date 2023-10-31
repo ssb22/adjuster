@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.363 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.362 (c) 2012-23 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1580,7 +1580,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, CMD_LINE_T cm
   p=pOrig; copyP=p;
   matchAll();
   free(pOrig);
-  OutWriteStr("<script><!--\nif(navigator.userAgent.match('Edge/'))document.write('</td></tr></table>')\n//-->\n</script><script><!--\nfunction treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!=\"SCRIPT\" && c.nodeName!=\"TEXTAREA\" && !(c.nodeName==\"A\" && c.href)) { treewalk(c); if(c.nodeName==\"RUBY\" && c.title && !c.onclick) c.onclick=function(){alert(this.title)} } c=c.nextSibling } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);\n//-->\n</script></body></html>");
+  OutWriteStr("<script><!--\nif(navigator.userAgent.match('Edge/'))document.write('</td></tr></table>')\n//--></script><script><!--\nfunction treewalk(n) { var c=n.firstChild; while(c) { if (c.nodeType==1 && c.nodeName!=\"SCRIPT\" && c.nodeName!=\"TEXTAREA\" && !(c.nodeName==\"A\" && c.href)) { treewalk(c); if(c.nodeName==\"RUBY\" && c.title && !c.onclick) c.onclick=function(){alert(this.title)} } c=c.nextSibling } } function tw() { treewalk(document.body); window.setTimeout(tw,5000); } treewalk(document.body); window.setTimeout(tw,1500);\n//--></script></body></html>");
   fclose(outFile);
   TCHAR fn2[sizeof(fname)]; int i;
   for(i=0; fname[i]; i++) fn2[i]=fname[i]; fn2[i]=(TCHAR)0;
@@ -4861,13 +4861,13 @@ def analyse():
     backgrounded = [] ; phrases = get_phrases()
     while phraseNo < len(phrases):
         if type(phrases[phraseNo])==int:
-          wordLen = phrases[phraseNo]
-          if wordLen > 1:
+          oldWL,wordLen = wordLen,phrases[phraseNo]
+          if wordLen > 1 and oldWL == 1:
             # we currently use background jobs only for wordLen=1; other workers won't be needed after these jobs finish
             try: executor.shutdown(False)
             except: pass
           covered,toCover = flush_background(backgrounded," for #w change",covered,toCover)
-          if wordLen > 1 and cores_command: os.system(cores_command+" 1")
+          if wordLen > 1 and oldWL == 1 and cores_command: os.system(cores_command+" 1")
           phraseNo += 1 ; continue
         if time.time() >= lastUpdate + 2:
           if toCover: cov=int(100.0*covered/toCover)
@@ -4882,9 +4882,10 @@ def analyse():
           covered += coveredA ; toCover += toCoverA
         phraseNo += 1
     flush_background(backgrounded)
-    if cores_command: os.system(cores_command+" 1")
-    try: executor.shutdown(False) # if wordLen never exceeded 1 so it didn't get shut down above, might as well free up other processes now
-    except: pass
+    if wordLen==1:
+      if cores_command: os.system(cores_command+" 1")
+      try: executor.shutdown(False) # if wordLen never exceeded 1 so it didn't get shut down above, might as well free up other processes now
+      except: pass
     if diagnose_manual: test_manual_rules()
     rules = sorted(accum.rules.items()) # sorting it makes the order stable across Python implementations and insertion histories: useful for diff when using concurrency etc (can affect order of otherwise-equal Yarowsky-like comparisons in the generated code)
     if write_rules: saveRules(rules), sys.exit(0)
