@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.233 (c) 2012-23 Silas S. Brown"
+"Web Adjuster v3.234 (c) 2012-23 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -137,6 +137,13 @@ elif '--html-options' in sys.argv or '--markdown-options' in sys.argv:
         if html: print ("<dt><kbd>--"+wbrify(name)+"</kbd>"+amp(default)+"</dt><dd>"+wbrify(help.replace(" - ","---"))+"</dd>")
         else: print ("`--"+name+"` "+default+"\n: "+re.sub(" (www[.]example[.][^ ,]*)",r" `\1`",re.sub("(http://[^ ]*(example|192.168)[.][^ ]*)",r"`\1`",help.replace(" - ","---").replace("---",S(u'\u2014'))))+"\n")
 else: # normal run: go ahead with Tornado import
+    try: # patch Tornado 5 for Python 3.10+
+        import collections, collections.abc
+        collections.MutableMapping = collections.abc.MutableMapping
+        import asyncio # for wsgi mode:
+        from tornado.platform.asyncio import AnyThreadEventLoopPolicy
+        asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
+    except: pass # probably wrong Python version, patch not needed
     import tornado
     try: from tornado.httpclient import HTTPClientError as HTTPError # Tornado 5.1+
     except ImportError: from tornado.httpclient import HTTPError # older Tornado
@@ -636,7 +643,7 @@ def protocolAndHost(realHost):
         return "https://",realHost[:-2]
     else: return "http://",realHost
 def protocolWithHost(realHost):
-    x,y = protocolAndHost(realHost) ; return B(x)+B(y)
+    x,y = protocolAndHost(realHost) ; return S(x)+S(y)
 
 def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyRequest=False,isSslUpstream=False):
     text = B(text)
@@ -1221,12 +1228,12 @@ class BrowserLogger:
             self.lastMethodStuff = None # always log method/version anew when IP is different
         methodStuff = (req.method, req.version)
         if methodStuff == self.lastMethodStuff:
-            r=S(host)+S(req.uri)
+            r=host+S(req.uri)
         else:
-            r='"%s %s%s %s"' % (S(req.method), S(host), S(req.uri), S(req.version))
+            r='"%s %s%s %s"' % (S(req.method), host, S(req.uri), S(req.version))
             self.lastMethodStuff = methodStuff
         msg = S(ip)+S(r)+S(browser)
-    else: msg = '%s "%s %s%s %s" %s' % (S(req.remote_ip), S(req.method), S(host), S(req.uri), S(req.version), S(browser)) # could add "- - [%s]" with time.strftime("%d/%b/%Y:%X") if don't like Tornado-logs date-time format (and - - - before the browser %s)
+    else: msg = '%s "%s %s%s %s" %s' % (S(req.remote_ip), S(req.method), host, S(req.uri), S(req.version), S(browser)) # could add "- - [%s]" with time.strftime("%d/%b/%Y:%X") if don't like Tornado-logs date-time format (and - - - before the browser %s)
     logging.info(msg.replace('\x1b','[ESC]')) # make sure we are terminal safe, in case of malformed URLs
 
 def initLogging_preListen():
@@ -3361,7 +3368,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             return True # do NOT shorten this by making serveRobots return True: it must return None due to other uses
         # TODO: option to redirect immediately without this message?  (but then we'd be supplying a general redirection service, which might have issues of its own)
         if realHost:
-            msg = ' and <a rel="noreferrer" href="%s%s">go directly to the original site</a>' % (S(protocolWithHost(realHost)),S(self.request.uri))
+            msg = ' and <a rel="noreferrer" href="%s%s">go directly to the original site</a>' % (protocolWithHost(realHost),S(self.request.uri))
             self.request_no_external_referer()
         else: msg = ''
         self.add_nocache_headers()
@@ -3378,6 +3385,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                     accept = S(self.request.headers.get("Accept",""))
                     if "application/json" in accept or len(accept.split(","))==2:
                         return False
+                self.set_header("X-Missing-Cookie","adjustCss" + str(ckCount) + "s") # in case debugging with lynx -mime-header etc
                 return True
         return False
     def cssAndAttrsToAdd(self):
@@ -3432,6 +3440,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             ckName = "adjustCss" + str(ckCount) + "s"
             ckVal = self.getArg(ckName)
             if ckVal:
+                ckVal = S(ckVal)
                 self.setCookie_with_dots(ckName+"="+ckVal) # TODO: do we ever need to quote() ckVal ?  (document to be careful when configuring?)
                 self.setCookie(ckName,ckVal) # pretend it was already set on THIS request as well (for 'Try' button; URL should be OK as it redirects)
             ckCount += 1
@@ -3669,6 +3678,8 @@ document.forms[0].i.focus()
         debuglog("doReq"+self.debugExtras()) # MUST keep this debuglog call: it also sets profileIdle=False
         try: reqsInFlight.add(id(self)) # for profile
         except: pass # e.g. not options.profile
+        try: del self._adjuster_cookies_
+        except: pass
         if not self.isPjsUpstream and not self.isSslUpstream:
             try: origReqInFlight.add(id(self))
             except: pass # e.g. not options.profile
@@ -3787,7 +3798,7 @@ document.forms[0].i.focus()
         viewSource = (not self.isPjsUpstream and not self.isSslUpstream) and self.checkViewsource()
         if not self.isPjsUpstream and not self.isSslUpstream and self.needCssCookies():
             self.add_nocache_headers() # please don't cache this redirect!  otherwise user might not be able to leave the URL box after:
-            return self.redirect("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+quote(protocolWithHost(realHost)+self.request.uri),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
+            return self.redirect("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+quote(protocolWithHost(realHost)+S(self.request.uri)),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
         if not self.isPjsUpstream and not self.isSslUpstream: self.addCookieFromURL() # for cookie_host
         converterFlags = []
         for opt,suffix,ext,fmt in [
@@ -4518,7 +4529,7 @@ def httpfetch(req,url,**kwargs):
     data = kwargs.get('body',None)
     if not data: data = None
     headers = dict(kwargs.get('headers',{}))
-    req = Request(url, data, headers)
+    req = Request(S(url), data, headers)
     if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
     r = None
     try: resp = build_opener(DoNotRedirect).open(req,timeout=60)
@@ -4541,9 +4552,9 @@ def wrapResponse(body,info={},code=500):
                 self.info.headers.add(h,v)
             else: self.info.add(h,v)
         def get_all(self):
-            if type(self.info)==dict:
+            if hasattr(self.info,"items"):
                 return self.info.items()
-            if hasattr(self.info,"headers"):
+            elif hasattr(self.info,"headers"):
                 return [h.replace('\n','').split(': ',1) for h in self.info.headers]
             else: return self.info.get_all()
     r.headers = H(info) ; r.body = B(body) ; return r
@@ -4608,7 +4619,7 @@ def searchHelp():
 def htmlhead(title="Web Adjuster"): return '<html><head><title>%s</title><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"></head><body>' % title
 def urlbox_html(htmlonly_checked,cssOpts_html,default_url=""):
     r = htmlhead('Web Adjuster start page')+'<form action="'+options.urlboxPath+'"><label for="q">'+options.boxPrompt+'</label>: <input type="text" id="q" name="q"' # TODO: consider heading tag for boxPrompt if browser is IEMobile 6
-    if default_url: r += ' value="'+default_url+'"'
+    if default_url: r += ' value="'+S(default_url)+'"'
     else: r += ' placeholder="http://"' # HTML5 (Firefox 4, Opera 11, MSIE 10, etc)
     r += '><input type="submit" value="Go">'+searchHelp()+cssOpts_html # 'go' button MUST be first, before cssOpts_html, because it's the button that's hit when Enter is pressed.  (So might as well make the below focus() script unconditional even if there's cssOpts_html.  Minor problem is searchHelp() might get in the way.)
     if enable_adjustDomainCookieName_URL_override and not options.wildcard_dns and "" in options.default_site.split("/"): r += '<input type="hidden" name="%s" value="%s">' % (adjust_domain_cookieName,S(adjust_domain_none)) # so you can get back to the URL box via the Back button as long as you don't reload
