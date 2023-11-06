@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.234 (c) 2012-23 Silas S. Brown"
+"Web Adjuster v3.235 (c) 2012-23 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -445,7 +445,7 @@ heading("Speedup options")
 define("useLXML",default=False,help="Use the LXML library for parsing HTML documents. This is usually faster, but it can fail if your system does not have a good installation of LXML and its dependencies. Use of LXML libraries may also result in more changes to all HTML markup: this should be harmless for browsers, but beware when using options like bodyAppendGoesAfter then you might or might not be dealing with the original HTML depending on which filters are switched on.")
 # useLXML: (hence bodyAppendGoesAfter now takes regexps as of adjuster 0.1836) / dependencies: did have ", or if the websites you visit are badly broken" but it turns out some breakages are actually better handled by LXML than by HTMLParser, e.g. <div id=something">
 define("usepycurl",default=True,help="Use the pycurl library if a suitable version is available (setting this to False might save a little RAM at the expense of remote-server tolerance)")
-define("renderBlocks",default=False,help="Treat all characters rendered by the character-set renderer as \"blocks\" that are guaranteed to have the same dimensions (true for example if you are using the renderer for Chinese characters only). This is faster than checking words individually, but it may produce incorrect HEIGHT and WIDTH attributes if given a range of characters whose dimensions do differ.")
+define("renderBlocks",default=False,help="Treat all characters rendered by the character-set renderer as \"blocks\" that are guaranteed to have the same dimensions (true for example if you are using the renderer for Chinese characters only). This is faster than checking words individually, but it may produce misprints if given a range of characters whose dimensions do differ.")
 # renderBlocks TODO: blocksRange option for if want to render some that do and some that don't? (but profile it: PIL's getsize just might turn out to be quicker than the high-level range-check code)
 define("fasterServer",help="Address:port of another instance of Web Adjuster to which we forward all traffic whenever it is available. When the other instance is not available, traffic will be handled by this one. Use for example if you have a slower always-on machine and a faster not-always-on machine and you want the slower machine to delegate to the faster machine when available. See also ipTrustReal.")
 define("ipTrustReal",help="IP address of a machine that we trust, for example a machine that is using us as fasterServer. Any traffic coming from this machine with an X-Real-Ip header will be logged as though it originated at the value of its X-Real-Ip header. Setting this to * will cause X-Real-Ip to be trusted from ANY connection.")
@@ -6033,14 +6033,19 @@ class Renderer:
         doImgEnd()
         if i>copyFrom: ret.append(ampEncode(unitext[copyFrom:i]))
         return u"".join(ret)
-    def getMarkup_inner(self,unitext):
+    def getSize(self,unitext):
         if options.renderBlocks and self.hanziW:
             w,h = self.hanziW*len(unitext), self.hanziH
         else:
-            w,h = self.font().getsize(unitext)
+            f = self.font()
+            if hasattr(f,"getsize"): w,h = f.getsize(unitext) # PIL, and Pillow up to 9.5
+            else: _,_,w,h = f.getbbox(unitext) # Pillow 10
             if options.renderBlocks:
                 self.hanziW = int(w/len(unitext))
                 self.hanziH = h
+        return w,h
+    def getMarkup_inner(self,unitext):
+        w,h = self.getSize(unitext)
         return ('<img src="%s%s" width=%s height=%s>' % (options.renderPath,imgEncode(unitext),w,h)), w # (%s is faster than %d apparently, and format strings are faster than ''.join)
     def getImage(self,uri):
         if not options.render or not uri.startswith(options.renderPath): return False
@@ -6053,7 +6058,7 @@ class Renderer:
                 from PIL import ImageDraw,Image
         try: text=imgDecode(uri[len(options.renderPath):])
         except: return False # invalid base64 = fall back to fetching the remote site
-        size = self.font().getsize(text) # w,h
+        size = self.getSize(text) # w,h
         if options.renderInvert: bkg,fill = 0,1
         else: bkg,fill = 1,0
         img=Image.new("1",size,bkg) # "1" is 1-bit

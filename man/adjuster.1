@@ -431,7 +431,7 @@ Use the LXML library for parsing HTML documents\. This is usually faster, but it
 Use the pycurl library if a suitable version is available (setting this to False might save a little RAM at the expense of remote\-server tolerance)
 .TP
 \fB\-\-renderBlocks\fR (default False)
-Treat all characters rendered by the character\-set renderer as "blocks" that are guaranteed to have the same dimensions (true for example if you are using the renderer for Chinese characters only)\. This is faster than checking words individually, but it may produce incorrect HEIGHT and WIDTH attributes if given a range of characters whose dimensions do differ\.
+Treat all characters rendered by the character\-set renderer as "blocks" that are guaranteed to have the same dimensions (true for example if you are using the renderer for Chinese characters only)\. This is faster than checking words individually, but it may produce misprints if given a range of characters whose dimensions do differ\.
 .TP
 \fB\-\-fasterServer\fR
 Address:port of another instance of Web Adjuster to which we forward all traffic whenever it is available\. When the other instance is not available, traffic will be handled by this one\. Use for example if you have a slower always\-on machine and a faster not\-always\-on machine and you want the slower machine to delegate to the faster machine when available\. See also ipTrustReal\.
