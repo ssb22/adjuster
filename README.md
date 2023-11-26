@@ -852,7 +852,7 @@ Options for Annotator Generator v3.362
  : Description field to use when generating browser extensions
 
 `--manifest-v3`
- : Use Manifest v3 instead of Manifest v2 when generating browser extensions (tested on Chrome only, and requires Chrome 88 or higher).  This will be required for all Chrome Web Store uploads starting in June 2023.
+ : Use Manifest v3 instead of Manifest v2 when generating browser extensions (tested on Chrome only, and requires Chrome 88 or higher).  This will be required for all Chrome Web Store uploads starting in June 2024.
 
 `--dart`
  : Instead of generating C code, generate Dart.  This might be useful if you want to run an annotator in a Flutter application.
