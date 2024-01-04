@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works with either Python 2 or Python 3)
 
-# TermLayout v0.14 (c) 2014-2015,2020,2023 Silas S. Brown
+# TermLayout v0.15 (c) 2014-15,2020,2023-24 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -714,7 +714,7 @@ def deAmp(h): return h.replace('&lt;','<').replace('&quot;','"').replace('&amp;'
 
 try:
   import locale
-  terminal_charset = locale.getdefaultlocale()[1]
+  terminal_charset = locale.getpreferredencoding()
 except: terminal_charset = "utf-8"
 
 term = os.environ.get("TERM","")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.362 (c) 2012-23 Silas S. Brown"
+"Annotator Generator v3.363 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -576,7 +576,7 @@ if post_normalise:
   else: post_normalise_translate = lambda u: u''.join(unichr(post_normalise.get(ord(i),ord(i))) for i in u) # as Python 2 .translate can take only len=256 (at least as documented; some versions can do more but not all tested), so we'd better write it out ourselves
 try:
   import locale
-  terminal_charset = locale.getdefaultlocale()[1]
+  terminal_charset = locale.getpreferredencoding()
 except: terminal_charset = None
 if not terminal_charset: terminal_charset = "utf-8"
 if existing_ruby_shortcut_yarowsky:
