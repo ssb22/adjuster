@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.363 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.364 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1212,7 +1212,7 @@ def bookmarkJS():
   should_suppress_toolset = b"("+b"||".join(should_suppress_toolset)+b")"
   toolset_openTag = sort20px(br"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: #1010AF solid !important; background: #1010AF !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""") # need to select a background that doesn't 'invert' too much by whatever algorithm forceDarkAllowed uses; 1010AF at opacity 0.8 = 4040BF on white
   toolset_closeTag = b"'</span></span>'"
-  emoji_supported = b"(function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
+  emoji_supported = br"(function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
   bookmarks_emoji = br"""'>\ud83d\udd16</a> &nbsp; <a href=\"#\" id=\"ssb_local_annotator_b2\">\ud83d\udccb</a> &nbsp; """
   if android_print: bookmarks_emoji += br"""'+(ssb_local_annotator.canPrint()?('<a id=\"ssb_local_annotator_b3\" href=\"#\">'+ssb_local_annotator.canPrint()+'</a> &nbsp; '):'')+'""" # don't need bookmarks_noEmoji equivalent, because pre-4.4 devices can't print anyway
   bookmarks_emoji += br"""<span id=annogenFwdBtn style=\"display: none\"><a href=\"#\">\u27a1\ufe0f</a> &nbsp;</span> <a id=\"ssb_local_annotator_b5\" href=\"#\">\u274c'"""
@@ -1720,7 +1720,7 @@ if(ssb_local_annotator.canCustomZoom()) document.write('<div style="display:inli
 if sharp_multi and annotation_names: android_url_box += br"""
 modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+br"""];document.write('<select style="margin-top: 0.5ex" onChange="ssb_local_annotator.setAnnotNo(this.selectedIndex<0?0:this.selectedIndex);location.reload()">');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)document.write('<option'+(i==c?' selected':'')+'>'+modeNames[i]+'</option>');document.write('</select> ');"""
 if known_characters:
-  L = [i for i in [re.sub(b'\s+',b'',l) for l in open(known_characters,'rb').readlines()] if i]
+  L = [i for i in [re.sub(br'\s+',b'',l) for l in open(known_characters,'rb').readlines()] if i]
   l = [] ; s = 0
   while s < len(L):
     if s>=800: inc=100
@@ -4070,7 +4070,7 @@ def normalise():
     allWords = getAllWords()
     if removeSpace:
      corpus_unistr = re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),corpus_unistr,flags=re.UNICODE) # so getOkStarts works consistently if corpus has some space-separated and some not
-     corpus_unistr = re.sub(re.escape(markupStart)+'\s+',markupStart.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupMid),markupMid.replace('\\',r'\\'),re.sub(re.escape(markupMid)+'\s+',markupMid.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupEnd),markupEnd.replace('\\',r'\\'),corpus_unistr,flags=re.UNICODE),flags=re.UNICODE),flags=re.UNICODE),flags=re.UNICODE) # so we're tolerant of spurious whitespace between delimeters and markup (TODO: do this even if not removeSpace?)
+     corpus_unistr = re.sub(re.escape(markupStart)+r'\s+',markupStart.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupMid),markupMid.replace('\\',r'\\'),re.sub(re.escape(markupMid)+r'\s+',markupMid.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupEnd),markupEnd.replace('\\',r'\\'),corpus_unistr,flags=re.UNICODE),flags=re.UNICODE),flags=re.UNICODE),flags=re.UNICODE) # so we're tolerant of spurious whitespace between delimeters and markup (TODO: do this even if not removeSpace?)
      if not annot_whitespace:
       # normalise trailing hyphens e.g. from OCR'd scans:
       cu0 = corpus_unistr ; ff = 0
