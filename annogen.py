@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.364 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.365 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1178,7 +1178,6 @@ c_end += br"""  while(!FINISHED) {
   }
 }"""
 
-# jsAddRubyCss will be in a quoted string in Java source, so all " and \ must be escaped:
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
 annotation_font = [b"Times New Roman"] # Android has NotoSerif but you can't select it by name, it's mapped from "Times New Roman" (tested in Android 4.4, Android 10 and Android 12, however in Android 12 it does not work for printing, so we'll override it to "sans-serif" in Android 11+ below)
 # there's a more comprehensive list in the windows_clipboard code below, but those fonts are less likely found on Android
@@ -1186,12 +1185,12 @@ jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body)
 if android_template: jsAddRubyCss += b"-webkit-user-select:'+(ssb_local_annotator.getIncludeAll()?'text':'none')+' !important;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way, but other users want the annotations (and copying one word at a time via the popup box is slow).  This (plus our JS fix) narrows things down only if Copy is in use, not extended popup options e.g. Translate. (Incidentally, user-select:all on rb doesn't work in Android 10 as of 2021-01, so better use 'text' or 'auto')
 jsAddRubyCss += b"display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+b", ".join(annotation_font)+b" !important;}"
 jsAddRubyCss += b"rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}" # for 3line mode (assumes rt/rb and rt/rt/rb)
-jsAddRubyCss += b"rp{display:none!important}"+B(extra_css).replace(b'\\',br'\\').replace(b'"',br'\"').replace(b"'",br"\\'")+b"'"
-if epub: jsAddRubyCss += b"+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type=\\\"page-list\\\"] ol li,nav[epub\\\\\\\\:type=\\\"page-list\\\"] ol li{display:inline!important;margin-right:1ex}':'')" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
+jsAddRubyCss += b"rp{display:none!important}"+B(extra_css).replace(b"'",br"\'")+b"'"
+if epub: jsAddRubyCss += br"""+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type="page-list"] ol li,nav[epub\\:type="page-list"] ol li{display:inline!important;margin-right:1ex}':'')""" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += b"+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; }'+(ssb_local_annotator.printNeedsCssHack()?' rt { font-family: sans-serif !important; }':'')+' }'"
-if android_template: jsAddRubyCss += b"+(ssb_local_annotator.getDevCSS()?'ruby:not([title]){border:thin blue solid} ruby[title~=\\\"||\\\"]{border:thin blue dashed}':'')" # (use *= instead of ~= if the || is not separated on both sides with space)
+if android_template: jsAddRubyCss += br"""+(ssb_local_annotator.getDevCSS()?'ruby:not([title]){border:thin blue solid} ruby[title~="||"]{border:thin blue dashed}':'')""" # (use *= instead of ~= if the || is not separated on both sides with space)
 jsAddRubyCss += b"+'</style>'"
-if known_characters: jsAddRubyCss += b"+'<style id=\\\"ssb_hide0\\\">rt.known{display: none !important}</style>'"
+if known_characters: jsAddRubyCss += b"""+'<style id="ssb_hide0">rt.known{display: none !important}</style>'"""
 def sort20px(singleQuotedStr): # 20px is relative to zoom
   assert singleQuotedStr.startswith(b"'") and singleQuotedStr.endswith(b"'")
   if not android_template: return singleQuotedStr
@@ -1199,9 +1198,9 @@ def sort20px(singleQuotedStr): # 20px is relative to zoom
 def bookmarkJS():
   "Returns inline JS expression (to be put in parens) that evaluates to HTML fragment to be added for bookmarks, and event-setup code to be added after (as Content-Security-Policy could be unsafe-inline + unsafe-eval)"
   assert not '"' in android, "bookmarkJS needs re-implementing if --android URL contains quotes: please %-escape it"
-  should_show_bookmarks = B("(location.href=='"+android.replace("'",r"\\'")+"'&&!document.noBookmarks)") # noBookmarks is used for handling ACTION_SEND, since it has the same href (TODO @lower-priority: use different href instead?)
+  should_show_bookmarks = B("(location.href=='"+android.replace("'",r"\'")+"'&&!document.noBookmarks)") # noBookmarks is used for handling ACTION_SEND, since it has the same href (TODO @lower-priority: use different href instead?)
   are_there_bookmarks = b"ssb_local_annotator.getBMs().replace(/,/g,'')"
-  show_bookmarks_string = br"""'<div style=\"border: green solid\">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style=\"color:red;text-decoration:none\" href=\"javascript:if(confirm(\\'Delete '+title.replace(/\\'/g,\"&apos;\").replace(/\"/g,\"&quot;\")+\"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')[\"+i+']);location.reload()}\">Delete</a>] <a style=\"color:blue;text-decoration:none\" href=\"'+url+'\">'+title+'</a>'}return c+'</ul>'})()+'</div>'""" # TODO: use of confirm() will include the line "the page at file:// says", could do without that (but reimplementing will need complex callbacks rather than a simple 'if').  The javascript: here is OK as we assume there's no Content-Security-Policy on our start page where should_show_bookmarks is true.
+  show_bookmarks_string = br"""'<div style="border: green solid">'+(function(){var c='<h3>Bookmarks you added</h3><ul>',a=ssb_local_annotator.getBMs().split(','),i;for(i=0;i<a.length;i++)if(a[i]){var s=a[i].indexOf(' ');var url=a[i].slice(0,s),title=a[i].slice(s+1).replace(/%2C/g,',');c+='<li>[<a style="color:red;text-decoration:none" href="javascript:if(confirm(\'Delete '+title.replace(/\'/g,"&apos;").replace(/"/g,"&quot;")+"?')){ssb_local_annotator.deleteBM(ssb_local_annotator.getBMs().split(',')["+i+']);location.reload()}">Delete</a>] <a style="color:blue;text-decoration:none" href="'+url+'">'+title+'</a>'}return c+'</ul>'})()+'</div>'""" # TODO: use of confirm() will include the line "the page at file:// says", could do without that (but reimplementing will need complex callbacks rather than a simple 'if').  The javascript: here is OK as we assume there's no Content-Security-Policy on our start page where should_show_bookmarks is true.
   show_bookmarks_string = are_there_bookmarks+b"?("+show_bookmarks_string+b"):''"
   should_suppress_toolset=[
     b"location.href.slice(0,7)=='file://'", # e.g. assets URLs
@@ -1210,21 +1209,21 @@ def bookmarkJS():
   ]
   if epub: should_suppress_toolset.append(b"location.href.slice(0,12)=='http://epub/'")
   should_suppress_toolset = b"("+b"||".join(should_suppress_toolset)+b")"
-  toolset_openTag = sort20px(br"""'<span id=\"ssb_local_annotator_bookmarks\" style=\"display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important; text-align: center !important\"><span style=\"display: inline-block !important; vertical-align: top !important; border: #1010AF solid !important; background: #1010AF !important; color: white !important; font-size: 20px !important; overflow: auto !important\">'""") # need to select a background that doesn't 'invert' too much by whatever algorithm forceDarkAllowed uses; 1010AF at opacity 0.8 = 4040BF on white
+  toolset_openTag = sort20px(br"""'<span id="ssb_local_annotator_bookmarks" style="display: block !important; left: 0px; right: 0px; bottom: 0px; margin: auto !important; position: fixed !important; z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important; text-align: center !important"><span style="display: inline-block !important; vertical-align: top !important; border: #1010AF solid !important; background: #1010AF !important; color: white !important; font-size: 20px !important; overflow: auto !important">'""") # need to select a background that doesn't 'invert' too much by whatever algorithm forceDarkAllowed uses; 1010AF at opacity 0.8 = 4040BF on white
   toolset_closeTag = b"'</span></span>'"
   emoji_supported = br"(function(){var c=document.createElement('canvas');if(!c.getContext)return;c=c.getContext('2d');if(!c.fillText)return;c.textBaseline='top';c.font='32px Arial';c.fillText('\ud83d\udd16',0,0);return c.getImageData(16,16,1,1).data[0]})()" # these emoji are typically supported on Android 4.4 but not on Android 4.1
-  bookmarks_emoji = br"""'>\ud83d\udd16</a> &nbsp; <a href=\"#\" id=\"ssb_local_annotator_b2\">\ud83d\udccb</a> &nbsp; """
-  if android_print: bookmarks_emoji += br"""'+(ssb_local_annotator.canPrint()?('<a id=\"ssb_local_annotator_b3\" href=\"#\">'+ssb_local_annotator.canPrint()+'</a> &nbsp; '):'')+'""" # don't need bookmarks_noEmoji equivalent, because pre-4.4 devices can't print anyway
-  bookmarks_emoji += br"""<span id=annogenFwdBtn style=\"display: none\"><a href=\"#\">\u27a1\ufe0f</a> &nbsp;</span> <a id=\"ssb_local_annotator_b5\" href=\"#\">\u274c'"""
-  bookmarks_noEmoji = br"""' style=\"color: white !important\">Bookmark</a> <a href=\"#\" id=\"ssb_local_annotator_b2\" style=\"color: white !important\">Copy</a> <a id=annogenFwdBtn style=\"display: none\" href=\"#\" style=\"color: white !important\">Fwd</a> <a id=\"ssb_local_annotator_b5\" href=\"#\" style=\"color: white !important\">X'"""
-  toolset_string = toolset_openTag+br"""+'<a id=\"ssb_local_annotator_b1\" href=\"#\"'+(ssb_local_annotator_toolE?("""+bookmarks_emoji+b"):("+bookmarks_noEmoji+br"))+'</a>'+"+toolset_closeTag # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
+  bookmarks_emoji = br"""'>\ud83d\udd16</a> &nbsp; <a href="#" id="ssb_local_annotator_b2">\ud83d\udccb</a> &nbsp; """
+  if android_print: bookmarks_emoji += br"""'+(ssb_local_annotator.canPrint()?('<a id="ssb_local_annotator_b3" href="#">'+ssb_local_annotator.canPrint()+'</a> &nbsp; '):'')+'""" # don't need bookmarks_noEmoji equivalent, because pre-4.4 devices can't print anyway
+  bookmarks_emoji += br"""<span id=annogenFwdBtn style="display: none"><a href="#">\u27a1\ufe0f</a> &nbsp;</span> <a id="ssb_local_annotator_b5" href="#">\u274c'"""
+  bookmarks_noEmoji = br"""' style="color: white !important">Bookmark</a> <a href="#" id="ssb_local_annotator_b2" style="color: white !important">Copy</a> <a id=annogenFwdBtn style="display: none" href="#" style="color: white !important">Fwd</a> <a id="ssb_local_annotator_b5" href="#" style="color: white !important">X'"""
+  toolset_string = toolset_openTag+br"""+'<a id="ssb_local_annotator_b1" href="#"'+(ssb_local_annotator_toolE?("""+bookmarks_emoji+b"):("+bookmarks_noEmoji+br"))+'</a>'+"+toolset_closeTag # if not emoji_supported, could delete the above right: 40%, change border to border-top, and use width: 100% !important; margin: 0pt !important; padding: 0pt !important; left: 0px; text-align: justify; then add a <span style="display: inline-block; width: 100%;"></span> so the links are evenly spaced.  BUT that increases the risk of overprinting a page's own controls that might be fixed somewhere near the bottom margin (there's currently no way to get ours back after closure, other than by navigating to another page)
   # TODO: (don't know how much more room there is on smaller devices, but) U+1F504 Reload (just do window.location.reload)
   toolset_string = should_suppress_toolset+b"?'':("+toolset_string+b")"
   
   unconditional_inject = b"ssb_local_annotator_toolE="+emoji_supported
   # Highlighting function, currently depending on android_print (calls canPrint, and currently no other way to save highlights, TODO: figure out how we can save the highlights in a manner that's stable against document changes and annotation changes with newer app versions)
   if android_print:
-    p = br""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style=\"background:'+c+' !important\" data-c=\"'+c+'\">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(br"""'<button id=\"ssb_local_annotator_HL\" style=\"display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important; overflow: auto !important;\">'""")+br"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
+    p = br""";ssb_local_annotator_highlightSel=function(colour){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);for(;i < s.length && r.intersectsNode(s[i]); i++){d=1;s[i].setAttribute('style','background:'+colour+'!important');if(!window.doneWarnHighl){window.doneWarnHighl=true;ssb_local_annotator.alert('','','This app cannot yet SAVE your highlights. They may be lost when you leave.'+(ssb_local_annotator.canPrint()?' Save as PDF to keep them.':''))}}if(!d)ssb_local_annotator.alert('','','This tool can highlight only annotated words. Select at least one annotated word and try again.')};if(!document.gotSelChg){document.gotSelChg=true;document.addEventListener('selectionchange',function(){var i=document.getElementById('ssb_local_annotator_HL');if(window.getSelection().isCollapsed || document.getElementsByTagName('ruby').length < 9) i.style.display='none'; else i.style.display='block'})}function doColour(c){return '<span style="background:'+c+' !important" data-c="'+c+'">'+(ssb_local_annotator_toolE?'\u270f':'M')+'</span>'}return """+sort20px(br"""'<button id="ssb_local_annotator_HL" style="display: none; position: fixed !important; background: white !important; border: red solid !important; color: black !important; right: 0px; top: 3em; font-size: 20px !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important; overflow: auto !important;">'""")+br"""+doColour('yellow')+doColour('cyan')+doColour('pink')+doColour('inherit')+'</button>'"""
     if android_audio:
       p=p.replace(b"ssb_local_annotator_highlightSel=",br"""ssb_local_annotator_playSel=function(){var r=window.getSelection().getRangeAt(0);var s=document.getElementsByTagName('ruby'),i,d=0;for(i=0;i < s.length && !r.intersectsNode(s[i]); i++);var t=new Array();for(;i < s.length && r.intersectsNode(s[i]); i++) t.push(s[i].getElementsByTagName('rb')[0].innerText); ssb_local_annotator.sendToAudio(t.join(''))};ssb_local_annotator_highlightSel=""").replace(b"+'</button>'",br"""+'<span>'+(ssb_local_annotator_toolE?'\ud83d\udd0a':'S')+'</span></button>'""")
       if android_audio_maxWords: p=p.replace(b"ssb_local_annotator.sendToAudio",b"if(t.length > %d) ssb_local_annotator.alert('','','Limit %d words!'); else ssb_local_annotator.sendToAudio" % (android_audio_maxWords,android_audio_maxWords))
@@ -1294,7 +1293,7 @@ def jsAnnot(for_android=True,for_async=False):
     f(window) };
   function AnnotIfLenChanged() { if(window.lastScrollTime){if(new Date().getTime() < window.lastScrollTime+500) return} else { window.lastScrollTime=1; window.addEventListener('scroll',function(){window.lastScrollTime = new Date().getTime()}) } var getLen=function(w) { var r=0; try{w.document}catch(E){return r} if(w.frames && w.frames.length) { var i; for(i=0; i<w.frames.length; i++) r+=getLen(w.frames[i]) } if(w.document && w.document.body && w.document.body.innerHTML) r+=w.document.body.innerHTML.length; return r },curLen=getLen(window); if(curLen!=window.curLen) { annotScan(); window.curLen=getLen(window) } else return 'sameLen' };
   function tw0() { all_frames_docs(function(d){annotWalk(d,d,false,false)}) };
-  function annotScan() {"""+B(extra_js).replace(b'\\',br'\\').replace(b'"',br'\"')+jsAddRubyCss+b"};"
+  function annotScan() {"""+B(extra_js)+jsAddRubyCss+b"};"
   
   r += br"""
 function annotWalk(n"""
@@ -1317,11 +1316,9 @@ function annotWalk(n"""
     CheckExistingRuby.a(SetNF.r())
     if for_async: FixupRuby = JsBlock(b"if(nf) { nfOld=nReal;n=n.cloneNode(true);nfNew=document.createElement('span');nfNew.className='_adjust0';nfNew.appendChild(n);nfNew.oldHtml=n.outerHTML;",b"}") # and in for_async, the replaceChild for this cloneNode does not happen unless we ALSO can annotate the rb (so it shouldn't disturb ruby that's completely unrelated to the charsets we annotate)
     else: FixupRuby = JsBlock(b"var nReal = n; if(nf) { n=n.cloneNode(true);",b"}") # if messing with existing ruby, first do it offline for speed (and need to set nReal here because didn't set it above if we're not for_async)
-    if existing_ruby_lang_regex: KeepRuby=JsBlock(b"kR=document.documentElement.lang.match(["+b",".join(b"/"+(B(l).replace(b'\\',br'\\') if for_android else B(l))+b"/" for l in B(existing_ruby_lang_regex).split(b','))+b"]["+annotNo+b"]);if(kR){",b"}")
+    if existing_ruby_lang_regex: KeepRuby=JsBlock(b"kR=document.documentElement.lang.match(["+b",".join(b"/"+B(l)+b"/" for l in B(existing_ruby_lang_regex).split(b','))+b"]["+annotNo+b"]);if(kR){",b"}")
     else: KeepRuby = JsBlock() # unconditional
-    if existing_ruby_js_fixes:
-      if for_android: KeepRuby.a(B(existing_ruby_js_fixes).replace(b'\\',br'\\').replace(b'"',br'\"'))
-      else: KeepRuby.a(B(existing_ruby_js_fixes))
+    if existing_ruby_js_fixes: KeepRuby.a(B(existing_ruby_js_fixes))
     FixupRuby.a(KeepRuby.r())
     if KeepRuby.start: # not unconditionally keeping ruby: need an 'else delete'
       if for_async: FixupRuby.a(br"""else {var zap=function(t){while(1){var r=n.getElementsByTagName(t);if(!r.length)break;r[0].parentNode.removeChild(r[0])}};zap('rt');zap('rp');while(1){var r=n.getElementsByTagName('ruby');if(!r.length)break;r[0].parentNode.replaceChild(document.createTextNode(r[0].innerText),r[0])}}""") # not allowed to write to innerHTML in Firefox extensions
@@ -1356,10 +1353,10 @@ function annotWalk(n"""
     r += b");"
   r += br"""
           } break;
-        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'').replace(/\\B +\\B/g,'');"""
+        case 3: {var cnv=c.nodeValue.replace(/\u200b/g,'').replace(/\B +\B/g,'');"""
   if for_async:
     r += br"""
-            if(!cnv.match(/^\\s*$/)) {
+            if(!cnv.match(/^\s*$/)) {
                 (function(n"""
     if CheckExistingRuby: r += b",nfOld,nfNew"
     r += br""",c,cnv){
@@ -1449,9 +1446,9 @@ try{nfOld.parentNode.replaceChild(nfNew,nfOld)}catch(err){ /* already done */ }
       KeepRuby = JsBlock(b"if(kR){",b"} else nReal.parentNode.replaceChild(n,nReal)")
     else: KeepRuby = JsBlock() # unconditional
     KeepRuby.a(br"""
-        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt[^>]*>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=[\"]([^\"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=[\"][^\"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt""")
+        nReal.innerHTML='<span class=_adjust0>'+n.innerHTML.replace(/<ruby[^>]*>((?:<[^>]*>)*?)<span class=.?_adjust0.?>((?:<span><[/]span>)?[^<]*)(<ruby[^>]*><rb>.*?)<[/]span>((?:<[^>]*>)*?)<rt[^>]*>(.*?)<[/]rt><[/]ruby>/ig,function(m,open,lrm,rb,close,rt){var a=rb.match(/<ruby[^>]*/g),i;for(i=1;i < a.length;i++){var b=a[i].match(/title=["]([^"]*)/i);if(b)a[i]=' || '+b[1]; else a[i]=''}var attrs=a[0].slice(5).replace(/title=["][^"]*/,'$&'+a.slice(1).join('')); return lrm+'<ruby'+attrs+'><rb>'+open.replace(/<rb>/ig,'')+rb.replace(/<ruby[^>]*><rb>/g,'').replace(/<[/]rb>.*?<[/]ruby> */g,'')+close.replace(/<[/]rb>/ig,'')+'</rb><rt""")
     if known_characters: KeepRuby.a(br"""'+(rb.indexOf('<rt>')==-1?' class=known':'')+'""") # if all the <rt> we generated are <rt class=known> then propagate this to the existing ruby
-    KeepRuby.a(br""">'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'""")
+    KeepRuby.a(br""">'+rt+'</rt></ruby>'}).replace(/<[/]ruby>((<[^>]*>|\u200e)*?<ruby)/ig,'</ruby> $1').replace(/<[/]ruby> ((<[/][^>]*>)+)/ig,'</ruby>$1 ')+'</span>'""")
     if for_android: KeepRuby.a(br""";
         if(!inLink){var a=function(n){for(n=n.firstChild;n;n=n.nextSibling){if(n.nodeType==1){if(n.nodeName=='RUBY')n.addEventListener('click',annotPopAll);else if(n.nodeName!='A')a(n)}}};a(nReal)}""")
     r += KeepRuby.r()
@@ -1465,7 +1462,7 @@ new window.MutationObserver(function(mut){var i,j;if(!document.annotWalkOff){doc
   elif for_android: r += br"if(!ssb_local_annotator.getIncludeAll())document.addEventListener('copy',function(e){var s=window.getSelection(),i,c=document.createElement('div');for(i=0;i < s.rangeCount;i++)c.appendChild(s.getRangeAt(i).cloneContents());e.clipboardData.setData('text/plain',c.innerHTML.replace(/<rt.*?<[/]rt>/g,'').replace(/<.*?>/g,''));e.preventDefault()});" # work around user-select:none not always working (and newlines sometimes being added anyway)
   if not for_async:
     r=re.sub(br"\s+",b" ",re.sub(b"/[*].*?[*]/",b"",r,flags=re.DOTALL)) # remove /*..*/ comments, collapse space
-    assert not b'"' in r.replace(br'\"',b''), 'Unescaped " character in jsAnnot o/p'
+    r=re.sub(br'\\(?!u)',br'\\\\',r).replace(b'"',br'\"')
   return r
 
 js_check_for_existing_ruby_and_set_nf = b"""
@@ -1492,10 +1489,10 @@ for(c=n.firstChild; c; c=c.nextSibling) {
 
 js_check_wbr_and_mergeTags = br"""
     /* Check for WBR and mergeTags */
-    function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^\\s*$/)};
+    function isTxt(n) { return n && n.nodeType==3 && n.nodeValue && !n.nodeValue.match(/^\s*$/)};
     var c=n.firstChild; while(c) {
       var ps = c.previousSibling, cNext = c.nextSibling;
-      if (c.nodeType==1) { if((c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\\s*$/))))) && isTxt(cNext) && isTxt(ps) /* e.g. <span id="page8" class="pageNum">&#160;</span> in mid-word; rm ONLY if non-whitespace text immediately before/after: beware of messing up JS applications */ ) {
+      if (c.nodeType==1) { if((c.nodeName=='WBR' || (c.nodeName=='SPAN' && c.childNodes.length<=1 && (!c.firstChild || (c.firstChild.nodeValue && c.firstChild.nodeValue.match(/^\s*$/))))) && isTxt(cNext) && isTxt(ps) /* e.g. <span id="page8" class="pageNum">&#160;</span> in mid-word; rm ONLY if non-whitespace text immediately before/after: beware of messing up JS applications */ ) {
         n.removeChild(c);
         cNext.previousSibling.nodeValue+=cNext.nodeValue;
         n.removeChild(cNext); cNext=ps}
