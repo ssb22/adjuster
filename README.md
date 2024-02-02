@@ -611,8 +611,8 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.365
-======================================
+Options for Annotator Generator v3.37
+=====================================
 
 `-h`, `--help`
  : show this help message and exit
@@ -795,7 +795,7 @@ Options for Annotator Generator v3.365
  : Cancels any earlier `--tts-js` option in Makefile variables etc
 
 `--existing-ruby-js-fixes=`
- : Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: `--existing-ruby-js-fixes`=@file.js
+ : Extra Javascript to run in the Android browser app or browser extension whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: `--existing-ruby-js-fixes`=@file.js
 
 `--existing-ruby-lang-regex=`
  : Set the Android app or browser extension to remove existing ruby elements unless the document language matches this regular expression. If `--sharp-multi` is in use, you can separate multiple regexes with comma and any unset will always delete existing ruby.  If this option is not set at all then existing ruby is always kept.

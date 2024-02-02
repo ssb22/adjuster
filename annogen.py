@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.365 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.37 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -211,7 +211,7 @@ parser.add_option("--android-audio",help="When generating an Android browser, in
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
 parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)")
 cancelOpt("tts-js")
-parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
+parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app or browser extension whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--existing-ruby-lang-regex",help="Set the Android app or browser extension to remove existing ruby elements unless the document language matches this regular expression. If --sharp-multi is in use, you can separate multiple regexes with comma and any unset will always delete existing ruby.  If this option is not set at all then existing ruby is always kept.")
 parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
 parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android browser app. You may also specify a file to read --extra-css=@file.css")
@@ -419,9 +419,9 @@ if android_template:
   android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
-if known_characters and not android: errExit("--known-characters requires --android")
+if known_characters and not (android or javascript): errExit("--known-characters requires --android, --javascript or --browser-extension")
 if known_characters and freq_count: errExit("--known-characters and --freq-count must be on separate runs in the current implementation") # otherwise need to postpone loading known_characters
-if known_characters and not android_template and not ("ANDROID_NO_UPLOAD" in os.environ and "GOOGLE_PLAY_TRACK" in os.environ): warn("known-characters without android-template means you call the Javascript functions yourself")
+if known_characters and android and not android_template and not ("ANDROID_NO_UPLOAD" in os.environ and "GOOGLE_PLAY_TRACK" in os.environ): warn("known-characters without android-template means you call the Javascript functions yourself")
 if android_print and not bookmarks: errExit("The current implementation of --android-print requires --bookmarks to be set as well")
 if android_audio:
   if not android_print: errExit("The current implementation of --android-audio requires --android-print to be set as well") # for the highlighting (and TODO: I'm not sure about the HTML5-Audio support of Android 2.x devices etc, so should we check a minimum Android version before making the audio option available? as highlight option can be done pre-4.4 just no way to save the result)
@@ -431,7 +431,7 @@ if android_audio:
     android_audio_maxWords = int(android_audio_maxWords)
   else: android_audio_maxWords=None
 if (extra_js or extra_css or tts_js) and not android: errExit("--extra-js, --tts-js and --extra-css require --android")
-if (existing_ruby_lang_regex or existing_ruby_js_fixes) and not (android or javascript): errExit("--existing-ruby-lang-regex and --existing-ruby-js-fixes requires --android or --javascript") # (or --browser-extension, which implies --javascript)
+if (existing_ruby_lang_regex or existing_ruby_js_fixes) and not (android or javascript): errExit("--existing-ruby-lang-regex and --existing-ruby-js-fixes require --android, --javascript or --browser-extension")
 if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
@@ -1181,6 +1181,7 @@ c_end += br"""  while(!FINISHED) {
 # (innerHTML support should be OK at least from Chrome 4 despite MDN compatibility tables not going back that far)
 annotation_font = [b"Times New Roman"] # Android has NotoSerif but you can't select it by name, it's mapped from "Times New Roman" (tested in Android 4.4, Android 10 and Android 12, however in Android 12 it does not work for printing, so we'll override it to "sans-serif" in Android 11+ below)
 # there's a more comprehensive list in the windows_clipboard code below, but those fonts are less likely found on Android
+# jsAddRubyCss is Android-only.  Browser extensions instead use extension_rubycss.
 jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{"
 if android_template: jsAddRubyCss += b"-webkit-user-select:'+(ssb_local_annotator.getIncludeAll()?'text':'none')+' !important;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way, but other users want the annotations (and copying one word at a time via the popup box is slow).  This (plus our JS fix) narrows things down only if Copy is in use, not extended popup options e.g. Translate. (Incidentally, user-select:all on rb doesn't work in Android 10 as of 2021-01, so better use 'text' or 'auto')
 jsAddRubyCss += b"display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+b", ".join(annotation_font)+b" !important;}"
@@ -1266,7 +1267,7 @@ def jsAnnot(for_android=True,for_async=False):
   assert not (for_android and for_async), "options are mutually exclusive"
   if sharp_multi:
     if for_android: annotNo = b"ssb_local_annotator.getAnnotNo()"
-    elif for_async: annotNo = b"document.aType" # set by the startup sendMessage callback in content.js
+    elif for_async: annotNo = b"document.aType" # set by the startup sendMessage callback in content.js (frontend needs it for KeepRuby logic)
     else: annotNo = b"aType" # will be in JS context
   else: annotNo = b"0" # TODO: could take out relevant code altogether
   
@@ -1418,12 +1419,13 @@ try{nfOld.parentNode.replaceChild(nfNew,nfOld)}catch(err){ /* already done */ }
     r += b",c,cnv)}" # this } matches if(!cnv.match...) {
   else: # not for_async
     if for_android: annotateFunc = b"ssb_local_annotator.annotate"
-    elif not sharp_multi and not glossfile:
+    elif not sharp_multi and not glossfile and not known_characters:
       annotateFunc = b"Annotator.annotate" # just takes str
     else:
       annotateFunc = b"function(s){return Annotator.annotate(s"
       if sharp_multi: annotateFunc += b",aType"
       if glossfile: annotateFunc += b",numLines"
+      if known_characters: annotateFunc += b",numKnownGroups"
       annotateFunc += b")}"
     r += b"var nv="+annotateFunc+br"""(cnv); if(nv!=cnv) { var newNode=document.createElement('span'); newNode.className='_adjust0'; if(inLink) newNode.inLink=1; n.replaceChild(newNode, c); try { newNode.innerHTML=nv } catch(err) { alert(err.message) }"""
     if for_android: r += br"""if(!inLink){var a=newNode.getElementsByTagName('ruby'),i;for(i=0; i < a.length; i++) a[i].addEventListener('click',annotPopAll)}"""
@@ -1718,19 +1720,19 @@ if sharp_multi and annotation_names: android_url_box += br"""
 modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+br"""];document.write('<select style="margin-top: 0.5ex" onChange="ssb_local_annotator.setAnnotNo(this.selectedIndex<0?0:this.selectedIndex);location.reload()">');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)document.write('<option'+(i==c?' selected':'')+'>'+modeNames[i]+'</option>');document.write('</select> ');"""
 if known_characters:
   L = [i for i in [re.sub(br'\s+',b'',l) for l in open(known_characters,'rb').readlines()] if i]
-  l = [] ; s = 0
+  knownCharsGroups = [] ; s = 0
   while s < len(L):
     if s>=800: inc=100
     elif s>=300: inc=50
     elif s>=100: inc=20
     else: inc=10
     if s+inc > len(L): warn("UI code currently assumes known_characters line count will be a round number, but it isn't.  Last option will be too high.") # TODO handle this properly?
-    l.append(b"".join(L[s:s+inc])) ; s += inc
-  l = b'['+b','.join(b"'"+i+b"'" for i in l)+b']'
+    knownCharsGroups.append(b"".join(L[s:s+inc])) ; s += inc
+  knownCharsGroupsArray = b'['+b','.join(b"'"+i+b"'" for i in knownCharsGroups)+b']'
   android_url_box += br"""
-var hFreq="""+l+br""",known=ssb_local_annotator.getKnownCharacters();
+var hFreq="""+knownCharsGroupsArray+br""",known=ssb_local_annotator.getKnownCharacters();
 document.write('<select style="margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(hFreq.slice(0,this.selectedIndex<0?0:this.selectedIndex).join('+"''"+'));location.reload()"><option'+(known==""?' selected':'')+'>Annotate all</option>');
-for(var dx=0,N=10,k='';dx<hFreq.length;dx++,N+=(N>=800?100:N>=300?50:N>=100?20:10)) document.write('<option'+(known==(k+=hFreq[dx])?' selected':'')+'>Leave '+N+' known</option>');
+for(var dx=0,N=10,k='';dx<"""+B(str(len(knownCharsGroups)))+br""";dx++,N+=(N>=800?100:N>=300?50:N>=100?20:10)) document.write('<option'+(known==(k+=hFreq[dx])?' selected':'')+'>Leave '+N+' known</option>');
 document.write('</select> ');""" # TODO: could add a 'custom' option that's selected if none of the others are, but will need some way of editing it (and might need to nicely handle the case of 'frequency table corrected during an app upgrade')
 android_url_box += br"""
 document.write('<button style="margin-top: 0.5ex;background:#ededed;color:inherit;padding-left:0px;padding-right:0.2ex" onclick="ssb_local_annotator.setIncludeAll(!ssb_local_annotator.getIncludeAll());location.reload();return false"><input type=checkbox'+(ssb_local_annotator.getIncludeAll()?' checked':'')+'>Include """
@@ -3172,6 +3174,7 @@ js_start += b"var Annotator={\n"
 if not browser_extension:
   js_start += b" version: '"+version_stamp+b"',\n"
   if glossfile: js_start += b"numLines: 2 /* override to 1 or 3 if you must, but not recommended for learning */,\n"
+  if known_characters: js_start += b"numKnownGroups: 0 /* override to number of \"known\" groups of characters (words composed entirely of these will be annotated with CSS class 'known') */,\n"
 if sharp_multi: js_start += b"annotate: function(input,aType) { if(aType==undefined) aType=0;"
 else: js_start += b"annotate: function(input) {"
 if removeSpace: js_start += br" input=input.replace(/\B +\B/g,'');" # TODO: document that we do this (currently only in JS annotator here, and Android app via jsAnnot, although Web Adjuster does it separately in Python before calling the filter).  It deals with software that adds ASCII spaces between Chinese characters of the same word, without deleting spaces between embedded English words (TODO: this 'JS + app' version may still delete spaces between punctuation characters, which may be an issue for consecutive quoted words e.g. 'so-called "word1" "word2"').  If doing it at the nextbyte level, we'd have to update prevbyte; if this or doing it at switchbyte level (e.g. recurse) we'd have to do something about the copy pointer (skip the spaces?) and the near-call distance (and associated buffer sizes in C) so they're best pre-removed, but only from between characters we annotate.
@@ -3185,6 +3188,7 @@ js_start += br"""
 input = unescape(encodeURIComponent(input)); // to UTF-8
 var data = this.data""" # TODO: if input is a whole html doc, insert css in head (e.g. from annoclip and/or adjuster), and hope there's no stuff that's not to be annotated (form fields etc).  But really want them to be using browser_extension or annotate_page if doing this (TODO add css to annotate_page, already there in browser_extension)
 if glossfile: js_start += b", numLines = this.numLines"
+if known_characters: js_start += b", numKnownGroups = this.numKnownGroups, hFreq = this.hFreq"
 js_start += br""";
 var addrLen = data.charCodeAt(0), dPtr;
 var p = 0; // read-ahead pointer
@@ -3352,22 +3356,30 @@ var oldPos=p;
 dPtr=1;readData();
 if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
 }
-return decodeURIComponent(escape(output.join("")))"""
+output=decodeURIComponent(escape(output.join("")));"""
+if known_characters: js_start += br"""
+if(numKnownGroups) output=output.replace(new RegExp("(<rb>["+hFreq.slice(0,numKnownGroups).join('')+"]+</rb><rt)(>.*?</rt>)",'g'),"$1 class=known$2");
+""" # TODO: pre-cache hFreq regex on select (like in Android)?
+js_start += br"""
+return output"""
 if js_6bit: js_start = js_start.replace(b"var numBytes = data.charCodeAt(dPtr++);",b"var numBytes = (data.charCodeAt(dPtr++)-"+B(str(js_6bit_offset-1))+b")&0xFF;")
 if sharp_multi: js_start += br""".replace(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#".repeat("""+annotMap("aType")+br""")+"(.*?)(#.*?)?</r","g"),"$1$2</r")""" # normally <rt>, but this regexp will also work if someone changes the generated code to put annotation into second <rb> and title into <rt> as long as annotation is not given first.  Cannot put [^#<] as there might be <sup> etc in the annotation, and .*?# still matches across ...</rb><rt>... :-(
 js_start += br"""; // from UTF-8 back to Unicode
 }""" # end of annotate method
 if post_normalise: js_start += b',\nnChars:(Object.fromEntries?Object.fromEntries:function(e){o={};Object.keys(e).forEach(function(k){[k,v]=e[k];o[k]=v});return o})(function(){var t="'+js_escapeRawBytes(u''.join(unichr(c) for c in post_normalise.values()))+b'".split("");return "'+js_escapeRawBytes(u''.join(unichr(c) for c in post_normalise.keys()))+b'".split("").map(function(e,i){return [e,t[i]]})}())'
-if not browser_extension: js_start += b",\n" # data: ... \n goes here
+if known_characters: js_start += b",\nhFreq: "+knownCharsGroupsArray
+if not browser_extension: js_start += b",\n" # data: ... \n goes here (browser_extension reads it from annotate-dat.txt instead)
 if post_normalise: js_start = js_start.replace(b"input.slice(copyP",b"origInBytes.slice(copyP").replace(b"push(input.charAt",b"push(origInBytes.charAt")
 js_end = br"""};
 function annotate(input"""
 if sharp_multi: js_end += b",aType"
 if glossfile: js_end += b",numLines"
+if known_characters: js_end += b",numKnownGroups"
 js_end += b""",contextL_u8,contextR_u8) {
 Annotator.contextL_u8=contextL_u8; Annotator.contextR_u8=contextR_u8;
 """
 if glossfile: js_end += b"if(numLines==undefined) numLines=2; Annotator.numLines=numLines; "
+if known_characters: js_end += b"Annotator.numKnownGroups=numKnownGroups; "
 js_end += b"return Annotator.annotate(input"
 if sharp_multi: js_end += b",aType"
 js_end += b")}"
@@ -3380,27 +3392,36 @@ function restoreOld(numLines,aType) {
   else: js_end += br"""
 if(localStorage.aType===undefined) localStorage.aType=0;
 if(localStorage.numLines===undefined) localStorage.numLines=2;
-var aType=localStorage.aType,numLines=localStorage.numLines;"""
+var aType=localStorage.aType,numLines=localStorage.numLines,numKnownGroups=localStorage.numKnownGroups;""" # TODO: some of this can be omitted if not sharp_multi, not glossfile or not known_characters, and similarly above and below.  Low priority because this part is for browser extension and all three of these will likely be on.
   js_end += br"""function handleMessage(request, sender, sendResponse) {"""
   if manifest_v3: js_end += br"""
-    chrome.storage.local.get(["aType"],(aType)=>{    chrome.storage.local.get(["numLines"],(numLines)=>{
-        aType=aType["aType"];numLines=numLines["numLines"];
+    chrome.storage.local.get(["aType"],(aType)=>{
+    chrome.storage.local.get(["numLines"],(numLines)=>{
+    chrome.storage.local.get(["numKnownGroups"],(numKnownGroups)=>{
+        aType=aType["aType"];numLines=numLines["numLines"];numKnownGroups=numKnownGroups["numKnownGroups"];
         if(aType===undefined) aType=0;
         if(numLines===undefined) numLines=2;
+        if(numKnownGroups===undefined) numKnownGroups=0;
         if(typeof request=='number') {
-            if(request<0) numLines=-request; else {aType=request;if(numLines==1)numLines=2}
+            if(request<0) numLines=-request;
+            else if(request-Math.floor(request)>=.9) numKnownGroups=Math.floor(request);
+            else {
+                aType=request;
+                if(numLines==1)numLines=2
+            }
         }
-        chrome.storage.local.set({["aType"]: aType, ["numLines"]: numLines},()=>{
+        chrome.storage.local.set({["aType"]: aType, ["numLines"]: numLines, ["numKnownGroups"]: numKnownGroups},()=>{
 """
   js_end += b"if(typeof request=='number') {"
   if manifest_v3: js_end += br"""
       (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.scripting && chrome.scripting.executeScript?chrome.scripting.executeScript:browser.scripting.executeScript)({target:{tabId:t.id,allFrames:true},func: restoreOld, args:[numLines,aType]},()=>{chrome.runtime.lastError})}); // ignore lastError as it's likely to be "cannot access chrome:// URL" if one of the tabs in the extension manager
       sendResponse(true);"""
   else: js_end += br"""
-    if(request<0) localStorage.numLines=numLines=-request; else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
+    if(request<0) localStorage.numLines=numLines=-request; else if(request-Math.floor(request)>=.9) localStorage.numKnownGroups=numKnownGroups=Math.floor(request); else {localStorage.aType=aType=request;if(numLines==1)localStorage.numLines=numLines=2}
     (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c);else if(c.oldHtml)c.parentNode.replaceChild(new DOMParser().parseFromString(c.oldHtml,"text/html").body.firstChild.cloneNode(true),c);'+(numLines==1?'document.annotWalkOff=1':'document.annotWalkOff=0;document.aType='+aType+';annotWalk(document,document)')})})"""
   js_end += br"""
-  } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // status query (used by popup and by initial off/on)"""
+  } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // status query (used by popup and by initial off/on)
+  else if(typeof request=='undefined') sendResponse(numKnownGroups);"""
   if manifest_v3: js_end += br"""
   else {
       sendResponse(numLines>1?annotate(request['t']"""
@@ -3409,20 +3430,21 @@ var aType=localStorage.aType,numLines=localStorage.numLines;"""
   sendResponse(numLines>1?annotate(request['t']""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
   if sharp_multi: js_end += b",aType"
   if glossfile: js_end += b",numLines"
+  if known_characters: js_end += b",numKnownGroups"
   if manifest_v3: js_end += br""",request['l'],request['r']):request['t'])}})})}); return true}
-fetch((typeof browser!='undefined'&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.runtime.getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})"""
+fetch((typeof browser!='undefined'&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.runtime.getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})})"""
   else: js_end += br""",request['l'],request['r']):request['t'])} }
 function getClip(){var area=document.createElement("textarea"); document.body.appendChild(area); area.focus();area.value='';document.execCommand("Paste");var txt=area.value; document.body.removeChild(area); return txt?txt:"Failed to read clipboard"}
 fetch((typeof browser!='undefined'&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.extension.getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
 elif not os.environ.get("JS_OMIT_DOM",""):
   js_end += br"""
 function annotate_page("""
-  if sharp_multi:
-    js_end += b"aType"
-    if glossfile: js_end += b","
-  if glossfile: js_end += b"numLines"
+  if sharp_multi: js_end += b"aType"
+  if glossfile: js_end += (b"" if js_end.endswith(b"(") else b",") + b"numLines"
+  if known_characters: js_end += (b"" if js_end.endswith(b"(") else b",") + b"numKnownGroups"
   js_end += b") { "
   if glossfile: js_end += b"if(numLines==undefined) numLines=2; Annotator.numLines=numLines; "
+  if known_characters: js_end += b"Annotator.numKnownGroups=numKnownGroups; "
   js_end += jsAnnot(False) + br"""return annotWalk(document,document)
 }"""
 if not browser_extension:
@@ -3445,7 +3467,8 @@ if (typeof require != "undefined" && typeof module != "undefined" && require.mai
 }
 """
 
-extension_rubycss = b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;padding-left:0px !important;padding-right:0px !important;} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important;} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important;}"
+extension_rubycss = b"span._adjust0 ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important} span._adjust0 ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;padding-left:0px !important;padding-right:0px !important} span._adjust0 rb{display:table-row-group !important;font-size:100% !important; opacity: 1.0 !important} span._adjust0 rt{display:table-header-group !important;font-size:100% !important;line-height:1.1 !important; opacity: 1.0 !important;font-family: FreeSerif, Lucida Sans Unicode, Times New Roman, serif !important}"
+if known_characters: extension_rubycss += b"span._adjust0 ruby rt.known{display: none !important}"
 extension_config=br"""<html><head><meta charset="utf-8">
 <style>#cr{width:100%;border:thin dotted grey;max-width:15em;max-height:10em;overflow:auto;user-select:text} #cr:empty{padding:0.5ex}
 button{background:#ededed;color:inherit}
@@ -3465,6 +3488,15 @@ if sharp_multi and annotation_names and ',' in annotation_names:
   extension_config += b"".join((b'<br><button id="%d">%s</button>' % (num,B(name))) for num,name in enumerate(annotation_names.split(',')))
   rangeEnd = len(annotation_names.split(','))
 else: rangeEnd = 0
+if known_characters:
+  extension_config += b'<select id="kc"><option>Annotate all</option>' ; s = 0
+  for _ in knownCharsGroups:
+    if s>=800: s+=100
+    elif s>=300: s+=50
+    elif s>=100: s+=20
+    else: s+=10
+    extension_config += b'<option>Leave %d known</option>' % (s,)
+  extension_config += b"</select>"
 extension_config += b'<div id="cr"></div><button id="c">Clipboard</button><script src="config.js"></script></body></html>'
 # Don't want Clipboard button to auto-refresh (and hide the button) in the desktop extension version, since would need to stop the refresh when view is no longer visible + is it really a good idea to timer-paste the clipboard on a desktop when conversion to text could be costly etc + many desktops would dismiss the extension box before letting you switch to another window to change the clipboard (unless it's in a VM)
 if manifest_v3: extension_confjs = br"""function getClip(){var area=document.createElement("textarea"); document.body.appendChild(area); area.focus();area.value='';document.execCommand("Paste");var txt=area.value; document.body.removeChild(area); return txt?txt:"Failed to read clipboard"}"""
@@ -3486,6 +3518,8 @@ function update() {
 chrome.runtime.sendMessage(false,function(r) {var i;for(i=%d;i;i++){var e=document.getElementById(""+i);if(i==-r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeStart
 if rangeEnd: extension_confjs += br""";
 chrome.runtime.sendMessage(true,function(r) {for(var i=0;i<%d;i++){var e=document.getElementById(""+i);if(i==r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeEnd
+if known_characters: extension_confjs += br""";
+chrome.runtime.sendMessage(undefined,function(r) {document.getElementById("kc").options.selectedIndex=r});document.getElementById("kc").addEventListener("change",function(){chrome.runtime.sendMessage(document.getElementById("kc").options.selectedIndex+.91,function(){})})"""
 extension_confjs += b';\nif(document.getElementById("cr").firstChild) updateClip()\n'
 extension_confjs += b"} update();\n"
 extension_confjs += b';'.join((b'document.getElementById("%d").addEventListener("click",function(){chrome.runtime.sendMessage(%d,update)})' % (n,n)) for n in xrange(rangeStart,rangeEnd))

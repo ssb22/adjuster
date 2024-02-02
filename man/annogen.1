@@ -1,6 +1,6 @@
 .\" generated with Ronn-NG/v0.9.1
 .\" http://github.com/apjanke/ronn-ng/tree/0.9.1
-.TH "ANNOGEN" "1" "January 2024" "Silas S. Brown"
+.TH "ANNOGEN" "1" "February 2024" "Silas S. Brown"
 Annotator Generator is an examples\-driven generator of fast text annotators\. "Annotate" in this context means to add pronunciation or other information to each word, and/or to split text into words in a language that does not use spaces\.
 .IP "\[ci]" 4
 You supply a corpus of pre\-annotated texts for Annotator Generator to work out the rules and exceptions
@@ -199,7 +199,7 @@ Make Android 5+ multilingual Text\-To\-Speech functions available to extra\-js s
 Cancels any earlier \fB\-\-tts\-js\fR option in Makefile variables etc
 .TP
 \fB\-\-existing\-ruby\-js\-fixes=\fR
-Extra Javascript to run in the Android browser app whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two\-syllable words being split when they shouldn't be)\. Use with caution\. You may also specify a file to read: \fB\-\-existing\-ruby\-js\-fixes\fR=@file\.js
+Extra Javascript to run in the Android browser app or browser extension whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two\-syllable words being split when they shouldn't be)\. Use with caution\. You may also specify a file to read: \fB\-\-existing\-ruby\-js\-fixes\fR=@file\.js
 .TP
 \fB\-\-existing\-ruby\-lang\-regex=\fR
 Set the Android app or browser extension to remove existing ruby elements unless the document language matches this regular expression\. If \fB\-\-sharp\-multi\fR is in use, you can separate multiple regexes with comma and any unset will always delete existing ruby\. If this option is not set at all then existing ruby is always kept\.
