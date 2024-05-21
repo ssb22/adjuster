@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works with either Python 2 or Python 3)
 
-# TermLayout v0.15 (c) 2014-15,2020,2023-24 Silas S. Brown
+# TermLayout v0.16 (c) 2014-15,2020,2023-24 Silas S. Brown
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -380,6 +380,8 @@ def textIntoWordsAndSpaces(text):
     if i<len(text): yield text[i:]
 
 def centreCalc(curSize,neededSize,alignType):
+    """Calculates extra spacing for left, centre
+    or right alignment"""
     extra = neededSize - curSize
     if alignType in ['top','left']: before,after = 0,extra
     elif alignType in ['bottom','right']:
@@ -424,6 +426,11 @@ tagsToIgnore = re.compile('(?i)<('+'|'.join(re.escape(t) for t in tagsToIgnore)+
 def parseDoc(html,width=None,attList=None,realWidth=None,
              inPre=False,isOL=False,inCentre=False,
              callback=None):
+    """Format a preprocessed document
+    (call htmlPreprocess on it first).
+    callback is a callable to 'flush' the lines
+    as we go; if None, the whole output will
+    just accumulate."""
     if width==None: width = screenWidth
     if realWidth==None: realWidth = width # for lists
     if attList==None: attList = []
@@ -720,7 +727,7 @@ except: terminal_charset = "utf-8"
 term = os.environ.get("TERM","")
 supports_ansi = ("xterm" in term or term in ["screen","linux"]) # TODO: others?
 
-if __name__ == "__main__":
+def main():
     if sys.stdin.isatty(): sys.stderr.write("termlayout: reading HTML from standard input\n")
     if sys.stdout.isatty() and not sys.stdin.isatty() and os.path.exists('/usr/bin/less'):
         outstream = os.popen('/usr/bin/less -FrX','w')
@@ -728,3 +735,4 @@ if __name__ == "__main__":
     if type("")==type(u""): parseDoc(htmlPreprocess(sys.stdin.read()),callback=lambda lines:(outstream.write(mergeAnsifiedLines(lines,not supports_ansi)),outstream.flush())) # Python 3 already decodes/encodes for us
     else: parseDoc(htmlPreprocess(sys.stdin.read().decode(terminal_charset)),callback=lambda lines:(outstream.write(mergeAnsifiedLines(lines,not supports_ansi).encode(terminal_charset)),outstream.flush())) # TODO: although we definitely .encode(terminal_charset), the .decode might have to be something else if there's a META specifying it
 
+if __name__ == "__main__": main()

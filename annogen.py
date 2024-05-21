@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.37 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.38 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -373,15 +373,13 @@ if '--html-options' in sys.argv or '--markdown-options' in sys.argv:
   if '--html-options' in sys.argv:
     print ("</dl>")
   sys.exit()
-main = (__name__ == "__main__")
 term = os.environ.get("TERM","")
 is_xterm = "xterm" in term
 ansi_escapes = is_xterm or term in ["screen","linux"]
 def isatty(f): return hasattr(f,"isatty") and f.isatty()
 if ansi_escapes and isatty(sys.stderr): clear_eol,reverse_on,reverse_off,bold_on,bold_off="\x1b[K","\x1b[7m","\x1b[0m","\x1b[1m","\x1b[0m"
 else: clear_eol,reverse_on,reverse_off,bold_on,bold_off="  "," **","** ","",""
-if main: sys.stderr.write(bold_on+__doc__+bold_off+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
-# else (if not main), STILL parse options (if we're being imported for parallel processing)
+sys.stderr.write(bold_on+__doc__+bold_off+"\n") # not sys.stdout: may or may not be showing --help (and anyway might want to process the help text for website etc)
 options, args = parser.parse_args()
 globals().update(options.__dict__)
 
@@ -390,8 +388,7 @@ except: import _thread as thread # Python 3
 import gc ; gc.disable() # should be OK if we don't create cycles (TODO: run gc.collect() manually after init, just in case?)
 
 def warn(msg):
-  if main: sys.stderr.write("Warning: "+msg+"\n")
-  # else it should have already been written
+  sys.stderr.write("Warning: "+msg+"\n")
 if "PyPy" in sys.version: warn("with annogen, PyPy is likely to run 60% slower than python") # (not to mention concurrent.futures being less likely to be available)
 
 if ybytes: ybytes=int(ybytes)
@@ -404,7 +401,6 @@ else: normalise_debug = 0
 ybytes_step = int(ybytes_step)
 ymax_threshold = int(ymax_threshold)
 def errExit(msg):
-  assert main # bad news if this happens in non-main module
   try:
     if not outfile==getBuf(sys.stdout):
       outfile.close() ; rm_f(c_filename)
@@ -511,12 +507,12 @@ if java or javascript or python or dart:
       errExit("Outputting more than one programming language on the same run is not yet implemented")
     if java:
       if android and not "/src//" in java: errExit("When using --android, the last thing before the // in --java must be 'src' e.g. --java=/workspace/MyProject/src//org/example/package")
-      if main and not compile_only: # (delete previous files, only if we're not a subprocess)
+      if not compile_only: # (delete previous files, only if we're not a subprocess)
        os.system("mkdir -p "+shell_escape(java))
        for f in os.listdir(java):
         if f.endswith(".java") and f.startswith("z"): os.remove(java+os.sep+f)
       c_filename = java+os.sep+"Annotator.java"
-      if main and android:
+      if android:
         os.system("rm -rf "+shell_escape(jSrc+"/../bin")) # needed to get rid of old *.class files that might be no longer used
         for d in ["assets","bin","gen","res/layout","res/menu","res/values","res/xml"]: os.system("mkdir -p "+shell_escape(jSrc+"/../"+d))
     elif c_filename.endswith(".c"):
@@ -599,7 +595,6 @@ suffix_minlen=int(suffix_minlen)
 if compress:
   squashStrings = set() ; squashReplacements = []
   def squashFinish():
-    assert main, "squashFinish sets globals"
     global squashStrings # so can set it to "done" at end
     tokens = set()
     for s in squashStrings: tokens.update(list(S(s)))
@@ -4093,7 +4088,6 @@ def normalise():
         sys.stderr.write("Normalised copy loaded\n")
         return True # loaded from cache
       except: pass
-    assert main, "normalise called in non-main module"
     if (capitalisation and annot_whitespace) or priority_list: return # TODO: might want to normalise at least the word breaks if priority_list (but it loads it anyway if cached)
     sys.stderr.write("Normalising...");sys.stderr.flush()
     old_caps = capitalisation
@@ -4795,7 +4789,6 @@ def handle_diagnose_limit(rule):
 
 def generate_map():
     global m2c_map, precalc_sets, yPriorityDic
-    assert main, "Only main should generate corpus map"
     sys.stderr.write("Generating corpus map... ")
     m2c_map = {} ; precalc_sets = {}
     muStart = downLenSoFar = 0
@@ -4829,26 +4822,20 @@ executor = None
 def setup_parallelism(): # returns number of cores
     global executor
     if single_core: return 1
-    elif sys.platform=='darwin' and sys.version_info[0]==3: return 1 # as of Python 3.8, Python 3 on Mac's ProcessPoolExecutor doesn't propagate globals on construction so we can't currently use it (see below), AND its early shutdown gets QueueManagerThread exceptions we can't catch + hangs on exit, so don't even try to use it on Mac Python3
+    elif not hasattr(os,'fork'): return 1 # e.g. Windows, would need to write to filesystem like versions of annogen before 3.183 and distinguish main/non-main like versions of annogen before 3.38 (may get muddled up if running from __main__.py under python -m)
     elif executor: executor.shutdown(True) # MUST wait for the shutdown to finish before creating a new instance: some implementations seem to have a race condition
     try:
       import multiprocessing
-      if multiprocessing.cpu_count() <= 1: return 1
+      params = [multiprocessing.cpu_count()-1]
+      if params[0] <= 0: return 1
+      if hasattr(multiprocessing,"get_context"): params.append(multiprocessing.get_context('fork')) # Python 3.4+: if this raises ValueError, we can't fork so won't multiprocess
       import concurrent.futures # sudo pip install futures (2.7 backport of 3.2 standard library)
-      x = concurrent.futures.ProcessPoolExecutor(multiprocessing.cpu_count()-1)
+      executor = concurrent.futures.ProcessPoolExecutor(*params)
       # Do not reduce Python 2's sys.setcheckinterval() (or Python 3's setswitchinterval) if using ProcessPoolExecutor, or job starts can be delayed.
-      global our_test_value ; our_test_value = True
-      if x.submit(test_global,None).result():
-        executor = x
-        cores = multiprocessing.cpu_count()
-        if cores_command: os.system("%s %d" % (cores_command,cores))
-        return cores
-      else: x.shutdown(False) # ProcessPoolExecutor did not propagate globals at time of construction (which probably means we're running on Windows, or Python 3 on Mac), would need to write to filesystem like versions of annogen before 3.183
-    except: pass
-    return 1
-def test_global(*_):
-  try: return our_test_value
-  except: return False
+      cores = multiprocessing.cpu_count()
+      if cores_command: os.system("%s %d" % (cores_command,cores))
+      return cores
+    except: return 1 # can't fork for some reason
 
 def get_phrases():
     # Returns a list of phrases in processing order, with length-numbers inserted in the list.  Caches its result.
@@ -5328,7 +5315,7 @@ def setup_browser_extension():
   global c_filename
   c_filename = dirToUse+"/annotate-dat.txt"
 
-if isatty(sys.stdout) and not java and main and not priority_list and not browser_extension and not write_rules: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
+if isatty(sys.stdout) and not java and not priority_list and not browser_extension and not write_rules: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
 def openfile(fname,mode='r'):
     lzma = bz2 = None
@@ -5374,16 +5361,14 @@ def set_title(t):
   if is_xterm or is_tmux: sys.stderr.write("\033]0;%s\007" % (t,)) # ("0;" sets both title and minimised title, "1;" sets minimised title, "2;" sets title.  Tmux takes its pane title from title (but doesn't display it in the titlebar))
   elif is_screen: os.system("screen -X title \"%s\"" % (t,))
 def diagnose_write(s,label="Diagnose"):
-  if not main: start="\n"
-  else: start=""
-  getBuf(sys.stderr).write(B(start+bold_on+label+": "+bold_off)+s.encode(terminal_charset,'replace')+B(clear_eol+'\n'))
+  getBuf(sys.stderr).write(B(bold_on+label+": "+bold_off)+s.encode(terminal_charset,'replace')+B(clear_eol+'\n'))
 try: screenWidth = int(os.environ['COLUMNS'])
 except:
   import struct, fcntl, termios
   try: screenWidth = struct.unpack('hh',fcntl.ioctl(sys.stderr,termios.TIOCGWINSZ,'xxxx'))[1]
   except: screenWidth = 45 # conservative
 
-if main and not compile_only:
+if not compile_only:
  set_title("annogen")
  if read_rules: rulesAndConds = loadRules()
  else:
@@ -5435,14 +5420,13 @@ def cmd_or_exit(cmd):
   if r&0xFF == 0: r >>= 8 # POSIX
   sys.exit(r)
 
-if main and not compile_only:
+if not compile_only:
  if browser_extension: setup_browser_extension()
  if c_filename: outfile = openfile(c_filename,'w')
  else: outfile = getBuf(sys.stdout)
  outputParser(rulesAndConds) ; del rulesAndConds
  outfile.close() ; sys.stderr.write("Output complete\n")
-if main:
- if android:
+if android:
    can_compile_android = all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS"])
    can_track_android = (can_compile_android and android_upload) or ("GOOGLE_PLAY_TRACK" in os.environ and "SERVICE_ACCOUNT_KEY" in os.environ and not os.environ.get("ANDROID_NO_RETRACK",""))
    if can_compile_android and compile_only and android_upload: update_android_manifest() # AndroidManifest.xml will not have been updated, so we'd better do it now
@@ -5532,8 +5516,8 @@ On Google Play you may wish to set Release management -
    you link to (and maybe crashes due to Firebase issues),
    which (if you don't want them) is wasting resources.
 """) # TODO: try if("true".equals(android.provider.Settings.System.getString(getContentResolver(),"firebase.test.lab"))) browser.loadUrl("about:blank"); (but turning off unwanted reports is better)
- elif c_filename and c_compiler:
+elif c_filename and c_compiler:
     cmd = c_compiler # should include any -o option
     if zlib: cmd += " -lz" # TODO: is this always correct on all platforms? (although user can always simply redirect the C to a file and compile separately)
     cmd_or_exit(cmd + " " + shell_escape(c_filename))
- elif compile_only: errExit("Don't know what compiler to run for this set of options")
+elif compile_only: errExit("Don't know what compiler to run for this set of options")

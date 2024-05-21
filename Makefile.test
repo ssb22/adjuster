@@ -1,12 +1,12 @@
 # -*- mode: Makefile -*-
 test:
 	# at least check it compiles in both 2 and 3
-	echo | python2 annogen.py >/dev/null
-	echo | python3 annogen.py >/dev/null
-	echo | python2 annogen.py -l >/dev/null
-	echo | python3 annogen.py -l >/dev/null
-	python2 -c 'import annogen as a;a.jsAnnot(False,True)'
-	python3 -c 'import annogen as a;a.jsAnnot(False,True)'
-	python2 -c 'import annogen as a;a.delete_existing_ruby=True;a.jsAnnot(False,True)'
-	python3 -c 'import annogen as a;a.delete_existing_ruby=True;a.jsAnnot(False,True)'
+	python2.7 annogen.py </dev/null >/dev/null
+	python3 annogen.py </dev/null >/dev/null
+	python2.7 annogen.py -l </dev/null >/dev/null
+	python3 annogen.py -l </dev/null >/dev/null
+	python2.7 -c 'import annogen as a;a.jsAnnot(False,True)' </dev/null >/dev/null
+	python3 -c 'import os;del os.fork;import annogen as a;a.jsAnnot(False,True)' </dev/null >/dev/null
+	python2.7 -c 'import annogen as a;a.delete_existing_ruby=True;a.jsAnnot(False,True)' </dev/null >/dev/null
+	python3 -c 'import os;del os.fork;import annogen as a;a.delete_existing_ruby=True;a.jsAnnot(False,True)' </dev/null >/dev/null
 .PHONY: test

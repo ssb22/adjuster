@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.235 (c) 2012-23 Silas S. Brown"
+"Web Adjuster v3.236 (c) 2012-23 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -2377,15 +2377,9 @@ class WebdriverWrapperController:
     def getu8(self): return self.send("getu8")
     def getpng(self): return self.send("getpng")
 try:
+    os.fork # exception if e.g. Windows
     import multiprocessing # Python 2.6
-    def testFunc():
-        try: testVal
-        except: sys.exit(1)
-    if __name__ == "__main__":
-        testVal = 1
-        p=multiprocessing.Process(target=testFunc)
-        p.start() ; p.join()
-        if p.exitcode: raise Exception("multiprocessing unusable (import instead of fork?)") # e.g. Python 3 on Mac (TODO: document this in help text?)
+    if hasattr(multiprocessing,'set_start_method'): multiprocessing.set_start_method('fork')
 except: multiprocessing = None
 class WebdriverRunner:
     "Manage a WebdriverWrapperController (or a WebdriverWrapper if we're not using IPC) from a thread of the main process"

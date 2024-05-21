@@ -2,7 +2,7 @@
 
 Web Adjuster + Annotator Generator + TermLayout from http://ssb22.user.srcf.net/adjuster/
 
-(also mirrored at http://ssb22.gitlab.io/adjuster just in case)
+(also mirrored at http://ssb22.gitlab.io/adjuster just in case, and available via `pip install adjuster` or `pip install annogen` or `pip install termlayout`, or `pipx run adjuster` or `pipx run annogen` or `pipx run termlayout`)
 
 Web Adjuster
 ============
