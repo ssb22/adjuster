@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.38 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.381 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -4829,7 +4829,8 @@ def setup_parallelism(): # returns number of cores
       params = [multiprocessing.cpu_count()-1]
       if params[0] <= 0: return 1
       if hasattr(multiprocessing,"get_context"): params.append(multiprocessing.get_context('fork')) # Python 3.4+: if this raises ValueError, we can't fork so won't multiprocess
-      import concurrent.futures # sudo pip install futures (2.7 backport of 3.2 standard library)
+      import concurrent.futures # Python 3.  On Python 2, you can try the backport via 'pip install futures' but deadlock is possible.  And seems to occur when annogen __name__ is not "__main__" after first normBatch returns, not sure why:
+      if not (type("")==type(u"") or __name__=="__main__"): raise Exception("Python 2 as submodule is known to deadlock unless multicore disabled")
       executor = concurrent.futures.ProcessPoolExecutor(*params)
       # Do not reduce Python 2's sys.setcheckinterval() (or Python 3's setswitchinterval) if using ProcessPoolExecutor, or job starts can be delayed.
       cores = multiprocessing.cpu_count()

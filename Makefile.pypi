@@ -1,5 +1,5 @@
 # -*- mode: Makefile -*-
-all: check-if-adjster-version-is-changing check-if-annogen-version-is-changing check-if-termlayout-version-is-changing
+all: check-if-adjuster-version-is-changing check-if-annogen-version-is-changing check-if-termlayout-version-is-changing
 check-if-adjuster-version-is-changing:
 	@if grep '^"Web Adjuster v[0-9][^.]*[.][0-9][0-9][0-9][0-9]' adjuster.py; then echo "4+ decimal digits in version number will now need another -e 's/[.][0-9][0-9][0-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
 	if (git diff;git diff --staged)|grep '^[+]"Web Adjuster v[0-9]'; then make -f Makefile.pypi update-adjuster-pypi; else true; fi
