@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.236 (c) 2012-23 Silas S. Brown"
+"Web Adjuster v3.237 (c) 2012-24 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -554,9 +554,10 @@ try: # can we page the help text?
     def new_top(*args):
         dat = StringIO()
         dat.write(twoline_program_name+"\n")
-        tornado.options.options.old_top(dat)
+        old_top(dat)
         pydoc.pager(dat.getvalue())
-    tornado.options.options.__dict__['old_top'] = tornado.options.options.print_help
+        raise SystemExit
+    old_top = tornado.options.options.print_help
     tornado.options.options.__dict__['print_help'] = new_top
 except: pass # oh well, can't page the help text
 
@@ -3719,7 +3720,11 @@ document.forms[0].i.focus()
             if self.handleSSHTunnel(): return
             if self.handleSpecificIPs(): return
             # TODO: Slow down heavy users by self.request.remote_ip ?
-            if extensions.handle("http://"+self.request.host+self.request.uri,self):
+            try: extensionHandled = extensions.handle("http://"+self.request.host+self.request.uri,self)
+            except:
+                self.request.suppress_logger_host_convert = True # counted as 'sort of handled' so we get the correct log entry after the exception
+                raise
+            if extensionHandled:
                 self.request.suppress_logger_host_convert = True
                 return self.myfinish()
             if cssReload_cookieSuffix and cssReload_cookieSuffix in self.request.uri:
