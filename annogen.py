@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.381 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.382 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -258,7 +258,9 @@ parser.add_option("--browser-extension-description", help="Description field to 
 
 parser.add_option("--manifest-v3",
                   action="store_true",default=False,
-                  help="Use Manifest v3 instead of Manifest v2 when generating browser extensions (tested on Chrome only, and requires Chrome 88 or higher).  This will be required for all Chrome Web Store uploads starting in June 2024.") # and is already required for new extensions
+                  help="Use Manifest v3 instead of Manifest v2 when generating browser extensions (tested on Chrome only, and requires Chrome 88 or higher).  This is now required for all Chrome Web Store uploads.")
+
+parser.add_option("--gecko-id",help="a Gecko (Firefox) ID to embed in the browser extension")
 
 parser.add_option("--dart",
                   action="store_true",default=False,
@@ -3379,6 +3381,9 @@ js_end += b"return Annotator.annotate(input"
 if sharp_multi: js_end += b",aType"
 js_end += b")}"
 if browser_extension:
+  if gecko_id:
+    if not gecko_id.startswith("{") or not gecko_id.endswith("}"): gecko_id = "{" + gecko_id + "}"
+  else: gecko_id = ""
   if manifest_v3: js_end += br"""
 function restoreOld(numLines,aType) {
     for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))
@@ -5303,11 +5308,11 @@ def setup_browser_extension():
   "manifest_version": """+(b"3" if manifest_v3 else b"2")+br""",
   "name": "%s",%s
   "version": "%s",
-  "browser_specific_settings": { "gecko_android": {}},
+  "browser_specific_settings": { "id" :"%s", "gecko_android": {}},
   "background": { """+(b'"service_worker": "background.js"' if manifest_v3 else b'"scripts": ["background.js"]')+br""" },
   "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "css": ["ruby.css"]}],
   """+(b'"action"' if manifest_v3 else b'"browser_action"')+br""":{"default_title":"Annotate","default_popup":"config.html","browser_style": true%s},
-  """+(b'"host_permissions": ["<all_urls>"], "permissions": ["clipboardRead","storage","scripting"]' if manifest_v3 else b'"permissions": ["<all_urls>","clipboardRead"]')+b"%s}") % (B(browser_extension),B((('" description": "%s",'%browser_extension_description) if browser_extension_description else "")),versionName,icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
+  """+(b'"host_permissions": ["<all_urls>"], "permissions": ["clipboardRead","storage","scripting"]' if manifest_v3 else b'"permissions": ["<all_urls>","clipboardRead"]')+b"%s}") % (B(browser_extension),B((('" description": "%s",'%browser_extension_description) if browser_extension_description else "")),versionName,B(gecko_id),icons("default_icon",["16","32"]),icons("icons",["16","32","48","96"])))
   open(dirToUse+"/background.js","wb").write(js_start+js_end)
   open(dirToUse+"/content.js","wb").write(jsAnnot(False,True))
   open(dirToUse+"/config.html","wb").write(extension_config)
