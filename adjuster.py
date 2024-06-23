@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.237 (c) 2012-24 Silas S. Brown"
+"Web Adjuster v3.238 (c) 2012-24 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -2630,18 +2630,26 @@ def get_new_Firefox(index,renewing,headless):
     from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
     profile = FirefoxProfile() ; caps = None
     log_complaints = (index==0 and not renewing) ; op = None
+    proxyToUse = None
     if options.js_reproxy:
         from selenium.webdriver.common.proxy import Proxy,ProxyType
-        import warnings
-        warnings.filterwarnings("ignore","This method has been deprecated. Please pass in the proxy object to the Driver Object") # set_proxy deprecated, but documentation unclear how it should be replaced
-        profile.set_proxy(Proxy({'proxyType':ProxyType.MANUAL,'httpProxy':"127.0.0.1:%d" % proxyPort(index),'sslProxy':"127.0.0.1:%d" % proxyPort(index),'ftpProxy':'','noProxy':''}))
+        proxyToUse = Proxy({'proxyType':ProxyType.MANUAL,'httpProxy':"127.0.0.1:%d" % proxyPort(index),'sslProxy':"127.0.0.1:%d" % proxyPort(index),'ftpProxy':'','noProxy':''})
+        if hasattr(profile,"set_proxy"):
+            import warnings
+            warnings.filterwarnings("ignore","This method has been deprecated. Please pass in the proxy object to the Driver Object")
+            profile.set_proxy(proxyToUse) ; proxyToUse = None
         profile.accept_untrusted_certs = True # needed for some older versions?
         caps = wd_DesiredCapabilities(log_complaints)
         if caps:
             caps = caps.FIREFOX.copy()
             caps['acceptInsecureCerts'] = True
             caps['acceptSslCerts'] = True # older versions
-    elif options.upstream_proxy: profile.set_proxy(options.upstream_proxy)
+    elif options.upstream_proxy:
+        if hasattr(profile,"set_proxy"):
+            import warnings
+            warnings.filterwarnings("ignore","This method has been deprecated. Please pass in the proxy object to the Driver Object")
+            profile.set_proxy(options.upstream_proxy)
+        else: proxyToUse = options.upstream_proxy
     if options.js_UA and not options.js_UA.startswith("*"): profile.set_preference("general.useragent.override",options.js_UA)
     if not options.js_images: profile.set_preference("permissions.default.image", 2)
     if options.via and not options.js_reproxy and log_complaints:
@@ -2657,7 +2665,9 @@ def get_new_Firefox(index,renewing,headless):
     if js_size: cmdL += ("-width",str(js_size[0]),"-height",str(js_size[1]))
     cmdL += ("about:blank",) # not Firefox start page
     binary.add_command_line_options(*cmdL) # cannot call this more than once
-    if caps: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps)
+    if caps and proxyToUse: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps,proxy=proxyToUse)
+    elif caps: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps)
+    elif proxyToUse: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,proxy=proxyToUse)
     else: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary)
     try: p.set_page_load_timeout(options.js_timeout1)
     except: logging.info("Couldn't set Firefox page load timeout")
@@ -5316,7 +5326,7 @@ class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will pro
             if hr.startswith(B('#')): return # in-page anchor
             if not hr.startswith(B('http')) and B(':') in hr.split(B('/'),1)[0]: return # non-HTTP(s) protocol?
             if self.baseHref:
-                try: hr=urlparse.urljoin(self.baseHref,S(hr))
+                try: hr=B(urlparse.urljoin(self.baseHref,S(hr)))
                 except: pass # can't do it
             if not (hr.startswith(B("http://")) or hr.startswith(B("https://"))): return # still a relative link etc after all that
             realUrl = url_is_ours(hr,self.cookie_host)
