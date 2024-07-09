@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.382 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.383 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3421,21 +3421,19 @@ var aType=localStorage.aType,numLines=localStorage.numLines,numKnownGroups=local
     (chrome.tabs && chrome.tabs.query?chrome.tabs.query:browser.tabs.query)({},function(T){for (let t of T)(chrome.tabs && chrome.tabs.executeScript?chrome.tabs.executeScript:browser.tabs.executeScript)(t.id,{allFrames: true, code: 'for(let c of Array.prototype.slice.call(document.getElementsByClassName("_adjust0")))if(c.oldTxt)c.parentNode.replaceChild(document.createTextNode(c.oldTxt),c);else if(c.oldHtml)c.parentNode.replaceChild(new DOMParser().parseFromString(c.oldHtml,"text/html").body.firstChild.cloneNode(true),c);'+(numLines==1?'document.annotWalkOff=1':'document.annotWalkOff=0;document.aType='+aType+';annotWalk(document,document)')})})"""
   js_end += br"""
   } else if(typeof request=='boolean') sendResponse(request?(numLines==1?-1:aType):numLines); // status query (used by popup and by initial off/on)
-  else if(typeof request=='undefined') sendResponse(numKnownGroups);"""
-  if manifest_v3: js_end += br"""
-  else {
-      sendResponse(numLines>1?annotate(request['t']"""
-  else: js_end += br"""
-  else { if(request==null) request={'t':getClip()};
-  sendResponse(numLines>1?annotate(request['t']""" # (we DO need the extra call to annotWalk above: the MutationObserver will NOT pick up on changes we made from here)
+  else if(request=='g') sendResponse(numKnownGroups);
+  else {"""
+  if not manifest_v3: js_end += br"""
+      if(request==null) request={'t':getClip()};"""
+  js_end += b"sendResponse(numLines>1?annotate(request['t']"
   if sharp_multi: js_end += b",aType"
   if glossfile: js_end += b",numLines"
   if known_characters: js_end += b",numKnownGroups"
-  if manifest_v3: js_end += br""",request['l'],request['r']):request['t'])}})})}); return true}
-fetch((typeof browser!='undefined'&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.runtime.getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})})"""
-  else: js_end += br""",request['l'],request['r']):request['t'])} }
-function getClip(){var area=document.createElement("textarea"); document.body.appendChild(area); area.focus();area.value='';document.execCommand("Paste");var txt=area.value; document.body.removeChild(area); return txt?txt:"Failed to read clipboard"}
-fetch((typeof browser!='undefined'&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome.extension.getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
+  js_end += b",request['l'],request['r']):request['t'])}}"
+  if manifest_v3: js_end += br""")})})}); return true}"""
+  else: js_end += br"""
+function getClip(){var area=document.createElement("textarea"); document.body.appendChild(area); area.focus();area.value='';document.execCommand("Paste");var txt=area.value; document.body.removeChild(area); return txt?txt:"Failed to read clipboard"}"""
+  js_end += br"""fetch((typeof browser!='undefined'&&browser.runtime&&browser.runtime.getURL?browser.runtime.getURL:chrome."""+(b"runtime" if manifest_v3 else b"extension")+br""".getURL)("annotate-dat.txt")).then(function(r){r.text().then(function(r){Annotator.data=r;chrome.runtime.onMessage.addListener(handleMessage)})})""" # if not js_utf8, having to encode latin1 as utf8 adds about 25% to the file size, but text() supports only utf8; could use arrayBuffer() instead, but inefficient to read w. DataView(buf,offset,1), or could reinstate zlib (probably using base64 read in from file: would probably need to include a versioned unzip library instead of inline-minified subset)
 elif not os.environ.get("JS_OMIT_DOM",""):
   js_end += br"""
 function annotate_page("""
@@ -3503,7 +3501,7 @@ if manifest_v3: extension_confjs = br"""function getClip(){var area=document.cre
 else: extension_confjs = b""
 extension_confjs += b"function updateClip() {"
 if manifest_v3: extension_confjs += b"chrome.runtime.sendMessage({'t':getClip()},(function(cr){"
-else: extension_confjs += b"chrome.runtime.sendMessage(null,(function(cr){"
+else: extension_confjs += b"chrome.runtime.sendMessage(null,(function(cr){" # 'null' gets changed to getClib background-side in v2
 extension_confjs += br"""
         var v=document.getElementById("cr");
         v.textContent = ''; // clear
@@ -3519,7 +3517,7 @@ chrome.runtime.sendMessage(false,function(r) {var i;for(i=%d;i;i++){var e=docume
 if rangeEnd: extension_confjs += br""";
 chrome.runtime.sendMessage(true,function(r) {for(var i=0;i<%d;i++){var e=document.getElementById(""+i);if(i==r)e.setAttribute('disabled','disabled');else e.removeAttribute('disabled')}})"""  % rangeEnd
 if known_characters: extension_confjs += br""";
-chrome.runtime.sendMessage(undefined,function(r) {document.getElementById("kc").options.selectedIndex=r});document.getElementById("kc").addEventListener("change",function(){chrome.runtime.sendMessage(document.getElementById("kc").options.selectedIndex+.91,function(){})})"""
+chrome.runtime.sendMessage('g',function(r) {document.getElementById("kc").options.selectedIndex=r});document.getElementById("kc").addEventListener("change",function(){chrome.runtime.sendMessage(document.getElementById("kc").options.selectedIndex+.91,function(){})})""" # 'g' = report numKnownGroups, used as selection index (did have 'undefined' for this but not all Chrome versions support that apparently)
 extension_confjs += b';\nif(document.getElementById("cr").firstChild) updateClip()\n'
 extension_confjs += b"} update();\n"
 extension_confjs += b';'.join((b'document.getElementById("%d").addEventListener("click",function(){chrome.runtime.sendMessage(%d,update)})' % (n,n)) for n in xrange(rangeStart,rangeEnd))
