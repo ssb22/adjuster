@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.383 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.384 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1660,7 +1660,7 @@ if pleco_hanping or tts_js:
 <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>"""
   android_manifest+=b"\n</queries>"
 android_manifest += br"""
-<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="33" />
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="34" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" android:networkSecurityConfig="@xml/network_security_config" >
 <service android:name=".BringToFront" android:exported="false"/>
