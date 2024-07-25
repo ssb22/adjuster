@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # (works with either Python 2 or Python 3)
 
-# TermLayout v0.16 (c) 2014-15,2020,2023-24 Silas S. Brown
+"TermLayout v0.17 (c) 2014-15,2020,2023-24 Silas S. Brown"
+
+# Usage: python termlayout.py [--version]
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -728,6 +730,8 @@ term = os.environ.get("TERM","")
 supports_ansi = ("xterm" in term or term in ["screen","linux"]) # TODO: others?
 
 def main():
+    if "--version" in sys.argv:
+        print (__doc__+"\nLicensed under the Apache License, Version 2.0") ; return
     if sys.stdin.isatty(): sys.stderr.write("termlayout: reading HTML from standard input\n")
     if sys.stdout.isatty() and not sys.stdin.isatty() and os.path.exists('/usr/bin/less'):
         outstream = os.popen('/usr/bin/less -FrX','w')
