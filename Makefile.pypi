@@ -1,14 +1,14 @@
 # -*- mode: Makefile -*-
 all: check-if-adjuster-version-is-changing check-if-annogen-version-is-changing check-if-termlayout-version-is-changing
 check-if-adjuster-version-is-changing:
-	@if grep '^"Web Adjuster v[0-9][^.]*[.][0-9][0-9][0-9][0-9]' adjuster.py; then echo "4+ decimal digits in version number will now need another -e 's/[.][0-9][0-9][0-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
+	@if python3 adjuster.py --version|grep 'v[0-9][^.]*[.][0-9][0-9][0-9][0-9]'; then echo "4+ decimal digits in version number will now need another -e 's/[.][0-9][0-9][0-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
 	if (git diff;git diff --staged)|grep '^[+]"Web Adjuster v[0-9]'; then make -f Makefile.pypi update-adjuster-pypi; else true; fi
 check-if-annogen-version-is-changing:
-	@if grep '^"Annotator Generator v[0-9][^.]*[.][0-9][0-9][0-9][0-9]' annogen.py; then echo "4+ decimal digits in version number will now need another -e 's/[.][0-9][0-9][0-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
+	@if python3 annogen.py --version|grep 'v[0-9][^.]*[.][0-9][0-9][0-9][0-9]'; then echo "4+ decimal digits in version number will now need another -e 's/[.][0-9][0-9][0-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
 	if (git diff;git diff --staged)|grep '^[+]"Annotator Generator v[0-9]'; then make -f Makefile.pypi update-annogen-pypi; else true; fi
 check-if-termlayout-version-is-changing:
-	@if grep 'TermLayout v[0-9][^.]*[.][0-9][0-9][0-9]' termlayout.py; then echo "3+ decimal digits in version number will now need another -e 's/[.][0-9][0-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
-	if (git diff;git diff --staged)|grep '^[+]# TermLayout v[0-9]'; then make -f Makefile.pypi update-termlayout-pypi; else true; fi
+	@if python3 termlayout.py --version|grep 'v[0-9][^.]*[.][0-9][0-9][0-9]'; then echo "3+ decimal digits in version number will now need another -e 's/[.][0-9][0-9]$$/&0/' in Makefile.pypi's sed expression"; false; fi
+	if (git diff;git diff --staged)|grep '^[+]"TermLayout v[0-9]'; then make -f Makefile.pypi update-termlayout-pypi; else true; fi
 update-all-pypi: update-adjuster-pypi update-annogen-pypi update-termlayout-pypi
 update-adjuster-pypi:
 	mkdir adjuster
@@ -25,7 +25,7 @@ update-annogen-pypi:
 	echo '"""Annotator Generator is an application, not a library.  You can run it with "python -m annogen --help" to see the options."""'> annogen/__init__.py
 	cp annogen.py annogen/__main__.py
 	echo "def placebo(): pass # for setuptools entry_points" >> annogen/__main__.py # because there's no main()
-	echo "from setuptools import setup, find_packages;setup(name='annogen',version='$$(grep '^.Annotator Generator v[0-9]' annogen.py|sed -e 's/[^v]*v//' -e 's/ .*//' -e 's/[.][1-9]$$/&0/' -e 's/[.][0-9][0-9]$$/&0/')',entry_points={'console_scripts':['annogen=annogen.__main__:placebo']},license='Apache 2',platforms='any',url='http://ssb22.user.srcf.net/adjuster/annogen.html',author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='Annotator Generator, an examples-driven generator of fast text annotators for language learning aids etc',long_description=r'''$$(awk 'BEGIN{p=0} /^Annotator Generator$$/ {p=1} /^TermLayout$$/ {p=0} /^Options for Annotator Generator/ {p=1} /^Copyright and Trademarks/ {p=0} //{if(p) print}' < README.md)''',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 2','Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: OS Independent'],python_requires='>=2.7')" > setup.py
+	echo "from setuptools import setup, find_packages;setup(name='annogen',version='$$(python3 annogen.py --version|head -1|sed -e 's/[^v]*v//' -e 's/ .*//' -e 's/[.][1-9]$$/&0/' -e 's/[.][0-9][0-9]$$/&0/')',entry_points={'console_scripts':['annogen=annogen.__main__:placebo']},license='Apache 2',platforms='any',url='http://ssb22.user.srcf.net/adjuster/annogen.html',author='Silas S. Brown',author_email='ssb$$(echo 22@ca)m.ac.uk',description='Annotator Generator, an examples-driven generator of fast text annotators for language learning aids etc',long_description=r'''$$(awk 'BEGIN{p=0} /^Annotator Generator$$/ {p=1} /^TermLayout$$/ {p=0} /^Options for Annotator Generator/ {p=1} /^Copyright and Trademarks/ {p=0} //{if(p) print}' < README.md)''',long_description_content_type='text/markdown',packages=find_packages(),classifiers=['Programming Language :: Python :: 2','Programming Language :: Python :: 3','License :: OSI Approved :: Apache Software License','Operating System :: OS Independent'],python_requires='>=2.7')" > setup.py
 	mv README.md .. # or it'll override our altered version
 	python3 setup.py sdist
 	twine upload dist/*

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.384 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.385 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -30,8 +30,10 @@
 import sys,os,os.path,tempfile,time,re,subprocess,unicodedata
 import json,codecs
 from optparse import OptionParser
-if '--html-options' in sys.argv:
-  print ("Usage: annogen.py [options]<p>Options:<dl>")
+if '--version' in sys.argv:
+  print (__doc__+"\nLicensed under the Apache License, Version 2.0") ; sys.exit()
+elif '--html-options' in sys.argv:
+  print ("Options for "+__doc__[:__doc__.index("(c)")].strip()+":<dl>")
   class HTMLOptions:
     def add_option(self,*args,**kwargs):
       if not 'action' in kwargs: args=[a+'=' if a.startswith('--') else a for a in args]
