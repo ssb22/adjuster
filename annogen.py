@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.385 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.386 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -203,6 +203,8 @@ parser.add_option("-e","--epub",
                   action="store_true",default=False,
                   help="When generating an Android browser, make it also respond to requests to open EPUB files. This results in an app that requests the 'read external storage' permission on Android versions below 6, so if you have already released a version without EPUB support then devices running Android 5.x or below will not auto-update past this change until the user notices the update notification and approves the extra permission.") # see comments around READ_EXTERNAL_STORAGE below
 cancelOpt("epub")
+parser.add_option("--pinch-zoom",
+                  help="Path to a downloaded copy of Manuel Stofer's PinchZoom.js for inclusion in the Android browser's EPUB viewer, if you want to enable pinch-zooming of EPUB images on Android 4 and above")
 parser.add_option("--android-print",
                   action="store_true",default=False,
                   help="When generating an Android browser, include code to provide a Print option (usually print to PDF) and a simple highlight-selection option. The Print option will require Android 4.4, but the app should still run without it on earlier versions of Android.")
@@ -1458,7 +1460,7 @@ try{nfOld.parentNode.replaceChild(nfNew,nfOld)}catch(err){ /* already done */ }
   if for_async: r += br"""
 document.annotWalkOff=1;
 chrome.runtime.sendMessage(true,function(r){if(r!=-1){document.aType=r;annotWalk(document)}document.annotWalkOff=(r==-1)});
-new window.MutationObserver(function(mut){var i,j;if(!document.annotWalkOff){document.annotWalkOff=1;for(i=0;i<mut.length;i++)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}window.setTimeout(function(){document.annotWalkOff=0},10)}}).observe(document.body,{childList:true,subtree:true});
+new window.MutationObserver(function(mut){var i,j;if(!document.annotWalkOff){document.annotWalkOff=1;for(i=0;i<mut.length;i++)if(mut[i].addedNodes)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[i].addedNodes[j],m=n,ok=1;while(ok&&m&&m!=document.body){ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n)}window.setTimeout(function(){document.annotWalkOff=0},10)}}).observe(document.body,{childList:true,subtree:true});
 """ # TODO: even with annotWalkOff temporarily set to suppress the nested observer trigger, long popups on pages with their own ruby can still take 16+secs on older PCs
   elif for_android: r += br"if(!ssb_local_annotator.getIncludeAll())document.addEventListener('copy',function(e){var s=window.getSelection(),i,c=document.createElement('div');for(i=0;i < s.rangeCount;i++)c.appendChild(s.getRangeAt(i).cloneContents());e.clipboardData.setData('text/plain',c.innerHTML.replace(/<rt.*?<[/]rt>/g,'').replace(/<.*?>/g,''));e.preventDefault()});" # work around user-select:none not always working (and newlines sometimes being added anyway)
   if not for_async:
@@ -2241,26 +2243,22 @@ if epub: android_src += br"""
                         boolean foundHTML = false; // doubles as 'foundPart' if getNextPage
                         while ((ze = zin.getNextEntry()) != null) {
                             if (part==null) {
-                                if(ze.getName().contains("toc.xhtml")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes())); // TODO: we should really be getting this via content.opf which is ref'd in META-INF/container.xml <rootfile full-path= (but most epub files call it toc.xhtml and we do have a 'list all' fallback)
+                                if(ze.getName().contains("toc.xhtml")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes())); // (not all EPUBs call it this; there may or may not even be one in the first file in content.opf ref'd in META-INF/container.xml)
                                 if(ze.getName().contains("htm")) { foundHTML = true; f.write(("<p><a href=\""+epubPrefix+ze.getName()+"\">"+ze.getName()+"</a>").getBytes()); }
                             } else if (ze.getName().equalsIgnoreCase(part)) {
                                 if(getNextPage) {
                                     foundHTML = true;
                                 } else {
-                                    int bufSize=2048;
-                                    if(ze.getSize()==-1) {
-                                        f=new ByteArrayOutputStream();
-                                    } else {
-                                        bufSize=(int)ze.getSize();
-                                        f=new ByteArrayOutputStream(bufSize);
-                                    }
+                                    int bufSize=(int)ze.getSize();
+                                    if(bufSize==-1) bufSize=20480;
+                                    f=new ByteArrayOutputStream(bufSize);
                                     byte[] buf=new byte[bufSize];
                                     int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
                                     String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
                                     if(mimeType==null || mimeType.equals("application/xhtml+xml")) mimeType="text/html"; // needed for annogen style modifications
                                     if(mimeType.equals("text/html")) {
                                         // TODO: if ((epubUrl.startsWith("file:") || epubUrl.contains("com.android.externalstorage")) && part!="toc.xhtml") then getSharedPreferences putString("eR"+epubUrl,part) ?  To avoid unbounded buildup, need to store only the most recent few (use one pref with separators?  or other mechanism e.g. 0=url 1=url ... nxtWrite=2 w. wraparound?)  Then add "jump to last seen page" link from both directory and toc.xhtml (latter will need manipulation as below)
-                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+br""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+b")"+(b';"+(AndroidSDK>=14?"'+open(pinch_zoom,"rb").read().replace(b"this.container.parentElement.offsetHeight",b"this.getContainerX()/this.getAspectRatio()").replace(b"export default PinchZoom;",b"").replace(b";",b";\n").replace(b"\n\n",b"\n").replace(b"\\",br"\\\\").replace(b'"',br'\"').replace(b'\n',br'\n')+b""";var e=document.getElementsByTagName('img');for(i=0;i<e.length;i++){var v=e[i],q=function(){new PinchZoom(v,{draggableUnzoomed:false})};window.setTimeout(function(){if(v.complete)q();else v.onload=q},100)}":"")+"""+b'"' if pinch_zoom else b"")+br"""</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                                     } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));

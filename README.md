@@ -623,7 +623,7 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.385
+Options for Annotator Generator v3.386
 ======================================
 
 `-h`, `--help`
@@ -781,6 +781,9 @@ Options for Annotator Generator v3.385
 
 `--no-epub`
  : Cancels any earlier `--epub` option in Makefile variables etc
+
+`--pinch-zoom=`
+ : Path to a downloaded copy of Manuel Stofer's PinchZoom.js for inclusion in the Android browser's EPUB viewer, if you want to enable pinch-zooming of EPUB images on Android 4 and above
 
 `--android-print`
  : When generating an Android browser, include code to provide a Print option (usually print to PDF) and a simple highlight-selection option. The Print option will require Android 4.4, but the app should still run without it on earlier versions of Android.
