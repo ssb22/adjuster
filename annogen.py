@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.386 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.387 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -203,8 +203,6 @@ parser.add_option("-e","--epub",
                   action="store_true",default=False,
                   help="When generating an Android browser, make it also respond to requests to open EPUB files. This results in an app that requests the 'read external storage' permission on Android versions below 6, so if you have already released a version without EPUB support then devices running Android 5.x or below will not auto-update past this change until the user notices the update notification and approves the extra permission.") # see comments around READ_EXTERNAL_STORAGE below
 cancelOpt("epub")
-parser.add_option("--pinch-zoom",
-                  help="Path to a downloaded copy of Manuel Stofer's PinchZoom.js for inclusion in the Android browser's EPUB viewer, if you want to enable pinch-zooming of EPUB images on Android 4 and above")
 parser.add_option("--android-print",
                   action="store_true",default=False,
                   help="When generating an Android browser, include code to provide a Print option (usually print to PDF) and a simple highlight-selection option. The Print option will require Android 4.4, but the app should still run without it on earlier versions of Android.")
@@ -2258,7 +2256,7 @@ if epub: android_src += br"""
                                     if(mimeType==null || mimeType.equals("application/xhtml+xml")) mimeType="text/html"; // needed for annogen style modifications
                                     if(mimeType.equals("text/html")) {
                                         // TODO: if ((epubUrl.startsWith("file:") || epubUrl.contains("com.android.externalstorage")) && part!="toc.xhtml") then getSharedPreferences putString("eR"+epubUrl,part) ?  To avoid unbounded buildup, need to store only the most recent few (use one pref with separators?  or other mechanism e.g. 0=url 1=url ... nxtWrite=2 w. wraparound?)  Then add "jump to last seen page" link from both directory and toc.xhtml (latter will need manipulation as below)
-                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+b")"+(b';"+(AndroidSDK>=14?"'+open(pinch_zoom,"rb").read().replace(b"this.container.parentElement.offsetHeight",b"this.getContainerX()/this.getAspectRatio()").replace(b"export default PinchZoom;",b"").replace(b";",b";\n").replace(b"\n\n",b"\n").replace(b"\\",br"\\\\").replace(b'"',br'\"').replace(b'\n',br'\n')+b""";var e=document.getElementsByTagName('img');for(i=0;i<e.length;i++){var v=e[i],q=function(){new PinchZoom(v,{draggableUnzoomed:false})};window.setTimeout(function(){if(v.complete)q();else v.onload=q},100)}":"")+"""+b'"' if pinch_zoom else b"")+br"""</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+br""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                                     } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
@@ -2289,8 +2287,9 @@ android_src += br"""
                     else browser.evaluateJavascript(js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var j;if(mut.length==1)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[0].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href)||m.nodeName=='BUTTON';ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}else window.setTimeout(AnnotIfLenChanged,500)}).observe(document.body,{childList:true,subtree:true})",null); // run only if 1 set of changed nodes, otherwise can run too long (especially if iterating on own changes) so use a setTimeout (or wait for runTimerLoop fallback, but that might be on a 5sec wait).  The setTimeout needs to be AnnotIfLenChanged not just annotScan, because multiple ones might get batched up and tie up the browser, especially on Android 10 (not so bad on Android 13).
                 } });"""
 if android_template: android_src += br"""
-        if(AndroidSDK >= 3 && AndroidSDK < 14) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
+        if(AndroidSDK >= 3 && AndroidSDK < 14 || AndroidSDK >= 19) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
             browser.getSettings().setBuiltInZoomControls(true);
+            if (AndroidSDK >= 19) browser.getSettings().setDisplayZoomControls(false); // can do this on earlier SDKs, but 19 is where the behaviour of BuiltInZoomControls changed due to NARROW_COLUMNS / SINGLE_COLUMN being dropped so now it's just a pan without layout change: might still want this AS WELL as our API 14+ layout-changing zoom, for images, hence turning it on for AndroidSDK >= 19 above, but not showing zoom controls in these circumstances as per Chrome behaviour
         } if (AndroidSDK < 14) {
             final int size=Math.round(16*fs);
             browser.getSettings().setDefaultFontSize(size);
@@ -2298,6 +2297,7 @@ if android_template: android_src += br"""
         }"""
 else: android_src += br"""
         if(AndroidSDK >= 3) browser.getSettings().setBuiltInZoomControls(true);
+        if(AndroidSDK >= 19) browser.getSettings().setDisplayZoomControls(false);
         float fs = getResources().getConfiguration().fontScale; // from device accessibility settings
         if (fs < 1.0f) fs = 1.0f; // bug in at least some versions of Android 8 returns 0 for fontScale
         final int size=Math.round(16*fs); // from device accessibility settings (might be squared if OS does it too, but that's OK because the settings don't give enough of a range)
