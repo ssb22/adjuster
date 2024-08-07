@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.387 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.388 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2256,7 +2256,7 @@ if epub: android_src += br"""
                                     if(mimeType==null || mimeType.equals("application/xhtml+xml")) mimeType="text/html"; // needed for annogen style modifications
                                     if(mimeType.equals("text/html")) {
                                         // TODO: if ((epubUrl.startsWith("file:") || epubUrl.contains("com.android.externalstorage")) && part!="toc.xhtml") then getSharedPreferences putString("eR"+epubUrl,part) ?  To avoid unbounded buildup, need to store only the most recent few (use one pref with separators?  or other mechanism e.g. 0=url 1=url ... nxtWrite=2 w. wraparound?)  Then add "jump to last seen page" link from both directory and toc.xhtml (latter will need manipulation as below)
-                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+br""")</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceAll("<[iI][mM][gG] ","<img loading=lazy ").replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+br""");var v=function(e,i){if(i<e.length){e[i].removeAttribute('loading');if(e[i].complete)window.setTimeout(function(){v(e,i+1)},100);else e[i].onload=function(){v(e,i+1)}}};v(document.getElementsByTagName('img'),0)</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                                     } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
                             } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
