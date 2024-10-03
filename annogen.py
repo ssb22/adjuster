@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.389 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.39 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -192,6 +192,8 @@ parser.add_option("--android",
                   help="URL for an Android app to browse (--java must be set).  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (otherwise it puts a message on stderr explaining what needs to be set)")
 parser.add_option("--android-template",
                   help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use --annotation-names, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery (non-China only from 2022), but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  annotUrlTrans returns undefined = uses original
+parser.add_option("--gloss-simplify",default="^to |^[(][^)]*[)] | [(][^)]*[)]|[;/].*",
+                  help="A regular expression matching parts of glosses to remove when generating a '3-line' format in apps, but not for hover titles or popups.  Default removes parenthesised expressions if not solitary, anything after the first slash or semicolon, and the leading word 'to'.  Can be set to empty string to omit simplification.")
 parser.add_option("-L","--pleco-hanping",
                   action="store_true",default=False,
                   help="In the Android app, make popup definitions link to Pleco or Hanping if installed")
@@ -419,6 +421,7 @@ if android_template:
   android = "file:///android_asset/index.html"
 if android and not java: errExit('You must set --java=/path/to/src//name/of/package when using --android')
 if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --android=file:///android_asset/index.html")
+if '/' in re.sub(r"\[[^]]*\]","",gloss_simplify) and (javascript or android): errExit("Any / in gloss_simplify must be protected for Javascript")
 if known_characters and not (android or javascript): errExit("--known-characters requires --android, --javascript or --browser-extension")
 if known_characters and freq_count: errExit("--known-characters and --freq-count must be on separate runs in the current implementation") # otherwise need to postpone loading known_characters
 if known_characters and android and not android_template and not ("ANDROID_NO_UPLOAD" in os.environ and "GOOGLE_PLAY_TRACK" in os.environ): warn("known-characters without android-template means you call the Javascript functions yourself")
@@ -1408,7 +1411,7 @@ try{nfOld.parentNode.replaceChild(nfNew,nfOld)}catch(err){ /* already done */ }
           r.parentNode.replaceChild(document.createTextNode(rl.innerText),r);
         }
         t = t.join(' || '); if(t){a[i].setAttribute('title',t);(function(e){e.addEventListener('click',(function(){alert(e.title)}))})(a[i])}
-        if(chgFmt) { /* patch up 3-line */ var rt=document.createElement("rt"); rt.appendChild(document.createTextNode(t.match(/.[^/(;]*/)[0])); a[i].insertBefore(rt,a[i].firstChild); var v=a[i].lastChild;if(v.nodeName=="RT"){a[i].removeChild(v);v.nodeName="RB";a[i].insertBefore(v,a[i].firstChild.nextSibling)} }
+        if(chgFmt) { /* patch up 3-line */ var rt=document.createElement("rt"); rt.appendChild(document.createTextNode(t"""+(b".replace(/"+B(gloss_simplify)+b'/g,"")' if gloss_simplify else b"")+br""")); a[i].insertBefore(rt,a[i].firstChild); var v=a[i].lastChild;if(v.nodeName=="RT"){a[i].removeChild(v);v.nodeName="RB";a[i].insertBefore(v,a[i].firstChild.nextSibling)} }
       }
 }"""
     r += br"""
@@ -1995,7 +1998,7 @@ if glossfile: android_src += br"""
 "javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(!l2){var e=document.createElement('span');e.setAttribute('id','ssb_2Line');e.innerHTML='<style>rt:not(:last-of-type){display:none!important}</style>';document.body.insertBefore(e,document.body.firstChild.nextSibling)}"
 ); } }); } });
                             d.setNegativeButton("3 lines",new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
-"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(l2)l2.parentNode.removeChild(l2);var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"[^>]*><rb>(.*?)<[/]rb><rt(.*?)>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,known,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt'+known+'>'+title.split(' || ').map(function(m){return m.replace(/^(.[^/(;]*).*/,'$1')}).join(' ')+'</rt><rt'+known+'>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});if(!ad0[i].inLink){var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)}} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
+"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(l2)l2.parentNode.removeChild(l2);var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"[^>]*><rb>(.*?)<[/]rb><rt(.*?)>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,known,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt'+known+'>'+title.split(' || ')"""+(b".map(function(m){return m.replace(/"+B(gloss_simplify).replace(b'\\',br'\\').replace(b'"',br'\"')+b"/g,'')})" if gloss_simplify else b"")+br""".join(' ')+'</rt><rt'+known+'>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});if(!ad0[i].inLink){var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)}} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
 /* Above rp elements are to make firstChild etc work in
    dialogue.  Don't do whole document.body.innerHTML, or
    scripts like document.write may execute a second time,
@@ -3310,7 +3313,7 @@ if glossfile: js_start += br"""
                   output.push("<ruby title=\"");
                   output.push(title);
                   output.push("\"><rt>");
-                  output.push(title.match(/.[^/(;]*/)[0]);
+                  output.push(title"""+(b".replace(/"+B(gloss_simplify)+b'/g,"")' if gloss_simplify else b"")+br""");
                   output.push("</rt><rb>");
                   output.push(annot);
                   output.push("</rb><rb>");
@@ -3652,7 +3655,7 @@ dart_src += br"""
               output.write("<ruby title=\"");
               output.write(title);
               output.write("\"><rt>");
-              output.write(RegExp(".[^/(;]*").matchAsPrefix(title).group(0));
+              output.write(title"""+(b'.ReplaceAll(RegExp("'+B(gloss_simplify).replace(b'\\',br'\\').replace(b'"',br'\"')+b'"))' if gloss_simplify else b"")+br""");
               output.write("</rt><rb>");
               output.write(annot);
               output.write("</rb><rb>");

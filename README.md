@@ -623,8 +623,8 @@ Logging options
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
 
-Options for Annotator Generator v3.389
-======================================
+Options for Annotator Generator v3.39
+=====================================
 
 `-h`, `--help`
  : show this help message and exit
@@ -766,6 +766,9 @@ Options for Annotator Generator v3.389
 
 `--android-template=`
  : File to use as a template for Android start HTML.  This option implies `--android`=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use `--annotation-names`, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery (non-China only from 2022), but **not** Amazon AppStore as they don't want 'competition' to their Silk browser.
+
+`--gloss-simplify=`
+ : A regular expression matching parts of glosses to remove when generating a '3-line' format in apps, but not for hover titles or popups.  Default removes parenthesised expressions if not solitary, anything after the first slash or semicolon, and the leading word 'to'.  Can be set to empty string to omit simplification.
 
 `-L`, `--pleco-hanping`
  : In the Android app, make popup definitions link to Pleco or Hanping if installed

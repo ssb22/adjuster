@@ -1,6 +1,6 @@
 .\" generated with Ronn-NG/v0.9.1
 .\" http://github.com/apjanke/ronn-ng/tree/0.9.1
-.TH "ANNOGEN" "1" "August 2024" "Silas S. Brown"
+.TH "ANNOGEN" "1" "October 2024" "Silas S. Brown"
 Annotator Generator is an examples\-driven generator of fast text annotators\. "Annotate" in this context means to add pronunciation or other information to each word, and/or to split text into words in a language that does not use spaces\.
 .IP "\[ci]" 4
 You supply a corpus of pre\-annotated texts for Annotator Generator to work out the rules and exceptions
@@ -158,6 +158,9 @@ URL for an Android app to browse (\fB\-\-java\fR must be set)\. If this is set, 
 .TP
 \fB\-\-android\-template=\fR
 File to use as a template for Android start HTML\. This option implies \fB\-\-android\fR=file:///android_asset/index\.html and generates that index\.html from the file specified (or from a built\-in default if the special filename 'blank' is used)\. The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline\-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre\-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use \fB\-\-annotation\-names\fR, a selection scope control on recent\-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double\-tap on to show missing glosses)\. VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page\. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery (non\-China only from 2022), but \fBnot\fR Amazon AppStore as they don't want 'competition' to their Silk browser\.
+.TP
+\fB\-\-gloss\-simplify=\fR
+A regular expression matching parts of glosses to remove when generating a '3\-line' format in apps, but not for hover titles or popups\. Default removes parenthesised expressions if not solitary, anything after the first slash or semicolon, and the leading word 'to'\. Can be set to empty string to omit simplification\.
 .TP
 \fB\-L\fR, \fB\-\-pleco\-hanping\fR
 In the Android app, make popup definitions link to Pleco or Hanping if installed
