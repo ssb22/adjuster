@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.39 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.391 (c) 2012-24 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2237,8 +2237,8 @@ if epub: android_src += br"""
                         ByteArrayOutputStream f=null;
                         if(part==null) {
                             f=new ByteArrayOutputStream();
-                            String fName=epubUrl;
-                            int slash=fName.lastIndexOf("/"),slash2=fName.lastIndexOf("%2F"); if(slash2>slash) slash=slash2+2; if(slash>-1) fName=fName.substring(slash+1);
+                            String fName; try { fName=java.net.URLDecoder.decode(epubUrl,"utf-8"); } catch(java.io.UnsupportedEncodingException e) {fName=epubUrl;}
+                            int slash=fName.lastIndexOf("/"); if(slash>-1) fName=fName.substring(slash+1);
                             f.write(("<h2>"+fName+"</h2>Until I write a <em>real</em> table-of-contents handler, you have to make do with <em>this</em>:").getBytes());
                         }
                         boolean foundHTML = false; // doubles as 'foundPart' if getNextPage
