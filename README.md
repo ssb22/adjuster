@@ -68,7 +68,7 @@ Legally obtaining that original annotated corpus is up to you. _If you are in th
 
 4. and still respect any prohibitions against sharing whatever mining tools you made for the site (as this law is only about text mining, not about the sharing of tools).
 
-Laws outside the UK are different (and I’m not a lawyer) so check carefully. Gao et al 2020’s [paper on “The Pile”](https://arxiv.org/abs/2101.00027) claims published crawl dumps with limited processing *might* be permissible under American copyright law as transformative fair use, but I’m not sure how legally watertight their argument is—it might be safer to keep unlicensed parts of the corpus private and publish only the resulting index.
+Laws outside the UK are different (and I’m not a lawyer) so check carefully. Gao et al 2020’s [paper on “The Pile”](https://arxiv.org/abs/2101.00027) claims published crawl dumps with limited processing *might* be permissible under American copyright law as transformative fair use, but I’m not sure how legally watertight their argument is: it might be safer to keep unlicensed parts of the corpus private and publish only the resulting index.
 
 If the website’s terms don’t actually prohibit writing an unpublished scraper for non-commercial mining purposes, perhaps you won’t need a legal exception for the crawling part—but you should still respect their bandwidth and do it slowly, both for moral reasons (it’s the right thing to do) and pragmatic ones (you won’t want their sysadmins and service providers taking action against you).
 
