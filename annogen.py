@@ -37,7 +37,7 @@ elif '--html-options' in sys.argv:
   class HTMLOptions:
     def add_option(self,*args,**kwargs):
       if not 'action' in kwargs: args=[a+'=' if a.startswith('--') else a for a in args]
-      print ("<dt><kbd>"+"</kbd>, <kbd>".join(args)+"</kbd></dt><dd>"+re.sub('(?<=[A-Za-z])([/=_:.])(?=[A-Za-z])',r'<wbr/>\1',re.sub('(--[A-Za-z][^ ]*)',r'<kbd>\1</kbd>',kwargs.get("help","").replace("%default",str(kwargs.get("default","%default"))).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;'))).replace("BEFORE","<strong>before</strong>").replace("AFTER","<strong>after</strong>").replace("ALWAYS","<strong>always</strong>").replace(" ALL "," <strong>all</strong> ").replace(" LONG "," <strong>long</strong> ").replace(" NOT "," <strong>not</strong> ").replace("WITHOUT","<strong>without</strong>").replace("js:search:replace,","js:<wbr>search:<wbr>replace,<wbr>")+"</dd>")
+      print ("<dt><kbd>"+"</kbd>, <kbd>".join(args)+"</kbd></dt><dd>"+re.sub('(?<=[A-Za-z][a-z])([/=_:.,])(?=[A-Za-z][a-z])',r'<wbr/>\1',re.sub('(--[A-Za-z][^ ]*)',r'<kbd>\1</kbd>',kwargs.get("help","").replace("%default",str(kwargs.get("default","%default"))).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;'))).replace("BEFORE","<strong>before</strong>").replace("AFTER","<strong>after</strong>").replace("ALWAYS","<strong>always</strong>").replace(" ALL "," <strong>all</strong> ").replace(" LONG "," <strong>long</strong> ").replace(" NOT "," <strong>not</strong> ").replace("WITHOUT","<strong>without</strong>").replace("js:search:replace,","js:<wbr>search:<wbr>replace,<wbr>")+"</dd>")
   parser = HTMLOptions()
   parser.add_option("-h","--help",action=True,help="show this help message and exit")
 elif '--markdown-options' in sys.argv:
@@ -5483,7 +5483,7 @@ if android:
          if not android_upload: sys.stderr.write("Warning: GOOGLE_PLAY_CHANGELOG not set, any release notes will be deleted\n")
        sys.stderr.write("Committing... ")
        sys.stderr.flush()
-       sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse))
+       sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse)) # if you need to get your app through review after a rejection, also add ,changesNotSentForReview=True to commit params and use Play Console - Publishing Overview - Send changes for review (tested 2024-12 after an editor mistook a "tested on" link for an affiliate link and just repeated themselves on appeal, so I had to hide tested-on links behind <details> tags in android_template for the affected app)
        break
       except httplib2.HttpLib2Error: pass
    if not can_compile_android and not can_track_android: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
