@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.239 (c) 2012-24 Silas S. Brown"
+"Web Adjuster v3.239 (c) 2012-25 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -125,7 +125,7 @@ elif '--html-options' in sys.argv or '--markdown-options' in sys.argv:
         def wbrify(n): # add <wbr> to try to dissuade Android Chrome from shrinking the entire page's text
             n = re.sub("([A-Za-z])([|.:@=])([A-Za-z])(?=[a-z]{4})",r"\1\2<wbr>\3",n) # ranges|message + long URLs
             n = re.sub("([a-z])([A-Z])(?=[a-z][a-z])",r"\1<wbr>\2",n) # submitBookmarkletRemoveExistingRuby etc
-            return n.replace("example.org/style%","example.org<wbr>/style%").replace("#/var","#<wbr>/var").replace("_","_<wbr>").replace(":password@","<wbr>:password<wbr>@")
+            return n.replace("example.org/style%","example.org<wbr>/style%").replace("#/var","#<wbr>/var").replace("_","_<wbr>").replace("password@192","password<wbr>@192").replace("URL/search/replace","URL/<wbr>search/<wbr>replace")
         help = amp(help)
         if html:
           for ttify in ["option=\"value\"","option='value'","\"\"\"","--"]:

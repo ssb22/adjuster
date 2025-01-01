@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.391 (c) 2012-24 Silas S. Brown"
+"Annotator Generator v3.391 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -37,7 +37,7 @@ elif '--html-options' in sys.argv:
   class HTMLOptions:
     def add_option(self,*args,**kwargs):
       if not 'action' in kwargs: args=[a+'=' if a.startswith('--') else a for a in args]
-      print ("<dt><kbd>"+"</kbd>, <kbd>".join(args)+"</kbd></dt><dd>"+re.sub('(?<=[A-Za-z][a-z])([/=_:.,])(?=[A-Za-z][a-z])',r'<wbr/>\1',re.sub('(--[A-Za-z][^ ]*)',r'<kbd>\1</kbd>',kwargs.get("help","").replace("%default",str(kwargs.get("default","%default"))).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;'))).replace("BEFORE","<strong>before</strong>").replace("AFTER","<strong>after</strong>").replace("ALWAYS","<strong>always</strong>").replace(" ALL "," <strong>all</strong> ").replace(" LONG "," <strong>long</strong> ").replace(" NOT "," <strong>not</strong> ").replace("WITHOUT","<strong>without</strong>").replace("js:search:replace,","js:<wbr>search:<wbr>replace,<wbr>")+"</dd>")
+      print ("<dt><kbd>"+"</kbd>, <kbd>".join(args)+"</kbd></dt><dd>"+re.sub('(?<=[A-Za-z][A-Za-z])([/=_:.,])(?=[A-Za-z][A-Za-z])',r'<wbr>\1',re.sub('(--[A-Za-z][^ ]*)',r'<kbd>\1</kbd>',kwargs.get("help","").replace("%default",str(kwargs.get("default","%default"))).replace('&','&amp;').replace('<','&lt;').replace('>','&gt;'))).replace("BEFORE","<strong>before</strong>").replace("AFTER","<strong>after</strong>").replace("ALWAYS","<strong>always</strong>").replace(" ALL "," <strong>all</strong> ").replace(" LONG "," <strong>long</strong> ").replace(" NOT "," <strong>not</strong> ").replace("WITHOUT","<strong>without</strong>").replace("js:search:replace,","js:<wbr>search:<wbr>replace,<wbr>")+"</dd>")
   parser = HTMLOptions()
   parser.add_option("-h","--help",action=True,help="show this help message and exit")
 elif '--markdown-options' in sys.argv:
