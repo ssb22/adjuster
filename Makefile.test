@@ -9,4 +9,5 @@ test:
 	python3 -c 'import os;del os.fork;import annogen as a;a.jsAnnot(False,True)' </dev/null >/dev/null
 	python2.7 -c 'import annogen as a;a.delete_existing_ruby=True;a.jsAnnot(False,True)' </dev/null >/dev/null
 	python3 -c 'import os;del os.fork;import annogen as a;a.delete_existing_ruby=True;a.jsAnnot(False,True)' </dev/null >/dev/null
+	make -f Makefile.pypi test
 .PHONY: test
