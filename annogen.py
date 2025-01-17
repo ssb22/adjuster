@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.391 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.392 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2287,7 +2287,7 @@ android_src += br"""
                 public void onPageFinished(WebView view,String url) {
                     if(AndroidSDK < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.  Also handles displaying the forward button when needed (4.4+ uses different logic for this in onKeyDown, because API19+ reduces frequency of scans when same length, due to it being only a backup to MutationObserver)
                     browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();if(!document.doneFwd && ssb_local_annotator.canGoForward()){var e=document.getElementById('annogenFwdBtn');if(e){e.style.display='inline';document.doneFwd=1}}window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
-                    else browser.evaluateJavascript(js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var j;if(mut.length==1)for(j=0;j<mut[i].addedNodes.length;j++){var n=mut[0].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href)||m.nodeName=='BUTTON';ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}else window.setTimeout(AnnotIfLenChanged,500)}).observe(document.body,{childList:true,subtree:true})",null); // run only if 1 set of changed nodes, otherwise can run too long (especially if iterating on own changes) so use a setTimeout (or wait for runTimerLoop fallback, but that might be on a 5sec wait).  The setTimeout needs to be AnnotIfLenChanged not just annotScan, because multiple ones might get batched up and tie up the browser, especially on Android 10 (not so bad on Android 13).
+                    else browser.evaluateJavascript(js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var j;if(mut.length==1)for(j=0;j<mut[0].addedNodes.length;j++){var n=mut[0].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href)||m.nodeName=='BUTTON';ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}else window.setTimeout(AnnotIfLenChanged,500)}).observe(document.body,{childList:true,subtree:true})",null); // run only if 1 set of changed nodes, otherwise can run too long (especially if iterating on own changes) so use a setTimeout (or wait for runTimerLoop fallback, but that might be on a 5sec wait).  The setTimeout needs to be AnnotIfLenChanged not just annotScan, because multiple ones might get batched up and tie up the browser, especially on Android 10 (not so bad on Android 13).
                 } });"""
 if android_template: android_src += br"""
         if(AndroidSDK >= 3 && AndroidSDK < 14 || AndroidSDK >= 19) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
