@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.239 (c) 2012-25 Silas S. Brown"
+"Web Adjuster v3.24 (c) 2012-25 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -208,8 +208,6 @@ else: # normal run: go ahead with Tornado import
 # Options and help text
 # --------------------------------------------------
 
-redir_relative_when_possible = False # Not yet an option (except here).  If setting this to True for when we're behind an optional SSL terminator e.g. Google App Engine, BEWARE you may find the SSL certificate does not cover our wildcard subdomains, as they can't put *.*.appspot.com in their certificate.  (Lynx offers to continue anyway, Firefox refuses due to HSTS.)  TODO: option to detect this situation using JS document.location.href.slice(0,5)=='https' and set a hidden form field switching off wildcard_dns and using cookie_host ?
-
 heading("General options")
 define("config",help="Name of the configuration file to read, if any. The process's working directory will be set to that of the configuration file so that relative pathnames can be used inside it. Any option that would otherwise have to be set on the command line may be placed in this file as an option=\"value\" or option='value' line (without any double-hyphen prefix). Multi-line values are possible if you quote them in \"\"\"...\"\"\", and you can use standard \\ escapes. You can also set config= in the configuration file itself to import another configuration file (for example if you have per-machine settings and global settings). If you want there to be a default configuration file without having to set it on the command line every time, an alternative option is to set the ADJUSTER_CFG environment variable.")
 define("version",help="Just print program version and exit")
@@ -275,6 +273,9 @@ define('search_sites',multiple=True,help="Comma-separated list of search sites t
 define("urlbox_extra_html",help="Any extra HTML you want to place after the URL box (when shown), such as a paragraph explaining what your filters do etc.")
 define("urlboxPath",default="/",help="The path of the URL box for use in links to it. This might be useful for wrapper configurations, but a URL box can be served from any path on the default domain. If however urlboxPath is set to something other than / then efforts are made to rewrite links to use it more often when in HTML-only mode with cookie domain, which might be useful for limited-server situations. You can force HTML-only mode to always be on by prefixing urlboxPath with *")
 define("wildcard_dns",default=True,help="Set this to False if you do NOT have a wildcard domain and want to process only default_site. Setting this to False does not actually prevent other sites from being processed (for example, a user could override their local DNS resolver to make up for your lack of wildcard domain); if you want to really prevent other sites from being processed then you should get nginx or similar to block incoming requests for the wrong domain. Setting wildcard_dns to False does stop the automatic re-writing of links to sites other than default_site. Leave it set to True to have ALL sites' links rewritten on the assumption that you have a wildcard domain.") # will then say "(default True)"
+define("urlscheme",default="http://",help="Default URL scheme to use when referring to other subdomains.  Setting this to // or https:// means you will need a wildcard TLS certificate (no longer provided by AppEngine unless using alt-dot).  Leaving it at http:// means you'll have only an unencrypted connection to the adjuster's subdomains.")
+define("alt_dot",help="String to place before host_suffix if the adjuster is run behind an SSL/TLS terminator that lacks certificates for subdomains beyond host_suffix but can still route such subdomains to the adjuster if separated by this string instead of a dot.  Beware this leads to an undesirable situation with subdomain-shared cookies: either they'll be set on only one domain instead of its subdomains (default), breaking some websites (and breaking the password option if you use it), or if you change a variable in adjuster source they can be sent not only to all adjusted domains but also to all other domains at the same level as the adjuster i.e. other users of the provider (and might find said provider rightly blocks such Set-Cookie headers).  If possible, it's better to avoid this option and instead use a load balancer providing a shorter host_suffix, although if that doesn't have a wildcard certificate you'll be on unencrypted HTTP.") # e.g. AppEngine projectName.uc.r vs just projectName
+altdot_bad_cookie_leak = False
 
 heading("General adjustment options")
 define("default_cookies",help="Semicolon-separated list of name=value cookies to send to all remote sites, for example to set preferences. Any cookies that the browser itself sends will take priority over cookies in this list. Note that these cookies are sent to ALL sites. You can set a cookie only on a specific browser by putting (browser-string) before the cookie name, e.g. (iPad)x=y will set x=y only if 'iPad' occurs in the browser string (to match more than one browser-string keyword, you have to specify the cookie multiple times).") # TODO: site-specific option
@@ -370,7 +371,7 @@ define("js_images",default=True,help="When js_interpreter is in use, instruct it
 define("js_size",default="1024x768",help="The virtual screen dimensions of the browser when js_interpreter is in use (changing it might be useful for screenshots)")
 define("js_links",default=True,help="When js_interpreter is in use, handle some Javascript links via special suffixes on href URLs. Turn this off if you don't mind such links not working and you want to ensure URLs are unchanged modulo domain-rewriting.")
 define("js_multiprocess",default=True,help="When js_interpreter is in use, handle the webdriver instances in completely separate processes (not just separate threads) when the multiprocessing module is available and working. Recommended: if a webdriver instance gets 'stuck' in a way that somehow hangs its controlling process, we can detect and restart it.")
-define("ssl_fork",default=False,help="(Unix only) Run SSL-helper proxies as separate processes to stop the main event loop from being stalled by buggy SSL libraries. This costs RAM, but adding --multicore too will limit the number of helpers to one per core instead of one per port, so --ssl-fork --multicore is recommended if you want more js_interpreter instances than cores.")
+define("ssl_fork",default=False,help="(Unix only) Run SSL-helper proxies as separate processes to stop the main event loop from being stalled by buggy SSL/TLS libraries. This costs RAM, but adding --multicore too will limit the number of helpers to one per core instead of one per port, so --ssl-fork --multicore is recommended if you want more js_interpreter instances than cores.")
 
 heading("Server control options")
 define("background",default=False,help="(Unix only) Fork to the background as soon as the server has started. You might want to enable this if you will be running it from crontab, to avoid long-running cron processes.")
@@ -474,7 +475,7 @@ define("loadBalancer",default=False,help="Set this to True if you have a default
 define("multicore",default=False,help="(Linux and BSD) On multi-core CPUs, fork enough processes for all cores to participate in handling incoming requests. This increases RAM usage, but can help with high-load situations. Disabled on Mac due to unreliability (other cores can still be used for htmlFilter etc)")
 # --- and --ssl-fork if there's not TOO many instances taking up the RAM; if you really want multiple cores to handle incoming requests on Mac/BSD you could run GNU/Linux in a virtual machine (or use a WSGI server)
 define("num_cores",default=0,help="Set the number of CPU cores for the multicore option (0 for auto-detect)")
-define("internalPort",default=0,help="The first port number to use for internal purposes when ssl_fork is in effect.  Internal ports needed by real_proxy (for SSL) and js_reproxy are normally allocated from the ephemeral port range, but if ssl_fork delegates to independent processes then some of them need to be at known numbers. The default of 0 means one higher than 'port'; several unused ports may be needed starting at this number. If your Tornado is modern enough to support reuse_port then you can have multiple Adjuster instances listening on the same port (e.g. for one_request_only) provided they have different internalPort settings when run with ssl_fork.  Note however that the --stop and --restart options will NOT distinguish between different internalPort settings, only 'port'.")
+define("internalPort",default=0,help="The first port number to use for internal purposes when ssl_fork is in effect.  Internal ports needed by real_proxy (for SSL/TLS) and js_reproxy are normally allocated from the ephemeral port range, but if ssl_fork delegates to independent processes then some of them need to be at known numbers. The default of 0 means one higher than 'port'; several unused ports may be needed starting at this number. If your Tornado is modern enough to support reuse_port then you can have multiple Adjuster instances listening on the same port (e.g. for one_request_only) provided they have different internalPort settings when run with ssl_fork.  Note however that the --stop and --restart options will NOT distinguish between different internalPort settings, only 'port'.")
 # Some environments (e.g. old OpenShift 2) can't use real_proxy or js_reproxy because the container won't let us open extra ports even for internal purposes; TODO: find some way to multiplex everything on one port? how to authenticate our JS-interpreter connections if the load-balancer makes remote connections to that port also seem to come from our IP?
 define("fixed_ports",default=False,help="Do not allocate ports (even internal ports) from the ephemeral port range even when this is otherwise possible. This option might help if you are firewalling your loopback interface and want to write specific exceptions (although that still won't work if you're using js_interpreter=HeadlessChrome or similar which opens its own ephemeral ports as well: use containers if you're concerned). Fixed ports may result in failures if internal ports are already taken.")
 define("compress_responses",default=True,help="Use gzip to compress responses for clients that indicate they are compatible with it. You may want to turn this off if your server's CPU is more important than your network bandwidth (e.g. browser on same machine).")
@@ -589,7 +590,7 @@ def convert_to_real_host(requested_host,cookie_host=None):
       if requested_host.endswith(port): requested_host=requested_host[:-len(port)]
       n=0
       for h in options.host_suffix.split("/"):
-        if requested_host.endswith(B("."+h)) and options.wildcard_dns: return redot(requested_host[:-len(h)-1])
+        if (requested_host.endswith(B("."+h)) or options.alt_dot and requested_host.endswith(B(options.alt_dot+h))) and options.wildcard_dns: return redot(requested_host[:-len(h)-(1 if requested_host.endswith(B("."+h)) else len(options.alt_dot))])
         elif requested_host == B(h):
             d = defaultSite(n)
             if d: return B(d)
@@ -606,7 +607,7 @@ def convert_to_via_host(requested_host):
     if requested_host.endswith(port): requested_host=requested_host[:-len(port)]
     if options.publicPort==80: port=""
     for h in options.host_suffix.split("/"):
-      if (requested_host == h and options.default_site) or requested_host.endswith("."+h): return h+port
+      if requested_host == h and options.default_site or requested_host.endswith("."+h) or options.alt_dot and requested_host.endswith(options.alt_dot+h): return h+port
     return options.host_suffix+port
 def publicPortStr():
     if options.publicPort==80: return ""
@@ -626,7 +627,7 @@ def convert_to_requested_host(real_host,cookie_host=None):
     elif not options.wildcard_dns and B(real_host) == B(cookie_host):
         return hostSuffix(0)+port # no default_site, cookie_host everywhere
     if not options.wildcard_dns: return real_host # leave the proxy
-    else: return dedot(real_host)+"."+hostSuffix()+port
+    else: return dedot(real_host)+(options.alt_dot if options.alt_dot else ".")+hostSuffix()+port
 
 # RFC 2109: A Set-Cookie from request-host y.x.example.com for Domain=.example.com would be rejected, because H is y.x and contains a dot.
 # That means (especially if a password is set) we'd better make sure our domain-rewrites don't contain dots.  If requested with dot, relocate to without dot.  (But see below re RFC 1035 limitation.)
@@ -686,8 +687,7 @@ def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyReques
             if https: protocol = "https://"
             else: protocol = "http://"
         if protocol=="https://": oldhost += B(".0") # HTTPS hack (see protocolAndHost)
-        newHP = B("http://") + B(convert_to_requested_host(oldhost,cookieHost))
-        # newHP TODO: unless using https to communicate with the adjuster itself, in which case would either have to run a server with certificates set up or make it a WSGI-etc script running on one, and if that's the case then might wish to check through the rest of the code (search http://) to ensure this would always work well
+        newHP = B(options.urlscheme) + B(convert_to_requested_host(oldhost,cookieHost))
         if newHP.endswith(B(".0")): return m.group() # undo HTTPS hack if we have no wildcard_dns and convert_to_requested_host sent that URL off-site
         return B(newHP)
     if stopAtOne: count=1
@@ -695,30 +695,26 @@ def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyReques
     return re.sub(B(r"((?:https?://)|(?:(?<=['"+'"'+r"])//))([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)"),mFunc,text,count) # http:// https:// or "// in scripts (but TODO: it won't pick up things like host="www.example.com"; return "https://"+host, also what about embedded IPv6 addresses i.e. \[[0-9a-fA-F:]*\] in place of hostnames (and what should we rewrite them to?)  Hopefully IPv6-embedding is rare as such sites wouldn't be usable by IPv4-only users (although somebody might have IPv6-specific versions of their pages/servers); if making Web Adjuster IPv6 ready, also need to check all instances of using ':' to split host from port as this won't be the case if host is '[' + IPv6 + ']'.  Splitting off hostname from protocol is more common though, e.g. used in Google advertising iframes 2017-06)
 
 def cookie_domain_process(text,cookieHost=None):
-    start=0 ; text=S(text)
-    while True:
-        i = text.lower().find("; domain=",start)
-        if i==-1: break
-        i += len("; domain=")
-        if text[i]=='.': i += 1 # leading . on the cookie (TODO: what if we're not wildcard_dns?)
-        j = i
-        while j<len(text) and not text[j]==';': j += 1
-        newhost = S(convert_to_requested_host(text[i:j],cookieHost))
+    def f(m):
+        m = m.group()
+        hasDot = m.startswith('.') # leading . on the cookie, which we can't do if we're rewritten to dedot: we have to set it starting from the *next* dot
+        if hasDot: m = m[1:]
+        newhost = convert_to_requested_host(m,cookieHost)
         if ':' in newhost: newhost=newhost[:newhost.index(':')] # don't put the port number, see comment in authenticates_ok
-        if newhost==text[i:j] and cookieHost and S(cookieHost).endswith(text[i:j]): newhost = S(convert_to_requested_host(cookieHost,cookieHost)) # cookie set server.example.org instead of www.server.example.org; we can deal with that
-        text = text[:i] + newhost + text[j:]
-        j=i+len(newhost)
-        start = j
-    return text
+        if newhost==m and cookieHost and S(cookieHost).endswith(m): newhost = S(convert_to_requested_host(cookieHost,cookieHost)) # cookie set server.example.org instead of www.server.example.org; we can deal with that
+        if hasDot and options.wildcard_dns: return newhost[newhost.index('.'):] # best we can do is leak to all adjusted hosts
+        return newhost
+    return re.sub("(?i)(?<=; domain=)[^;]+",f,S(text))
 
 def can_do_cookie_host():
     return "" in options.default_site.split("/")
 
 def url_is_ours(url,cookieHost="cookie-host\n"):
-    # check if url has been through domain_process
+    # check if url has been through domain_process,
+    # if so, returns the corresponding real URL it represents
     url = B(url)
-    if not url.startswith(B("http://")): return False
-    url=url[len("http://"):]
+    if not re.match(B("(https?:)?//"),url): return False
+    url=url[url.index(B("/"))+2:]
     if B('/') in url:
         url,rest=url.split(B('/'),1)
         rest = B('/')+rest
@@ -961,7 +957,7 @@ def preprocessOptions():
         upstream_proxy_host,upstream_proxy_port = options.upstream_proxy.split(':') # TODO: IPv6 ?
         if not upstream_proxy_host:
             upstream_proxy_host = "127.0.0.1"
-            if wsgi_mode: warn("Can't do SSL-rewrite for upstream proxy when in WSGI mode")
+            if wsgi_mode: warn("Can't do SSL/TLS-rewrite for upstream proxy when in WSGI mode")
             else: upstream_rewrite_ssl = True
         upstream_proxy_port = int(upstream_proxy_port)
     elif options.usepycurl and not options.submitPath=='/': setupCurl(3*js_per_core) # and no error if not there
@@ -1073,8 +1069,6 @@ def preprocessOptions():
             upstreamGuard.add("adjustCss"+str(n)+"s")
             cRecogniseAny.add("adjustCss"+str(n)+"s")
     if options.useLXML: check_LXML()
-    global allowConnectHost,allowConnectPort,allowConnectURL
-    allowConnectHost=allowConnectPort=allowConnectURL=None
     if not options.default_site: options.default_site = ""
     # (so we can .split it even if it's None or something)
     if not options.js_interpreter:
@@ -1209,7 +1203,7 @@ class BrowserLogger:
     req=req.request
     if hasattr(req,"suppress_logging"): return
     if S(req.method) not in the_supported_methods and not options.logUnsupported: return
-    if S(req.method)=="CONNECT" or B(req.uri).startswith(B("http://")) or B(req.uri).startswith(B("https://")): host="" # URI will have everything
+    if S(req.method)=="CONNECT" or re.match(B("https?://"),B(req.uri)): host="" # URI will have everything
     elif hasattr(req,"suppress_logger_host_convert"): host = req.host
     else: host=B(convert_to_real_host(req.host,ch))
     if host in [-1,B("error")]: host=req.host
@@ -2886,7 +2880,7 @@ class RequestForwarder(RequestHandler):
                 v = self.request.arguments.get(adjust_domain_cookieName,None)
                 if type(v)==type([]): v=v[-1]
                 if v: self.removeArgument(adjust_domain_cookieName,quote(v))
-            if v:
+            if v: # will be a B()
                 self.cookieViaURL = v
                 return None if v==adjust_domain_none else v
         return self.getCookie(adjust_domain_cookieName,adjust_domain_none)
@@ -2920,7 +2914,7 @@ class RequestForwarder(RequestHandler):
     def setCookie_with_dots(self,kv):
         for dot in ["","."]: self.add_header("Set-Cookie",kv+"; Domain="+dot+self.cookieHostToSet()+"; Path=/; Expires="+cookieExpires) # (at least in Safari, need BOTH with and without the dot to be sure of setting the domain and all subdomains.  TODO: might be able to skip the dot if not wildcard_dns, here and in the cookie-setting scripts.)
     def addCookieFromURL(self):
-        if self.cookieViaURL: self.add_header("Set-Cookie",adjust_domain_cookieName+"="+quote(self.cookieViaURL)+"; Path=/; Expires="+cookieExpires) # don't need dots for this (non-wildcard)
+        if self.cookieViaURL: self.add_header("Set-Cookie",adjust_domain_cookieName+"="+quote(S(self.cookieViaURL))+"; Path=/; Expires="+cookieExpires) # don't need dots for this (non-wildcard)
 
     def removeArgument(self,argName,value):
         if "&"+argName+"="+value in self.request.uri: self.request.uri=self.request.uri.replace("&"+argName+"="+value,"")
@@ -2948,9 +2942,9 @@ class RequestForwarder(RequestHandler):
         if ret2: ret = (ret2,ret)
         self.request.uri = self.request.uri[:-len(toRemove)]
         if not S(self.request.method).lower() in ['get','head']: return ret # TODO: unless arguments are taken from both url AND body in that case
-        for k,argList in self.request.arguments.items():
-            if argList and argList[-1].endswith(toRemove):
-                argList[-1]=argList[-1][:-len(toRemove)]
+        for k,argList in self.request.arguments.items(): # rm .viewsource or screenshot from the last argument as well, if that's where the user put it (note however that this cannot be used together with a p= password argument during initial access, since authentication happens before checkViewsource)
+            if argList and B(argList[-1]).endswith(B(toRemove)):
+                argList[-1]=B(argList[-1])[:-len(B(toRemove))]
                 break
         return ret
     
@@ -2960,6 +2954,9 @@ class RequestForwarder(RequestHandler):
         for hs in options.host_suffix.split("/"):
             if host.endswith("."+hs):
                 return hs
+            elif options.alt_dot and host.endswith(options.alt_dot+hs):
+                if altdot_bad_cookie_leak: return hs[hs.index(".")+1:] # xyz-dot-adjuster.example.net -> *.example.net
+                else: return hs # insufficiently broad
         pp = ':'+str(options.publicPort)
         if host.endswith(pp): return host[:-len(pp)]
         p = ':'+str(options.port) # possible for local connections, if publicPort is set to something else
@@ -2969,7 +2966,7 @@ class RequestForwarder(RequestHandler):
     def authenticates_ok(self,host):
         if not options.password: return True
         host = S(host)
-        if options.password_domain and host and not any((host==p or host.endswith("."+p)) for p in options.password_domain.split('/')): return True
+        if options.password_domain and host and not any((host==p or host.endswith("."+p) or options.alt_dot and host.endswith(options.alt_dot+p)) for p in options.password_domain.split('/')): return True
         if options.password_domain: self.is_password_domain=True
         # if they said ?p=(password), it's OK and we can
         # give them a cookie with it
@@ -3057,9 +3054,8 @@ class RequestForwarder(RequestHandler):
         try: self.set_status(status)
         except ValueError: self.set_status(status, "Redirect") # e.g. 308 (not all Tornado versions handle it)
         for h in ["Location","Content-Type","Content-Language"]: self.clear_header(h) # clear these here, so redirect() can still be called even after a site's headers were copied in
-        if redir_relative_when_possible: url_relative = url_is_ours(redir) # (no need to send the correct cookieHost, just need to know if host gets changed)
-        else: url_relative = False
-        if url_relative:
+        omit_scheme = options.urlscheme=="//" and url_is_ours(redir) # (no need to send the correct cookieHost, just need to know if host was changed)
+        if omit_scheme:
             # If we're behind an optional HTTPS-terminating proxy, it would be nice to tell the browser to keep whatever protocol it's currently using, IF the browser would definitely understand this.
             # RFC 7231 from 2014 allows relative redirects in updated HTTP/1.1 based on browser observations, but original 1999 HTTP/1.1 RFC didn't.  MSIE 9 from 2011 allows relative.
             if self.checkBrowser(["Lynx/2.8","Gecko/20100101","Trident/7","Trident/8","Trident/9","Edge"]): pass
@@ -3068,14 +3064,14 @@ class RequestForwarder(RequestHandler):
                 def v(b):
                     if b in ua:
                         m = re.match("[0-9]+",ua[ua.index(b)+len(b):])
-                        if m: return m.group()
+                        if m: return int(m.group())
                     return 0
                 if v("WebKit/") < 537: # TODO: or v("") < ... etc
                     # I haven't been able to test it works on these old versions
-                    url_relative = False
-            if url_relative: redir = S(redir).replace("http:","",1)
+                    omit_scheme = False
+            if omit_scheme: redir = S(redir).replace("http:","",1)
         self.add_header("Location",S(redir))
-        if url_relative: pass # these browsers don't need a body
+        if omit_scheme: pass # these browsers don't need a body
         else:
             self.add_header("Content-Type","text/html")
             if self.canWriteBody(): self.write(B('<html lang="en"><body><a href="%s">Redirect</a></body></html>' % S(redir).replace('&','&amp;').replace('"','&quot;')))
@@ -3163,7 +3159,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         upstream.write(B(self.request.method)+B(" ")+B(self.request.uri)+B(" ")+B(self.request.version)+B("\r\n")+B("\r\n".join(("%s: %s" % (k,v)) for k,v in (list(h for h in self.request.headers.get_all() if not h[0].lower()=="x-real-ip")+[("X-Real-Ip",self.request.remote_ip)]))+"\r\n\r\n")+B(self.request.body))
 
     def thin_down_headers(self):
-        # For ping, and for SSH tunnel.  Need to make the response short, but still allow keepalive
+        # For ping.  Need to make the response short, but still allow keepalive
         self.request.suppress_logging = True
         for h in ["Server","Content-Type","Date"]:
             try: self.clear_header(h)
@@ -3265,7 +3261,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
     def handle_URLbox_query(self,v):
         self.set_htmlonly_cookie()
         v = B(v)
-        if not (v.startswith(B("http://")) or v.startswith(B("https://"))):
+        if not re.match(B("https?://"),v):
             if B(' ') in v or not B('.') in v: v=getSearchURL(v)
             else: v=B("http://")+v
         if not options.wildcard_dns: # need to use cookie_host
@@ -3300,7 +3296,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
             debuglog("Setting isFromSslHelper"+self.debugExtras())
             self.request.connection.stream.isFromSslHelper = True # it doesn't matter if some browser spoofs that header: it'll mean they'll get .0 asked for; however we could check the remote IP is localhost if doing anything more complex with it
             del self.request.headers["X-From-Adjuster-Ssl-Helper"] # don't pass it to upstream servers
-        if B(self.request.uri).startswith(B("http://")):
+        if re.match(B("https?://"),B(self.request.uri)):
             self.request.original_uri = self.request.uri
             parsed = urlparse.urlparse(S(self.request.uri))
             self.request.host = self.request.headers["Host"] = parsed.netloc
@@ -3311,40 +3307,6 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         if self.WA_UseSSL or (hasattr(self.request,"connection") and hasattr(self.request.connection,"stream") and hasattr(self.request.connection.stream,"isFromSslHelper")): # we're the SSL helper on port+1 and we've been CONNECT'd to, or we're on port+0 and forked SSL helper has forwarded it to us, so the host asked for must be a .0 host for https
             if self.request.host and not B(self.request.host).endswith(B(".0")): self.request.host = S(self.request.host)+".0"
             
-    def handleSSHTunnel(self):
-        if not B(allowConnectURL)==B("http://")+B(self.request.host)+B(self.request.uri): return
-        self.thin_down_headers() ; self.add_header("Pragma","no-cache") # hopefully "Pragma: no-cache" is enough and we don't need all of self.add_nocache_headers
-        global the_ssh_tunnel # TODO: support more than one SSH tunnel? (but will need to use session IDs etc; GNU httptunnel does just 1 tunnel as of 3.x so maybe we're OK)
-        try:
-            if B(self.request.body)==B("new connection"):
-                self.request.body = B("")
-                the_ssh_tunnel[1].append(None) # if exists
-            if None in the_ssh_tunnel[1]:
-                try: the_ssh_tunnel[0].close()
-                except: pass
-                raise NameError # as though the_ssh_tunnel didn't yet exist
-        except NameError: # not yet established
-            sessionID = time.time() # for now
-            the_ssh_tunnel = [tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)),[],sessionID] # upstream connection, data waiting for client, id
-            def add(data):
-                if sessionID==the_ssh_tunnel[2]:
-                    the_ssh_tunnel[1].append(data)
-            doCallback(self,the_ssh_tunnel[0].connect,lambda *args:readUntilClose(the_ssh_tunnel[0],lambda data:(add(data),add(None)),add),(allowConnectHost, int(allowConnectPort)))
-            # TODO: log the fact we're starting a tunnel?
-        if self.request.body: the_ssh_tunnel[0].write(self.request.body) # TODO: will this work even when it's not yet established? (not a big problem on SSH because server always speaks first)
-        def check_ssh_response(startTime,sessionID):
-            if not the_ssh_tunnel[2]==sessionID: return self.myfinish()
-            if the_ssh_tunnel[1]==[] and not time.time()>startTime+3: return IOLoopInstance().add_timeout(time.time()+0.2,lambda *args:check_ssh_response(startTime,sessionID)) # keep waiting (up to max 3sec - not too long because if client issues a 'read on timeout' while the SSH layer above is waiting for user input then we still want it to be reasonably responsive to that input; it's the client side that should wait longer between polls)
-            if None in the_ssh_tunnel[1]:
-                self.write(B('').join(the_ssh_tunnel[1][:-1]))
-                the_ssh_tunnel[1] = [None]
-            else:
-                self.write(B('').join(the_ssh_tunnel[1]))
-                the_ssh_tunnel[1] = []
-            self.myfinish()
-        IOLoopInstance().add_timeout(time.time()+0.2,lambda *args:check_ssh_response(time.time(),the_ssh_tunnel[2]))
-        return True
-
     def handleSpecificIPs(self):
         if not ipMatchingFunc: return False
         msg = ipMatchingFunc(self.request.remote_ip)
@@ -3528,11 +3490,11 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         if not txt:
             self.is_password_domain=True # no prominentNotice needed
             # In the markup below, body's height=100% is needed to ensure we can set a percentage height on the textarea consistently across many browsers (otherwise e.g. Safari 6 without user CSS might start making the textarea larger as soon as it contains input, overprinting the rest of the document)
-            local_submit_url = "http://"+self.request.host+options.submitPath
-            if options.submitBookmarkletDomain: submit_url = "//"+options.submitBookmarkletDomain+options.submitPath
+            local_submit_url = options.urlscheme+self.request.host+options.submitPath
+            if options.submitBookmarkletDomain: submit_url = "//"+options.submitBookmarkletDomain+options.submitPath # assume submitBookmarkletDomain can take both http and https, that's the point of the option
             else: submit_url = local_submit_url
             if (options.password and submitPathIgnorePassword) or options.submitPath=='/' or defaultSite(): urlbox_footer = "" # not much point linking them back to the URL box under the first circumstance, and there isn't one for the other two
-            else: urlbox_footer = '<p><a href="http://'+hostSuffix()+publicPortStr()+options.urlboxPath+'">Process a website</a></p>'
+            else: urlbox_footer = '<p><a href="'+options.urlscheme+hostSuffix()+publicPortStr()+options.urlboxPath+'">Process a website</a></p>'
             # TODO: what if their browser doesn't submit in the correct charset?  for example some versions of Lynx need -display_charset=UTF-8 otherwise they might double-encode pasted-in UTF-8 and remove A0 bytes even though it appears to display correctly (and no, adding accept-charset won't help: that's for if the one to be accepted differs from the document's)
             return self.doResponse2(("""%s<body style="height:100%%;overflow:auto"><form method="post" action="%s"><h3>%s</h3>%s:<p><span style="float:right"><input type="submit" value="%s"><script><!--
 document.write(' (Ctrl-Enter) | <a href="javascript:history.go(-1)">Back</a>')
@@ -3548,7 +3510,7 @@ document.forms[0].i.focus()
             # On at least some browsers (e.g. some Safari versions), clicking one of our JS reload links after the POST text has been shown will reload the form (instead of re-submitting the POST text) and can scroll to an awkward position whether the code below calls focus() or not.  Could at least translate to GET if it's short enough (don't want to start storing things on the adjuster machine - that would require a shared database if load-balancing)
             if len(txt) <= 16384: # (else we wouldn't decompress all; see comment above)
                 enc = base64.b64encode(zlib.compress(B(txt),9))
-                if 0 < len(enc) < 2000: return self.redirect(B("http://")+B(hostSuffix())+B(publicPortStr())+B(options.submitPath)+B(enc),303) # POST to GET
+                if 0 < len(enc) < 2000: return self.redirect(B("http://")+B(hostSuffix())+B(publicPortStr())+B(options.submitPath)+B(enc),303) # POST to GET (http:// here is rewritten to // if possible by redirect())
 
         # pretend it was served by a remote site; go through everything including filters (TODO: could bypass most of doResponse instead of rigging it up like this; alternatively keep this as it shows how to feed data to doResponse)
         self.connection_header = None
@@ -3567,7 +3529,7 @@ document.forms[0].i.focus()
         self.add_header("Content-Type","application/javascript")
         self.add_header("Access-Control-Allow-Origin","*")
         if options.submitBookmarkletDomain: submit = "//"+options.submitBookmarkletDomain
-        else: submit = "http://"+self.request.host
+        else: submit = "//"+self.request.host
         if self.canWriteBody(): self.write(B(bookmarkletMainScript(submit+options.submitPath+'j'+xtra,forceSameWindow)))
         self.myfinish()
     def serve_err(self,err):
@@ -3731,10 +3693,9 @@ document.forms[0].i.focus()
                 self.request.headers["Accept-Language"] = webdriver_AL[self.WA_PjsIndex]
             webdriver_inProgress[self.WA_PjsIndex].add(self.request.uri)
         elif not self.isSslUpstream:
-            if self.handleSSHTunnel(): return
             if self.handleSpecificIPs(): return
             # TODO: Slow down heavy users by self.request.remote_ip ?
-            try: extensionHandled = extensions.handle("http://"+self.request.host+self.request.uri,self)
+            try: extensionHandled = extensions.handle("http://"+self.request.host+self.request.uri,self) # regardless of whether we were actually called by http:// or https:// we send http:// to the extension for backward compatibility (after all SSL termination has definitely happened by now)
             except:
                 self.request.suppress_logger_host_convert = True # counted as 'sort of handled' so we get the correct log entry after the exception
                 raise
@@ -3751,7 +3712,7 @@ document.forms[0].i.focus()
         if type(realHost)==bytes and not bytes==str:
             realHost = S(realHost)
         isProxyRequest = self.isPjsUpstream or self.isSslUpstream or (options.real_proxy and realHost == self.request.host)
-        if not isProxyRequest and not self.isPjsUpstream and not self.isSslUpstream and (self.request.host=="localhost" or self.request.host.startswith("localhost:")) and not "localhost" in options.host_suffix: return self.redirect("http://"+hostSuffix(0)+publicPortStr()+self.request.uri) # save confusion later (e.g. set 'HTML-only mode' cookie on 'localhost' but then redirect to host_suffix and cookie is lost).  Bugfix 0.314: do not do this redirect if we're a real proxy for another server on localhost
+        if not isProxyRequest and not self.isPjsUpstream and not self.isSslUpstream and (self.request.host=="localhost" or self.request.host.startswith("localhost:")) and not "localhost" in options.host_suffix: return self.redirect("http://"+hostSuffix(0)+publicPortStr()+self.request.uri) # save confusion later (e.g. set 'HTML-only mode' cookie on 'localhost' but then redirect to host_suffix and cookie is lost) (http:// here is rewritten to // if possible by redirect()).  Bugfix 0.314: do not do this redirect if we're a real proxy for another server on localhost
         maybeRobots = (not self.isPjsUpstream and not self.isSslUpstream and not options.robots and self.request.uri=="/robots.txt")
         self.is_password_domain=False # needed by doResponse2
         if options.password and not options.real_proxy and not self.isPjsUpstream and not self.isSslUpstream:
@@ -3767,16 +3728,13 @@ document.forms[0].i.focus()
                 if maybeRobots: return self.serveRobots()
                 if options.publicPort==80: colPort=""
                 else: colPort=":"+str(options.publicPort)
-                return self.redirect("http://"+dedot(host[:-len(ohs)])+ohs+colPort+self.request.uri)
+                return self.redirect("http://"+dedot(host[:-len(ohs)])+ohs+colPort+self.request.uri) # (http:// here is rewritten to // if possible by redirect())
           # Now OK to check authentication:
           if not self.authenticates_ok(host) and not (submitPathIgnorePassword and self.request.uri.startswith(submitPathForTest)):
               self.request.suppress_logger_host_convert = True
-              if options.auth_error=="http://":
-                  if maybeRobots: return self.serveRobots()
-                  else: options.auth_error = "auth_error set incorrectly" # see auth_error help (TODO: is it really a good idea to say this HERE?)
-              elif maybeRobots: return self.serveRobots()
+              if maybeRobots: return self.serveRobots()
               self.add_nocache_headers() # in case they try the exact same request again after authenticating (unlikely if they add &p=..., but they might come back to the other URL later, and refresh is particularly awkward if we redirect)
-              if options.auth_error.startswith("http://") or options.auth_error.startswith("https://"): return self.redirect(options.auth_error)
+              if re.match("https?://",options.auth_error): return self.redirect(options.auth_error)
               if options.auth_error.startswith("*"): auth_error = options.auth_error[1:]
               else:
                   self.set_status(401)
@@ -3803,7 +3761,7 @@ document.forms[0].i.focus()
             # Serve URL box
             self.set_css_from_urlbox()
             if self.getArg("try"): return self.serve_URLbox() # we just set the stylesheet
-            if options.submitPath and self.getArg("sPath"): return self.redirect("http://"+hostSuffix()+publicPortStr()+options.submitPath)
+            if options.submitPath and self.getArg("sPath"): return self.redirect("http://"+hostSuffix()+publicPortStr()+options.submitPath) # http:// here is rewritten to // if possible by redirect()
             v=self.getArg("q")
             if v: return self.handle_URLbox_query(v)
             else: return self.serve_URLbox()
@@ -3811,7 +3769,7 @@ document.forms[0].i.focus()
         viewSource = (not self.isPjsUpstream and not self.isSslUpstream) and self.checkViewsource()
         if not self.isPjsUpstream and not self.isSslUpstream and self.needCssCookies():
             self.add_nocache_headers() # please don't cache this redirect!  otherwise user might not be able to leave the URL box after:
-            return self.redirect("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+quote(protocolWithHost(realHost)+S(self.request.uri)),302) # go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
+            return self.redirect("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+quote(protocolWithHost(realHost)+S(self.request.uri)),302) # (http:// here is rewritten to // if possible by redirect()) go to the URL box - need to set more options (and 302 not 301, or some browsers could cache it despite the above)
         if not self.isPjsUpstream and not self.isSslUpstream: self.addCookieFromURL() # for cookie_host
         converterFlags = []
         for opt,suffix,ext,fmt in [
@@ -4044,11 +4002,11 @@ document.forms[0].i.focus()
             r += "<br>Fetched "+ampEncode(self.urlToFetch)
             if js:
                 screenshot_url = self.urlToFetch + ".screenshot"
-                if not options.urlboxPath=="/": screenshot_url = "http://" + S(convert_to_requested_host(self.cookie_host(),self.cookie_host())) + options.urlboxPath + "?q=" + quote(screenshot_url) + "&" + adjust_domain_cookieName + "=0&pr=on"
+                if not options.urlboxPath=="/": screenshot_url = "//" + S(convert_to_requested_host(self.cookie_host(),self.cookie_host())) + options.urlboxPath + "?q=" + quote(screenshot_url) + "&" + adjust_domain_cookieName + "=0&pr=on"
                 elif not isProxyRequest: screenshot_url = domain_process(screenshot_url,self.cookie_host(),https=self.urlToFetch.startswith("https"))
                 r += " <ul><li>using %s (see <a href=\"%s\">screenshot</a>)</ul>" % (options.js_interpreter,screenshot_url)
             else: r += "<h2><a name=\"1\"></a>Headers sent</h2>"+h2html(self.request.headers)+"<a name=\"2\"></a><h2>Headers received</h2>"+h2html(response.headers)+"<a name=\"3\"></a>"
-            return self.doResponse2(r+"<h2>Page source</h2>"+txt2html(response.body)+"<hr><a name=\"4\"></a>This is "+serverName_html,True,False)
+            return self.doResponse2(r+"<h2>Page source</h2>"+txt2html(S(response.body))+"<hr><a name=\"4\"></a>This is "+serverName_html,True,False)
         headers_to_add = []
         if (do_pdftotext or do_epubtotext or do_epubtozip or do_mp3) and not response.headers.get("Location","") and response.headers.get("Content-type","").startswith("text/"):
           # We thought we were going to get a PDF etc that could be converted, but it looks like they just sent more HTML (perhaps a "which version of the PDF did you want" screen)
@@ -4072,7 +4030,7 @@ document.forms[0].i.focus()
           elif name.lower()=="location": # TODO: do we need to delete this header if response.code not in [301,302,303,307] ?
             old_value_1 = value # before domain_process
             value=S(domain_process(value,cookie_host,True,https=self.urlToFetch.startswith("https"),isProxyRequest=isProxyRequest,isSslUpstream=self.isSslUpstream))
-            absolute = value.startswith("http://") or value.startswith("https://")
+            absolute = re.match("(https?:)?//",value)
             offsite = (not isProxyRequest and value==old_value_1 and absolute) # i.e. domain_process didn't change it, and it's not relative
             old_value_2 = value # after domain_process but before PDF/EPUB-etc rewrites
             if do_pdftotext: # is it still going to be pdf after the redirect?
@@ -4092,14 +4050,14 @@ document.forms[0].i.focus()
                 # (DON'T just do this for just ANY offsite url when in cookie_host mode (except when also in htmlOnlyMode, see below) - it could mess up images and things.  (Could still mess up images etc if they're served from / with query parameters; for now we're assuming path=/ is a good condition to do this.  The whole cookie_host thing is a compromise anyway; wildcard_dns is better.)  Can however do it if adjust_domain_cookieName is in the arguments, since this should mean a URL has just been typed in.)
                 if offsite:
                     # as cookie_host has been set, we know we CAN do this request if it were typed in directly....
-                    value = "http://" + S(convert_to_requested_host(cookie_host,cookie_host)) + options.urlboxPath + "?q=" + quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
+                    value = "//" + S(convert_to_requested_host(cookie_host,cookie_host)) + options.urlboxPath + "?q=" + quote(old_value_1) + "&" + adjust_domain_cookieName + "=0" # go back to URL box and act as though this had been typed in
                     if self.htmlOnlyMode(isProxyRequest): value += "&pr=on"
                     reason = "" # "which will be adjusted here, but you have to read the code to understand why it's necessary to follow an extra link in this case :-("
                 else: reason=" which will be adjusted at %s (not here)" % (value[value.index('//')+2:(value+"/").index('/',value.index('/')+2)],)
                 return self.doResponse2(("<html lang=\"en\"><body>The server is redirecting you to <a href=\"%s\">%s</a>%s.</body></html>" % (value,old_value_1,reason)),True,False) # and 'Back to URL box' link will be added
             elif can_do_cookie_host() and (offsite or (absolute and not options.urlboxPath=="/")) and self.htmlOnlyMode(isProxyRequest) and not options.htmlonly_css and enable_adjustDomainCookieName_URL_override: # in HTML-only mode, it should never be an embedded image etc, so we should be able to change the current cookie domain unconditionally (TODO: can do this even if not enable_adjustDomainCookieName_URL_override, by issuing a Set-Cookie along with THIS response)
                 debuglog("HTML-only mode cookie-domain redirect (isProxyRequest="+repr(isProxyRequest)+")"+self.debugExtras())
-                value = "http://" + S(convert_to_requested_host(cookie_host,cookie_host)) + options.urlboxPath + "?q=" + quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
+                value = "//" + S(convert_to_requested_host(cookie_host,cookie_host)) + options.urlboxPath + "?q=" + quote(old_value_1) + "&" + adjust_domain_cookieName + "=0&pr=on" # as above
             doRedirect = value
           elif "set-cookie" in name.lower():
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host) # (never doing this if isProxyRequest, therefore don't have to worry about the upstream_rewrite_ssl exception that applies to normal domain_process isProxyRequest)
@@ -4131,17 +4089,17 @@ document.forms[0].i.focus()
                     headers_to_add.append(('Content-Type','text/html'))
                 elif name=='Content-Disposition':
                     headers_to_add.remove((name,value))
-        added = {'set-cookie':1} # might have been set by authenticates_ok
         if not self.isPjsUpstream and not self.isSslUpstream:
             if vary: vary += ", "
             vary += 'Cookie, User-Agent' # can affect adjuster settings (and just saying 'Vary: *' can sometimes be ignored on Android 4.4)
         if vary: headers_to_add.append(('Vary',vary))
+        added = set(['set-cookie']) # might have been set by authenticates_ok, so use only add_header not set_header for this
         for name,value in headers_to_add:
           value = value.replace("\t"," ") # needed for some servers
           try:
-            if name.lower() in added: self.add_header(name,value)
+            if name.lower() in added:self.add_header(name,value)
             else: self.set_header(name,value) # overriding any Tornado default
-            added[name.lower()]=1
+            added.add(name.lower())
           except ValueError: pass # ignore unsafe header values
         if doRedirect:
             # ignore response.body and put our own in
@@ -4234,7 +4192,7 @@ document.forms[0].i.focus()
               if isProxyRequest: url = self.urlToFetch
               else: url = domain_process(self.urlToFetch,cookie_host,True,B(self.urlToFetch).startswith(B("https")))
               if cookie_host:
-                  adjustList.append(RewriteExternalLinks("http://" + S(convert_to_requested_host(cookie_host,cookie_host)) + options.urlboxPath + "?" + adjust_domain_cookieName+"=0&pr=on&q=",url,cookie_host))
+                  adjustList.append(RewriteExternalLinks("//" + S(convert_to_requested_host(cookie_host,cookie_host)) + options.urlboxPath + "?" + adjust_domain_cookieName+"=0&pr=on&q=",url,cookie_host))
               if options.js_links:
                   adjustList.append(AddClickCodes(url))
               adjustList.append(StripJSEtc(self.urlToFetch,transparent=self.auto_htmlOnlyMode(isProxyRequest)))
@@ -4892,7 +4850,7 @@ def runFilter(req,cmd,text,callback,textmode=True):
     if not type(cmd)==type(""):
         out = B(cmd(text))
         return IOLoopInstance().add_timeout(time.time(),lambda *args:callback(out,"")) # yield
-    elif cmd.startswith("http://") or cmd.startswith("https://"):
+    elif re.match("https?://",cmd):
         return httpfetch(req,cmd,method="POST",body=text,callback=lambda r:(curlFinished(),callback(B(r.body),"")))
     def subprocess_thread():
         helper_threads.append('filter-subprocess')
@@ -4910,7 +4868,7 @@ def sync_runFilter(req,cmd,text,callback,textmode=True):
     if type(cmd)==type("") and cmd.startswith("*"):
         cmd = eval(cmd[1:])
     if not type(cmd)==type(""): out,err = B(cmd(text)),""
-    elif cmd.startswith("http://") or cmd.startswith("https://"):
+    elif re.match("https?://",cmd):
         return httpfetch(req,cmd,method="POST",body=text,callback=lambda r:callback(B(r.body),""))
     else:
         sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=textmode) # TODO: check shell=True won't throw error on Windows
@@ -5225,7 +5183,7 @@ class AddConversionLinks:
         attrsD = dict(attrs)
         if S(tag)=="a" and attrsD.get("href",None):
             l = S(attrsD["href"].lower())
-            if l.startswith("http://") or l.startswith("https://"):
+            if re.match("https?://",l):
                 if not self.offsite_ok and not url_is_ours(l): return # "offsite" link, can't process (TODO: unless we send it to ourselves via an alternate syntax)
                 # TODO: (if don't implement processing the link anyway) insert explanatory text for why an alternate link wasn't provided?
             elif options.mailtoPath and l.startswith("mailto:"):
@@ -5290,7 +5248,7 @@ class StripJSEtc:
             if not self.transparent:
                 if enable_adjustDomainCookieName_URL_override: xtra = "&"+adjust_domain_cookieName+"="+S(adjust_domain_none)
                 else: xtra = ""
-                self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a rel="noreferrer" href="%s">Original site</a><p>' % ("http://"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+quote(self.url)+xtra,self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
+                self.parser.addDataFromTagHandler('HTML-only mode. <a href="%s">Settings</a> | <a rel="noreferrer" href="%s">Original site</a><p>' % ("//"+hostSuffix()+publicPortStr()+options.urlboxPath+"?d="+quote(self.url)+xtra,self.url)) # TODO: document that htmlonly_mode adds this (can save having to 'hack URLs' if using HTML-only mode with bookmarks, RSS feeds etc)
                 # TODO: call request_no_external_referer() on the RequestForwarder as well? (may need a parameter for it)
             return
         elif tag=="a" and not self.suppressing:
@@ -5332,7 +5290,7 @@ class RewriteExternalLinks: # for use with cookie_host in htmlOnlyMode (will pro
             if self.baseHref:
                 try: hr=B(urlparse.urljoin(self.baseHref,S(hr)))
                 except: pass # can't do it
-            if not (hr.startswith(B("http://")) or hr.startswith(B("https://"))): return # still a relative link etc after all that
+            if not re.match(B("(https?:)?//"),hr): return # still a relative link etc after all that
             realUrl = url_is_ours(hr,self.cookie_host)
             if not options.urlboxPath=="/" and realUrl:
                 hr,realUrl = realUrl,None
@@ -5677,11 +5635,11 @@ if(!%s && %s) { document.cookie='adjustNoRender=1;domain=%s;expires=%s;path=/';d
             bodyAppend += B(reloadSwitchJS("adjustNoRender",jsCookieString,True,options.renderName,cookieHostToSet,cookieExpires,extraCondition))
     if cookie_host:
         if enable_adjustDomainCookieName_URL_override: bodyAppend += B(r"""<script><!--
-if(!%s&&document.readyState!='complete')document.write('<a href="http://%s?%s=%s">Back to URL box<\/a>')
+if(!%s&&document.readyState!='complete')document.write('<a href="//%s?%s=%s">Back to URL box<\/a>')
 //-->
-</script><noscript><a href="http://%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none),cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none)))
+</script><noscript><a href="//%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none),cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none)))
         else: bodyAppend += B(r"""<script><!--
-if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';if(location.href==\'http://%s\')location.reload(true);else location.href=\'http://%s?nocache=\'+Math.random()">Back to URL box<\/a>')
+if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';location.href=\'//%s?nocache=\'+Math.random()">Back to URL box<\/a>')
 //-->
 </script>""" % (detect_iframe,adjust_domain_cookieName,S(adjust_domain_none),cookieExpires,cookieHostToSet+publicPortStr()+options.urlboxPath,cookieHostToSet+publicPortStr()+options.urlboxPath)) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
     if options.headAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): headAppend += B(options.headAppend)
