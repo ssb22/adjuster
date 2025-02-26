@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.24 (c) 2012-25 Silas S. Brown"
+"Web Adjuster v3.241 (c) 2012-25 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -273,9 +273,8 @@ define('search_sites',multiple=True,help="Comma-separated list of search sites t
 define("urlbox_extra_html",help="Any extra HTML you want to place after the URL box (when shown), such as a paragraph explaining what your filters do etc.")
 define("urlboxPath",default="/",help="The path of the URL box for use in links to it. This might be useful for wrapper configurations, but a URL box can be served from any path on the default domain. If however urlboxPath is set to something other than / then efforts are made to rewrite links to use it more often when in HTML-only mode with cookie domain, which might be useful for limited-server situations. You can force HTML-only mode to always be on by prefixing urlboxPath with *")
 define("wildcard_dns",default=True,help="Set this to False if you do NOT have a wildcard domain and want to process only default_site. Setting this to False does not actually prevent other sites from being processed (for example, a user could override their local DNS resolver to make up for your lack of wildcard domain); if you want to really prevent other sites from being processed then you should get nginx or similar to block incoming requests for the wrong domain. Setting wildcard_dns to False does stop the automatic re-writing of links to sites other than default_site. Leave it set to True to have ALL sites' links rewritten on the assumption that you have a wildcard domain.") # will then say "(default True)"
-define("urlscheme",default="http://",help="Default URL scheme to use when referring to other subdomains.  Setting this to // or https:// means you will need a wildcard TLS certificate (no longer provided by AppEngine unless using alt-dot).  Leaving it at http:// means you'll have only an unencrypted connection to the adjuster's subdomains.")
-define("alt_dot",help="String to place before host_suffix if the adjuster is run behind an SSL/TLS terminator that lacks certificates for subdomains beyond host_suffix but can still route such subdomains to the adjuster if separated by this string instead of a dot.  Beware this leads to an undesirable situation with subdomain-shared cookies: either they'll be set on only one domain instead of its subdomains (default), breaking some websites (and breaking the password option if you use it), or if you change a variable in adjuster source they can be sent not only to all adjusted domains but also to all other domains at the same level as the adjuster i.e. other users of the provider (and might find said provider rightly blocks such Set-Cookie headers).  If possible, it's better to avoid this option and instead use a load balancer providing a shorter host_suffix, although if that doesn't have a wildcard certificate you'll be on unencrypted HTTP.") # e.g. AppEngine projectName.uc.r vs just projectName
-altdot_bad_cookie_leak = False
+define("urlscheme",default="http://",help="Default URL scheme to use when referring to our other subdomains.  Setting this to // or https:// means you will need a wildcard TLS certificate, but leaving it at http:// means you may have only an unencrypted connection to at least some of the adjuster session.")
+define("alt_dot",help="String to place before host_suffix if the adjuster is run behind an SSL/TLS terminator that lacks certificates for subdomains beyond host_suffix but can still route such subdomains to the adjuster if separated by this string instead of a dot.  Beware this leads to an undesirable situation with subdomain-shared cookies: either they'll be set on only one domain instead of its subdomains (default), breaking some websites (and breaking the password option if you use it), or if you add a * before the value of alt-dot they can be sent not only to all adjusted domains but also to all other domains at the same level as the adjuster i.e. other users of the provider (use this only for temporary experimental accounts if you know what you're doing, and it won't work on modern browsers if the provider has listed their upper levels in Mozilla's top-level domains on which not even Javascript can set cookies).  If possible, it's better to avoid this option and instead use a load balancer providing a shorter host_suffix, although if that doesn't have a wildcard certificate you'll be on unencrypted HTTP.") # e.g. AppEngine projectName.uc.r vs just projectName (but *.r.appspot.com is in the TLD list for newer browsers)
 
 heading("General adjustment options")
 define("default_cookies",help="Semicolon-separated list of name=value cookies to send to all remote sites, for example to set preferences. Any cookies that the browser itself sends will take priority over cookies in this list. Note that these cookies are sent to ALL sites. You can set a cookie only on a specific browser by putting (browser-string) before the cookie name, e.g. (iPad)x=y will set x=y only if 'iPad' occurs in the browser string (to match more than one browser-string keyword, you have to specify the cookie multiple times).") # TODO: site-specific option
@@ -665,7 +664,7 @@ def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyReques
             if m: return B("https")+m.group(1)
         return text
     # Change the domains on appropriate http:// and https:// URLs.
-    # Also on // URLs using 'https' as default (if it's not None).
+    # Also on // URLs, using 'https' as default (if it's not None) for the expected onward fetch.
     # Hope that there aren't any JS-computed links where
     # the domain is part of the computation.
     # TODO: what of links to alternate ports or user:password links, currently we leave them unchanged (could use .<portNo> as an extension of the 'HTTPS hack' of .0, but allowing the public to request connects to any port could be a problem, and IP addresses would have to be handled carefully: can no longer rely on ".0 used to mean the network" sort-of saving us)
@@ -680,29 +679,30 @@ def domain_process(text,cookieHost=None,stopAtOne=False,https=None,isProxyReques
             return m.group()
         i = m.start()
         if i and text[i-1:i].split() and text[:i].rsplit(None,1)[-1].startswith(B("xmlns")): return m.group() # avoid xmlns="... xmlns:elementname='... etc
-        protocol,oldhost = m.groups()
+        protocol,auth,oldhost = m.groups() # e.g. sentry.io uses username@ in its scripts 2025
         if oldhost[-1] in B(".-"): return m.group() # omit links ending with . or - because they're likely to be part of a domain computation; such things are tricky but might be more likely to work if we DON'T touch them if it has e.g. "'test.'+domain" where "domain" is a variable that we've previously intercepted
         protocol = S(protocol)
         if protocol=="//":
             if https: protocol = "https://"
             else: protocol = "http://"
         if protocol=="https://": oldhost += B(".0") # HTTPS hack (see protocolAndHost)
-        newHP = B(options.urlscheme) + B(convert_to_requested_host(oldhost,cookieHost))
+        newHP = B(convert_to_requested_host(oldhost,cookieHost))
         if newHP.endswith(B(".0")): return m.group() # undo HTTPS hack if we have no wildcard_dns and convert_to_requested_host sent that URL off-site
-        return B(newHP)
+        if not auth: auth = B("")
+        return B(options.urlscheme)+auth+newHP
     if stopAtOne: count=1
     else: count=0
-    return re.sub(B(r"((?:https?://)|(?:(?<=['"+'"'+r"])//))([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)"),mFunc,text,count) # http:// https:// or "// in scripts (but TODO: it won't pick up things like host="www.example.com"; return "https://"+host, also what about embedded IPv6 addresses i.e. \[[0-9a-fA-F:]*\] in place of hostnames (and what should we rewrite them to?)  Hopefully IPv6-embedding is rare as such sites wouldn't be usable by IPv4-only users (although somebody might have IPv6-specific versions of their pages/servers); if making Web Adjuster IPv6 ready, also need to check all instances of using ':' to split host from port as this won't be the case if host is '[' + IPv6 + ']'.  Splitting off hostname from protocol is more common though, e.g. used in Google advertising iframes 2017-06)
+    return re.sub(B(r"((?:https?://)|(?:(?<=['"+'"'+r"])//))([A-Za-z0-9%:_-]+@)?([A-Za-z0-9.-]+)(?=[/?'"+'"'+r"]|$)"),mFunc,text,count) # http:// https:// or "// in scripts (but TODO: it won't pick up things like host="www.example.com"; return "https://"+host, also what about embedded IPv6 addresses i.e. \[[0-9a-fA-F:]*\] in place of hostnames (and what should we rewrite them to?)  Hopefully IPv6-embedding is rare as such sites wouldn't be usable by IPv4-only users (although somebody might have IPv6-specific versions of their pages/servers); if making Web Adjuster IPv6 ready, also need to check all instances of using ':' to split host from port as this won't be the case if host is '[' + IPv6 + ']'.  Splitting off hostname from protocol is more common though, e.g. used in Google advertising iframes 2017-06)
 
 def cookie_domain_process(text,cookieHost=None):
     def f(m):
         m = m.group()
-        hasDot = m.startswith('.') # leading . on the cookie, which we can't do if we're rewritten to dedot: we have to set it starting from the *next* dot
+        hasDot = m.startswith('.') # leading . on the cookie
         if hasDot: m = m[1:]
         newhost = convert_to_requested_host(m,cookieHost)
         if ':' in newhost: newhost=newhost[:newhost.index(':')] # don't put the port number, see comment in authenticates_ok
         if newhost==m and cookieHost and S(cookieHost).endswith(m): newhost = S(convert_to_requested_host(cookieHost,cookieHost)) # cookie set server.example.org instead of www.server.example.org; we can deal with that
-        if hasDot and options.wildcard_dns: return newhost[newhost.index('.'):] # best we can do is leak to all adjusted hosts
+        if hasDot and options.wildcard_dns and not options.alt_dot: return newhost[newhost.index('.'):] # best we can do is leak to all adjusted hosts (if altdot_bad_cookie_leak we can do this line as well to leak up a further level, but the result might get pruned: JS propagation probably more reliable in this case)
         return newhost
     return re.sub("(?i)(?<=; domain=)[^;]+",f,S(text))
 
@@ -1074,6 +1074,11 @@ def preprocessOptions():
     if not options.js_interpreter:
         options.js_reproxy=options.js_frames=False
     elif not options.htmlonly_mode: errExit("js_interpreter requires htmlonly_mode")
+    if options.alt_dot:
+        global altdot_bad_cookie_leak
+        altdot_bad_cookie_leak = options.alt_dot.startswith("*")
+        if altdot_bad_cookie_leak:
+            options.alt_dot = options.alt_dot[1:]
 
 def intor0(x):
     try: return int(x)
@@ -2910,9 +2915,9 @@ class RequestForwarder(RequestHandler):
         for n,v in self._adjuster_cookies_.items():
             if n in cRecogniseAny or n==adjust_domain_cookieName: continue # don't do adjust_domain_cookieName unless take into account addCookieFromURL (TODO: but would we ever GET here if that happens?)
             elif n in cRecognise1 and v=="1": continue
-            for dot in ["","."]: self.add_header("Set-Cookie",n+"="+v+"; Domain="+dot+self.cookieHostToSet()+"; Path=/; Expires=Thu Jan 01 00:00:00 1970") # to clear it
+            for c in self.cookieDomainsToSet("; Domain="): self.add_header("Set-Cookie",n+"="+v+c+"; Path=/; Expires=Thu Jan 01 00:00:00 1970") # to clear it
     def setCookie_with_dots(self,kv):
-        for dot in ["","."]: self.add_header("Set-Cookie",kv+"; Domain="+dot+self.cookieHostToSet()+"; Path=/; Expires="+cookieExpires) # (at least in Safari, need BOTH with and without the dot to be sure of setting the domain and all subdomains.  TODO: might be able to skip the dot if not wildcard_dns, here and in the cookie-setting scripts.)
+        for c in self.cookieDomainsToSet("; Domain="): self.add_header("Set-Cookie",kv+c+"; Path=/; Expires="+cookieExpires) # (at least in Safari, need BOTH with and without the dot to be sure of setting the domain and all subdomains.  TODO: might be able to skip the dot if not wildcard_dns, here and in the cookie-setting scripts.)
     def addCookieFromURL(self):
         if self.cookieViaURL: self.add_header("Set-Cookie",adjust_domain_cookieName+"="+quote(S(self.cookieViaURL))+"; Path=/; Expires="+cookieExpires) # don't need dots for this (non-wildcard)
 
@@ -2948,19 +2953,31 @@ class RequestForwarder(RequestHandler):
                 break
         return ret
     
-    def cookieHostToSet(self):
-        # for the Domain= field of cookies
+    def cookieDomainsToSet(self,prefix):
         host = S(self.request.host)
         for hs in options.host_suffix.split("/"):
             if host.endswith("."+hs):
-                return hs
+                return prefix+hs, prefix+"."+hs
             elif options.alt_dot and host.endswith(options.alt_dot+hs):
-                if altdot_bad_cookie_leak: return hs[hs.index(".")+1:] # xyz-dot-adjuster.example.net -> *.example.net
-                else: return hs # insufficiently broad
-        pp = ':'+str(options.publicPort)
-        if host.endswith(pp): return host[:-len(pp)]
-        p = ':'+str(options.port) # possible for local connections, if publicPort is set to something else
-        if host.endswith(p): return host[:-len(p)]
+                if altdot_bad_cookie_leak: return "", prefix+hs[hs.index("."):] # xyz-dot-adjuster.example.net -> *.example.net (second might be blocked, unless use JS to promote for experimental purposes only)
+                else: return [""] # current host only (insufficiently broad)
+        # If reaches here, incoming request is not a 'subdomain'
+        for p in [options.publicPort,options.port]: # port possible for local connections if publicPort set to something else
+            p=':'+str(p)
+            if host.endswith(p):
+                if options.wildcard_dns:
+                    return "", prefix+"."+host[:-len(p)]
+                else: return [""]
+        if options.wildcard_dns:
+            return "", prefix+"."+host
+        else: return [""]
+    def urlBoxHost(self):
+        host = S(self.request.host)
+        for hs in options.host_suffix.split("/"):
+            if host.endswith("."+hs) or options.alt_dot and host.endswith(options.alt_dot+hs): return hs
+        for p in [options.publicPort,options.port]:
+            p=':'+str(p)
+            if host.endswith(p): return host[:-len(p)]
         return host
     
     def authenticates_ok(self,host):
@@ -3069,7 +3086,8 @@ class RequestForwarder(RequestHandler):
                 if v("WebKit/") < 537: # TODO: or v("") < ... etc
                     # I haven't been able to test it works on these old versions
                     omit_scheme = False
-            if omit_scheme: redir = S(redir).replace("http:","",1)
+        if omit_scheme: redir = S(redir).replace("http:","",1)
+        elif options.urlscheme=="https://" and url_is_ours(redir): redir = S(redir).replace("http:","https:",1)
         self.add_header("Location",S(redir))
         if omit_scheme: pass # these browsers don't need a body
         else:
@@ -3324,9 +3342,8 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         if seen_ipMessage_cookieName+"="+val in cookies:
             # seen THIS message before
             return False
-        hs = self.cookieHostToSet()
         self.add_nocache_headers()
-        if self.canWriteBody(): self.write(B(htmlhead("Message"))+B(msg)+(B("<p><form><label><input type=\"checkbox\" name=\"gotit\">Don't show this message again</label><br><input type=\"submit\" value=\"Continue\" onClick=\"var a='%s=%s;domain=',b=(document.forms[0].gotit.checked?'expires=%s;':'')+'path=/',h='%s;';document.cookie=a+'.'+h+b;document.cookie=a+h+b;location.reload(true);return false\"></body></html>" % (seen_ipMessage_cookieName,val,cookieExpires,hs))))
+        if self.canWriteBody(): self.write(B(htmlhead("Message"))+B(msg)+(B("<p><form><label><input type=\"checkbox\" name=\"gotit\">Don't show this message again</label><br><input type=\"submit\" value=\"Continue\" onClick=\"var a='%s=%s;domain=',b=(document.forms[0].gotit.checked?'expires=%s;':'')+'path=/',h='%s;';document.cookie=a+'.'+h+b;document.cookie=a+h+b;location.reload(true);return false\"></body></html>" % (seen_ipMessage_cookieName,val,cookieExpires,self.urlBoxHost()))))
         logging.info("ip_messages: done "+S(self.request.remote_ip))
         self.myfinish() ; return True
 
@@ -4063,7 +4080,8 @@ document.forms[0].i.focus()
             if not isProxyRequest: value=cookie_domain_process(value,cookie_host) # (never doing this if isProxyRequest, therefore don't have to worry about the upstream_rewrite_ssl exception that applies to normal domain_process isProxyRequest)
             for ckName in upstreamGuard: value=value.replace(ckName,ckName+"1")
             value0 = value
-            value=re.sub("; *(Secure|SameSite[^;]*)(?=;|$)","",value) # if adjuster is not being served over HTTPS
+            if not options.urlscheme=="https://": value=re.sub("; *(Secure|SameSite[^;]*)(?=;|$)","",value) # (could also omit this if it's "//" if we can confirm we are https)
+            if options.alt_dot and altdot_bad_cookie_leak and "domain=" in value0.lower(): value=re.sub("; *HttpOnly(?=;|$)","",value) # must be available to JS for altdot_bad_cookie_leak script to work
             if "samesite=none" in value0.lower() and not "domain=" in value0.lower() and options.wildcard_dns: self.setCookie_with_dots(value)
           headers_to_add.append((name,value))
           if name.lower()=="content-type":
@@ -4093,9 +4111,10 @@ document.forms[0].i.focus()
             if vary: vary += ", "
             vary += 'Cookie, User-Agent' # can affect adjuster settings (and just saying 'Vary: *' can sometimes be ignored on Android 4.4)
         if vary: headers_to_add.append(('Vary',vary))
-        added = set(['set-cookie']) # might have been set by authenticates_ok, so use only add_header not set_header for this
+        added = set(['set-cookie']) # might have been set by authenticates_ok (or samesite=none logic above etc) so use only add_header not set_header for this
         for name,value in headers_to_add:
           value = value.replace("\t"," ") # needed for some servers
+          # self.add_header("X-Header-"+name,quote(value)) # for debugging if a frontend is deleting any of our HTTP headers
           try:
             if name.lower() in added:self.add_header(name,value)
             else: self.set_header(name,value) # overriding any Tornado default
@@ -4176,7 +4195,7 @@ document.forms[0].i.focus()
             if i==-1: i=htmlFind(body,"<html")
             if not i==-1: i = body.find(B('>'),i)+1
             if i: body=body[:i]+B("<style>html{background:#fff}</style>")+body[i:] # setting on 'html' rather than 'body' allows body bgcolor= to override.  (body background= is not supported in HTML5 and PhantomJS will ignore it anyway.)
-            if options.js_upstream: body = html_additions(body,(None,None),False,"","",False,"","PjsUpstream",False,False,"") # just headAppend,bodyPrepend,bodyAppend (no css,ruby,render,UI etc, nor htmlFilter from below)
+            if options.js_upstream: body = html_additions(body,(None,None),False,"","","",False,"","PjsUpstream",False,False,"") # just headAppend,bodyPrepend,bodyAppend (no css,ruby,render,UI etc, nor htmlFilter from below)
           if do_js_process and options.js_upstream: body = js_process(body,self.urlToFetch)
           return self.doResponse3(body) # write & finish
         elif self.isSslUpstream: return self.doResponse3(body)
@@ -4247,7 +4266,7 @@ document.forms[0].i.focus()
         canRender = options.render and (do_html_process or (do_json_process and options.htmlJson)) and not self.checkBrowser(options.renderOmit)
         jsCookieString = ';'.join(self.request.headers.get_list("Cookie"))
         body = B(body)
-        if do_html_process: body = html_additions(body,self.cssAndAttrsToAdd(),self.checkBrowser(options.cssNameReload),self.cookieHostToSet(),jsCookieString,canRender,self.cookie_host(),self.is_password_domain,self.checkBrowser(["Edge/"]),not do_html_process=="noFilterOptions",htmlFilterOutput) # noFilterOptions is used by bookmarklet code (to avoid confusion between filter options on current screen versus bookmarklets)
+        if do_html_process: body = html_additions(body,self.cssAndAttrsToAdd(),self.checkBrowser(options.cssNameReload),self.cookieDomainsToSet(";domain="),self.urlBoxHost(),jsCookieString,canRender,self.cookie_host(),self.is_password_domain,self.checkBrowser(["Edge/"]),not do_html_process=="noFilterOptions",htmlFilterOutput) # noFilterOptions is used by bookmarklet code (to avoid confusion between filter options on current screen versus bookmarklets)
         if canRender and not "adjustNoRender=1" in jsCookieString:
             if do_html_process: func = find_text_in_HTML
             else: func=lambda body:find_HTML_in_JSON(body,find_text_in_HTML)
@@ -5570,7 +5589,7 @@ def htmlFind(html,markup):
     def blankOut(m): return B(" ")*(m.end()-m.start())
     return re.sub(B("<!--.*?-->"),blankOut,html,flags=re.DOTALL).lower().find(markup) # TODO: improve efficiency of this? (blankOut doesn't need to go through the entire document)
 
-def html_additions(html,toAdd,slow_CSS_switch,cookieHostToSet,jsCookieString,canRender,cookie_host,is_password_domain,IsEdge,addHtmlFilterOptions,htmlFilterOutput):
+def html_additions(html,toAdd,slow_CSS_switch,cookieDomainStrsJS,urlBoxHost,jsCookieString,canRender,cookie_host,is_password_domain,IsEdge,addHtmlFilterOptions,htmlFilterOutput):
     # Additions to make to HTML only (not on HTML embedded in JSON)
     # called from doResponse2 if do_html_process is set
     html = B(html)
@@ -5580,11 +5599,17 @@ def html_additions(html,toAdd,slow_CSS_switch,cookieHostToSet,jsCookieString,can
     bodyAppend = bodyAppend1 = B("")
     bodyPrepend = B(options.bodyPrepend)
     if not bodyPrepend or (options.js_upstream and not is_password_domain=="PjsUpstream"): bodyPrepend = B("")
-    headAppend = B("")
+    headPrepend, headAppend = B(""), B("")
     if set_window_onerror: headAppend += B(r"""<script><!--
 window.onerror=function(msg,url,line){alert(msg); return true}
 //-->
 </script>""")
+    if options.alt_dot and altdot_bad_cookie_leak:
+        # if experimental, ensure leak-to-domain goes through even if blocked at the HTTP Set-Cookie level (this is documented as bad, and works only on older browsers if the domain has been listed with Mozilla as disallowing cookies)
+        headPrepend += B(r"""<script><!--
+document.cookie.split('; ').forEach(function(c){document.cookie=c+";domain="+document.domain.match(/\..*/)[0]+";expires=%s;path=/"})
+//-->
+</script>""" % cookieExpires)
     cssToAdd,attrsToAdd = toAdd
     if cssToAdd:
         # do this BEFORE options.headAppend, because someone might want to refer to it in a script in options.headAppend (although bodyPrepend is a better place to put 'change the href according to screen size' scripts, as some Webkit-based browsers don't make screen size available when processing the HEAD of the 1st document in the session)
@@ -5593,7 +5618,7 @@ window.onerror=function(msg,url,line){alert(msg); return true}
           else: cssName = options.cssName
           if slow_CSS_switch:
               # alternate, slower code involving hard HTML coding and page reload (but still requires some JS)
-              bodyAppend += B(reloadSwitchJS("adjustCssSwitch",jsCookieString,False,cssName,cookieHostToSet,cookieExpires))
+              bodyAppend += B(reloadSwitchJS("adjustCssSwitch",jsCookieString,False,cssName,cookieDomainStrsJS,cookieExpires))
               if options.cssName.startswith("*"): useCss = not "adjustCssSwitch=0" in jsCookieString
               else: useCss = "adjustCssSwitch=1" in jsCookieString
               # we probably can't do an options.cssName.startswith("#") branch for the cssNameReload browsers (which are unlikely to report system dark mode anyway), so just fall back to default-off in this case
@@ -5611,37 +5636,36 @@ if(document.getElementById) { var a=document.getElementById('adjustCssSwitch'); 
 //-->
 </script>""" % cond)
             bodyAppend += B(r"""<script><!--
-if(document.getElementById && !%s && document.readyState!='complete') document.write(" %s: "+'<a href="#" onclick="document.cookie=\'adjustCssSwitch=1;domain=%s;expires=%s;path=/\';document.cookie=\'adjustCssSwitch=1;domain=.%s;expires=%s;path=/\';window.scrollTo(0,0);document.getElementById(\'adjustCssSwitch\').disabled=false;return false">On<\/a> | <a href="#" onclick="document.cookie=\'adjustCssSwitch=0;domain=%s;expires=%s;path=/\';document.cookie=\'adjustCssSwitch=0;domain=.%s;expires=%s;path=/\';window.scrollTo(0,0);document.getElementById(\'adjustCssSwitch\').disabled=true;return false">Off<\/a> ')
+if(document.getElementById && !%s && document.readyState!='complete') document.write(" %s: "+'<a href="#" onclick="%s;window.scrollTo(0,0);document.getElementById(\'adjustCssSwitch\').disabled=false;return false">On<\/a> | <a href="#" onclick="%s;window.scrollTo(0,0);document.getElementById(\'adjustCssSwitch\').disabled=true;return false">Off<\/a> ')
 //-->
-</script>""" % (detect_iframe,cssName,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires)) # (hope it helps some MSIE versions to set cookies 1st, THEN scroll, and only THEN change the document. Also using onclick= rather than javascript: URLs)
-            #" # (this comment helps XEmacs21's syntax highlighting)
+</script>""" % (detect_iframe,cssName,";".join((r"document.cookie=\'adjustCssSwitch=1%s;expires=%s;path=/\'" % (c,cookieExpires)) for c in cookieDomainStrsJS),";".join((r"document.cookie=\'adjustCssSwitch=0%s;expires=%s;path=/\'" % (c,cookieExpires)) for c in cookieDomainStrsJS))) # (hope it helps some MSIE versions to set cookies 1st, THEN scroll, and only THEN change the document. Also using onclick= rather than javascript: URLs)
         else: # no cssName: stylesheet always on
           headAppend += B('<link rel="stylesheet" type="text/css" href="%s"%s>' % (cssToAdd,link_close))
           if attrsToAdd and slow_CSS_switch: html=addCssHtmlAttrs(html,attrsToAdd)
     if options.htmlFilterName and options.htmlFilter and addHtmlFilterOptions:
-        if '#' in options.htmlFilter: bodyAppend1 = B(reloadSwitchJSMultiple("adjustNoFilter",jsCookieString,True,options.htmlFilterName.split("#"),cookieHostToSet,cookieExpires)) # (better put the multi-switch at the start of the options; it might be the most-used option.  Put it into bodyAppend1: we don't want the word "Off" to be misread as part of the next option string, seeing as the word before it was probably not "On", unlike normal reloadSwitchJS switches)
-        else: bodyAppend += B(reloadSwitchJS("adjustNoFilter",jsCookieString,True,options.htmlFilterName,cookieHostToSet,cookieExpires)) # (after the CSS if it's only an on/off)
+        if '#' in options.htmlFilter: bodyAppend1 = B(reloadSwitchJSMultiple("adjustNoFilter",jsCookieString,True,options.htmlFilterName.split("#"),cookieDomainStrsJS,cookieExpires)) # (better put the multi-switch at the start of the options; it might be the most-used option.  Put it into bodyAppend1: we don't want the word "Off" to be misread as part of the next option string, seeing as the word before it was probably not "On", unlike normal reloadSwitchJS switches)
+        else: bodyAppend += B(reloadSwitchJS("adjustNoFilter",jsCookieString,True,options.htmlFilterName,cookieDomainStrsJS,cookieExpires)) # (after the CSS if it's only an on/off)
     if canRender:
         # TODO: make the script below set a cookie to stop itself from being served on subsequent pages if detect_renderCheck failed? but this might be a false economy if upload bandwidth is significantly smaller than download bandwidth (and making it external could have similar issues)
         # TODO: if cookies are not supported, the script below could go into an infinite reload loop
         if options.renderCheck and not "adjustNoRender=1" in jsCookieString: bodyPrepend += B(r"""<script><!--
-if(!%s && %s) { document.cookie='adjustNoRender=1;domain=%s;expires=%s;path=/';document.cookie='adjustNoRender=1;domain=.%s;expires=%s;path=/';location.reload(true)
+if(!%s && %s) { %s;location.reload(true)
 }
 //-->
-</script>""" % (detect_iframe,detect_renderCheck(),cookieHostToSet,cookieExpires,cookieHostToSet,cookieExpires))
+</script>""" % (detect_iframe,detect_renderCheck(),";".join((r"document.cookie='adjustNoRender=1%s;expires=%s;path=/'" % (c,cookieExpires)) for c in cookieDomainStrsJS)))
         if options.renderName:
             if options.renderCheck and "adjustNoRender=1" in jsCookieString: extraCondition="!"+detect_renderCheck() # don't want the adjustNoRender=0 (fonts ON) link visible if detect_renderCheck is true, because it won't work anyway (any attempt to use it will be reversed by the script, and if we work around that then legacy pre-renderCheck cookies could interfere; anyway, if implementing some kind of 'show the switch anyway' option, might also have to address showing it on renderOmit browsers)
             else: extraCondition=None
-            bodyAppend += B(reloadSwitchJS("adjustNoRender",jsCookieString,True,options.renderName,cookieHostToSet,cookieExpires,extraCondition))
+            bodyAppend += B(reloadSwitchJS("adjustNoRender",jsCookieString,True,options.renderName,cookieDomainStrsJS,cookieExpires,extraCondition))
     if cookie_host:
         if enable_adjustDomainCookieName_URL_override: bodyAppend += B(r"""<script><!--
-if(!%s&&document.readyState!='complete')document.write('<a href="//%s?%s=%s">Back to URL box<\/a>')
+if(!%s&&document.readyState!='complete')document.write('<a href="%s?%s=%s">Back to URL box<\/a>')
 //-->
-</script><noscript><a href="//%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none),cookieHostToSet+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none)))
+</script><noscript><a href="%s?%s=%s">Back to URL box</a></noscript>""" % (detect_iframe,options.urlscheme+urlBoxHost+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none),options.urlscheme+urlBoxHost+publicPortStr()+options.urlboxPath,adjust_domain_cookieName,S(adjust_domain_none)))
         else: bodyAppend += B(r"""<script><!--
-if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';location.href=\'//%s?nocache=\'+Math.random()">Back to URL box<\/a>')
+if(!%s&&document.readyState!='complete')document.write('<a href="javascript:document.cookie=\'%s=%s;expires=%s;path=/\';location.href=\'%s?nocache=\'+Math.random()">Back to URL box<\/a>')
 //-->
-</script>""" % (detect_iframe,adjust_domain_cookieName,S(adjust_domain_none),cookieExpires,cookieHostToSet+publicPortStr()+options.urlboxPath,cookieHostToSet+publicPortStr()+options.urlboxPath)) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
+</script>""" % (detect_iframe,adjust_domain_cookieName,S(adjust_domain_none),cookieExpires,urlBoxHost+publicPortStr()+options.urlboxPath,options.urlscheme+urlBoxHost+publicPortStr()+options.urlboxPath)) # (we should KNOW if location.href is already that, and can write the conditional here not in that 'if', but they might bookmark the link or something)
     if options.headAppend and not (options.js_upstream and not is_password_domain=="PjsUpstream"): headAppend += B(options.headAppend)
     if options.highlighting and not options.js_upstream:
         bodyPrepend += B("""<div id="adjust0_HL" style="display: none; position: fixed !important; background: white !important; color: black !important; right: 0px; top: 3em; size: 130% !important; border: thin red solid !important; cursor: pointer !important; z-index:2147483647; -moz-opacity: 1 !important; opacity: 1 !important;">""")
@@ -5746,7 +5770,7 @@ if(document.getElementById) {
     if options.headAppendRuby and not is_password_domain=="PjsUpstream":
         if IsEdge: bodyAppend += B("</td></tr></table>")
         bodyAppend += B(rubyEndScript)
-    if headAppend: html=addToHead(html,headAppend)
+    if headAppend or headPrepend: html=addToHead(html,headAppend,headPrepend)
     if bodyPrepend:
         i=htmlFind(html,"<body")
         if i==-1: i = htmlFind(html,"</head")
@@ -5774,7 +5798,7 @@ try: next # Python 2.6+
 except:
     def next(i): return i.next() # Python 2.5 (.next() renamed .__next__() in 3.x, but that has a built-in next() anyway)
 
-def addToHead(html,headAppend):
+def addToHead(html,headAppend,headPrepend=None):
     i=htmlFind(html,"</head")
     if i==-1: # no head section?
         headAppend = B("<head>")+headAppend+B("</head>")
@@ -5784,7 +5808,12 @@ def addToHead(html,headAppend):
             if i > -1: i = html.find(B('>'),i)
             if i==-1: i=html.find(B('>'))
             i += 1 # 0 if we're still -1, else past the '>'
-    return html[:i]+headAppend+html[i:]
+    html = html[:i]+headAppend+html[i:]
+    if headPrepend:
+        i = htmlFind(html,"<head") # *will* be there after above
+        i = html.index(B(">"),i)+1
+        html = html[:i]+headPrepend+html[i:]
+    return html
 
 #@file: js-links.py
 # --------------------------------------------------
@@ -5843,7 +5872,7 @@ class AddClickCodes:
 # --------------------------------------------------
 
 detect_iframe = """(window.frameElement && window.frameElement.nodeName=="IFRAME" && function(){var i=window.location.href.indexOf("/",7); return (i>-1 && window.top.location.href.slice(0,i)==window.location.href.slice(0,i))}())""" # expression that's true if we're in an iframe that belongs to the same site, so can omit reminders etc
-def reloadSwitchJS(cookieName,jsCookieString,flipLogic,readableName,cookieHostToSet,cookieExpires,extraCondition=None):
+def reloadSwitchJS(cookieName,jsCookieString,flipLogic,readableName,cookieDomainStrsJS,cookieExpires,extraCondition=None):
     # writes a complete <script> to switch something on/off by cookie and reload (TODO: non-JS version would be nice, but would mean intercepting more URLs)
     # if flipLogic, "cookie=1" means OFF, default ON
     # document.write includes spaces around it
@@ -5860,15 +5889,15 @@ if(!%s%s&&document.readyState!='complete')document.write(" %s: "+'<a href="'+loc
 //-->
 </script>""" % (detect_iframe,extraCondition,readableName,cssReload_cookieSuffix,cookieName,setOn)
     elif isOn: return r"""<script><!--
-if(!%s%s&&document.readyState!='complete')document.write(" %s: On | "+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">Off<\/a> ')
+if(!%s%s&&document.readyState!='complete')document.write(" %s: On | "+'<a href="javascript:%s;location.reload(true)">Off<\/a> ')
 //-->
-</script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOff,cookieHostToSet,cookieExpires,cookieName,setOff,cookieHostToSet,cookieExpires)
+</script>""" % (detect_iframe,extraCondition,readableName,";".join((r"document.cookie=\'%s=%s%s;expires=%s;path=/\'" % (cookieName,setOff,c,cookieExpires)) for c in cookieDomainStrsJS))
     else: return r"""<script><!--
-if(!%s%s&&document.readyState!='complete')document.write(" %s: "+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">On<\/a> | Off ')
+if(!%s%s&&document.readyState!='complete')document.write(" %s: "+'<a href="javascript:%s;location.reload(true)">On<\/a> | Off ')
 //-->
-</script>""" % (detect_iframe,extraCondition,readableName,cookieName,setOn,cookieHostToSet,cookieExpires,cookieName,setOn,cookieHostToSet,cookieExpires)
+</script>""" % (detect_iframe,extraCondition,readableName,";".join((r"document.cookie=\'%s=%s%s;expires=%s;path=/\'" % (cookieName,setOn,c,cookieExpires)) for c in cookieDomainStrsJS))
 
-def reloadSwitchJSMultiple(cookieName,jsCookieString,flipInitialItems,readableNames,cookieHostToSet,cookieExpires):
+def reloadSwitchJSMultiple(cookieName,jsCookieString,flipInitialItems,readableNames,cookieDomainStrsJS,cookieExpires):
     # flipInitialItems: for adjustNoFilter compatibility between one and multiple items, 1 means off, 0 (default) means 1st item, 2 means 2nd etc.  (Currently, this function is only ever called with flipInitialItems==True)
     r = [r"""<script><!--
 if(!%s&&document.readyState!='complete'){document.write("%s: """ % (detect_iframe,readableNames[0])]
@@ -5898,7 +5927,7 @@ if(!%s&&document.readyState!='complete'){document.write("%s: """ % (detect_ifram
                 # want to keep it unhidden if an option is selected that's not in the first 2 and isn't the "Off"
                 del r[spanStart]
                 spanStart = 0
-        else: r.append(r""""+'<a href="javascript:document.cookie=\'%s=%s;domain=%s;expires=%s;path=/\';document.cookie=\'%s=%s;domain=.%s;expires=%s;path=/\';location.reload(true)">'+"%s<"+"\/a>""" % (cookieName,chk,cookieHostToSet,cookieExpires,cookieName,chk,cookieHostToSet,cookieExpires,rN))
+        else: r.append(r""""+'<a href="javascript:%s;location.reload(true)">'+"%s<"+"\/a>""" % (";".join((r"document.cookie=\'%s=%s%s;expires=%s;path=/\'" % (cookieName,chk,c,cookieExpires)) for c in cookieDomainStrsJS),rN))
     if spanStart: r.append('<"+"/span>')
     r.append(' ")')
     if spanStart: r.append(r';if(document.getElementById){var v=document.getElementById("adjustNoFilter");if(v.innerHTML){v.OIH=v.innerHTML;if(v.OIH==v.innerHTML)v.innerHTML="<a href=\"#adjustNoFilter\" onClick=\"this.parentNode.innerHTML=this.parentNode.OIH;return false\">More<"+"/A>"; }}') # (hide the span by default, if browser has enough JS support to do it) (TODO: could do it with non-innerHTML DOM functionality if necessary, but that's more long-winded and might also need to look out for non-working 'this' functionality)
