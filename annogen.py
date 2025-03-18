@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.393 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.394 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1767,7 +1767,10 @@ if tts_js: android_src += br"""
 import android.speech.tts.*;"""
 android_src += br"""
 import android.widget.Toast;
-import java.io.*;
+import java.io.*;"""
+if epub: android_src += br"""
+import java.net.URLDecoder;"""
+android_src += br"""
 import java.util.regex.*;
 import java.util.zip.ZipInputStream;
 public class MainActivity extends Activity {
@@ -2218,7 +2221,7 @@ if epub: android_src += br"""
                     boolean getNextPage = false;
                     if(url.contains("#")) url=url.substring(0,url.indexOf("#"));
                     if(url.length() > epubPrefix.length()) {
-                        part=url.substring(epubPrefix.length());
+                        try { part=URLDecoder.decode(url.substring(epubPrefix.length()),"utf-8"); } catch(UnsupportedEncodingException e) {part=url.substring(epubPrefix.length());}
                         if(part.startsWith("N=")) {
                             part=part.substring(2);
                             getNextPage = true;
@@ -2237,7 +2240,7 @@ if epub: android_src += br"""
                         ByteArrayOutputStream f=null;
                         if(part==null) {
                             f=new ByteArrayOutputStream();
-                            String fName; try { fName=java.net.URLDecoder.decode(epubUrl,"utf-8"); } catch(java.io.UnsupportedEncodingException e) {fName=epubUrl;}
+                            String fName; try { fName=URLDecoder.decode(epubUrl,"utf-8"); } catch(UnsupportedEncodingException e) {fName=epubUrl;}
                             int slash=fName.lastIndexOf("/"); if(slash>-1) fName=fName.substring(slash+1);
                             f.write(("<h2>"+fName+"</h2>Until I write a <em>real</em> table-of-contents handler, you have to make do with <em>this</em>:").getBytes());
                         }
@@ -2262,7 +2265,7 @@ if epub: android_src += br"""
                                         return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceAll("<[iI][mM][gG] ","<img loading=lazy ").replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+br""");var v=function(e,i){if(i<e.length){e[i].removeAttribute('loading');if(e[i].complete)window.setTimeout(function(){v(e,i+1)},100);else e[i].onload=function(){v(e,i+1)}}};v(document.getElementsByTagName('img'),0)</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                                     } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                                 }
-                            } else if(foundHTML && ze.getName().contains("htm")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
+                            } else if(foundHTML && ze.getName().contains("htm") && !ze.getName().contains("toc.xhtml")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
                         }
                         if(part==null) { if(!foundHTML) f.write(("<p>Error: No HTML files were found in this EPUB").getBytes()); return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(f.toByteArray())); }
                         else if(foundHTML) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("No more pages<p><a href=\""+epubPrefix+"\">Back to this EPUB's start</a>").getBytes()));
