@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.394 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.395 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1772,7 +1772,7 @@ if epub: android_src += br"""
 import java.net.URLDecoder;"""
 android_src += br"""
 import java.util.regex.*;
-import java.util.zip.ZipInputStream;
+import java.util.zip.*;
 public class MainActivity extends Activity {
     %%JPACKAGE%%.Annotator annotator;
     @SuppressLint("SetJavaScriptEnabled")
@@ -1892,7 +1892,7 @@ if android_template: android_src += br"""
                 includeAllSetting = i;
             }"""
 android_src += br"""
-            @JavascriptInterface public String annotate(String t) throws java.util.zip.DataFormatException { if(annotator==null) return t; String r=annotator.annotate(t);"""
+            @JavascriptInterface public String annotate(String t) throws DataFormatException { if(annotator==null) return t; String r=annotator.annotate(t);"""
 if sharp_multi: android_src += br"""
                 Matcher m = smPat.matcher(r);
                 StringBuffer sb=new StringBuffer();
@@ -2209,24 +2209,50 @@ android_src += br"""
                     }
                 }"""
 if epub: android_src += br"""
+                WebResourceResponse makeWRR(ZipInputStream zin,ZipEntry ze) throws IOException {
+                    // assumes zin is in position to read content of ze and we've decided to serve it
+                    int bufSize=(int)ze.getSize();
+                    if(bufSize==-1) bufSize=20480;
+                    ByteArrayOutputStream f=new ByteArrayOutputStream(bufSize);
+                    byte[] buf=new byte[bufSize];
+                    int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
+                    String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
+                    if(mimeType==null || mimeType.equals("application/xhtml+xml")) mimeType="text/html"; // needed for annogen style modifications
+                    if(mimeType.equals("text/html")) {
+                    return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceAll("<[iI][mM][gG] ","<img loading=lazy ").replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+ze.getName()+"=N=\">'""")+br""");var v=function(e,i){if(i<e.length){e[i].removeAttribute('loading');if(e[i].complete)window.setTimeout(function(){v(e,i+1)},100);else e[i].onload=function(){v(e,i+1)}}};v(document.getElementsByTagName('img'),0)</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                    } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
+                }
+                final String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
+                String cachedURL=null;
+                WebResourceResponse cachedWRR=null;
+                WebResourceResponse maybeRedir(ZipInputStream zin,ZipEntry ze,String requestedPart) throws IOException {
+                    // If requestedPart is changed, ensure browser is in correct directory for images etc
+                    WebResourceResponse r=makeWRR(zin,ze);
+                    String actualPart = ze.getName();
+                    int d=actualPart.lastIndexOf("/");
+                    if(d<=0) { if(requestedPart==null || requestedPart.lastIndexOf("/")<=0) return r; }
+                    else if(requestedPart!=null && requestedPart.lastIndexOf("/")==d && requestedPart.substring(0,d).equals(actualPart.substring(0,d))) return r;
+                    cachedWRR=r; cachedURL=epubPrefix+actualPart;
+                    return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading redirect... <script>window.location='"+cachedURL+"'</script>").getBytes()));
+                }
                 @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
-                    String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
                     loadingEpub = url.startsWith(epubPrefix); // TODO: what if an epub includes off-site prerequisites? (should we be blocking that?) : setting loadingEpub false would suppress the lrm marks (could make them unconditional but more overhead; could make loadingEpub 'stay on' for rest of session)
                     if (!loadingEpub) return null;
-                    SharedPreferences sp=getPreferences(0);
-                    String epubUrl=sp.getString("epub","");
-                    if(epubUrl.length()==0) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("epubUrl setting not found").getBytes()));
-                    Uri epubUri=Uri.parse(epubUrl);
-                    String part=null; // for directory listing
+                    String part=null;
                     boolean getNextPage = false;
                     if(url.contains("#")) url=url.substring(0,url.indexOf("#"));
                     if(url.length() > epubPrefix.length()) {
                         try { part=URLDecoder.decode(url.substring(epubPrefix.length()),"utf-8"); } catch(UnsupportedEncodingException e) {part=url.substring(epubPrefix.length());}
-                        if(part.startsWith("N=")) {
-                            part=part.substring(2);
+                        if(part.endsWith("=N=")) { // we put it at the end so directories might still work, and rely on no epub extension being valid ending like this
+                            part=part.substring(0,part.length()-3); // "=N=".length()
                             getNextPage = true;
                         }
                     }
+                    if(url.equals(cachedURL)) return cachedWRR;
+                    SharedPreferences sp=getPreferences(0);
+                    String epubUrl=sp.getString("epub","");
+                    if(epubUrl.length()==0) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("epubUrl setting not found").getBytes()));
+                    Uri epubUri=Uri.parse(epubUrl);
                     ZipInputStream zin = null;
                     try {
                         zin = new ZipInputStream(getContentResolver().openInputStream(epubUri));
@@ -2235,7 +2261,7 @@ if epub: android_src += br"""
                     } catch (SecurityException e) {
                         return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Insufficient permissions to open "+epubUrl+"<p>"+e.toString()).getBytes()));
                     }
-                    java.util.zip.ZipEntry ze;
+                    ZipEntry ze;
                     try {
                         ByteArrayOutputStream f=null;
                         if(part==null) {
@@ -2247,25 +2273,15 @@ if epub: android_src += br"""
                         boolean foundHTML = false; // doubles as 'foundPart' if getNextPage
                         while ((ze = zin.getNextEntry()) != null) {
                             if (part==null) {
-                                if(ze.getName().contains("toc.xhtml")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes())); // (not all EPUBs call it this; there may or may not even be one in the first file in content.opf ref'd in META-INF/container.xml)
+                                if(ze.getName().contains("toc.xhtml")) return maybeRedir(zin,ze,part); // (not all EPUBs call it this; there may or may not even be one in the first file in content.opf ref'd in META-INF/container.xml)
                                 if(ze.getName().contains("htm")) { foundHTML = true; f.write(("<p><a href=\""+epubPrefix+ze.getName()+"\">"+ze.getName()+"</a>").getBytes()); }
                             } else if (ze.getName().equalsIgnoreCase(part)) {
                                 if(getNextPage) {
                                     foundHTML = true;
                                 } else {
-                                    int bufSize=(int)ze.getSize();
-                                    if(bufSize==-1) bufSize=20480;
-                                    f=new ByteArrayOutputStream(bufSize);
-                                    byte[] buf=new byte[bufSize];
-                                    int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
-                                    String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
-                                    if(mimeType==null || mimeType.equals("application/xhtml+xml")) mimeType="text/html"; // needed for annogen style modifications
-                                    if(mimeType.equals("text/html")) {
-                                        // TODO: if ((epubUrl.startsWith("file:") || epubUrl.contains("com.android.externalstorage")) && part!="toc.xhtml") then getSharedPreferences putString("eR"+epubUrl,part) ?  To avoid unbounded buildup, need to store only the most recent few (use one pref with separators?  or other mechanism e.g. 0=url 1=url ... nxtWrite=2 w. wraparound?)  Then add "jump to last seen page" link from both directory and toc.xhtml (latter will need manipulation as below)
-                                        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceAll("<[iI][mM][gG] ","<img loading=lazy ").replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+"N="+part+"\">'""")+br""");var v=function(e,i){if(i<e.length){e[i].removeAttribute('loading');if(e[i].complete)window.setTimeout(function(){v(e,i+1)},100);else e[i].onload=function(){v(e,i+1)}}};v(document.getElementsByTagName('img'),0)</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
-                                    } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
+                                    return makeWRR(zin,ze);
                                 }
-                            } else if(foundHTML && ze.getName().contains("htm") && !ze.getName().contains("toc.xhtml")) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading... <script>window.location='"+epubPrefix+ze.getName()+"'</script>").getBytes()));
+                            } else if((foundHTML || getNextPage && part.contains("toc.xhtml")) && ze.getName().contains("htm") && !ze.getName().contains("toc.xhtml")) return maybeRedir(zin,ze,part);
                         }
                         if(part==null) { if(!foundHTML) f.write(("<p>Error: No HTML files were found in this EPUB").getBytes()); return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(f.toByteArray())); }
                         else if(foundHTML) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("No more pages<p><a href=\""+epubPrefix+"\">Back to this EPUB's start</a>").getBytes()));
@@ -2561,19 +2577,21 @@ if android_print: android_clipboard += b';'+android_print_script.replace(br'\"',
 android_clipboard += br"""</script>
 </body></html>"""
 java_src = br"""package %%JPACKAGE%%;
-import java.io.*;
+import java.io.*;"""
+if zlib: java_src += b"\nimport java.util.zip.*;"
+java_src +=br"""
 public class Annotator {
 public Annotator("""
 if android:
   # will need a context param to read from assets
   java_src += b"android.content.Context context"
 java_src += b") throws IOException"
-if zlib: java_src += b",java.util.zip.DataFormatException"
+if zlib: java_src += b",DataFormatException"
 java_src += b""" { try { data=new byte[%%DLEN%%]; } catch (OutOfMemoryError e) { throw new IOException("Out of memory! Can't load annotator!"); }"""
 if android: java_src += b'context.getAssets().open("annotate.dat").read(data);'
 else: java_src += b'this.getClass().getResourceAsStream("/annotate.dat").read(data);'
 if zlib: java_src += br"""
-java.util.zip.Inflater i=new java.util.zip.Inflater();
+Inflater i=new Inflater();
 i.setInput(data);
 byte[] decompressed; try { decompressed=new byte[%%ULEN%%]; } catch (OutOfMemoryError e) { throw new IOException("Out of memory! Can't unpack annotator!"); }
 i.inflate(decompressed); i.end(); data = decompressed;"""
@@ -2670,7 +2688,7 @@ java_src += br"""
         }
         return nBytes;
     }
-    void readData() throws java.util.zip.DataFormatException{
+    void readData() throws DataFormatException{
         java.util.LinkedList<Integer> sPos=new java.util.LinkedList<Integer>();
         int c;
         while(true) {
@@ -2732,11 +2750,11 @@ java_src += br"""
                     boolean found = false;
                     while (dPtr < tPtr && dPtr < fPtr) if (n(readRefStr())) { found = true; break; }
                     dPtr = found ? tPtr : fPtr; break; }
-                default: throw new java.util.zip.DataFormatException("corrupt data table");
+                default: throw new DataFormatException("corrupt data table");
                 }
         }
     }
-public String annotate(String txt) throws java.util.zip.DataFormatException {"""
+public String annotate(String txt) throws DataFormatException {"""
 if existing_ruby_shortcut_yarowsky: java_src += br"""
   boolean old_snt = shortcut_nearTest;
   if(txt.length() < 2) shortcut_nearTest=false;
