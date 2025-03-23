@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.395 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.396 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1184,8 +1184,10 @@ c_end += br"""  while(!FINISHED) {
 annotation_font = [b"Times New Roman"] # Android has NotoSerif but you can't select it by name, it's mapped from "Times New Roman" (tested in Android 4.4, Android 10 and Android 12, however in Android 12 it does not work for printing, so we'll override it to "sans-serif" in Android 11+ below)
 # there's a more comprehensive list in the windows_clipboard code below, but those fonts are less likely found on Android
 # jsAddRubyCss is Android-only.  Browser extensions instead use extension_rubycss.
-jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;}rt{"
-if android_template: jsAddRubyCss += b"-webkit-user-select:'+(ssb_local_annotator.getIncludeAll()?'text':'none')+' !important;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way, but other users want the annotations (and copying one word at a time via the popup box is slow).  This (plus our JS fix) narrows things down only if Copy is in use, not extended popup options e.g. Translate. (Incidentally, user-select:all on rb doesn't work in Android 10 as of 2021-01, so better use 'text' or 'auto')
+jsAddRubyCss=b"all_frames_docs(function(d) { if(d.rubyScriptAdded==1 || !d.body) return; var e=d.createElement('span'); e.innerHTML='<style>ruby{display:inline-table !important;vertical-align:bottom !important;-webkit-border-vertical-spacing:1px !important;padding-top:0.5ex !important;margin:0px !important;}ruby *{display: inline !important;vertical-align:top !important;line-height:1.0 !important;text-indent:0 !important;text-align:center !important;padding-left:0px !important;padding-right:0px !important;}rb{display:table-row-group !important;font-size:100% !important;"
+jsAddRubyCss += b"-webkit-user-select:text!important;user-select:text!important;" # (override sites disabling it as we may need it for language learning purposes) user-select:all on rb doesn't work in Android 10 as of 2021-01, so better use 'text' or 'auto'
+jsAddRubyCss += b"}rt{"
+if android_template: jsAddRubyCss += b"-webkit-user-select:'+(ssb_local_annotator.getIncludeAll()?'text':'none')+' !important;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way, but other users want the annotations (and copying one word at a time via the popup box is slow).  This (plus our JS fix) narrows things down only if Copy is in use, not extended popup options e.g. Translate.
 jsAddRubyCss += b"display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+b", ".join(annotation_font)+b" !important;}"
 jsAddRubyCss += b"rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}" # for 3line mode (assumes rt/rb and rt/rt/rb)
 jsAddRubyCss += b"rp{display:none!important}"+B(extra_css).replace(b"'",br"\'")+b"'"
