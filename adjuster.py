@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.242 (c) 2012-25 Silas S. Brown"
+"Web Adjuster v3.243 (c) 2012-25 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -6168,7 +6168,7 @@ class Dynamic_DNS_updater:
         if not "://" in options.ip_query_url: return self.newIP(options.ip_query_url) # not a URL: assume static IP
         def handleResponse(r):
             curlFinished()
-            if not r.error:
+            if hasattr(r,"error") and not r.error: # (HTTPTimeoutError has no attribute "error")
                 self.newIP(S(r.body.strip()))
                 if self.aggressive_mode:
                     logging.info("ip_query_url got response, stopping ip_query_aggressive")
