@@ -13,3 +13,6 @@ discussion was on [issue 274589](https://bugs.freebsd.org/bugzilla/show_bug.cgi?
 
 Update to version 3.239 [committed](https://cgit.freebsd.org/ports/commit/?id=09c1355b40f969583548bf3d618eac06e29c553c),
 discussion on [issue 280091](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=280091)
+
+Update to version 3.243
+discussion on [issue 285656](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=285656)
