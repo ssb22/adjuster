@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.396 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.397 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3255,11 +3255,17 @@ function readData() {
         c = data.charCodeAt(dPtr++);
         if (c & 0x80) dPtr += (c&0x7F);"""
 if js_6bit: js_start += br"""
-        else if (c > 90) { c-=90; 
-            var i=-1;if(p<inputLength){var cc=input.charCodeAt(p++)-93; if(cc>118)cc-=20; i=data.slice(dPtr,dPtr+c).indexOf(String.fromCharCode(cc))}
-            if (i==-1) i = c;
-            if(i) dPtr += data.charCodeAt(dPtr+c+i-1)-"""+B(str(js_6bit_offset))+br""";
-            dPtr += c+c }"""
+        else if (c > 90) {
+          var i;
+          if (c > 107) { c-=107;
+            i = ((p>=inputLength)?-1:data.slice(dPtr,dPtr+c).indexOf(input.charAt(p++)));
+          } else { c-=90;
+            i=-1;if(p<inputLength){var cc=input.charCodeAt(p++)-93; if(cc>118)cc-=20; i=data.slice(dPtr,dPtr+c).indexOf(String.fromCharCode(cc))}
+          }
+          if (i==-1) i = c;
+          if(i) dPtr += data.charCodeAt(dPtr+c+i-1)-"""+B(str(js_6bit_offset))+br""";
+          dPtr += c+c
+        }"""
 else: js_start += br"""
         else if (c > 107) { c-=107;
             var i = ((p>=inputLength)?-1:data.slice(dPtr,dPtr+c).indexOf(input.charAt(p++)));
