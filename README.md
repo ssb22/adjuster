@@ -30,7 +30,7 @@ Installation
 
 Make sure Tornado is on the system.  If you have root access to a GNU/Linux box, try `sudo apt-get install python-tornado` or `sudo pip install tornado` (on a Mac you might need sudo easy_install pip first).  If you don’t have root access, try `pip install tornado --user` and if all else fails then with Python 2.6 or 2.7 you can download the [old version 2.4.1](https://files.pythonhosted.org/packages/2b/29/c8590fd2072afd307412277a4505e282225425d89e556e2cc223eb2ecad7/tornado-2.4.1.tar.gz), unpack it and use its `tornado` subdirectory. On Windows, the easiest way is probably to install Cygwin, install its `python` package, and do something like `wget http://peak.telecommunity.com/dist/ez_setup.py && python ez_setup.py && easy_install pip && pip install tornado`
 
-Then run adjuster.py with the appropriate options (see below), or use it in a WSGI application (see notes at the bottom of Web Adjuster's web page for details).
+Then run adjuster.py with the appropriate options (see below), or use it in a WSGI application (see section at end).
 
 Web Adjuster is free software licensed under the Apache License, Version 2.0 (this is also the license used by Tornado itself). If you use it in a good project, I’d appreciate hearing about it.
 
@@ -633,6 +633,44 @@ Logging options
 : Write debugging messages (to standard error if in the foreground, or to the logs if in the background). Use as an alternative to --logging=debug if you don't also want debug messages from other Tornado modules. On Unix you may also toggle this at runtime by sending SIGUSR1 to the process(es).
 
 Tornado-provided logging options are not listed above because they might vary across Tornado versions; run `python adjuster.py --help` to see a full list of the ones available on your setup. They typically include `log_file_max_size`, `log_file_num_backups`, `log_file_prefix` and `log_to_stderr`.
+
+Using Web Adjuster in WSGI mode
+===============================
+Web Adjuster is best run as a standalone server (see above) or behind a proxy like `nginx`, but if you must use WSGI then you can do it like this:
+
+1. In your wrapper Python script, `import adjuster`
+2. Set options via `adjuster.options.`optionName = value (remembering to set `port` to 80; options are as above, but some of them, such as server control options, do not apply to WSGI mode)
+3. Do `myApp = adjuster.make_WSGI_application()`
+4. Do something with `myApp`, according to whatever WSGI framework you are using:
+## AppEngine
+on a Standard second-generation runtime (under Solutions / All products / Serverless / App Engine / Create Application):
+1. Make an `app.yaml` file like:
+
+    runtime: python312
+    automatic_scaling:
+      max_instances: 1
+      min_instances: 0
+
+2. Place and/or symlink this `app.yaml` along with `adjuster.py` and your wrapper script, which you should call `main.py` and change `myApp` to `app`, and also copy or symlink the `tornado` subdirectory from a download of Tornado version 5.1.1 or below (this is so AppEngine will run gunicorn for you; version 6 dropped WSGI functionality; alternatively you can directly set up Tornado in non-WSGI mode but this is more difficult on AppEngine Standard). ​You might also need to create an empty "placeholder" version of `fcntl.py` (Tornado 3 also needs an empty `ssl.py` but this shouldn't be done if you downloaded Tornado 5). New deployments after February 2020 add a region code to the URL (e.g. `example.ue.r.appspot.com` for US-East or `example.uc.r.appspot.com` for US-Central); setting this in `host_suffix` and setting `alt_dot="-dot-"` is necessary if you want to use `urlscheme="//"` (even in pre-2020 deployments), but it leads to a bad situation with subdomain cookies as documented in the `alt-dot` option.
+3. If your settings need PIL or LXML, add a `requirements.txt` like
+
+        pillow
+        lxml
+
+4. Deploy via `gcloud app deploy app.yaml --project` followed by the app ID you registered. ​Since 2020, a payment method must be entered even if you use only the "free tier".  Google said the above setting of `max_instances: 1` "usually keeps your instance hour usage within the free tier" but from 2023 `gcloud app deploy` started to replicate a "bucket" across multiple regions using traffic that's no longer included in Google’s "free tier": it charges about a penny every time you update your app, invoiced as "Networking Traffic Egress GCP Replication within Northern America" and might cause problems later if your billing details are outdated (I've not figured out a way to make AppEngine plus buckets all single region); additionally, over many updates the "artifacts" storage bucket might accumulate enough container images to take you above the free storage quota, incurring small monthly storage charges until you log in to console.cloud.google.com and remove old container images.
+
+Options that call external programs are unlikely to work in AppEngine Standard but you can use htmlFilter with Python functions (see above; if you have large modules not always used then you might want to import these on demand).
+
+## Werkzeug, cherrypy etc
+If using Werkzeug, cherrypy.wsgiserver, or similar, do `werkzeug.serving.run_simple(`IP, port`, myApp, threaded=True)` or `cherrypy.wsgiserver.CherryPyWSGIServer((`IP, port`), myApp).start()` or whatever.  You will need Tornado 5.1.1 or below (Tornado 6 doesn’t support this) and it has to be installed properly rather than simply placing its `tornado` subdirectory into the current directory, unless it’s Tornado 2.4.1 on Python 2.6 or 2.7.
+## CGI
+You can turn it into a CGI script via `import wsgiref.handlers ; wsgiref.handlers.CGIHandler().run(myApp)` but that will need a separate process for each concurrent request. ​Again you will need Tornado 5.1.1 or below (Tornado 6 doesn’t support this), and it has to be installed properly rather than simply placing its tornado subdirectory into the current directory, unless it’s Tornado 2.4.1 on Python 2.6 or 2.7. If using Apache, put
+
+    ErrorDocument 404 /wrapper.cgi
+    Options -Indexes
+    ErrorDocument 403 /wrapper.cgi
+
+in `.htaccess` (and ensure `AllowOverride All` is set in the config files) to send all requests to the CGI, which should then import adjuster from outside the webspace (e.g. by adding to `sys.path` first), but it’s not necessary to send other requests to the CGI if you set submitPath to the CGI’s path plus `?` and want only the 'enter your own text’ functionality.
 
 Options for Annotator Generator v3.397
 ======================================

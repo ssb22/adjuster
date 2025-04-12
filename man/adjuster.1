@@ -527,4 +527,43 @@ What to say when an uncaught exception (due to a misconfiguration or programming
 \fB\-\-logDebug\fR (default False)
 Write debugging messages (to standard error if in the foreground, or to the logs if in the background)\. Use as an alternative to \-\-logging=debug if you don't also want debug messages from other Tornado modules\. On Unix you may also toggle this at runtime by sending SIGUSR1 to the process(es)\.
 .P
-Tornado\-provided logging options are not listed above because they might vary across Tornado versions; run \fBpython adjuster\.py \-\-help\fR to see a full list of the ones available on your setup\. They typically include \fBlog_file_max_size\fR, \fBlog_file_num_backups\fR, \fBlog_file_prefix\fR and \fBlog_to_stderr\fR\.
+Tornado\-provided logging options are not listed above because they might vary across Tornado versions; run \fBpython adjuster\.py \-\-help\fR to see a full list of the ones available on your setup\. They typically include \fBlog_file_max_size\fR, \fBlog_file_num_backups\fR, \fBlog_file_prefix\fR and \fBlog_to_stderr\fR\.Web Adjuster is best run as a standalone server (see above) or behind a proxy like \fBnginx\fR, but if you must use WSGI then you can do it like this:
+.IP "1." 4
+In your wrapper Python script, \fBimport adjuster\fR
+.IP "2." 4
+Set options via \fBadjuster\.options\.\fRoptionName = value (remembering to set \fBport\fR to 80; options are as above, but some of them, such as server control options, do not apply to WSGI mode)
+.IP "3." 4
+Do \fBmyApp = adjuster\.make_WSGI_application()\fR
+.IP "4." 4
+Do something with \fBmyApp\fR, according to whatever WSGI framework you are using: ## AppEngine on a Standard second\-generation runtime (under Solutions / All products / Serverless / App Engine / Create Application):
+.IP "5." 4
+Make an \fBapp\.yaml\fR file like:
+.IP
+runtime: python312 automatic_scaling: max_instances: 1 min_instances: 0
+.IP "6." 4
+Place and/or symlink this \fBapp\.yaml\fR along with \fBadjuster\.py\fR and your wrapper script, which you should call \fBmain\.py\fR and change \fBmyApp\fR to \fBapp\fR, and also copy or symlink the \fBtornado\fR subdirectory from a download of Tornado version 5\.1\.1 or below (this is so AppEngine will run gunicorn for you; version 6 dropped WSGI functionality; alternatively you can directly set up Tornado in non\-WSGI mode but this is more difficult on AppEngine Standard)\. ​You might also need to create an empty "placeholder" version of \fBfcntl\.py\fR (Tornado 3 also needs an empty \fBssl\.py\fR but this shouldn't be done if you downloaded Tornado 5)\. New deployments after February 2020 add a region code to the URL (e\.g\. \fBexample\.ue\.r\.appspot\.com\fR for US\-East or \fBexample\.uc\.r\.appspot\.com\fR for US\-Central); setting this in \fBhost_suffix\fR and setting \fBalt_dot="\-dot\-"\fR is necessary if you want to use \fBurlscheme="//"\fR (even in pre\-2020 deployments), but it leads to a bad situation with subdomain cookies as documented in the \fBalt\-dot\fR option\.
+.IP "7." 4
+If your settings need PIL or LXML, add a \fBrequirements\.txt\fR like
+.IP "" 4
+.nf
+ pillow
+ lxml
+.fi
+.IP "" 0
+
+.IP "8." 4
+Deploy via \fBgcloud app deploy app\.yaml \-\-project\fR followed by the app ID you registered\. ​Since 2020, a payment method must be entered even if you use only the "free tier"\. Google said the above setting of \fBmax_instances: 1\fR "usually keeps your instance hour usage within the free tier" but from 2023 \fBgcloud app deploy\fR started to replicate a "bucket" across multiple regions using traffic that's no longer included in Google’s "free tier": it charges about a penny every time you update your app, invoiced as "Networking Traffic Egress GCP Replication within Northern America" and might cause problems later if your billing details are outdated (I've not figured out a way to make AppEngine plus buckets all single region); additionally, over many updates the "artifacts" storage bucket might accumulate enough container images to take you above the free storage quota, incurring small monthly storage charges until you log in to console\.cloud\.google\.com and remove old container images\.
+.IP "" 0
+.P
+Options that call external programs are unlikely to work in AppEngine Standard but you can use htmlFilter with Python functions (see above; if you have large modules not always used then you might want to import these on demand)\.
+.SH "Werkzeug, cherrypy etc"
+If using Werkzeug, cherrypy\.wsgiserver, or similar, do \fBwerkzeug\.serving\.run_simple(\fRIP, port\fB, myApp, threaded=True)\fR or \fBcherrypy\.wsgiserver\.CherryPyWSGIServer((\fRIP, port\fB), myApp)\.start()\fR or whatever\. You will need Tornado 5\.1\.1 or below (Tornado 6 doesn’t support this) and it has to be installed properly rather than simply placing its \fBtornado\fR subdirectory into the current directory, unless it’s Tornado 2\.4\.1 on Python 2\.6 or 2\.7\. ## CGI You can turn it into a CGI script via \fBimport wsgiref\.handlers ; wsgiref\.handlers\.CGIHandler()\.run(myApp)\fR but that will need a separate process for each concurrent request\. ​Again you will need Tornado 5\.1\.1 or below (Tornado 6 doesn’t support this), and it has to be installed properly rather than simply placing its tornado subdirectory into the current directory, unless it’s Tornado 2\.4\.1 on Python 2\.6 or 2\.7\. If using Apache, put
+.IP "" 4
+.nf
+ErrorDocument 404 /wrapper\.cgi
+Options \-Indexes
+ErrorDocument 403 /wrapper\.cgi
+.fi
+.IP "" 0
+.P
+in \fB\.htaccess\fR (and ensure \fBAllowOverride All\fR is set in the config files) to send all requests to the CGI, which should then import adjuster from outside the webspace (e\.g\. by adding to \fBsys\.path\fR first), but it’s not necessary to send other requests to the CGI if you set submitPath to the CGI’s path plus \fB?\fR and want only the 'enter your own text’ functionality\.
