@@ -23,10 +23,8 @@ update-readme:
 	awk -- 'BEGIN {p=0} /^Copyright and Trademarks/ {p=1} // {if(p) print}' < README.md >> n
 	mv n README.md
 	(echo "# adjuster";echo) > adjuster.1.ronn
-	awk -- 'BEGIN {p=0} /^Web Adjuster is a/ {p=1} /^Installation/ {p=0} // {if(p) print}' < README.md | sed -e 's/“/"/g' -e 's/”/"/g' -e "s/’/'/g" >> adjuster.1.ronn
+	awk -- 'BEGIN {p=0} /^Web Adjuster is a/ {p=1} /^Installation/ {p=0} // {if(p) print}' < README.md | sed -e 's/“/"/g' -e 's/”/"/g' -e "s/’/'/g" -e "s,see section at end,see http://ssb22.user.srcf.net/adjuster/#wsgi," >> adjuster.1.ronn
 	python adjuster.py --markdown-options | sed -e 's/[|]/\\|/g' >> adjuster.1.ronn
-	echo >> adjuster.1.ronn
-	awk -- 'BEGIN {p=0} /^Using Web Adjuster in WSGI mode/ {p=1} /^Options for Annotator Generator/ {p=0} // {if(p) print}' < README.md >> adjuster.1.ronn
 	(echo "# annogen";echo) > annogen.1.ronn
 	awk -- 'BEGIN {p=0} /^Annotator Generator is a/ {p=1} /^Legal considerations/ {p=0} // {if(p) print}' < README.md | sed -e 's/“/"/g' -e 's/”/"/g' -e "s/’/'/g" >> annogen.1.ronn
 	python annogen.py --markdown-options >> annogen.1.ronn
