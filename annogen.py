@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.397 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.398 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1811,6 +1811,8 @@ android_src += br"""
         if(AndroidSDK >= 7 && AndroidSDK < 33) { try { WebSettings.class.getMethod("setAppCachePath",new Class[] { String.class }).invoke(browser.getSettings(),getApplicationContext().getCacheDir().getAbsolutePath()); WebSettings.class.getMethod("setAppCacheEnabled",new Class[] { Boolean.class }).invoke(browser.getSettings(),true); } catch (NoSuchMethodException e) {} catch (IllegalAccessException e) {} catch (InvocationTargetException e) {} } // not to be confused with the normal browser cache (call methods dynamically because platform 33 can't compile this)
         if(AndroidSDK<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. swipe-closed in Activity Manager)
         browser.getSettings().setJavaScriptEnabled(true);
+        browser.getSettings().setDomStorageEnabled(true);
+        browser.getSettings().setDatabaseEnabled(true); if(AndroidSDK<19) browser.getSettings().setDatabasePath("/data/data/"+getApplicationContext().getPackageName()+"/databases/");
         browser.setWebChromeClient(new WebChromeClient());"""
 if android_template: android_src += br"""
         float fs = getResources().getConfiguration().fontScale; // from device accessibility settings
