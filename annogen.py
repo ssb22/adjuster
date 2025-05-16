@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.398 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.399 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1641,7 +1641,9 @@ int main(int argc,char*argv[]) {
 
 # ANDROID: setDefaultTextEncodingName("utf-8") is included as it might be needed if you include file:///android_asset/ URLs in your app (files put into assets/) as well as remote URLs.  (If including ONLY file URLs then you don't need to set the INTERNET permission in Manifest, but then you might as well pre-annotate the files and use a straightforward static HTML app like http://ssb22.user.srcf.net/indexer/html2apk.html )
 # Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list) (TODO: API 1's shouldOverrideUrlLoading was deprecated in API 24; if they remove it, we may have to provide both to remain compatible?)
-android_upload = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"]) and not os.environ.get("ANDROID_NO_UPLOAD","")
+android_upload_playstore = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"]) and not os.environ.get("ANDROID_NO_UPLOAD","")
+android_upload_huawei = all(x in os.environ for x in ["HUAWEI_CLIENT_ID","HUAWEI_CLIENT_SECRET"]) and not os.environ.get("ANDROID_NO_UPLOAD","")
+android_release_huawei = all(x in os.environ for x in ["HUAWEI_CLIENT_ID","HUAWEI_CLIENT_SECRET","ANDROID_NO_UPLOAD"])
 android_manifest = br"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="%%JPACKAGE%%" android:versionCode="1" android:versionName="1.0" android:sharedUserId="" android:installLocation="preferExternal" >
 <uses-permission android:name="android.permission.INTERNET" />"""
@@ -2114,7 +2116,7 @@ android_src += br"""
             @JavascriptInterface public boolean canGoForward() { return browser.canGoForward(); }
             @JavascriptInterface public String getSentText() { return sentText; }
             @JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */"""
-if android_upload: android_src += br"""
+if android_upload_playstore: android_src += br"""
             @JavascriptInterface public void openPlayStore() {
                 /* ssb_local_annotator.openPlayStore() opens the Google "Play Store" page
                    for the app (if you've deployed it there), for use in encouraging
@@ -5313,13 +5315,13 @@ def update_android_manifest():
   versionCode,versionName = readAttr("android:versionCode"),readAttr("android:versionName")
   if b"android:sharedUserId" in manifest: sharedUID = readAttr("android:sharedUserId")
   else: sharedUID = b""
-  if android_upload:
+  if android_upload_playstore or android_upload_huawei:
     sys.stderr.write("AndroidManifest.xml: bumping versionCode for upload\n (assuming you've taken care of versionName separately, if needed)\n") # (might not be needed if the previous upload wasn't actually released for example)
     versionCode = B(str(int(versionCode)+1))
   manifest = android_manifest.replace(b'%%JPACKAGE%%',B(jPackage)).replace(b'android:versionCode="1"',b'android:versionCode="'+versionCode+b'"').replace(b'android:versionName="1.0"',b'android:versionName="'+versionName+b'"').replace(b'android:sharedUserId=""',b'android:sharedUserId="'+sharedUID+b'"').replace(b'android:sharedUserId="" ',b'')
   if not manifest==old_manifest:
     open(jSrc+"/../AndroidManifest.xml","wb").write(manifest)
-  else: assert not android_upload, "Couldn't bump version code in "+repr(manifest)
+  else: assert not (android_upload_playstore or android_upload_huawei), "Couldn't bump version code in "+repr(manifest)
 
 def setup_browser_extension():
   dirToUse = browser_extension.replace(' ','')
@@ -5466,12 +5468,12 @@ if not compile_only:
  outfile.close() ; sys.stderr.write("Output complete\n")
 if android:
    can_compile_android = all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS"])
-   can_track_android = (can_compile_android and android_upload) or ("GOOGLE_PLAY_TRACK" in os.environ and "SERVICE_ACCOUNT_KEY" in os.environ and not os.environ.get("ANDROID_NO_RETRACK",""))
-   if can_compile_android and compile_only and android_upload: update_android_manifest() # AndroidManifest.xml will not have been updated, so we'd better do it now
-   if can_compile_android or can_track_android:
-     os.chdir(jSrc+"/..")
-     dirName0 = S(getoutput("pwd|sed -e s,.*./,,"))
-     dirName = shell_escape(dirName0)
+   can_track_android = (can_compile_android and android_upload_playstore) or ("GOOGLE_PLAY_TRACK" in os.environ and "SERVICE_ACCOUNT_KEY" in os.environ and not os.environ.get("ANDROID_NO_RETRACK",""))
+   if can_compile_android and compile_only and (android_upload_playstore or android_upload_huawei): update_android_manifest() # AndroidManifest.xml will not have been updated, so we'd better do it now
+   os.chdir(jSrc+"/..")
+   dirName0 = os.getcwd().rsplit(os.sep,1)[1]
+   if not dirName0: dirName0 = "/" # unlikely
+   dirName = shell_escape(dirName0)
    if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps after August 2021 ?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
      cmd_or_exit("$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
      cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
@@ -5501,7 +5503,7 @@ if android:
        sys.stderr.flush()
        service = googleapiclient.discovery.build('androidpublisher', 'v3', http=oauth2client.service_account.ServiceAccountCredentials.from_json_keyfile_name(os.environ['SERVICE_ACCOUNT_KEY'],'https://www.googleapis.com/auth/androidpublisher').authorize(httplib2.Http()))
        eId = service.edits().insert(body={},packageName=jPackage).execute()['id']
-       if android_upload:
+       if android_upload_playstore:
          sys.stderr.write("uploading... ")
          sys.stderr.flush()
          v = service.edits().apks().upload(editId=eId,packageName=jPackage,media_body="../"+dirName+".apk").execute()['versionCode']
@@ -5511,13 +5513,31 @@ if android:
        if os.environ.get("GOOGLE_PLAY_CHANGELOG",""): service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u"releaseNotes":[{u"language":u"en-US",u"text":T(os.environ["GOOGLE_PLAY_CHANGELOG"])}],u'status':u'completed'}],u'track':trackToUse}).execute() # needs to be "en-US" as just "en" is dropped by the Store, although it does say you can "add as supported language in your app's Store Listing"
        else:
          service.edits().tracks().update(editId=eId,track=trackToUse,packageName=jPackage,body={u'releases':[{u'versionCodes':[v],u'status':u'completed'}],u'track':trackToUse}).execute()
-         if not android_upload: sys.stderr.write("Warning: GOOGLE_PLAY_CHANGELOG not set, any release notes will be deleted\n")
+         if not android_upload_playstore: sys.stderr.write("Warning: GOOGLE_PLAY_CHANGELOG not set, any release notes will be deleted\n")
        sys.stderr.write("Committing... ")
        sys.stderr.flush()
        sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse)) # if you need to get your app through review after a rejection, also add ,changesNotSentForReview=True to commit params and use Play Console - Publishing Overview - Send changes for review (tested 2024-12 after an editor mistook a "tested on" link for an affiliate link and just repeated themselves on appeal, so I had to hide tested-on links behind <details> tags in android_template for the affected app)
        break
       except httplib2.HttpLib2Error: pass
-   if not can_compile_android and not can_track_android: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
+   if android_upload_huawei or android_release_huawei:
+     assert sys.version[0]>'2', "Python 3 required for Huawei upload"
+     import requests,http
+     def checkOK(r):
+       if r.status_code==http.HTTPStatus.OK: return r
+       else: raise Exception(str(r.status_code)+" "+str(r.reason))
+     j=checkOK(requests.post("https://connect-api.cloud.huawei.com/api/oauth2/v1/token",json={'grant_type':'client_credentials','client_id':os.environ["HUAWEI_CLIENT_ID"],'client_secret':os.environ["HUAWEI_CLIENT_SECRET"]})).json()
+     try: access_token=j['access_token']
+     except: raise Exception(j.get('ret').get('msg'))
+     app_id=checkOK(requests.get("https://connect-api.cloud.huawei.com/api/publish/v2/appid-list",headers={'client_id':os.environ["HUAWEI_CLIENT_ID"],'Authorization':'Bearer '+access_token},params={'client_id':os.environ["HUAWEI_CLIENT_ID"],'Authorization':'Bearer '+access_token,'packageName':jPackage})).json()['appids'][0].get('value')
+     if android_upload_huawei:
+       j=checkOK(requests.get("https://connect-api.cloud.huawei.com/api/publish/v2/upload-url",params={'appId':app_id,'suffix':"apk"},headers={'client_id':os.environ["HUAWEI_CLIENT_ID"],'Authorization':'Bearer '+access_token})).json()
+       r=checkOK(requests.post(j['uploadUrl'],files={"file":open("../"+dirName+".apk",'rb')},data={'authCode':j['authCode'],'fileCount':1,'parseType':1},headers={"accept":"application/json"}))
+       r=requests.put("https://connect-api.cloud.huawei.com/api/publish/v2/app-file-info",headers={'client_id':os.environ["HUAWEI_CLIENT_ID"],'Authorization':'Bearer '+access_token},json={'fileType':5,'files':[{'fileName':dirName+".apk",'fileDestUrl':r.json()['result']['UploadFileRsp']['fileInfoList'][0]['fileDestUlr'],'size':str(r.json()['result']['UploadFileRsp']['fileInfoList'][0]['size'])}]},params={'appId':app_id})
+     else: r=requests.post("https://connect-api.cloud.huawei.com/api/publish/v2/app-submit",headers={'client_id':os.environ["HUAWEI_CLIENT_ID"],'Authorization':'Bearer '+access_token},params={'appId':app_id})
+     assert r, "no final requests result"
+     assert not r.content.startswith(B('{"ret":{"code":204144647,')), "Cannot upload app when a previous version is still in review"
+     assert B("success") in r.content, r.content
+   if not can_compile_android and not can_track_android and not android_upload_huawei: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
 To have Annogen build it for you, set these environment variables
 before the Annogen run (change the examples obviously) :
    export SDK=/home/example/Android/Sdk
@@ -5544,6 +5564,7 @@ before the Annogen run (change the examples obviously) :
    export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
    # If the above variables including SERVICE_ACCOUNT_KEY are set (and you haven't set ANDROID_NO_UPLOAD, below), then you'll also get an openPlayStore() function added to the Javascript interface for use in 'check for updates' links.
    # After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK (and not ANDROID_NO_RETRACK), and run with --compile-only.  You will need to set GOOGLE_PLAY_CHANGELOG again when doing this, as the Google API now discards changelogs on track-changes unless they are re-specified.
+   # You can also set HUAWEI_CLIENT_ID and HUAWEI_CLIENT_SECRET, in which case the app will be uploaded but not published (unless ANDROID_NO_UPLOAD is set in which case an already-uploaded app will be published; Huawei's store needs a delay between upload and publish)
 
 You may also wish to create some icons in res/drawable*
    (using Android Studio or the earlier ADT tools).
