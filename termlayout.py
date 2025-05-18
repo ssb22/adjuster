@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (works with either Python 2 or Python 3)
 
-"TermLayout v0.17 (c) 2014-15,2020,2023-24 Silas S. Brown"
+"TermLayout v0.18 (c) 2014-15,2020,2023-25 Silas S. Brown"
 
 # Usage: python termlayout.py [--version]
 
@@ -690,7 +690,6 @@ def screenDim(d):
     if N.isatty(): return struct.unpack('hh',fcntl.ioctl(N,termios.TIOCGWINSZ,'xxxx'))[offset]
   assert 0, "Could not determine dimensions: of terminal, please set "+d
   return 60 # (last resort in case asserts are off)
-screenWidth = screenDim('COLUMNS')
 
 def htmlPreprocess(h):
     hl = h.lower()
@@ -732,6 +731,7 @@ supports_ansi = ("xterm" in term or term in ["screen","linux"]) # TODO: others?
 def main():
     if "--version" in sys.argv:
         print (__doc__+"\nLicensed under the Apache License, Version 2.0") ; return
+    global screenWidth ; screenWidth = screenDim('COLUMNS')
     if sys.stdin.isatty(): sys.stderr.write("termlayout: reading HTML from standard input\n")
     if sys.stdout.isatty() and not sys.stdin.isatty() and os.path.exists('/usr/bin/less'):
         outstream = os.popen('/usr/bin/less -FrX','w')
