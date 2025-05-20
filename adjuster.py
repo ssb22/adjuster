@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.243 (c) 2012-25 Silas S. Brown"
+"Web Adjuster v3.244 (c) 2012-25 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -5929,7 +5929,7 @@ if(!%s&&document.readyState!='complete'){document.write("%s: """ % (detect_ifram
         if chk=="0" and not isOn and not cookieName+"=" in jsCookieString: isOn = 1 # default
         if isOn:
             r.append(rN)
-            if 2 <= i < len(readableNames)-1:
+            if 2 <= i < len(readableNames)-1 and spanStart:
                 # want to keep it unhidden if an option is selected that's not in the first 2 and isn't the "Off"
                 del r[spanStart]
                 spanStart = 0
