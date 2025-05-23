@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.399 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.4 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -4044,15 +4044,18 @@ def read_and_normalise():
 
 collapsed_separators = ['',"'",u"\u2019"] # TODO: customise
 def addHyphenReplacements(hTry,w):
-  for r in collapsed_separators:
-    hTry.add(w.replace('-',r))
+  if '-' in w:
+   for r in collapsed_separators:
+    hTry.add(w.replace('-',r)) # (if there's nothing or an apostrophe in one instance where there's a hyphen in another, normalise to the hyphen)
+def addHypAndSuffixReplac(hTry,w,lenmd):
+  addHyphenReplacements(hTry,w) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
+  if suffix and lenmd>=suffix_minlen:
+    wN = re.sub(suffix,'',w)
+    if not w==wN: hTry.add(wN),addHyphenReplacements(hTry,wN) # normalise on having the suffix (e.g. -r) at end
 def normWord(w,allWords):
   hTry,typo = set(),None
-  if '-' in w: addHyphenReplacements(hTry,w) # if not annot_whitespace, we'll replace any non-hyphenated 'run together' version by the version with the hyphen; that's often the sensible thing to do with pinyin etc (TODO more customisation??)
   md = markDown(w)
-  if suffix and len(md)>=suffix_minlen:
-    wN = re.sub(suffix,'',w)
-    if not w==wN: hTry.add(wN) # normalise on having the suffix in
+  addHypAndSuffixReplac(hTry,w,len(md))
   if not capitalisation:
     wl = w.lower() # (as long as it's all Unicode strings, .lower() and .upper() work with accents etc)
     if not w==wl and wl in allWords:
@@ -4062,22 +4065,25 @@ def normWord(w,allWords):
       # a corpus error, so check numbers.
       if allWords[wl]*5 < allWords[w] and allWords[wl] <= normalise_debug: typo = (wl,(u"%s (%d instances) overrides %s (%d instances)" % (wl,allWords[wl],w,allWords[w])))
       # To simplify rules, make it always lower.
-      w = wl
-      if '-' in w: addHyphenReplacements(hTry,w)
-      wN = re.sub(suffix,'',w)
-      if not w==wN: hTry.add(wN)
+      w = wl ; addHypAndSuffixReplac(hTry,w,len(md))
   if annot_whitespace or (keep_whitespace and markDown(w) in keep_whitespace): return w,None,typo
-  r = trySplit(wspPattern,w,md)
+  r = trySplit(wspPattern,w,md) # see if inline spaces need to be normalised to separate words
   if r: return r,hTry,typo
   elif r==False: # no space found in w
     r = trySplit("-",w,md) # hTry will normalise to putting the hyphen in if there's a without-hyphen version, but if there's a version that splits at the hyphen into separate words, we normalise to that instead as if the hyphen were a space (TODO: optionally?)
     if r: return r,hTry,typo
   return w,hTry,typo
+def allRunsTogether(parts):
+  if len(parts)==1: yield parts[0]
+  for i in xrange(1,len(parts)):
+    for L in allRunsTogether(parts[:i]):
+      for R in allRunsTogether(parts[i:]):
+        for s in collapsed_separators:
+          yield L+s+R
 def trySplit(splitPattern,w,md):
   if not re.search(splitPattern,w): return False
   if not splitPattern=="-": # (don't try runTogether on hyphens: that's hTry, as we want to normalise it to keeping the hyphen)
-   for r in collapsed_separators:
-    runTogether = re.sub(splitPattern,r,w)
+   for runTogether in allRunsTogether(re.split(splitPattern,w)):
     if not capitalisation and not runTogether.lower()==runTogether and runTogether.lower() in allWords: return runTogether.lower()
     if runTogether in allWords: return runTogether # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set relative normalisation authority (TODO)
     # TODO: do we check for annot[0]+annot[1:].lower() version too
