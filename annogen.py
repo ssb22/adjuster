@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.4 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.401 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5522,7 +5522,10 @@ if android:
          if not android_upload_playstore: sys.stderr.write("Warning: GOOGLE_PLAY_CHANGELOG not set, any release notes will be deleted\n")
        sys.stderr.write("Committing... ")
        sys.stderr.flush()
-       sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(editId=eId,packageName=jPackage).execute()['id'],dirName,v,trackToUse)) # if you need to get your app through review after a rejection, also add ,changesNotSentForReview=True to commit params and use Play Console - Publishing Overview - Send changes for review (tested 2024-12 after an editor mistook a "tested on" link for an affiliate link and just repeated themselves on appeal, so I had to hide tested-on links behind <details> tags in android_template for the affected app)
+       kw={"editId":eId,"packageName":jPackage}
+       if os.environ.get("GOOGLE_PLAY_NEEDS_REVIEW",""): kw["changesNotSentForReview"]=True
+       sys.stderr.write("\rCommitted edit %s: %s.apk v%s to %s\n" % (service.edits().commit(**kw).execute()['id'],dirName,v,trackToUse))
+       if "changesNotSentForReview" in kw: sys.stderr.write("\nNow use Play Console - Publishing Overview - Send changes for review\n\n")
        break
       except httplib2.HttpLib2Error: pass
    if android_upload_huawei or android_release_huawei:
@@ -5570,6 +5573,7 @@ before the Annogen run (change the examples obviously) :
    export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
    # If the above variables including SERVICE_ACCOUNT_KEY are set (and you haven't set ANDROID_NO_UPLOAD, below), then you'll also get an openPlayStore() function added to the Javascript interface for use in 'check for updates' links.
    # After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK (and not ANDROID_NO_RETRACK), and run with --compile-only.  You will need to set GOOGLE_PLAY_CHANGELOG again when doing this, as the Google API now discards changelogs on track-changes unless they are re-specified.
+   # If a Google Play reviewer mistakenly flags the app for "not responding" or similar (and the appeals process tends to be useless as they just reiterate their position without explaining), your next update to the app will need manual submission for re-review in the browser: set the environment variable GOOGLE_PLAY_NEEDS_REVIEW if this is the case.
    # You can also set HUAWEI_CLIENT_ID and HUAWEI_CLIENT_SECRET, in which case the app will be uploaded but not published (unless ANDROID_NO_UPLOAD is set in which case an already-uploaded app will be published; Huawei's store needs a delay between upload and publish)
 
 You may also wish to create some icons in res/drawable*
