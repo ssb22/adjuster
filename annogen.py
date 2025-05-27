@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.401 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.402 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -3981,9 +3981,9 @@ markupPattern = re.compile(re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"
 wordPattern = re.escape(markupStart)+'.*?'+re.escape(markupEnd)
 if suffix: suffix = re.compile('(?:'+'|'.join('(?:'+re.escape(i)+')' for i in T(suffix).split(','))+')(?='+re.escape(markupEnd)+r'|\s)')
 multiWordPattern = re.escape(markupEnd)+".*?"+re.escape(markupStart) # indicates there could be more than one word
-phrasePattern = re.compile(wordPattern+r'(\s*'+wordPattern+r')*',flags=re.DOTALL+re.UNICODE)
+phrasePattern = re.compile(wordPattern+r'(\s*'+wordPattern+r')*',flags=re.DOTALL)
 wordPattern = re.compile(wordPattern,flags=re.DOTALL)
-wspPattern = re.compile(r"\s+",flags=re.UNICODE)
+wspPattern,hypPattern = re.compile(r"\s+"),re.compile(r"-")
 
 def annotationOnly(text):
     ret = []
@@ -4043,6 +4043,12 @@ def read_and_normalise():
     if loaded_from_cache: diagnose_write("You might want to remove "+normalise_cache+' and redo the diagnose')
 
 collapsed_separators = ['',"'",u"\u2019"] # TODO: customise
+def withoutCollapsed(w):
+  for c in collapsed_separators: w=w.replace(c,'')
+  return w
+def withoutCollapsedOrSpace(w):
+  w = re.sub(wspPattern,'',withoutCollapsed(w))
+  return w if capitalisation else w.lower()
 def addHyphenReplacements(hTry,w):
   if '-' in w:
    for r in collapsed_separators:
@@ -4067,29 +4073,19 @@ def normWord(w,allWords):
       # To simplify rules, make it always lower.
       w = wl ; addHypAndSuffixReplac(hTry,w,len(md))
   if annot_whitespace or (keep_whitespace and markDown(w) in keep_whitespace): return w,None,typo
-  r = trySplit(wspPattern,w,md) # see if inline spaces need to be normalised to separate words
+  r = trySplit(wspPattern,w,md,True) # see if inline spaces need to be normalised to separate words
   if r: return r,hTry,typo
   elif r==False: # no space found in w
-    r = trySplit("-",w,md) # hTry will normalise to putting the hyphen in if there's a without-hyphen version, but if there's a version that splits at the hyphen into separate words, we normalise to that instead as if the hyphen were a space (TODO: optionally?)
+    r = trySplit(hypPattern,w,md,False) # hTry will normalise to putting the hyphen in if there's a without-hyphen version, but if there's a version that splits at the hyphen into separate words, we normalise to that instead as if the hyphen were a space (TODO: optionally?) (and last parameter False because don't try runTogether on hyphens: that's hTry, as we want to normalise it to keeping the hyphen)
     if r: return r,hTry,typo
   return w,hTry,typo
-def allRunsTogether(parts):
-  if len(parts)==1: yield parts[0]
-  for i in xrange(1,len(parts)):
-    for L in allRunsTogether(parts[:i]):
-      for R in allRunsTogether(parts[i:]):
-        for s in collapsed_separators:
-          yield L+s+R
-def trySplit(splitPattern,w,md):
+def trySplit(splitPattern,w,md,tryRunTogether):
   if not re.search(splitPattern,w): return False
-  if not splitPattern=="-": # (don't try runTogether on hyphens: that's hTry, as we want to normalise it to keeping the hyphen)
-   for runTogether in allRunsTogether(re.split(splitPattern,w)):
-    if not capitalisation and not runTogether.lower()==runTogether and runTogether.lower() in allWords: return runTogether.lower()
-    if runTogether in allWords: return runTogether # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set relative normalisation authority (TODO)
+  if tryRunTogether:
+    brc = bestRunTogether[withoutCollapsedOrSpace(w)]
+    if not w==brc: return brc # varying whitespace in the annotation of a SINGLE word: probably simplest if we say the version without whitespace, if it exists, is 'canonical' (there might be more than one with-whitespace variant), at least until we can set relative normalisation authority (TODO)
     # TODO: do we check for annot[0]+annot[1:].lower() version too
-  ao = annotationOnly(w)
-  if splitPattern=="-": annotList = ao.split("-")
-  else: annotList = ao.split()
+  annotList = re.split(splitPattern,annotationOnly(w))
   if len(md.split())==1 and len(annotList) <= len(md):
     # Try different ways of
     # assigning each word to chars, and see if any
@@ -4105,10 +4101,7 @@ def trySplit(splitPattern,w,md):
       if "".join(mwLowerList) in cu_lower_nospaces:
         if not capitalisation:
           for i in range(len(annotList)):
-            wu = markUp(charBunches[i],annotList[i])
-            wl = mwLowerList[i]
-            if not wu==wl and not wl in allWords:
-              mwLowerList[i] = wu # restore original caps
+            if not mwLowerList[i] in allWords: mwLowerList[i] = markUp(charBunches[i],annotList[i]) # restore original caps
         return "".join(mwLowerList)
       # TODO: is there ANY time where we want multiword to take priority over the runTogether version above?  or even REPLACE multiword occurrences in the corpus with the runTogether version?? (must be VERY CAREFUL doing that)
 def normBatch(words):
@@ -4126,7 +4119,7 @@ def normBatch(words):
 
 def normalise():
     global capitalisation # might want to temp change it
-    global corpus_unistr,allWords,cu_lower_nospaces
+    global corpus_unistr,allWords,bestRunTogether,cu_lower_nospaces
     if normalise_cache:
       try:
         corpus_unistr = openfile(normalise_cache).read().decode('utf-8')
@@ -4139,8 +4132,8 @@ def normalise():
     if priority_list: capitalisation = True # no point keeping it at False
     allWords = getAllWords()
     if removeSpace:
-     corpus_unistr = re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),corpus_unistr,flags=re.UNICODE) # so getOkStarts works consistently if corpus has some space-separated and some not
-     corpus_unistr = re.sub(re.escape(markupStart)+r'\s+',markupStart.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupMid),markupMid.replace('\\',r'\\'),re.sub(re.escape(markupMid)+r'\s+',markupMid.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupEnd),markupEnd.replace('\\',r'\\'),corpus_unistr,flags=re.UNICODE),flags=re.UNICODE),flags=re.UNICODE),flags=re.UNICODE) # so we're tolerant of spurious whitespace between delimeters and markup (TODO: do this even if not removeSpace?)
+     corpus_unistr = re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),corpus_unistr) # so getOkStarts works consistently if corpus has some space-separated and some not
+     corpus_unistr = re.sub(re.escape(markupStart)+r'\s+',markupStart.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupMid),markupMid.replace('\\',r'\\'),re.sub(re.escape(markupMid)+r'\s+',markupMid.replace('\\',r'\\'),re.sub(r'\s+'+re.escape(markupEnd),markupEnd.replace('\\',r'\\'),corpus_unistr)))) # so we're tolerant of spurious whitespace between delimeters and markup (TODO: do this even if not removeSpace?)
      if not annot_whitespace:
       # normalise trailing hyphens e.g. from OCR'd scans:
       cu0 = corpus_unistr ; ff = 0
@@ -4155,16 +4148,19 @@ def normalise():
             if mreverse: grp,mdG=r"-\1",r"\2"
             else: grp,mdG=r"-\2",r"\1"
             # TODO: batch up the following replacements by using something similar to Replacer but with a common destination regexp that takes groups from the 'w' entries as well.  (Low priority because don't typically get TOO many of these dangling hyphens in most corpuses.)
-            corpus_unistr = re.sub(re.escape(w)+r"\s*"+re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),w.replace('\\',r'\\').replace('-'+aoEnd.replace('\\',r'\\'),grp+aoEnd.replace('\\',r'\\')).replace(mdEnd.replace('\\',r'\\'),mdG+mdEnd.replace('\\',r'\\')),corpus_unistr,flags=re.DOTALL+re.UNICODE)
+            corpus_unistr = re.sub(re.escape(w)+r"\s*"+re.escape(markupStart)+"(.*?)"+re.escape(markupMid)+"(.*?)"+re.escape(markupEnd),w.replace('\\',r'\\').replace('-'+aoEnd.replace('\\',r'\\'),grp+aoEnd.replace('\\',r'\\')).replace(mdEnd.replace('\\',r'\\'),mdG+mdEnd.replace('\\',r'\\')),corpus_unistr,flags=re.DOTALL)
             ff = 1
         if ff: allWords = getAllWords() # re-generate
       del cu0
     cu_lower_nospaces = re.sub(wspPattern,"",corpus_unistr) # doesn't matter that spaces inside annotation are also taken out by this, since it's used only for searching for words that don't have spaces in their annotation in the split logic
     if not capitalisation: cu_lower_nospaces = cu_lower_nospaces.lower()
+    bestRunTogether = {} # running together whitespace in single word
+    for w in allWords.keys():
+      k = withoutCollapsedOrSpace(w) ; wc = withoutCollapsed(w)
+      if not k in bestRunTogether or len(wc) < len(bestRunTogether[k]) or not capitalisation and len(wc)==len(bestRunTogether[k]) and wc==wc.lower(): bestRunTogether[k] = w
     sys.stderr.write(":") ; sys.stderr.flush()
-    tmp = corpus_unistr ; del corpus_unistr
-    numCores = setup_parallelism()
-    corpus_unistr = tmp
+    tmp = corpus_unistr ; del corpus_unistr # don't need full corpus in each process yet, and corpus will be changed before we do
+    numCores = setup_parallelism() ; corpus_unistr = tmp
     perCore = int(len(allWords)/numCores)+1
     allWL = list(allWords.keys()) ; jobs = []
     for c in xrange(numCores-1): jobs.append(executor.submit(normBatch,allWL[c*perCore:(c+1)*perCore]))
@@ -4196,8 +4192,8 @@ def normalise():
     capitalisation = old_caps
 def getAllWords():
   allWords = {}
-  for phrase in splitWords(corpus_unistr,phrases=True):
-    for w in splitWords(phrase): allWords[w]=allWords.setdefault(w,0)+1
+  for w in splitWords(corpus_unistr):
+    allWords[w]=allWords.setdefault(w,0)+1
   return allWords # do NOT cache (call = regenerate)
 def orRegexes(escaped_keys):
   escaped_keys = list(escaped_keys) # don't just iterate
@@ -4835,7 +4831,8 @@ def handle_diagnose_limit(rule):
 def generate_map():
     global m2c_map, precalc_sets, yPriorityDic
     sys.stderr.write("Generating corpus map... ")
-    m2c_map = {} ; precalc_sets = {}
+    m2c_map = {} # marked-down corpus position to original corpus pos
+    precalc_sets = {} # marked-up word to set of start pos in marked-down corpus
     muStart = downLenSoFar = 0
     for s in re.finditer(re.escape(markupStart), corpus_unistr):
       s=s.start()
@@ -4975,7 +4972,7 @@ def read_manual_rules():
   for l in openfile(manualrules):
     if not l.strip(): continue
     l=l.decode(incode).strip() # TODO: manualrulescode ?
-    if removeSpace: l=re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),l,flags=re.UNICODE)
+    if removeSpace: l=re.sub(re.escape(markupEnd)+r'\s+'+re.escape(markupStart),(markupEnd+markupStart).replace('\\',r'\\'),l)
     yield l
 
 def test_manual_rules():
