@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.402 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.403 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -424,7 +424,7 @@ if bookmarks and not android: errExit("--bookmarks requires --android, e.g. --an
 if '/' in re.sub(r"\[[^]]*\]","",gloss_simplify) and (javascript or android): errExit("Any / in gloss_simplify must be protected for Javascript")
 if known_characters and not (android or javascript): errExit("--known-characters requires --android, --javascript or --browser-extension")
 if known_characters and freq_count: errExit("--known-characters and --freq-count must be on separate runs in the current implementation") # otherwise need to postpone loading known_characters
-if known_characters and android and not android_template and not ("ANDROID_NO_UPLOAD" in os.environ and "GOOGLE_PLAY_TRACK" in os.environ): warn("known-characters without android-template means you call the Javascript functions yourself")
+if known_characters and android and not android_template and not ("ANDROID_NO_UPLOAD" in os.environ and ("GOOGLE_PLAY_TRACK" in os.environ or "HUAWEI_CLIENT_ID" in os.environ)): warn("known-characters without android-template means you call the Javascript functions yourself")
 if android_print and not bookmarks: errExit("The current implementation of --android-print requires --bookmarks to be set as well")
 if android_audio:
   if not android_print: errExit("The current implementation of --android-audio requires --android-print to be set as well") # for the highlighting (and TODO: I'm not sure about the HTML5-Audio support of Android 2.x devices etc, so should we check a minimum Android version before making the audio option available? as highlight option can be done pre-4.4 just no way to save the result)
@@ -5541,47 +5541,50 @@ if android:
        r=requests.put("https://connect-api.cloud.huawei.com/api/publish/v2/app-file-info",headers={'client_id':os.environ["HUAWEI_CLIENT_ID"],'Authorization':'Bearer '+access_token},json={'fileType':5,'files':[{'fileName':dirName+".apk",'fileDestUrl':r.json()['result']['UploadFileRsp']['fileInfoList'][0]['fileDestUlr'],'size':str(r.json()['result']['UploadFileRsp']['fileInfoList'][0]['size'])}]},params={'appId':app_id})
      else: r=requests.post("https://connect-api.cloud.huawei.com/api/publish/v2/app-submit",headers={'client_id':os.environ["HUAWEI_CLIENT_ID"],'Authorization':'Bearer '+access_token},params={'appId':app_id})
      assert r, "no final requests result"
-     assert not r.content.startswith(B('{"ret":{"code":204144647,')), "Cannot upload app when a previous version is still in review"
+     assert not r.content.startswith(B('{"ret":{"code":204144647,')), ("Cannot upload app when a previous version is still in review" if android_upload_huawei else "Cannot release app when still in review")
      assert B("success") in r.content, r.content
-   if not can_compile_android and not can_track_android and not android_upload_huawei: sys.stderr.write("Android source has been written to "+jSrc[:-3]+"""
-To have Annogen build it for you, set these environment variables
-before the Annogen run (change the examples obviously) :
+   if not can_compile_android and not can_track_android and not android_upload_huawei:
+     import textwrap ; sys.stderr.write(textwrap.fill("Android source has been written to "+jSrc[:-3]+"""
+To have Annogen build it for you, set these environment variables before the Annogen run (change the examples obviously) :
+
    export SDK=/home/example/Android/Sdk
    export PLATFORM=$SDK/platforms/android-33
    export BUILD_TOOLS=$SDK/build-tools/33.0.1
-   # To sign the build (required for release), additionally set:
+
+To sign the build (required for release), additionally set:
+
    export KEYSTORE_FILE=/path/to/keystore
    export KEYSTORE_USER='your user name'
    export KEYSTORE_PASS='your password'
 
-   # The app will be compatible with Android 1.0+
-   # but SDK 24+ is required on the build machine.
-   # SDK 24 was released mid-2016.  If you have an older Intel-based machine whose main OS cannot be upgraded, you may be able to install a newer SDK on a virtual machine, e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless'
-   # On non-Intel architectures, I suggest installing box64 (and box86 is also useful for 32-bit binaries), and installing the x86 Android SDK (you'll need an X11 connection to it to download and install Android Studio).  Ubuntu 22.04's multi-architecture android-sdk-build-tools package is not suitable (even together with google-android-platform-24-installer) because it doesn't provide the necessary update to app signing in SDK 24.
+The app will be compatible with Android 1.0+ but SDK 24+ is required on the build machine.  SDK 24 was released mid-2016.  If you have an older Intel-based machine whose main OS cannot be upgraded, you may be able to install a newer SDK on a virtual machine, e.g. on a 2011 Mac stuck on MacOS 10.7, I used VirtualBox 4.3.4, Vagrant 1.9.5, Debian 8 Jessie and SSH with X11 forwarding to install Android Studio 3.5 from 2019, although for apksigner to work I also had to add 'deb http://archive.debian.org/debian/ jessie-backports main' to /etc/apt/sources.list and do 'sudo apt-get -o Acquire::Check-Valid-Until=false update' and 'sudo apt-get install -t jessie-backports openjdk-8-jdk openjdk-8-jre openjdk-8-jre-headless ca-certificates-java' and 'sudo apt-get --purge remove openjdk-7-jre-headless'
 
-   # You can upload the apk to Google Play to update an existing app.
-   # Since August 2021, Google Play enforces a different 'bundle' format
-   # for new apps, which I don't yet know how to make.
-   # To upload the update release to Google Play, additionally set:
+On non-Intel architectures, I suggest installing box64 (and box86 is also useful for 32-bit binaries), and installing the x86 Android SDK (you'll need an X11 connection to it to download and install Android Studio).  Ubuntu 22.04's multi-architecture android-sdk-build-tools package is not suitable (even together with google-android-platform-24-installer) because it doesn't provide the necessary update to app signing in SDK 24.
+
+You can upload the apk to Google Play to update an existing app.  Since August 2021, Google Play enforces a different 'bundle' format for new apps, which I don't yet know how to make.  To upload the update release to Google Play, additionally set:
+
    export SERVICE_ACCOUNT_KEY=/path/to/api-*.json
-   # (must be an absolute path)
-   # and optionally:
+
+(must be an absolute path), and optionally:
+
    export GOOGLE_PLAY_CHANGELOG="Updated annotator"
-   export GOOGLE_PLAY_TRACK=alpha # default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices
-   # If the above variables including SERVICE_ACCOUNT_KEY are set (and you haven't set ANDROID_NO_UPLOAD, below), then you'll also get an openPlayStore() function added to the Javascript interface for use in 'check for updates' links.
-   # After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK (and not ANDROID_NO_RETRACK), and run with --compile-only.  You will need to set GOOGLE_PLAY_CHANGELOG again when doing this, as the Google API now discards changelogs on track-changes unless they are re-specified.
-   # If a Google Play reviewer mistakenly flags the app for "not responding" or similar (and the appeals process tends to be useless as they just reiterate their position without explaining), your next update to the app will need manual submission for re-review in the browser: set the environment variable GOOGLE_PLAY_NEEDS_REVIEW if this is the case.
-   # You can also set HUAWEI_CLIENT_ID and HUAWEI_CLIENT_SECRET, in which case the app will be uploaded but not published (unless ANDROID_NO_UPLOAD is set in which case an already-uploaded app will be published; Huawei's store needs a delay between upload and publish)
+   export GOOGLE_PLAY_TRACK=alpha
+
+default beta (please don't put production); however sending yourself the APK file is usually faster than using the alpha track if it's just to test on your own devices.
+
+If the above variables including SERVICE_ACCOUNT_KEY are set (and you haven't set ANDROID_NO_UPLOAD, below), then you'll also get an openPlayStore() function added to the Javascript interface for use in 'check for updates' links.
+
+After testing, you can change the track of an existing APK by setting ANDROID_NO_UPLOAD=1 but still setting SERVICE_ACCOUNT_KEY and GOOGLE_PLAY_TRACK (and not ANDROID_NO_RETRACK), and run with --compile-only.  You will need to set GOOGLE_PLAY_CHANGELOG again when doing this, as the Google API now discards changelogs on track-changes unless they are re-specified.
+
+If a Google Play reviewer mistakenly flags the app for "not responding" or similar (and the appeals process tends to be useless as they just reiterate their position without explaining), your next update to the app will need manual submission for re-review in the browser: set the environment variable GOOGLE_PLAY_NEEDS_REVIEW if this is the case.
+
+You can also set HUAWEI_CLIENT_ID and HUAWEI_CLIENT_SECRET, in which case the app will be uploaded but not published (unless ANDROID_NO_UPLOAD is set in which case an already-uploaded app will be published; Huawei's store needs a delay between upload and publish)
 
 You may also wish to create some icons in res/drawable*
    (using Android Studio or the earlier ADT tools).
 
-On Google Play you may wish to set Release management -
-   Pre-launch report - Settings - Enable pre-launch
-   reports to OFF, or it'll report issues on the websites
-   you link to (and maybe crashes due to Firebase issues),
-   which (if you don't want them) is wasting resources.
-""") # TODO: try if("true".equals(android.provider.Settings.System.getString(getContentResolver(),"firebase.test.lab"))) browser.loadUrl("about:blank"); (but turning off unwanted reports is better)
+On Google Play you may wish to set Release management - Pre-launch report - Settings - Enable pre-launch reports to OFF, or it'll report issues on the websites you link to (and maybe crashes due to Firebase issues), which (if you don't want them) is wasting resources.
+""",screenWidth,replace_whitespace=False)) # TODO: try if("true".equals(android.provider.Settings.System.getString(getContentResolver(),"firebase.test.lab"))) browser.loadUrl("about:blank"); (but turning off unwanted reports is better)
 elif c_filename and c_compiler:
     cmd = c_compiler # should include any -o option
     if zlib: cmd += " -lz" # TODO: is this always correct on all platforms? (although user can always simply redirect the C to a file and compile separately)
