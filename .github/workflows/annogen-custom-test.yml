@@ -1,0 +1,25 @@
+name: annogen custom test
+run-name: Annotator Generator custom test
+on:
+  workflow_dispatch:
+    inputs:
+      cli:
+        description: 'Command-line parameters'
+        # Save any output (to be kept) in out/
+jobs:
+  Annogen-Test-Run:
+    runs-on: ubuntu-24.04-arm
+    # runs-on: ubuntu-latest # for x64; ARM has no preinstalled Android SDK (would need to build box64 and install it like we did on OCI if can't use x64 for that part) but otherwise ARM is more efficient
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Run
+        run: |
+          cd ${{ github.workspace }}
+          mkdir out
+          python3 annogen.py ${{ inputs.cli }}
+      - name: Upload output
+        uses: actions/upload-artifact@v4
+        with:
+          name: output
+          path: ${{ github.workspace }}/out/
