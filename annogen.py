@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.403 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.404 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5363,29 +5363,25 @@ if isatty(sys.stdout) and not java and not priority_list and not browser_extensi
 def openfile(fname,mode='r'):
     lzma = bz2 = None
     mode += 'b' # Python 2+3 compatibility: always binary
-    if fname.endswith(".xz"): import lzma # 'pip install lzma' or 'apt-get install python2.7-lzma' may be required for .xz files
-    elif fname.endswith(".bz2"): import bz2
+    if fname.endswith(".bz2"): import bz2
     if re.match("https?://",fname) or fname.startswith("ftp://"):
         assert mode=='rb', "cannot write to "+fname
         try: from urllib2 import urlopen # Python 2
         except: from urllib.request import urlopen # Py3
         sys.stderr.write("Fetching "+fname+"\n")
         fileobj = urlopen(fname)
-        # If it's bz2 or xz, we'd better decompress in one operation.  (gz library can stream)
         if fname.endswith(".bz2"):
-            from cStringIO import StringIO
+            # bz2 library can't stream from a fileobj, so better fetch all and decompress now
+            try: from cStringIO import StringIO # Python 2
+            except: from io import BytesIO as StringIO # Python 3
             return StringIO(bz2.decompress(fileobj.read()))
-        elif fname.endswith(".xz"):
-            from cStringIO import StringIO
-            return StringIO(lzma.decompress(fileobj.read()))
-    elif fname.endswith(".bz2"):
-        return bz2.BZ2File(fname,mode)
-    elif fname.endswith(".xz"):
-        return lzma.LZMAFile(fname,mode)
+    elif fname.endswith(".bz2"): return bz2.BZ2File(fname,mode)
     else: fileobj = open(fname,mode)
-    # if get this far, we can use fileobj
     if fname.endswith(".gz"):
         import gzip ; return gzip.GzipFile(fileobj=fileobj,mode=mode)
+    elif fname.endswith(".xz"):
+        import lzma # 'pip install lzma' or 'apt-get install python2.7-lzma' may be required for .xz files in Python 2; Python 3.3+ is standard
+        return lzma.LZMAFile(fileobj,mode)
     else: return fileobj
 def rm_f(fname):
   try: os.remove(fname)
