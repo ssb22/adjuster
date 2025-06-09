@@ -73,13 +73,13 @@ Comma\-separated list of annotations that can be considered optional suffixes fo
 Minimum length of word (in Unicode characters) to apply suffix normalisation
 .TP
 \fB\-\-post\-normalise=\fR
-Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single\-character normalisation on the Unicode BMP\. This can reduce the size of the annotator\. It is applied in post\-processing (does not affect rules generation itself)\. For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed\-script words should they occur\. If any word in the examples has a different annotation when normalised than not, the normalised version takes precedence\.
+Filename or URL of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single\-character normalisation on the Unicode BMP\. This can reduce the size of the annotator\. It is applied in post\-processing (does not affect rules generation itself)\. For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed\-script words should they occur\. If any word in the examples has a different annotation when normalised than not, the normalised version takes precedence\.
 .TP
 \fB\-\-glossfile=\fR
 Filename of an optional text file (or compressed \.gz, \.bz2 or \.xz file or URL) to read auxiliary "gloss" information\. Each line of this should be of the form: word (tab) annotation (tab) gloss\. Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries)\. When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied)\. The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word\. The entries in glossfile do \fBnot\fR affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc\.
 .TP
 \fB\-C\fR, \fB\-\-gloss\-closure=\fR
-If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also, using the Unihan variants file specified by this option
+If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also, using the Unihan variants file (or URL) specified by this option
 .TP
 \fB\-\-no\-gloss\-closure\fR
 Cancels any earlier \fB\-\-gloss\-closure\fR option in Makefile variables etc
@@ -157,7 +157,7 @@ Instead of generating C code, generate Java, and place the *\.java files in the 
 URL for an Android app to browse (\fB\-\-java\fR must be set)\. If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads\. Use file:///android_asset/index\.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard\.html, and the app will also be able to handle shared text\. If certain environment variables are set, this option can also compile and sign the app using Android SDK command\-line tools (otherwise it puts a message on stderr explaining what needs to be set)
 .TP
 \fB\-\-android\-template=\fR
-File to use as a template for Android start HTML\. This option implies \fB\-\-android\fR=file:///android_asset/index\.html and generates that index\.html from the file specified (or from a built\-in default if the special filename 'blank' is used)\. The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline\-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre\-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use \fB\-\-annotation\-names\fR, a selection scope control on recent\-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double\-tap on to show missing glosses)\. VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page\. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery (non\-China only from 2022), but \fBnot\fR Amazon AppStore as they don't want 'competition' to their Silk browser\.
+File (or URL) to use as a template for Android start HTML\. This option implies \fB\-\-android\fR=file:///android_asset/index\.html and generates that index\.html from the file specified (or from a built\-in default if the special filename 'blank' is used)\. The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline\-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre\-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use \fB\-\-annotation\-names\fR, a selection scope control on recent\-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double\-tap on to show missing glosses)\. VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page\. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery (non\-China only from 2022), but \fBnot\fR Amazon AppStore as they don't want 'competition' to their Silk browser\.
 .TP
 \fB\-\-gloss\-simplify=\fR
 A regular expression matching parts of glosses to remove when generating a '3\-line' format in apps, but not for hover titles or popups\. Default removes parenthesised expressions if not solitary, anything after the first slash or semicolon, and the leading word 'to'\. Can be set to empty string to omit simplification\.
@@ -184,7 +184,7 @@ When generating an Android browser, include code to provide a Print option (usua
 Cancels any earlier \fB\-\-android\-print\fR option in Makefile variables etc
 .TP
 \fB\-\-known\-characters=\fR
-When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'\. This option should be set to the filename of a UTF\-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other (see \fB\-\-freq\-count\fR for one way to generate it)\. Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on\.
+When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'\. This option should be set to the filename or URL of a UTF\-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other (see \fB\-\-freq\-count\fR for one way to generate it)\. Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on\.
 .TP
 \fB\-\-freq\-count=\fR
 Name of a file to write that is suitable for the known\-characters option, taken from the input examples (which should be representative of typical use)\. Any post\-normalise table provided will be used to determine which characters are equivalent\.
@@ -193,7 +193,7 @@ Name of a file to write that is suitable for the known\-characters option, taken
 When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e\.g\. https://example\.org/speak\.cgi?text= (use for languages not likely to be supported by the device itself)\. Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request\. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems\. You should set a limit server\-side too of course\.
 .TP
 \fB\-\-extra\-js=\fR
-Extra Javascript to inject into sites to fix things in the Android browser app\. The snippet will be run before each scan for new text to annotate\. You may also specify a file to read: \fB\-\-extra\-js\fR=@file\.js or \fB\-\-extra\-js\fR=@file1\.js,file2\.js (do not use // comments in these files, only /* \|\.\|\.\|\. */ because newlines will be replaced), and you can create variants of the files by adding search\-replace strings: \fB\-\-extra\-js\fR=@file1\.js:search:replace,file2\.js
+Extra Javascript to inject into sites to fix things in the Android browser app\. The snippet will be run before each scan for new text to annotate\. You may also specify a file to read: \fB\-\-extra\-js\fR=@file\.js or \fB\-\-extra\-js\fR=@file1\.js,file2\.js (or URLs; do not use // comments in these files, only /* \|\.\|\.\|\. */ because newlines will be replaced), and you can create variants of the files by adding search\-replace strings: \fB\-\-extra\-js\fR=@file1\.js:search:replace,file2\.js
 .TP
 \fB\-\-tts\-js\fR
 Make Android 5+ multilingual Text\-To\-Speech functions available to extra\-js scripts (see TTSInfo code for details)
@@ -202,7 +202,7 @@ Make Android 5+ multilingual Text\-To\-Speech functions available to extra\-js s
 Cancels any earlier \fB\-\-tts\-js\fR option in Makefile variables etc
 .TP
 \fB\-\-existing\-ruby\-js\-fixes=\fR
-Extra Javascript to run in the Android browser app or browser extension whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two\-syllable words being split when they shouldn't be)\. Use with caution\. You may also specify a file to read: \fB\-\-existing\-ruby\-js\-fixes\fR=@file\.js
+Extra Javascript to run in the Android browser app or browser extension whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two\-syllable words being split when they shouldn't be)\. Use with caution\. You may also specify a file or URL to read: \fB\-\-existing\-ruby\-js\-fixes\fR=@file\.js
 .TP
 \fB\-\-existing\-ruby\-lang\-regex=\fR
 Set the Android app or browser extension to remove existing ruby elements unless the document language matches this regular expression\. If \fB\-\-sharp\-multi\fR is in use, you can separate multiple regexes with comma and any unset will always delete existing ruby\. If this option is not set at all then existing ruby is always kept\.
@@ -211,7 +211,7 @@ Set the Android app or browser extension to remove existing ruby elements unless
 Set the Android browser app to 'shortcut' Yarowsky\-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)
 .TP
 \fB\-\-extra\-css=\fR
-Extra CSS to inject into sites to fix things in the Android browser app\. You may also specify a file to read \fB\-\-extra\-css\fR=@file\.css
+Extra CSS to inject into sites to fix things in the Android browser app\. You may also specify a file or URL to read \fB\-\-extra\-css\fR=@file\.css
 .TP
 \fB\-\-app\-name=\fR
 User\-visible name of the Android app
@@ -301,7 +301,7 @@ Comma\-separated list of annotation types supplied to sharp\-multi (e\.g\. Pinyi
 Comma\-separated list of annotation\-number overrides for sharp\-multi, e\.g\. 7=3 to take the 3rd item if a 7th is selected
 .TP
 \fB\-\-annotation\-postprocess=\fR
-Extra code for post\-processing specific annotNo selections after retrieving from a sharp\-multi list (@file is allowed)
+Extra code for post\-processing specific annotNo selections after retrieving from a sharp\-multi list (@file or @url allowed)
 .TP
 \fB\-o\fR, \fB\-\-allow\-overlaps\fR
 Normally, the analyser avoids generating rules that could overlap with each other in a way that would leave the program not knowing which one to apply\. If a short rule would cause overlaps, the analyser will prefer to generate a longer rule that uses more context, and if even the entire phrase cannot be made into a rule without causing overlaps then the analyser will give up on trying to cover that phrase\. This option allows the analyser to generate rules that could overlap, as long as none of the overlaps would cause actual problems in the example phrases\. Thus more of the examples can be covered, at the expense of a higher risk of ambiguity problems when applying the rules to other texts\. See also the \-y option\.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.404 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.405 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -119,12 +119,12 @@ parser.add_option("--suffix-minlen",
                   help="Minimum length of word (in Unicode characters) to apply suffix normalisation")
 
 parser.add_option("--post-normalise",
-                  help="Filename of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.  If any word in the examples has a different annotation when normalised than not, the normalised version takes precedence.")
+                  help="Filename or URL of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.  If any word in the examples has a different annotation when normalised than not, the normalised version takes precedence.")
 
 parser.add_option("--glossfile",
                   help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 parser.add_option("-C", "--gloss-closure",
-                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also, using the Unihan variants file specified by this option")
+                  help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also, using the Unihan variants file (or URL) specified by this option")
 cancelOpt("gloss-closure")
 parser.add_option("-M","--glossmiss-omit",
                   action="store_true",
@@ -191,7 +191,7 @@ parser.add_option("--java",
 parser.add_option("--android",
                   help="URL for an Android app to browse (--java must be set).  If this is set, code is generated for an Android app which starts a browser with that URL as the start page, and annotates the text on every page it loads.  Use file:///android_asset/index.html for local HTML files in the assets directory; a clipboard viewer is placed in clipboard.html, and the app will also be able to handle shared text.  If certain environment variables are set, this option can also compile and sign the app using Android SDK command-line tools (otherwise it puts a message on stderr explaining what needs to be set)")
 parser.add_option("--android-template",
-                  help="File to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use --annotation-names, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery (non-China only from 2022), but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  annotUrlTrans returns undefined = uses original
+                  help="File (or URL) to use as a template for Android start HTML.  This option implies --android=file:///android_asset/index.html and generates that index.html from the file specified (or from a built-in default if the special filename 'blank' is used).  The template file may include URL_BOX_GOES_HERE to show a URL entry box and related items (offline-clipboard link etc) in the page, in which case you can optionally define a Javascript function 'annotUrlTrans' to pre-convert some URLs from shortcuts etc; also enables better zoom controls on Android 4+, a mode selector if you use --annotation-names, a selection scope control on recent-enough WebKit, and a visible version stamp (which, if the device is in 'developer mode', you may double-tap on to show missing glosses). VERSION_GOES_HERE may also be included if you want to put it somewhere other than at the bottom of the page. If you do include URL_BOX_GOES_HERE you'll have an annotating Web browser app that allows the user to navigate to arbitrary URLs: as of 2020, this is acceptable on Google Play and Huawei AppGallery (non-China only from 2022), but NOT Amazon AppStore as they don't want 'competition' to their Silk browser.") # but some devices allow APKs to be 'side-loaded'.  annotUrlTrans returns undefined = uses original
 parser.add_option("--gloss-simplify",default="^to |^[(][^)]*[)] | [(][^)]*[)]|[;/].*",
                   help="A regular expression matching parts of glosses to remove when generating a '3-line' format in apps, but not for hover titles or popups.  Default removes parenthesised expressions if not solitary, anything after the first slash or semicolon, and the leading word 'to'.  Can be set to empty string to omit simplification.")
 parser.add_option("-L","--pleco-hanping",
@@ -209,16 +209,16 @@ parser.add_option("--android-print",
                   action="store_true",default=False,
                   help="When generating an Android browser, include code to provide a Print option (usually print to PDF) and a simple highlight-selection option. The Print option will require Android 4.4, but the app should still run without it on earlier versions of Android.")
 cancelOpt("android-print")
-parser.add_option("--known-characters",help="When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other (see --freq-count for one way to generate it). Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.")
+parser.add_option("--known-characters",help="When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename or URL of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other (see --freq-count for one way to generate it). Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.")
 parser.add_option("--freq-count",help="Name of a file to write that is suitable for the known-characters option, taken from the input examples (which should be representative of typical use).  Any post-normalise table provided will be used to determine which characters are equivalent.")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
-parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
+parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (or URLs; do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
 parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)")
 cancelOpt("tts-js")
-parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app or browser extension whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file to read: --existing-ruby-js-fixes=@file.js")
+parser.add_option("--existing-ruby-js-fixes",help="Extra Javascript to run in the Android browser app or browser extension whenever existing RUBY elements are encountered; the DOM node above these elements will be in the variable n, which your code can manipulate or replace to fix known problems with sites' existing ruby (such as common two-syllable words being split when they shouldn't be). Use with caution. You may also specify a file or URL to read: --existing-ruby-js-fixes=@file.js")
 parser.add_option("--existing-ruby-lang-regex",help="Set the Android app or browser extension to remove existing ruby elements unless the document language matches this regular expression. If --sharp-multi is in use, you can separate multiple regexes with comma and any unset will always delete existing ruby.  If this option is not set at all then existing ruby is always kept.")
 parser.add_option("--existing-ruby-shortcut-yarowsky",action="store_true",default=False,help="Set the Android browser app to 'shortcut' Yarowsky-like collocation decisions when adding glosses to existing ruby over 2 or more characters, so that words normally requiring context to be found are more likely to be found without context (this may be needed because adding glosses to existing ruby is done without regard to context)") # (an alternative approach would be to collapse the existing ruby markup to provide the context, but that could require modifying the inner functions to 'see' context outside the part they're annotating)
-parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android browser app. You may also specify a file to read --extra-css=@file.css")
+parser.add_option("--extra-css",help="Extra CSS to inject into sites to fix things in the Android browser app. You may also specify a file or URL to read --extra-css=@file.css")
 parser.add_option("--app-name",default="Annotating browser",
                   help="User-visible name of the Android app")
 
@@ -294,7 +294,7 @@ parser.add_option("--sharp-multi",
 cancelOpt("sharp-multi")
 parser.add_option("--annotation-names",help="Comma-separated list of annotation types supplied to sharp-multi (e.g. Pinyin,Yale), if you want the Android app etc to be able to name them.  You can also set just one annotation names here if you are not using sharp-multi.")
 parser.add_option("--annotation-map",help="Comma-separated list of annotation-number overrides for sharp-multi, e.g. 7=3 to take the 3rd item if a 7th is selected") # this one starts at 1 rather than 0
-parser.add_option("--annotation-postprocess",help="Extra code for post-processing specific annotNo selections after retrieving from a sharp-multi list (@file is allowed)")
+parser.add_option("--annotation-postprocess",help="Extra code for post-processing specific annotNo selections after retrieving from a sharp-multi list (@file or @url allowed)")
 
 #  =========== ANALYSIS OPTIONS ==============
 
@@ -439,8 +439,31 @@ if not extra_css: extra_css = ""
 if not extra_js: extra_js = ""
 if not existing_ruby_js_fixes: existing_ruby_js_fixes = ""
 if not annotation_postprocess: annotation_postprocess = ""
-if extra_css.startswith("@"): extra_css = open(extra_css[1:],"rb").read()
-if annotation_postprocess.startswith("@"): annotation_postprocess = open(annotation_postprocess[1:],"rb").read()
+def openfile(fname,mode='r'):
+    lzma = bz2 = None
+    mode += 'b' # Python 2+3 compatibility: always binary
+    if fname.endswith(".bz2"): import bz2
+    if re.match("https?://",fname) or fname.startswith("ftp://"):
+        assert mode=='rb', "cannot write to "+fname
+        try: from urllib2 import urlopen # Python 2
+        except: from urllib.request import urlopen # Py3
+        sys.stderr.write("Fetching "+fname+"\n")
+        fileobj = urlopen(fname)
+        if fname.endswith(".bz2"):
+            # bz2 library can't stream from a fileobj, so better fetch all and decompress now
+            try: from cStringIO import StringIO # Python 2
+            except: from io import BytesIO as StringIO # Python 3
+            return StringIO(bz2.decompress(fileobj.read()))
+    elif fname.endswith(".bz2"): return bz2.BZ2File(fname,mode)
+    else: fileobj = open(fname,mode)
+    if fname.endswith(".gz"):
+        import gzip ; return gzip.GzipFile(fileobj=fileobj,mode=mode)
+    elif fname.endswith(".xz"):
+        import lzma # 'pip install lzma' or 'apt-get install python2.7-lzma' may be required for .xz files in Python 2; Python 3.3+ is standard
+        return lzma.LZMAFile(fileobj,mode)
+    else: return fileobj
+if extra_css.startswith("@"): extra_css = openfile(extra_css[1:],"rb").read()
+if annotation_postprocess.startswith("@"): annotation_postprocess = openfile(annotation_postprocess[1:],"rb").read()
 if annotation_postprocess and not java: errExit("--annotation-postprocess is currently implemented only for Java") # TODO could at least do JS
 if type("")==type(u""): # Python 3
   def B(s):
@@ -462,7 +485,7 @@ if extra_js.startswith("@"):
   for f in f[1:].split(','):
    if ':' in f: f,fSR = f.split(':',1)
    else: fSR=None
-   dat = open(f,"rb").read()
+   dat = openfile(f,"rb").read()
    if fSR:
      fSR = fSR.split(':')
      for i in range(0,len(fSR),2):
@@ -487,7 +510,7 @@ if extra_js.startswith("@"):
    if m: errExit(f+" seems to have arrow function (breaks compatibility with Android 4.x): "+repr(m.group())) # TODO: also check for ||= (but not in comments; comments would need rm 1st); ||= requires Chrome 85
    extra_js += dat ; del dat,fSR
 if extra_js.rstrip() and not B(extra_js.rstrip()[-1:]) in b';}': errExit("--extra-js must end with a semicolon or a closing brace")
-if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = open(existing_ruby_js_fixes[1:],"rb").read()
+if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = openfile(existing_ruby_js_fixes[1:],"rb").read()
 if browser_extension and re.search("erHTML *=[^=]",existing_ruby_js_fixes): warn("Code in --existing-ruby-js-fixes that sets innerHTML or outerHTML might result in an extension that's not accepted by Firefox uploads")
 jPackage = None
 if java:
@@ -562,6 +585,10 @@ try: xrange # Python 2
 except: xrange,unichr,unicode = range,chr,str # Python 3
 if post_normalise:
   if not (javascript or java or freq_count): errExit('--post-normalise currently requires --javascript or --java (or --freq-count)')
+  if re.match("https?://",post_normalise) or post_normalise.startswith("ftp://"):
+    p = openfile(post_normalise).read()
+    post_normalise = tempfile.mkstemp(suffix='.py')[1]
+    open(post_normalise,'wb').write(p)
   if type("")==type(u""): # Python 3 (this requires 3.5+, TODO: support 3.3/3.4 ?)
     import importlib.util as iu
     s = iu.spec_from_file_location("post.normalise", post_normalise)
@@ -1686,7 +1713,7 @@ android_layout = br"""<?xml version="1.0" encoding="utf-8"?>
 """
 if android_template == "blank": android_template = B(r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body><h3>"""+app_name+r"</h3>URL_BOX_GOES_HERE</body></html>")
 elif android_template:
-  android_template = open(android_template,'rb').read()
+  android_template = openfile(android_template,'rb').read()
   if not b"</body" in android_template: warn("--android-template has no \"</body\" so won't have a version stamp")
 # android_url_box: one user saw an "Offline EPUB file" link and said "I have to give it an EPUB, that's too complicated" without noticing the URL box immediately afterwards, so we'd better put the URL box first.
 # Another user still found the EPUB link distracting, so let's make it a button (to match the Go button) rather than a 'different'-looking link (if most users want the Web browser then we probably don't want EPUB to be the _first_ thing they notice).
@@ -1725,7 +1752,7 @@ if(ssb_local_annotator.canCustomZoom()) document.write('<div style="display:inli
 if sharp_multi and annotation_names: android_url_box += br"""
 modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+br"""];document.write('<select style="margin-top: 0.5ex" onChange="ssb_local_annotator.setAnnotNo(this.selectedIndex<0?0:this.selectedIndex);location.reload()">');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)document.write('<option'+(i==c?' selected':'')+'>'+modeNames[i]+'</option>');document.write('</select> ');"""
 if known_characters:
-  L = [i for i in [re.sub(br'\s+',b'',l) for l in open(known_characters,'rb').readlines()] if i]
+  L = [i for i in [re.sub(br'\s+',b'',l) for l in openfile(known_characters,'rb').readlines()] if i]
   knownCharsGroups = [] ; s = 0
   while s < len(L):
     if s>=800: inc=100
@@ -5027,10 +5054,10 @@ def allVars(u):
     stderr_newline = True
     cjkVars = {}
     abbr = {"kSemanticVariant":"M","kSimplifiedVariant":"f","kTraditionalVariant":"f","kZVariant":"v"} # TODO: if any F900..FAD9, consider reading kCompatibilityVariant from Unihan_IRGSources.txt (need to open a different file)
-    for l in open(gloss_closure):
-      if l.strip() and not l.startswith("#"):
+    for l in openfile(gloss_closure):
+      if l.strip() and not l.startswith(b"#"):
         l=l.split()
-        cjkVars.setdefault((int(l[0][2:],16),abbr.get(l[1],"O")),set()).update(int(i.split('<')[0][2:],16) for i in l[2:])
+        cjkVars.setdefault((int(l[0][2:],16),abbr.get(l[1],b"O")),set()).update(int(i.split(b'<')[0][2:],16) for i in l[2:])
   done = set([u])
   for t in "fMv":
     for var in cjkVars.get((u,t),[]):
@@ -5360,29 +5387,6 @@ def setup_browser_extension():
 
 if isatty(sys.stdout) and not java and not priority_list and not browser_extension and not write_rules: sys.stderr.write("Will write to "+c_filename+"\n") # will open it later (avoid having a 0-length file sitting around during the analyse() run so you don't rm it by mistake)
 
-def openfile(fname,mode='r'):
-    lzma = bz2 = None
-    mode += 'b' # Python 2+3 compatibility: always binary
-    if fname.endswith(".bz2"): import bz2
-    if re.match("https?://",fname) or fname.startswith("ftp://"):
-        assert mode=='rb', "cannot write to "+fname
-        try: from urllib2 import urlopen # Python 2
-        except: from urllib.request import urlopen # Py3
-        sys.stderr.write("Fetching "+fname+"\n")
-        fileobj = urlopen(fname)
-        if fname.endswith(".bz2"):
-            # bz2 library can't stream from a fileobj, so better fetch all and decompress now
-            try: from cStringIO import StringIO # Python 2
-            except: from io import BytesIO as StringIO # Python 3
-            return StringIO(bz2.decompress(fileobj.read()))
-    elif fname.endswith(".bz2"): return bz2.BZ2File(fname,mode)
-    else: fileobj = open(fname,mode)
-    if fname.endswith(".gz"):
-        import gzip ; return gzip.GzipFile(fileobj=fileobj,mode=mode)
-    elif fname.endswith(".xz"):
-        import lzma # 'pip install lzma' or 'apt-get install python2.7-lzma' may be required for .xz files in Python 2; Python 3.3+ is standard
-        return lzma.LZMAFile(fileobj,mode)
-    else: return fileobj
 def rm_f(fname):
   try: os.remove(fname)
   except OSError: pass
