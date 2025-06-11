@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.405 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.406 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -335,8 +335,12 @@ parser.add_option("--yarowsky-half-thorough",
 cancelOpt("yarowsky-half-thorough")
 parser.add_option("--yarowsky-debug",default=1,
                   help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
+parser.add_option("--allow-exceptions",default="allow-exceptions.txt",help="Filename (or URL) of any known exeptions for --yarowsky-debug checks (default %default)")
 parser.add_option("--normalise-debug",default=1,
                   help="When --capitalisation is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default %default) for investigation of possible typos in the corpus")
+parser.add_option("--allow-caps-exceptions",default="allow-caps-exceptions.txt",help="Filename (or URL) of any known exeptions for --normalise-debug checks (default %default)")
+parser.add_option("--debug-dir",default=".",
+                  help="Directory in which to write reports of possible typos etc (defaults to current directory)")
 parser.add_option("--normalise-cache",
                   help="Optional file to use to cache the result of normalisation. Adding .gz, .bz2 or .xz for compression is acceptable.")
 
@@ -462,8 +466,8 @@ def openfile(fname,mode='r'):
         import lzma # 'pip install lzma' or 'apt-get install python2.7-lzma' may be required for .xz files in Python 2; Python 3.3+ is standard
         return lzma.LZMAFile(fileobj,mode)
     else: return fileobj
-if extra_css.startswith("@"): extra_css = openfile(extra_css[1:],"rb").read()
-if annotation_postprocess.startswith("@"): annotation_postprocess = openfile(annotation_postprocess[1:],"rb").read()
+if extra_css.startswith("@"): extra_css = openfile(extra_css[1:]).read()
+if annotation_postprocess.startswith("@"): annotation_postprocess = openfile(annotation_postprocess[1:]).read()
 if annotation_postprocess and not java: errExit("--annotation-postprocess is currently implemented only for Java") # TODO could at least do JS
 if type("")==type(u""): # Python 3
   def B(s):
@@ -485,7 +489,7 @@ if extra_js.startswith("@"):
   for f in f[1:].split(','):
    if ':' in f: f,fSR = f.split(':',1)
    else: fSR=None
-   dat = openfile(f,"rb").read()
+   dat = openfile(f).read()
    if fSR:
      fSR = fSR.split(':')
      for i in range(0,len(fSR),2):
@@ -510,7 +514,7 @@ if extra_js.startswith("@"):
    if m: errExit(f+" seems to have arrow function (breaks compatibility with Android 4.x): "+repr(m.group())) # TODO: also check for ||= (but not in comments; comments would need rm 1st); ||= requires Chrome 85
    extra_js += dat ; del dat,fSR
 if extra_js.rstrip() and not B(extra_js.rstrip()[-1:]) in b';}': errExit("--extra-js must end with a semicolon or a closing brace")
-if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = openfile(existing_ruby_js_fixes[1:],"rb").read()
+if existing_ruby_js_fixes.startswith("@"): existing_ruby_js_fixes = openfile(existing_ruby_js_fixes[1:]).read()
 if browser_extension and re.search("erHTML *=[^=]",existing_ruby_js_fixes): warn("Code in --existing-ruby-js-fixes that sets innerHTML or outerHTML might result in an extension that's not accepted by Firefox uploads")
 jPackage = None
 if java:
@@ -1713,7 +1717,7 @@ android_layout = br"""<?xml version="1.0" encoding="utf-8"?>
 """
 if android_template == "blank": android_template = B(r"""<html><head><meta name="mobileoptimized" content="0"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body><h3>"""+app_name+r"</h3>URL_BOX_GOES_HERE</body></html>")
 elif android_template:
-  android_template = openfile(android_template,'rb').read()
+  android_template = openfile(android_template).read()
   if not b"</body" in android_template: warn("--android-template has no \"</body\" so won't have a version stamp")
 # android_url_box: one user saw an "Offline EPUB file" link and said "I have to give it an EPUB, that's too complicated" without noticing the URL box immediately afterwards, so we'd better put the URL box first.
 # Another user still found the EPUB link distracting, so let's make it a button (to match the Go button) rather than a 'different'-looking link (if most users want the Web browser then we probably don't want EPUB to be the _first_ thing they notice).
@@ -1752,7 +1756,7 @@ if(ssb_local_annotator.canCustomZoom()) document.write('<div style="display:inli
 if sharp_multi and annotation_names: android_url_box += br"""
 modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+br"""];document.write('<select style="margin-top: 0.5ex" onChange="ssb_local_annotator.setAnnotNo(this.selectedIndex<0?0:this.selectedIndex);location.reload()">');var c=ssb_local_annotator.getAnnotNo();for(var i=0;i < modeNames.length;i++)document.write('<option'+(i==c?' selected':'')+'>'+modeNames[i]+'</option>');document.write('</select> ');"""
 if known_characters:
-  L = [i for i in [re.sub(br'\s+',b'',l) for l in openfile(known_characters,'rb').readlines()] if i]
+  L = [i for i in [re.sub(br'\s+',b'',l) for l in openfile(known_characters).readlines()] if i]
   knownCharsGroups = [] ; s = 0
   while s < len(L):
     if s>=800: inc=100
@@ -4202,7 +4206,7 @@ def normalise():
       for x,y in SR:
         if diagnose and diagnose in x: diagnose_write("Changing %s to %s" % (x,y))
         dic[x] = y
-      for wl,msg in typos: typo_report("normalise-debug.txt","allow-caps-exceptions.txt",wl,msg)
+      for wl,msg in typos: typo_report("normalise-debug.txt",allow_caps_exceptions,wl,msg)
     for k in list(dic.keys()):
       seen = set()
       while dic[k] in dic:
@@ -4423,7 +4427,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     may_take_time = canBackground and len(okStarts) > 1000
     if may_take_time:
       getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),"backgrounding" if run_in_background else "could take some time")).encode(terminal_charset,'replace'))
-      if len(badStarts) <= yarowsky_debug: typo_report("yarowsky-debug.txt","allow-exceptions.txt",withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
+      if len(badStarts) <= yarowsky_debug: typo_report("yarowsky-debug.txt",allow_exceptions,withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
     if run_in_background:
       job = executor.submit(yarowsky_indicators_wrapped,withAnnot_unistr) # recalculate the above on the other CPU in preference to passing, as memory might not be shared
       yield "backgrounded" ; yield job
@@ -4460,6 +4464,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
       yield negate,ret,distance
 typo_data = {}
 def typo_report(debugFile,exceptionFile,withAnnot_unistr,msg_unistr):
+  debugFile = debug_dir + os.sep + debugFile
   if not exceptionFile in typo_data:
     try: typo_data[exceptionFile]=set(splitWords(openfile(exceptionFile).read().decode(terminal_charset)))
     except IOError: typo_data[exceptionFile]=set()
@@ -5235,8 +5240,8 @@ def outputParser(rulesAndConds):
         c = cout.read()
         try: comms[1] = c.decode(outcode).splitlines() # TODO: reannotatorCode instead of outcode?
         except:
-          sys.stderr.write("Writing invalid reannotator output to reannot-ERR.txt\n")
-          open("reannot-ERR.txt","wb").write(c)
+          sys.stderr.write("Writing invalid reannotator output to "+debug_dir+os.sep+"reannot-ERR.txt\n")
+          open(debug_dir+os.sep+"reannot-ERR.txt","wb").write(c)
           comms[1] = None
       if reannotator.startswith('##'): cmd=reannotator[2:]
       elif reannotator[0]=='#': cmd=reannotator[1:]
@@ -5256,9 +5261,9 @@ def outputParser(rulesAndConds):
       del cin,cout,cmd,comms,sp
       while len(l2)>len(l) and not l2[-1]: del l2[-1] # don't mind extra blank line(s) at end of output
       if not len(l)==len(l2):
-        open('reannotator-debug-in.txt','wb').write(os.linesep.join(l).encode(outcode)+B(os.linesep))
-        open('reannotator-debug-out.txt','wb').write(os.linesep.join(l2).encode(outcode)+B(os.linesep))
-        errExit("Reannotator command didn't output the same number of lines as we gave it (gave %d, got %d).  Input and output have been written to reannotator-debug-in.txt and reannotator-debug-out.txt for inspection.  Bailing out." % (len(l),len(l2)))
+        open(debug_dir+os.sep+'reannotator-debug-in.txt','wb').write(os.linesep.join(l).encode(outcode)+B(os.linesep))
+        open(debug_dir+os.sep+'reannotator-debug-out.txt','wb').write(os.linesep.join(l2).encode(outcode)+B(os.linesep))
+        errExit("Reannotator command didn't output the same number of lines as we gave it (gave %d, got %d).  Input and output have been written to "+debug_dir+os.sep+"reannotator-debug-in.txt and "+debug_dir+os.sep+"reannotator-debug-out.txt for inspection.  Bailing out." % (len(l),len(l2)))
       if stderr_newline: sys.stderr.write("reannotated %d items\n" % len(l))
       else: sys.stderr.write("(%d items)\n" % len(l))
       toReannotateSet = set() ; reannotateDict = dict(zip(l,l2)) ; del l,l2

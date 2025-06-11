@@ -672,7 +672,7 @@ You can turn it into a CGI script via `import wsgiref.handlers ; wsgiref.handler
 
 in `.htaccess` (and ensure `AllowOverride All` is set in the config files) to send all requests to the CGI, which should then import adjuster from outside the webspace (e.g. by adding to `sys.path` first), but it’s not necessary to send other requests to the CGI if you set submitPath to the CGI’s path plus `?` and want only the 'enter your own text’ functionality.
 
-Options for Annotator Generator v3.405
+Options for Annotator Generator v3.406
 ======================================
 
 `-h`, `--help`
@@ -1014,8 +1014,17 @@ Options for Annotator Generator v3.405
 `--yarowsky-debug=`
  : Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default 1). Occasionally these might be due to typos in the corpus, so it might be worth a check.
 
+`--allow-exceptions=`
+ : Filename (or URL) of any known exeptions for `--yarowsky-debug` checks (default allow-exceptions.txt)
+
 `--normalise-debug=`
  : When `--capitalisation` is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default 1) for investigation of possible typos in the corpus
+
+`--allow-caps-exceptions=`
+ : Filename (or URL) of any known exeptions for `--normalise-debug` checks (default allow-caps-exceptions.txt)
+
+`--debug-dir=`
+ : Directory in which to write reports of possible typos etc (defaults to current directory)
 
 `--normalise-cache=`
  : Optional file to use to cache the result of normalisation. Adding .gz, .bz2 or .xz for compression is acceptable.
