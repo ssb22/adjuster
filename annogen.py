@@ -3169,7 +3169,7 @@ class BytecodeAssembler:
           else: r = b"".join(r)
           if zlib:
             self.origLen = ll # needed for efficient malloc in the C code later
-            oR,r = r,zlib.compress(r,9)
+            r = zlib.compress(r,9)
             sys.stderr.write("%d bytes (%s compressed from %d after opcode compaction saved %d on %s)\n" % (len(r),zlib_name,ll,compacted,','.join(sorted(list(compaction_types)))))
           else: sys.stderr.write("%d bytes (opcode compaction saved %d on %s)\n" % (ll,compacted,','.join(sorted(list(compaction_types)))))
           return r
@@ -4549,7 +4549,7 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
         try: indicator = getNext(generator) # gets a yield from the corresponding unique_substrings call
         except StopIteration:
           del toCheck[i] ; break
-        found = True ; cChanged = False
+        cChanged = False
         for j in xrange(len(strs)):
           if not covered[j] and indicator in strs[j]:
             covered[j]=cChanged=True
