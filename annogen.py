@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.406 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.407 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5058,7 +5058,7 @@ def allVars(u):
     else: sys.stderr.write("checking CJK closures for missing glosses... "),sys.stderr.flush()
     stderr_newline = True
     cjkVars = {}
-    abbr = {"kSemanticVariant":"M","kSimplifiedVariant":"f","kTraditionalVariant":"f","kZVariant":"v"} # TODO: if any F900..FAD9, consider reading kCompatibilityVariant from Unihan_IRGSources.txt (need to open a different file)
+    abbr = {b"kSemanticVariant":"M",b"kSimplifiedVariant":"f",b"kTraditionalVariant":"f",b"kZVariant":"v"} # TODO: if any F900..FAD9, consider reading kCompatibilityVariant from Unihan_IRGSources.txt (need to open a different file)
     for l in openfile(gloss_closure):
       if l.strip() and not l.startswith(b"#"):
         l=l.split()
