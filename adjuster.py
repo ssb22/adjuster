@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.244 (c) 2012-25 Silas S. Brown"
+"Web Adjuster v3.245 (c) 2012-25 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -5713,7 +5713,7 @@ if(new Range().intersectsNode) document.addEventListener('selectionchange',funct
         bodyAppend += B("""<script><!--
 if(window.localStorage!=undefined) {
   function findNode(dirs) {
-    dirs = dirs.split("/");
+    dirs = dirs[0].split("/");
     var p=dirs[0].split("+"),i,j;
     var n=p[0].length?document.getElementById(p[0]):document.body;
     if(!n) return null;
@@ -5725,14 +5725,15 @@ if(window.localStorage!=undefined) {
   }
   var i=localStorage.getItem("adjustHL:"+(location.href+"#").split("#")[0]),h;
   if(i!=null) {
-    for(h of i.split("|")) {
-      var h2=h.split(","); var s=h2[0].split("*"),e=h2[1].split("*");
+    for(h of i.split("|")) try {
+      var h2=h.split(",");
+      var s=h2[0].split("*"),e=h2[1].split("*");
+      var ss=findNode(s),ee=findNode(e); if(ss&&ee){
       var r=document.createRange();
-      var ss=findNode(s[0]),ee=findNode(e[0]); if(!(ss&&ee)) continue;
-      r.setStart(findNode(s[0]),Number(s[1]));
-      r.setEnd(findNode(e[0]),Number(e[1]));
-      adjust0_HighlRange(document.body,r,h2[2],"","",true);
-    }
+      r.setStart(ss,Number(s[1]));
+      r.setEnd(ee,Number(e[1]));
+      adjust0_HighlRange(document.body,r,h2[2],"","",true)
+    }} catch(err) { /* skip this highlight */ }
   }
 }
 //-->
