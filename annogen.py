@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.407 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.408 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5548,7 +5548,8 @@ if android:
      assert r, "no final requests result"
      assert not r.content.startswith(B('{"ret":{"code":204144647,')), ("Cannot upload app when a previous version is still in review" if android_upload_huawei else "Cannot release app when still in review")
      assert B("success") in r.content, r.content
-   if not can_compile_android and not can_track_android and not android_upload_huawei:
+     sys.stderr.write("Huawei release done\n")
+   if not can_compile_android and not can_track_android and not android_upload_huawei and not android_release_huawei:
      import textwrap ; sys.stderr.write(textwrap.fill("Android source has been written to "+jSrc[:-3]+"""
 To have Annogen build it for you, set these environment variables before the Annogen run (change the examples obviously) :
 
