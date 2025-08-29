@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.409 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.41 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2256,7 +2256,8 @@ if epub: android_src += br"""
                     String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
                     if(mimeType==null || mimeType.equals("application/xhtml+xml")) mimeType="text/html"; // needed for annogen style modifications
                     if(mimeType.equals("text/html")) {
-                    return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceAll("<[iI][mM][gG] ","<img loading=lazy ").replaceFirst("</[bB][oO][dD][yY]>","<p><script>document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+ze.getName()+"=N=\">'""")+br""");var v=function(e,i){if(i<e.length){e[i].removeAttribute('loading');if(e[i].complete)window.setTimeout(function(){v(e,i+1)},100);else e[i].onload=function(){v(e,i+1)}}};v(document.getElementsByTagName('img'),0)</script>Next</a></body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+                    ZipEntry ze2; while ((ze2 = zin.getNextEntry()) != null) if(ze2.getName().contains("htm") && !ze2.getName().contains("toc.xhtml")) break;
+                    return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceAll("<[iI][mM][gG] ","<img loading=lazy ").replaceFirst("</[bB][oO][dD][yY]>","<p><script>"+(ze.getName().contains("toc.xhtml")?"":"document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+(ze2!=null ? ze2.getName() : "")+"\">'""")+br""");")+"var v=function(e,i){if(i<e.length){e[i].removeAttribute('loading');if(e[i].complete)window.setTimeout(function(){v(e,i+1)},100);else e[i].onload=function(){v(e,i+1)}}};v(document.getElementsByTagName('img'),0)</script>"+(ze.getName().contains("toc.xhtml")?"":"Next</a>")+"</body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
                     } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
                 }
                 final String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
@@ -2276,14 +2277,9 @@ if epub: android_src += br"""
                     loadingEpub = url.startsWith(epubPrefix); // TODO: what if an epub includes off-site prerequisites? (should we be blocking that?) : setting loadingEpub false would suppress the lrm marks (could make them unconditional but more overhead; could make loadingEpub 'stay on' for rest of session)
                     if (!loadingEpub) return null;
                     String part=null;
-                    boolean getNextPage = false;
                     if(url.contains("#")) url=url.substring(0,url.indexOf("#"));
                     if(url.length() > epubPrefix.length()) {
                         try { part=URLDecoder.decode(url.substring(epubPrefix.length()),"utf-8"); } catch(UnsupportedEncodingException e) {part=url.substring(epubPrefix.length());}
-                        if(part.endsWith("=N=")) { // we put it at the end so directories might still work, and rely on no epub extension being valid ending like this
-                            part=part.substring(0,part.length()-3); // "=N=".length()
-                            getNextPage = true;
-                        }
                     }
                     if(url.equals(cachedURL)) return cachedWRR;
                     SharedPreferences sp=getPreferences(0);
@@ -2307,21 +2303,16 @@ if epub: android_src += br"""
                             int slash=fName.lastIndexOf("/"); if(slash>-1) fName=fName.substring(slash+1);
                             f.write(("<h2>"+fName+"</h2>Until I write a <em>real</em> table-of-contents handler, you have to make do with <em>this</em>:").getBytes());
                         }
-                        boolean foundHTML = false; // doubles as 'foundPart' if getNextPage
+                        boolean foundHTML = false;
                         while ((ze = zin.getNextEntry()) != null) {
                             if (part==null) {
                                 if(ze.getName().contains("toc.xhtml")) return maybeRedir(zin,ze,part); // (not all EPUBs call it this; there may or may not even be one in the first file in content.opf ref'd in META-INF/container.xml)
                                 if(ze.getName().contains("htm")) { foundHTML = true; f.write(("<p><a href=\""+epubPrefix+ze.getName()+"\">"+ze.getName()+"</a>").getBytes()); }
                             } else if (ze.getName().equalsIgnoreCase(part)) {
-                                if(getNextPage) {
-                                    foundHTML = true;
-                                } else {
-                                    return makeWRR(zin,ze);
-                                }
-                            } else if((foundHTML || getNextPage && part.contains("toc.xhtml")) && ze.getName().contains("htm") && !ze.getName().contains("toc.xhtml")) return maybeRedir(zin,ze,part);
+                                return makeWRR(zin,ze);
+                            }
                         }
                         if(part==null) { if(!foundHTML) f.write(("<p>Error: No HTML files were found in this EPUB").getBytes()); return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(f.toByteArray())); }
-                        else if(foundHTML) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("No more pages<p><a href=\""+epubPrefix+"\">Back to this EPUB's start</a>").getBytes()));
                         else return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("No zip entry for "+part+" in "+epubUrl).getBytes()));
                     } catch (IOException e) {
                         return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
