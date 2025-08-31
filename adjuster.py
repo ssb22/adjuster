@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.245 (c) 2012-25 Silas S. Brown"
+"Web Adjuster v3.246 (c) 2012-25 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -145,8 +145,6 @@ else: # normal run: go ahead with Tornado import
         asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
     except: pass # probably wrong Python version, patch not needed
     import tornado
-    try: from tornado.httpclient import HTTPClientError as HTTPError # Tornado 5.1+
-    except ImportError: from tornado.httpclient import HTTPError # older Tornado
     from tornado.httpclient import AsyncHTTPClient
     try: from tornado.httpserver import HTTPServer
     except: HTTPServer = None # may happen in WSGI mode (e.g. AppEngine can have trouble importing this)
@@ -167,7 +165,7 @@ else: # normal run: go ahead with Tornado import
                 try: r = f.result()
                 except Exception as e: r = e
                 try: callback(r)
-                except Exception as e: # exception in callback
+                except:
                     if req: req.write_error(None,exc_info=sys.exc_info())
                     raise # so it's logged
             theFuture.add_done_callback(getResult)
@@ -529,8 +527,8 @@ try: import htmlentitydefs # Python 2
 except ImportError: import html.entities as htmlentitydefs # Python 3
 try: from urllib2 import build_opener,Request,ProxyHandler,HTTPRedirectHandler,urlopen # Python 2
 except ImportError: from urllib.request import build_opener,Request,ProxyHandler,HTTPRedirectHandler,urlopen # Python 3
-try: from urllib2 import HTTPError as UL_HTTPError # Python 2
-except ImportError: from urllib.error import HTTPError as UL_HTTPError # Python 3
+try: from urllib2 import HTTPError # Python 2
+except ImportError: from urllib.error import HTTPError # Python 3
 try: from commands import getoutput # Python 2
 except ImportError: from subprocess import getoutput # Python 3
 try: import simplejson as json # Python 2.5, and faster?
@@ -608,7 +606,6 @@ def convert_to_via_host(requested_host):
     if not requested_host: requested_host = "" # ??
     else: requested_host = S(requested_host)
     port=":"+str(options.publicPort) # the port to advertise
-    orig_requested_host = requested_host
     if requested_host.endswith(port): requested_host=requested_host[:-len(port)]
     if options.publicPort==80: port=""
     for h in options.host_suffix.split("/"):
@@ -1146,9 +1143,7 @@ class CrossProcessLogging(logging.Handler):
         except: pass
     def emit(self, record): # simplified from Python 3.2 (but put just the dictionary, not the record obj itself, to make pickling errors less likely)
         try:
-            if record.exc_info:
-                placeholder = self.format(record) # record.exc_text
-                record.exc_info = None
+            record.exc_info = None
             d = record.__dict__
             d['msg'],d['args'] = record.getMessage(),None
             self.loggingQ.put(d)
@@ -2025,7 +2020,7 @@ def notifyReady():
 def MyAsyncHTTPClient(): return AsyncHTTPClient()
 def curlFinished(): pass
 def setupCurl(maxCurls,error=None):
-  global pycurl
+  global pycurl, curl_inUse_clients
   try:
     import pycurl # check it's there
     curl_async = pycurl.version_info()[4] & (1 << 7) # CURL_VERSION_ASYNCHDNS
@@ -2638,7 +2633,7 @@ def get_new_Firefox(index,renewing,headless):
     from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
     from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
     profile = FirefoxProfile() ; caps = None
-    log_complaints = (index==0 and not renewing) ; op = None
+    log_complaints = (index==0 and not renewing)
     proxyToUse = None
     if options.js_reproxy:
         from selenium.webdriver.common.proxy import Proxy,ProxyType
@@ -4303,7 +4298,7 @@ document.forms[0].i.focus()
                   callback=lambda r:self.headResponse(r,forPjs),follow_redirects=not forPjs)
     def headResponse(self,response,forPjs):
         try: response.code
-        except Exception as e: response = wrapResponse(str(response))
+        except: response = wrapResponse(str(response))
         debuglog("headResponse "+repr(response.code)+self.debugExtras())
         if hasattr(response, "response"): # Tornado 6 errors can be wrapped
             if hasattr(response.response,"headers"):
@@ -4529,7 +4524,7 @@ def httpfetch(req,url,**kwargs):
     if kwargs.get('proxy_host',None) and kwargs.get('proxy_port',None): req.set_proxy("http://"+kwargs['proxy_host']+':'+kwargs['proxy_port'],"http")
     r = None
     try: resp = build_opener(DoNotRedirect).open(req,timeout=60)
-    except UL_HTTPError as e: resp = e
+    except HTTPError as e: resp = e
     except Exception as e: resp = r = wrapResponse(str(e)) # could be anything, especially if urllib2 has been overridden by a 'cloud' provider
     if r==None: r = wrapResponse(resp.read(),resp.info(),resp.getcode())
     kwargs['callback'](r)
@@ -4556,7 +4551,7 @@ def wrapResponse(body,info={},code=500):
     r.headers = H(info) ; r.body = B(body) ; return r
 
 class DoNotRedirect(HTTPRedirectHandler):
-    def http_error_302(self, req, fp, code, msg, headers): raise UL_HTTPError(req.get_full_url(), code, msg, headers, fp)
+    def http_error_302(self, req, fp, code, msg, headers): raise HTTPError(req.get_full_url(), code, msg, headers, fp)
     http_error_301 = http_error_303 = http_error_307 = http_error_302
 
 class SynchronousRequestForwarder(RequestForwarder):
@@ -5368,7 +5363,7 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
             return self.knownLinePos + offset
         def handle_data(self,data):
             if not data: return
-            oldData = data
+            oldLen=len(data)
             for l in adjustList:
                 data0 = data
                 data = l.handle_data(data)
@@ -5376,7 +5371,7 @@ def HTML_adjust_svc(htmlStr,adjustList,can_use_LXML=True):
             dataStart = self.getBytePos()
             self.out.append(htmlStr[self.lastStart:dataStart])
             self.out.append(data)
-            self.lastStart = dataStart+len(oldData)
+            self.lastStart = dataStart+oldLen
         def handle_entityref(self,name):
             if any(B(l.handle_data('-'))==B("") for l in adjustList): # suppress entities when necessary, e.g. when suppressing noscript in js_interpreter-processed pages
                 dataStart = self.getBytePos()
@@ -5451,7 +5446,6 @@ def HTML_adjust_svc_LXML(htmlStr,adjustList):
             self.out.append(B(data))
         def data(self,unidata):
             data = unidata.encode('utf-8')
-            oldData = data
             for l in adjustList:
                 data0 = data
                 data = l.handle_data(data)
