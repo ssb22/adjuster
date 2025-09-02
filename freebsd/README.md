@@ -16,3 +16,6 @@ discussion on [issue 280091](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=2
 
 Update to version 3.243 [committed](https://cgit.FreeBSD.org/ports/commit/?id=0bca9d486f25c70018964d8ade8200da8a5be1a6),
 discussion on [issue 285656](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=285656)
+
+Update to version 3.246 [committed](https://cgit.freebsd.org/ports/commit/?id=75c1d05c683f743885567036fa8d7af76fc87265),
+discussion on [issue 289199](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=289199)
