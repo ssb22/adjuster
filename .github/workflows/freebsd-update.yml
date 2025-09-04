@@ -2,7 +2,7 @@ name: FreeBSD update
 run-name: create diff for updating FreeBSD port
 on: [workflow_dispatch]
 jobs:
-  Update-on-x86:
+  Create-diff:
     runs-on: ubuntu-latest
     name: create diff
     steps:
@@ -13,7 +13,7 @@ jobs:
         prepare: |
           pkg install -y git
         run: |
-          cd freebsd && ./update.sh
+          cd freebsd && bash update.sh
     - name: Upload output
       uses: actions/upload-artifact@v4
       with:
@@ -21,19 +21,3 @@ jobs:
         path: |
           ${{ github.workspace }}/freebsd/Makefile
           ${{ github.workspace }}/freebsd/adjuster.mbox
-  Test-on-ARM:
-    runs-on: ubuntu-24.04-arm
-    name: test on ARM Ubuntu
-    steps:
-    - name: test if FreeBSD can work in ARM
-      id: test
-      uses: vmactions/freebsd-vm@v1
-      with:
-        arch: aarch64
-        run: |
-          env
-          freebsd-version
-          sysctl hw.model
-          sysctl hw.ncpu
-          sysctl hw.physmem
-          sysctl hw.usermem
