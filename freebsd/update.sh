@@ -1,17 +1,18 @@
 #!/bin/bash
 set -e
 
-if [ -e /etc/make.conf ] && ! [ -e $HOME/.gitconfig ]; then
-    # if running _on_ FreeBSD and git not yet set up, must do that first: it's picky about ownership even when fetching tags
+if [ -e /etc/make.conf ]; then
+    echo "Running on FreeBSD: checking Git is set up appropriately"
     git config --global user.name "Silas S. Brown"
     git config --global user.email ssb22$(echo @)cam.ac.uk
     cd ..
     git config --global --add safe.directory $(pwd)
     for N in $(find . -type d); do git config --global --add safe.directory $(pwd)/$N; done
     cd freebsd
+    echo "Done global git setup"
 fi
 
-# update Makefile to actual current version
+echo "updating Makefile to actual current version"
 echo "PORTNAME=		adjuster" > m
 echo "DISTVERSIONPREFIX=	v" >> m
 export Tags=$(git describe --tags|sed -e s/v//)
@@ -20,7 +21,7 @@ if echo "$Tags"|grep '\-' >/dev/null; then echo "DISTVERSIONSUFFIX=	$(echo "$Tag
 grep -v ^DIST < Makefile | grep -v ^PORTNAME >> m
 mv m Makefile
 
-# create adjuster.mbox
+echo "creating adjuster.mbox"
 if [ -e /etc/make.conf ] ; then
     # we're running _on_ a FreeBSD system: assume we're root
     pkg info portlint || pkg install -y portlint
