@@ -15,7 +15,14 @@ if [ -e /etc/make.conf ] ; then
     # we're running _on_ a FreeBSD system: assume we're root
     pkg info portlint || pkg install -y portlint
     grep DEVELOPER=yes /etc/make.conf 2>/dev/null || echo 'DEVELOPER=yes' >> /etc/make.conf
-    if ! [ -e .gitconfig ]; then git config --global user.name "Silas S. Brown"; git config --global user.email ssb22$(echo @)cam.ac.uk ; fi
+    if ! [ -e $HOME/.gitconfig ]; then
+        git config --global user.name "Silas S. Brown"
+        git config --global user.email ssb22$(echo @)cam.ac.uk
+        cd ..
+        git config --global --add safe.directory $(pwd)
+        for N in $(find . -type d); do git config --global --add safe.directory $(pwd)/$N; done
+        cd freebsd
+    fi
     if ! [ -d /usr/ports ] ; then git clone --depth 1 https://github.com/freebsd/freebsd-ports /usr/ports; fi # use the mirror to save upstream bandwidth: we're not going to push from here
     mkdir -p /usr/ports/www/adjuster/
     cp Makefile pkg-descr /usr/ports/www/adjuster/
