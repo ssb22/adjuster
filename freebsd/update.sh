@@ -15,7 +15,12 @@ fi
 echo "updating Makefile to actual current version"
 echo "PORTNAME=		adjuster" > m
 echo "DISTVERSIONPREFIX=	v" >> m
-export Tags=$((git describe --tags||echo trying unshallow clone 1>&2 && git fetch --depth=2147483647>/dev/null&&git describe --tags)|sed -e s/v//)
+export Tags=$(
+    (git describe --tags ||
+         echo trying unshallow clone 1>&2 &&
+         git fetch --unshallow >/dev/null &&
+         git describe --tags
+    ) | sed -e s/v//)
 echo "DISTVERSION=		$(echo "$Tags"|sed -e 's/-[^-]*$//')" >> m
 if echo "$Tags"|grep '\-' >/dev/null; then echo "DISTVERSIONSUFFIX=	$(echo "$Tags"|sed -e 's/.*\(-[^-]*\)$/\1/')" >> m; fi # else we're at a version point without extra commits
 grep -v ^DIST < Makefile | grep -v ^PORTNAME >> m
