@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-if [ -e /etc/make.conf ]; then
+if [ "$(uname -s)" = "FreeBSD" ]; then
     echo "Running on FreeBSD: checking Git is set up appropriately"
     git config --global user.name "Silas S. Brown"
     git config --global user.email ssb22$(echo @)cam.ac.uk
@@ -22,8 +22,8 @@ grep -v ^DIST < Makefile | grep -v ^PORTNAME >> m
 mv m Makefile
 
 echo "creating adjuster.mbox"
-if [ -e /etc/make.conf ] ; then
-    # we're running _on_ a FreeBSD system: assume we're root
+if [ "$(uname -s)" = "FreeBSD" ] ; then
+    # assume we're root
     pkg info portlint || pkg install -y portlint
     grep DEVELOPER=yes /etc/make.conf 2>/dev/null || echo 'DEVELOPER=yes' >> /etc/make.conf
     if ! [ -d /usr/ports ] ; then git clone --depth 1 https://github.com/freebsd/freebsd-ports /usr/ports; fi # use the mirror to save upstream bandwidth: we're not going to push from here
