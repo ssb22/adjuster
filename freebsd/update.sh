@@ -1,10 +1,16 @@
 #!/bin/bash
 set -e
 
+# Generate diff to submit to FreeBSD.
+# Run this on a machine that's set up to "ssh freebsd"
+# or on a FreeBSD machine itself
+# or use ../.github/workflows/freebsd-update.yml
+
 if [ "$(uname -s)" = "FreeBSD" ]; then
     echo "Running on FreeBSD: checking Git is set up appropriately"
     git config --global user.name "Silas S. Brown"
     git config --global user.email ssb22$(echo @)cam.ac.uk
+    git config --global pull.rebase false
     cd ..
     git config --global --add safe.directory $(pwd)
     for N in $(find . -type d); do git config --global --add safe.directory $(pwd)/$N; done
@@ -50,7 +56,7 @@ else
     # assume we can ssh to the FreeBSD box as root
     ssh freebsd "pkg info portlint || pkg install -y portlint"
     ssh freebsd "grep DEVELOPER=yes /etc/make.conf 2>/dev/null || echo 'DEVELOPER=yes' >> /etc/make.conf"
-    ssh freebsd "if ! [ -e .gitconfig ]; then git config --global user.name 'Silas S. Brown'; git config --global user.email ssb22$(echo @)cam.ac.uk ; fi"
+    ssh freebsd "if ! [ -e .gitconfig ]; then git config --global user.name 'Silas S. Brown'; git config --global user.email ssb22$(echo @)cam.ac.uk ; git config --global pull.rebase false ; fi"
 ssh freebsd mkdir -p /usr/ports/www/adjuster/
 scp Makefile pkg-descr freebsd:/usr/ports/www/adjuster/
 ssh freebsd 'cd /usr/ports/www/adjuster/ && rm -rf work distinfo && make makesum && portlint -A && (make deinstall || true) && make install && rm -rf work && git add * && git commit * -m "www/adjuster '"$(grep -m 1 '^"Web' ../adjuster.py|cut -d ' ' -f3)"'"'
