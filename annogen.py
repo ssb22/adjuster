@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.41 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.411 (c) 2012-25 Silas S. Brown"
 
 # See http://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -5466,7 +5466,7 @@ if not compile_only:
  outputParser(rulesAndConds) ; del rulesAndConds
  outfile.close() ; sys.stderr.write("Output complete\n")
 if android:
-   can_compile_android = all(x in os.environ for x in ["SDK","PLATFORM","BUILD_TOOLS"])
+   can_compile_android = "ANDROID_HOME" in os.environ
    can_track_android = (can_compile_android and android_upload_playstore) or ("GOOGLE_PLAY_TRACK" in os.environ and "SERVICE_ACCOUNT_KEY" in os.environ and not os.environ.get("ANDROID_NO_RETRACK",""))
    if can_compile_android and compile_only and (android_upload_playstore or android_upload_huawei): update_android_manifest() # AndroidManifest.xml will not have been updated, so we'd better do it now
    os.chdir(jSrc+"/..")
@@ -5474,18 +5474,21 @@ if android:
    if not dirName0: dirName0 = "/" # unlikely
    dirName = shell_escape(dirName0)
    if can_compile_android: # TODO: use aapt2 and figure out how to make a 'bundle' with it so Play Store can accept new apps after August 2021 ?  (which requires giving them your signing keys, and I don't see the point in enforcing the 'bundle' format for a less than 1k saving due to not having to package multiple launcher icons on each device, and you'd probably have to compile non-Store apks separately.)  Don't know if/when updates to pre-Aug2021 apps will be required to be in Bundle format.
-     cmd_or_exit("$BUILD_TOOLS/aapt package -0 '' -v -f -I $PLATFORM/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
-     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath $PLATFORM/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
+     def newest(d): return os.environ["ANDROID_HOME"]+os.sep+d+os.sep+sorted(p for p in os.listdir(os.environ["ANDROID_HOME"]+os.sep+d))[-1] # TODO: when gets to 100 will need sort -n
+     os.environ["PLATFORM"] = newest("platforms")
+     os.environ["BUILD_TOOLS"] = newest("build-tools")
+     cmd_or_exit("\"$BUILD_TOOLS\"/aapt package -0 '' -v -f -I \"$PLATFORM\"/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
+     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath \"$PLATFORM\"/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      if os.path.exists(os.environ["BUILD_TOOLS"]+"/dx"): # older SDK
       a = " -JXmx4g --force-jumbo" # -J option must go first
-      if "min-sdk-version" in getoutput("$BUILD_TOOLS/dx --help"):
+      if "min-sdk-version" in getoutput("\"$BUILD_TOOLS\"/dx --help"):
        a += " --min-sdk-version=1" # older versions of dx don't have that flag, but will be min-sdk=1 anyway
-      cmd_or_exit("$BUILD_TOOLS/dx"+a+" --dex --output=bin/classes.dex bin/")
-     else: cmd_or_exit("$BUILD_TOOLS/d8 --min-api 1 --output bin $(find bin -type f -name '*.class')")
+      cmd_or_exit("\"$BUILD_TOOLS\"/dx"+a+" --dex --output=bin/classes.dex bin/")
+     else: cmd_or_exit("\"$BUILD_TOOLS\"/d8 --min-api 1 --output bin $(find bin -type f -name '*.class')")
      cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
-     cmd_or_exit("cd bin && $BUILD_TOOLS/aapt add -0 '' "+dirName+".ap_ classes.dex")
-     cmd_or_exit("rm -f bin/"+dirName0+".apk && $BUILD_TOOLS/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk && rm -f ../"+dirName0+".apk")
-     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("$BUILD_TOOLS/apksigner sign --ks $KEYSTORE_FILE --v1-signer-name $KEYSTORE_USER --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out ../"+dirName+".apk bin/"+dirName+".apk")
+     cmd_or_exit("cd bin && \"$BUILD_TOOLS\"/aapt add -0 '' "+dirName+".ap_ classes.dex")
+     cmd_or_exit("rm -f bin/"+dirName0+".apk && \"$BUILD_TOOLS\"/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk && rm -f ../"+dirName0+".apk")
+     if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("\"$BUILD_TOOLS\"/apksigner sign --ks \"$KEYSTORE_FILE\" --v1-signer-name \"$KEYSTORE_USER\" --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out ../"+dirName+".apk bin/"+dirName+".apk")
      cmd_or_exit("rm -f bin/"+dirName0+".ap_ bin/"+dirName0+".apk")
      if not can_track_android: cmd_or_exit("du -h ../"+dirName+".apk")
    if can_track_android:
@@ -5544,9 +5547,9 @@ if android:
      import textwrap ; sys.stderr.write(textwrap.fill("Android source has been written to "+jSrc[:-3]+"""
 To have Annogen build it for you, set these environment variables before the Annogen run (change the examples obviously) :
 
-   export SDK=/home/example/Android/Sdk
-   export PLATFORM=$SDK/platforms/android-33
-   export BUILD_TOOLS=$SDK/build-tools/33.0.1
+   export ANDROID_HOME=/home/example/Android/Sdk
+   export PLATFORM=$ANDROID_HOME/platforms/android-33
+   export BUILD_TOOLS=$ANDROID_HOME/build-tools/33.0.1
 
 To sign the build (required for release), additionally set:
 
