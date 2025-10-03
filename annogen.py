@@ -5477,15 +5477,20 @@ if android:
      def newest(d): return os.environ["ANDROID_HOME"]+os.sep+d+os.sep+sorted(p for p in os.listdir(os.environ["ANDROID_HOME"]+os.sep+d))[-1] # TODO: when gets to 100 will need sort -n
      os.environ["PLATFORM"] = newest("platforms")
      os.environ["BUILD_TOOLS"] = newest("build-tools")
-     cmd_or_exit("\"$BUILD_TOOLS\"/aapt package -0 '' -v -f -I \"$PLATFORM\"/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/resources.ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
-     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && javac -Xlint:deprecation -classpath \"$PLATFORM\"/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
+     java_version = int(re.sub("[.].*","",getoutput("javac --version").split()[1]))
+     if java_version <= 11: javac = "javac"
+     elif java_version <= 17: javac = "javac -source 1.8 -target 1.8" # Debian 12 "Bookworm"
+     else:
+       javac="/usr/lib/jvm/java-11-openjdk-amd64/bin/javac"
+       if not os.path.exists(javac): errExit("javac seems too new for Android's d8, try apt install openjdk-11-jdk (set JAVA_HOME or use update-java-alternatives if necessary)") # this can happen on Ubuntu 24.04 which has 21 (22.04 has 11); the above -source and -target don't fix it for d8 on 21
+     cmd_or_exit("\"$BUILD_TOOLS\"/aapt package -0 '' -v -f -I \"$PLATFORM\"/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/"+dirName+".ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
+     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && "+javac+" -Xlint:deprecation -classpath \"$PLATFORM\"/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      if os.path.exists(os.environ["BUILD_TOOLS"]+"/dx"): # older SDK
       a = " -JXmx4g --force-jumbo" # -J option must go first
       if "min-sdk-version" in getoutput("\"$BUILD_TOOLS\"/dx --help"):
        a += " --min-sdk-version=1" # older versions of dx don't have that flag, but will be min-sdk=1 anyway
       cmd_or_exit("\"$BUILD_TOOLS\"/dx"+a+" --dex --output=bin/classes.dex bin/")
-     else: cmd_or_exit("\"$BUILD_TOOLS\"/d8 --min-api 1 --output bin $(find bin -type f -name '*.class')")
-     cmd_or_exit("cp bin/resources.ap_ bin/"+dirName+".ap_")
+     else: cmd_or_exit("\"$BUILD_TOOLS\"/d8 --lib \"$PLATFORM\"/android.jar --min-api 1 --output bin $(find bin -type f -name '*.class')")
      cmd_or_exit("cd bin && \"$BUILD_TOOLS\"/aapt add -0 '' "+dirName+".ap_ classes.dex")
      cmd_or_exit("rm -f bin/"+dirName0+".apk && \"$BUILD_TOOLS\"/zipalign 4 bin/"+dirName+".ap_ bin/"+dirName+".apk && rm -f ../"+dirName0+".apk")
      if all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS"]): cmd_or_exit("\"$BUILD_TOOLS\"/apksigner sign --ks \"$KEYSTORE_FILE\" --v1-signer-name \"$KEYSTORE_USER\" --ks-pass env:KEYSTORE_PASS --key-pass env:KEYSTORE_PASS --out ../"+dirName+".apk bin/"+dirName+".apk")
