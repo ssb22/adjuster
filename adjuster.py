@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.246 (c) 2012-25 Silas S. Brown"
+"Web Adjuster v3.247 (c) 2012-25 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1210,7 +1210,10 @@ class BrowserLogger:
     if hasattr(req,"suppress_logging"): return
     if S(req.method) not in the_supported_methods and not options.logUnsupported: return
     if S(req.method)=="CONNECT" or re.match(B("https?://"),B(req.uri)): host="" # URI will have everything
-    elif hasattr(req,"suppress_logger_host_convert"): host = req.host
+    elif hasattr(req,"suppress_logger_host_convert"):
+        if type(req.suppress_logger_host_convert)==str:
+            host = req.suppress_logger_host_convert
+        else: host = req.host
     else: host=B(convert_to_real_host(req.host,ch))
     if host in [-1,B("error")]: host=req.host
     elif host: host=protocolWithHost(host)
@@ -3331,7 +3334,9 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
         msg = ipMatchingFunc(self.request.remote_ip)
         if not msg: return False
         if B(msg).startswith(B('*')): # a block
-            self.write(B(htmlhead("Blocked"))+B(msg)[1:]+B("</body></html>")) ; self.myfinish() ; return True
+            self.write(B(htmlhead("Blocked"))+B(msg)[1:]+B("</body></html>"))
+            self.request.suppress_logger_host_convert = "[ip-blocked]" # so not identical to a URL with host converted (including extension URL)
+            self.myfinish() ; return True
         if B(self.request.uri) in [B("/robots.txt"),B("/favicon.ico")]: return False
         cookies = ';'.join(self.request.headers.get_list("Cookie"))
         if B(msg).startswith(B('-')): # minor edit
