@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.411 (c) 2012-25 Silas S. Brown"
+"Annotator Generator v3.42 (c) 2012-26 Silas S. Brown"
 
 # See https://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1671,7 +1671,7 @@ int main(int argc,char*argv[]) {
 """
 
 # ANDROID: setDefaultTextEncodingName("utf-8") is included as it might be needed if you include file:///android_asset/ URLs in your app (files put into assets/) as well as remote URLs.  (If including ONLY file URLs then you don't need to set the INTERNET permission in Manifest, but then you might as well pre-annotate the files and use a straightforward static HTML app like https://ssb22.user.srcf.net/indexer/html2apk.html )
-# Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list) (TODO: API 1's shouldOverrideUrlLoading was deprecated in API 24; if they remove it, we may have to provide both to remain compatible?)
+# Also we get shouldOverrideUrlLoading to return true for URLs that end with .apk .pdf .epub .mp3 etc so the phone's normal browser can handle those (search code below for ".apk" for the list)
 android_upload_playstore = all(x in os.environ for x in ["KEYSTORE_FILE","KEYSTORE_USER","KEYSTORE_PASS","SERVICE_ACCOUNT_KEY"]) and not os.environ.get("ANDROID_NO_UPLOAD","")
 android_upload_huawei = all(x in os.environ for x in ["HUAWEI_CLIENT_ID","HUAWEI_CLIENT_SECRET"]) and not os.environ.get("ANDROID_NO_UPLOAD","")
 android_release_huawei = all(x in os.environ for x in ["HUAWEI_CLIENT_ID","HUAWEI_CLIENT_SECRET","ANDROID_NO_UPLOAD"])
@@ -1850,492 +1850,12 @@ android_src += br"""
 if android_template: android_src += br"""
         float fs = getResources().getConfiguration().fontScale; // from device accessibility settings
         if (fs < 1.0f) fs = 1.0f; // bug in at least some versions of Android 8 returns 0 for fontScale
-        final float fontScale=fs*fs; // for backward compatibility with older annogen (and pre-Android 4 version that still sets setDefaultFontSize) : unconfirmed reports say the OS scales the size units anyway, so we've been squaring fontScale all along, which is probably just as well because old Android versions don't offer much range in their settings"""
+        fontScale=fs*fs; // for backward compatibility with older annogen (and pre-Android 4 version that still sets setDefaultFontSize) : unconfirmed reports say the OS scales the size units anyway, so we've been squaring fontScale all along, which is probably just as well because old Android versions don't offer much range in their settings"""
 android_src += br"""
-        @TargetApi(1)
-        class A {
-            public A(MainActivity act) {
-                this.act = act;"""
-if sharp_multi or known_characters or android_template: android_src += br"""
-                SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);"""
-if sharp_multi: android_src += br"""
-                annotNo = Integer.valueOf(sp.getString("annotNo", "0")); setSharpMultiPattern();"""
-if known_characters: android_src += br"""
-                knownChars = sp.getString("knownChars", ""); setKnownCharsPattern();"""
-if android_template: android_src += br"""
-                if(canCustomZoom()) setZoomLevel(Integer.valueOf(sp.getString("zoom", "4")));
-                setIncludeAll(sp.getString("includeAll", "f").equals("t"));"""
-android_src += br"""
-            }
-            MainActivity act; String copiedText="";"""
-if existing_ruby_shortcut_yarowsky: android_src += br"""
-            @JavascriptInterface public void setYShortcut(boolean v) { if(annotator!=null) annotator.shortcut_nearTest=v; }"""
-if sharp_multi: android_src += br""" int annotNo;
-            @JavascriptInterface public void setAnnotNo(int no) { annotNo = no;
-                android.content.SharedPreferences.Editor e;
-                do {
-                e = getSharedPreferences("ssb_local_annotator",0).edit();
-                e.putString("annotNo",String.valueOf(annotNo));
-                } while(!e.commit()); setSharpMultiPattern();
-            }
-            void setSharpMultiPattern() {
-                smPat=Pattern.compile("<rt>"+new String(new char["""+annotMap()+br"""]).replace("\0","[^#]*#")+"([^#]*?)(#.*?)?</rt>"); // don't need to deal with <rt class=known> here, as we're working before that's applied
-            }
-            Pattern smPat=Pattern.compile("<rt>([^#]*?)(#.*?)?</rt>");
-            @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
-if known_characters: android_src += br"""
-            @JavascriptInterface public String getKnownCharacters() { return knownChars; }
-            @JavascriptInterface public void setKnownCharacters(String known) {
-                knownChars = known;
-                android.content.SharedPreferences.Editor e;
-                do {
-                e = getSharedPreferences("ssb_local_annotator",0).edit();
-                e.putString("knownChars",known);
-                } while(!e.commit());
-                setKnownCharsPattern();
-            }
-            String knownChars = "";
-            Pattern kcPat;
-            void setKnownCharsPattern() {
-                if (knownChars.isEmpty()) kcPat=null;
-                else kcPat=Pattern.compile("(<rb>["+knownChars+"]+</rb><rt)(>.*?</rt>)");
-            }
-"""
-if android_template: android_src += br"""
-            int zoomLevel; boolean includeAllSetting;
-            @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
-            final int[] zoomPercents = new int[] {"""+B(','.join(str(x) for x in (list(reversed([int((0.9**x)*100) for x in range(5)][1:]))+[int((1.1**x)*100) for x in range(15)])))+br"""};
-            @JavascriptInterface public int getZoomPercent() { return zoomPercents[zoomLevel]; }
-            @JavascriptInterface public int getRealZoomPercent() { return Math.round(zoomPercents[zoomLevel]*fontScale); }
-            @JavascriptInterface public int getMaxZoomLevel() { return zoomPercents.length-1; }
-            @JavascriptInterface @TargetApi(14) public void setZoomLevel(final int level) {
-                act.runOnUiThread(new Runnable(){
-                    @Override public void run() {
-                        browser.getSettings().setTextZoom(Math.round(zoomPercents[level]*fontScale));
-                    }
-                });
-                android.content.SharedPreferences.Editor e;
-                do { e = getSharedPreferences("ssb_local_annotator",0).edit();
-                     e.putString("zoom",String.valueOf(level));
-                } while(!e.commit());
-                zoomLevel = level;
-            }
-            @JavascriptInterface public boolean getIncludeAll() { return includeAllSetting; }
-            @JavascriptInterface public void setIncludeAll(boolean i) {
-                android.content.SharedPreferences.Editor e;
-                do { e = getSharedPreferences("ssb_local_annotator",0).edit();
-                     e.putString("includeAll",i?"t":"f");
-                } while(!e.commit());
-                includeAllSetting = i;
-            }"""
-android_src += br"""
-            @JavascriptInterface public String annotate(String t) throws DataFormatException { if(annotator==null) return t; String r=annotator.annotate(t);"""
-if sharp_multi: android_src += br"""
-                Matcher m = smPat.matcher(r);
-                StringBuffer sb=new StringBuffer();
-                while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(1)+"</rt>");
-                m.appendTail(sb); r=sb.toString();"""+B(annotation_postprocess)
-if known_characters: android_src += br"""
-                if(kcPat!=null) {
-                    Matcher k = kcPat.matcher(r);
-                    StringBuffer s2=new StringBuffer();
-                    while(k.find()) k.appendReplacement(s2, k.group(1)+" class=known"+k.group(2));
-                    k.appendTail(s2); r=s2.toString();
-                }"""
-if epub: android_src += br"""if(loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"\u200e"+r;""" # &lrm; needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair.  Fix in v0.6899: use Unicode rather than &lrm; as the latter is not recognised as "valid XML" by Android 10, leading to innerHTML assignment throwing an exception, which in previous versions went uncaught and led to unexplained disappearance of text instead of annotation, usually at 1 chunk per second due to runTimerLoop.  (This issue was not manifest on Android 9 and below.)
-android_src += br"""return r; }
-            @JavascriptInterface public void alert(String text,String annot,String gloss) {
-                class DialogTask implements Runnable {
-                    String tt,aa,gg;
-                    DialogTask(String t,String a,String g) { tt=t; aa=a; gg=g; }
-                    @Override public void run() {
-                        android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
-                        if(tt.length()>0) d.setTitle(tt+aa);"""
-if pleco_hanping:
-  if android_audio: maxDicts,xtraItems=0,2
-  else: maxDicts,xtraItems=1,1
-  android_src += br"""
-                        if(tt.length()>0 && dictionaries>%d) {
-                            int nItems=dictionaries+%d; if(gg.length()==0) --nItems;
-                            String[] items=new String[nItems]; int i=0;
-                            if(gg.length()>0) items[i++]=gg;
-                            if(hanpingVersion[0]!=0) items[i++]="\u25b6CantoDict";
-                            if(hanpingVersion[1]!=0) items[i++]="\u25b6Hanping Pro";
-                            if(hanpingVersion[2]!=0) items[i++]="\u25b6Hanping Lite";
-                            if(gotPleco) items[i++]="\u25b6Pleco";""" % (maxDicts,xtraItems)
-  if android_audio: android_src += br"""
-                            items[i++]="\ud83d\udd0aAudio";
-  """
-  android_src += br"""
-                            // TODO: (if gloss exists) to prevent popup disappearing if items[0] is tapped, use d.setAdapter instead of d.setItems?  items must then implement android.widget.ListAdapter with: boolean isEnabled(int position) { return position!=0; } boolean areAllItemsEnabled() { return false; } int getCount(); Object getItem(int position); long getItemId(int position) { return position; } int getItemViewType(int position) { return -1; } boolean hasStableIds() { return true; } boolean isEmpty() { return false; } void registerDataSetObserver(android.database.DataSetObserver observer) {} void unregisterDataSetObserver(android.database.DataSetObserver observer) {}  but still need to implement android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) (init convertView or get a new one) and int getViewTypeCount()
-                            d.setItems(items,new android.content.DialogInterface.OnClickListener() {
-                                @TargetApi(11) public void onClick(android.content.DialogInterface dialog,int id) {
-                                    int test=0,i;
-                                    if(gg.length()==0) --test;
-                                    for(i=0; i<3; i++) if(hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build()); h.setPackage(hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); try { startActivity(h); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Hanping uninstalled?",Toast.LENGTH_LONG).show(); } }
-                                    if(gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt+aa); try { startActivity(p); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Pleco uninstalled?",Toast.LENGTH_LONG).show(); } }"""
-  if android_audio: android_src += br"""
-                                    if(++test==id) { sendToAudio(tt); act.runOnUiThread(new DialogTask(tt,aa,gg)); }"""
-  android_src += br"""
-                        } });
-                        } else"""
-android_src += br"""
-                        if(gg.length()>0) d.setMessage(gg);
-                        d.setNegativeButton("Copy",new android.content.DialogInterface.OnClickListener() {
-                                public void onClick(android.content.DialogInterface dialog,int id) { copy(tt+aa+" "+gg,false); }
-                        });"""
-if pleco_hanping:
-  if android_audio: android_src += br"""
-                        if(dictionaries==0 && tt.length()>0) d.setNeutralButton("Audio", new android.content.DialogInterface.OnClickListener() {public void onClick(android.content.DialogInterface dialog,int id) {sendToAudio(tt); act.runOnUiThread(new DialogTask(tt,aa,gg));}});"""
-  else: android_src += br"""
-                        if(dictionaries==1) { /* for consistency with old versions, have a 'middle button' if there's only one recognised dictionary app installed */
-                        if(tt.length()==0) { /* Pleco or Hanping button not added if empty title i.e. error/info box */ }
-                        else if(gotPleco) d.setNeutralButton("Pleco", new android.content.DialogInterface.OnClickListener() {
-                            public void onClick(android.content.DialogInterface dialog,int id) {
-                                Intent i = new Intent(Intent.ACTION_MAIN);
-                                i.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity"));
-                                i.addCategory(Intent.CATEGORY_LAUNCHER);
-                                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                                i.putExtra("launch_section", "dictSearch");
-                                i.putExtra("replacesearchtext", tt+aa);
-                                try { startActivity(i); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Pleco uninstalled?",Toast.LENGTH_LONG).show(); }
-                            }
-                        }); else d.setNeutralButton("Hanping", new android.content.DialogInterface.OnClickListener() {
-                            @TargetApi(11)
-                            public void onClick(android.content.DialogInterface dialog,int id) {
-                                int v; for(v=0; hanpingVersion[v]==0; v++);
-                                Intent i = new Intent(Intent.ACTION_VIEW);
-                                i.setData(new android.net.Uri.Builder().scheme(hanpingVersion[v]<906030000?"dictroid":"hanping").appendEncodedPath((hanpingPackage[v].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build());
-                                i.setPackage(hanpingPackage[v]);
-                                i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
-                                try { startActivity(i); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Hanping uninstalled?",Toast.LENGTH_LONG).show(); }
-                            }
-                        }); }"""
-if glossfile: android_src += br"""
-                        if (tt.length()>0) {
-                        // TODO: 3-line persist to pop-ups (re-scan the DOM)?
-                        // TODO: 3-line persist to other pages? (might be counterproductive to encouraging people not to rely on it)
-                        d.setPositiveButton("1/2/3L", // not 1L/2L/3L: on some zoomed-in Android 13 phones it wraps and leaves the "3L" occluded
-new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() {
-                            android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);"""
-if known_characters and glossfile: # TODO: might want a way of getting this choice if known_characters and not glossfile, probably by providing some alternative to the 1/2/3L button in this case
-  android_src += br"""
-                            if(!knownChars.isEmpty()) {
-                                String[] items=new String[2];
-                                items[0]=new String("Show all"); items[1]=new String("Hide known");
-                                d.setItems(items,new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int hideOrNot) {
-                                    if(hideOrNot==0) act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
-"javascript:var h=document.getElementById('ssb_hide0');if(h)h.parentNode.removeChild(h)"
-); } }); else act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
-"javascript:var h=document.getElementById('ssb_hide0');if(!h){h=document.createElement('span');h.setAttribute('id','ssb_hide0');h.innerHTML='<style>rt.known{display:none!important}</style>';document.body.insertBefore(h,document.body.firstChild.nextSibling)}"
-); } }); } }); } else"""
-if glossfile: android_src += br"""
-                            d.setTitle("Choose a format:");
-                            d.setPositiveButton("1 line",new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
-"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l2)l2.parentNode.removeChild(l2);if(!l1){var e=document.createElement('span');e.setAttribute('id','ssb_1Line');e.innerHTML='<style>rt{display:none!important}</style>';document.body.insertBefore(e,document.body.firstChild.nextSibling)}"
-); } }); } });
-                            d.setNeutralButton("2 lines",new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
-"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(!l2){var e=document.createElement('span');e.setAttribute('id','ssb_2Line');e.innerHTML='<style>rt:not(:last-of-type){display:none!important}</style>';document.body.insertBefore(e,document.body.firstChild.nextSibling)}"
-); } }); } });
-                            d.setNegativeButton("3 lines",new android.content.DialogInterface.OnClickListener() { public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new Runnable() { @Override public void run() { browser.loadUrl(
-"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(l2)l2.parentNode.removeChild(l2);var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"[^>]*><rb>(.*?)<[/]rb><rt(.*?)>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,known,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt'+known+'>'+title.split(' || ')"""+(b".map(function(m){return m.replace(/"+B(gloss_simplify).replace(b'\\',br'\\').replace(b'"',br'\"')+b"/g,'')})" if gloss_simplify else b"")+br""".join(' ')+'</rt><rt'+known+'>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});if(!ad0[i].inLink){var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)}} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
-/* Above rp elements are to make firstChild etc work in
-   dialogue.  Don't do whole document.body.innerHTML, or
-   scripts like document.write may execute a second time,
-   but DO read innerHTML afterwards to work around bug in
-   Chrome 33, otherwise whole document replaced by last
-   ad0 found.  Also need the alert box, or document.write
-   scripts in the page run twice.  (This 'tend to be
-   incomplete' message seems as good as any.  NB the
-   glosses are being trimmed.)  onclick= is removed in the
-   postprocessing loop due to sites that put unsafe-inline
-   in their Content-Security-Policy headers. */
-); } }); } });
-                            try { d.create().show(); } catch(Exception e) { Toast.makeText(act, "Unable to create popup box",Toast.LENGTH_LONG).show(); }
-                        } }); } });
-                        } else """
-android_src += br"""
-                        d.setPositiveButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
-                        try { d.create().show(); }
-                        catch(Exception e) {
-                            Toast.makeText(act, "Unable to create popup box",Toast.LENGTH_LONG).show(); // some reports of WindowManager$BadTokenException crash, maybe users are popping up too many boxes at a time?? catching like this for now
-                        }
-                    }
-                }
-                act.runOnUiThread(new DialogTask(text,annot,gloss));
-            }
-            @JavascriptInterface public String getClip() {
-                String r=readClipboard(); if(r.equals(copiedText)) return ""; else return r;
-            }
-            @JavascriptInterface public boolean isFocused() {
-                return _isFocused;
-            }"""
-if android_template: android_src += br"""
-            @JavascriptInterface public boolean canCustomZoom() {
-                return AndroidSDK >= 14;
-            }"""
-if android_print: android_src += br"""
-            @JavascriptInterface public String canPrint() {
-                if(AndroidSDK >= 24) return "\ud83d\udda8";
-                else if(AndroidSDK >= 19) return "<span style=color:black;background:white;padding:0.3ex>P</span>";
-                else return "";
-            }
-            @JavascriptInterface public boolean printNeedsCssHack() {
-                return AndroidSDK >= 30; // known good on 29, known bad on 31 (as of 2022-06, at least on Samsung phones; fault not reproduced on Pixel 2 simulated in AVD, with or without updates, but not sure if we can read the device manufacturer from here)
-            }
-            boolean printing_in_progress = false;
-            @TargetApi(19)
-            @JavascriptInterface public void print() {
-                act.runOnUiThread(new Runnable(){
-                    @Override public void run() {
-                        if(printing_in_progress) return;
-                        printing_in_progress = true;
-                        try {
-                            ((PrintManager) act.getSystemService(android.content.Context.PRINT_SERVICE)).print("annotated",new PrintDocumentAdapter(){
-                                PrintDocumentAdapter delegate=(AndroidSDK >= 21) ? (PrintDocumentAdapter)(WebView.class.getMethod("createPrintDocumentAdapter",new Class[] { String.class }).invoke(browser,"Annotated document")) : browser.createPrintDocumentAdapter(); // (createPrintDocumentAdapter w/out string deprecated in API 21; using introspection so this still compiles with API 19 SDKs e.g. old Eclipse)
-                                @Override @SuppressLint("WrongCall") public void onLayout(PrintAttributes a, PrintAttributes b, CancellationSignal c, LayoutResultCallback d, Bundle e) { delegate.onLayout(a, b, c, d, e); }
-                                @Override public void onWrite(PageRange[] a, ParcelFileDescriptor b, CancellationSignal c, WriteResultCallback d) { try { delegate.onWrite(a,b,c,d); } catch(IllegalStateException e){Toast.makeText(act, "Print glitch. Press Back and try again.",Toast.LENGTH_LONG).show();} }
-                                @Override public void onStart() { browser.setVisibility(android.view.View.INVISIBLE); delegate.onStart(); }
-                                @Override public void onFinish() { delegate.onFinish(); browser.setVisibility(android.view.View.VISIBLE); printing_in_progress=false; }
-                            },new PrintAttributes.Builder().build());
-                        } catch (NoSuchMethodException e) {} catch (IllegalAccessException e) {} catch (InvocationTargetException e) {}
-                    }
-                });
-            }"""
-if tts_js: android_src += br"""
-            @JavascriptInterface public boolean TTS(String s) { return doTTS(s); }
-            @JavascriptInterface public boolean TTSIsSet() { return tts_keep!=null; }
-            @JavascriptInterface public String TTSInfo(String voices_to_set) {
-                // Optionally init a voice; return voice list.
-                // You might need to call this twice, with
-                // a delay to let it initialise, to get
-                // the list.  Call with "" just to list.
-                // 
-                // List is likely to be useful in Google's
-                // version of Android, but might not be so
-                // useful in AOSP (Huawei etc): not tested
-                // on their non-Google devices.
-                // 
-                // Must init a voice before TTSIsSet()==true and TTS() works.
-                // (Will be checked for in clipboard.html; you can also check in extra-js)
-                // voices_to_set: comma-separated in order of preference (TODO: what if the 'better' one doesn't work due to network or firewall issues?) or "" to find none
-                // 
-                // Limitation: only one voice may be selected by TTSInfo; subsequent calls just return in-progress or cached list (if changing this, beware of race conditions in the async init)
-                // Known bug: after a device is upgraded from Android 11 to Android 12, the first time this app is launched it might select the wrong voice (and e.g. get a UK English voice to read out Google's Pinyin conversion of hanzi), could not reproduce this a second time, suspect race condition with the upgrade scripts finishing off
-                // 
-                return TTSTest(1,","+voices_to_set+",");
-            }"""
-if android_template: android_src += br"""
-            @TargetApi(17)
-            @JavascriptInterface public boolean isDevMode() {
-                return ((AndroidSDK==16)?android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),android.provider.Settings.Secure.DEVELOPMENT_SETTINGS_ENABLED,0):((AndroidSDK>=17)?android.provider.Settings.Secure.getInt(getApplicationContext().getContentResolver(),android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,0):0)) != 0;
-            }
-            boolean devCSS = false;
-            @JavascriptInterface public void setDevCSS() {
-                devCSS = true;
-            }
-            @JavascriptInterface public boolean getDevCSS() {
-                return devCSS;
-            }"""
-android_src += br"""
-            @JavascriptInterface public void bringToFront() {
-                if(AndroidSDK >= 3) {
-                    startService(new Intent(MainActivity.this, BringToFront.class));
-                    nextBackHides = true;
-                }
-            }
-            @JavascriptInterface public boolean canGoForward() { return browser.canGoForward(); }
-            @JavascriptInterface public String getSentText() { return sentText; }
-            @JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */"""
-if android_upload_playstore: android_src += br"""
-            @JavascriptInterface public void openPlayStore() {
-                /* ssb_local_annotator.openPlayStore() opens the Google "Play Store" page
-                   for the app (if you've deployed it there), for use in encouraging
-                   users to update to a more recent annotator etc (please don't use it
-                   to ask for ratings: that is very annoying).  Limited to only the
-                   current app just in case a site being browsed tries to hijack it. */
-                String id=getApplicationContext().getPackageName();
-                Intent i=new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("market://details?id="+id));
-                for(android.content.pm.ResolveInfo playApp: getApplicationContext().getPackageManager().queryIntentActivities(i,0)) {
-                    if (playApp.activityInfo.applicationInfo.packageName.equals("com.android.vending")) {
-                        i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        i.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-                        i.setComponent(new android.content.ComponentName(playApp.activityInfo.applicationInfo.packageName,playApp.activityInfo.name));
-                        getApplicationContext().startActivity(i);
-                        return;
-                    }
-                }
-                getApplicationContext().startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://play.google.com/store/apps/details?id="+id))); // fallback
-            }"""
-android_src += br"""
-            @JavascriptInterface @TargetApi(11) public void copy(String copiedText,boolean toast) {
-                this.copiedText = copiedText;
-                if(AndroidSDK < Build.VERSION_CODES.HONEYCOMB)
-                    ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
-                else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
-                if(toast && AndroidSDK<33) Toast.makeText(act, "Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
-            }"""
-if android_audio: android_src += br"""
-            @JavascriptInterface public void sendToAudio(final String s) {
-                class InjectorTask implements Runnable { InjectorTask() {} @Override public void run() { try { browser.loadUrl("javascript:var src='"""+B(android_audio)+br""""+java.net.URLEncoder.encode(s,"utf-8")+"';if(!window.audioElement || window.audioElement.getAttribute('src')!=src){window.audioElement=document.createElement('audio');window.audioElement.setAttribute('src',src)}window.audioElement.play()"); } catch(java.io.UnsupportedEncodingException e) {} Toast.makeText(act, "Sent \""+s+"\" to audio server",Toast.LENGTH_LONG).show(); } };
-                act.runOnUiThread(new InjectorTask());
-            }"""
-if epub: android_src += br"""
-            @JavascriptInterface public void getEPUB() { Intent i = new Intent(Intent.ACTION_GET_CONTENT); i.setType("*/*"); /* application/epub+zip leaves all files unselectable on Android 4.4 */ try { startActivityForResult(i, 8778); } catch (ActivityNotFoundException e) { Toast.makeText(act,"Please install a file manager",Toast.LENGTH_LONG).show(); } }"""
-if bookmarks: android_src += br"""
-            @SuppressLint("DefaultLocale")
-            @JavascriptInterface public void addBM(String p) {
-                android.content.SharedPreferences.Editor e;
-                do {
-                   SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
-                   String s=sp.getString("prefs", ",");
-                   if((","+s).contains(","+p+",")) { // we have to give it a number
-                       int count=1; String p2; while(true) {
-                           p2=String.format("%s (%d)", p, ++count);
-                           if(!(","+s).contains(","+p2+",")) break;
-                       } p=p2;
-                   }
-                   s += p+",";
-                   e = sp.edit();
-                   e.putString("prefs",s);
-                } while(!e.commit());
-                Toast.makeText(act, "Added bookmark", Toast.LENGTH_LONG).show();
-            }
-            @JavascriptInterface public void deleteBM(String p) {
-                android.content.SharedPreferences.Editor e; boolean done=false; String s,p2;"""+B("".join(r"""
-                try {
-                    do {
-                        SharedPreferences sp=createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0);
-                        p2=","+sp.getString("prefs", ",");
-                        s=p2.replaceFirst(Pattern.quote(","+p+","), ",");
-                        if(s.equals(p2)) break;
-                        e = sp.edit(); done=true;
-                        e.putString("prefs",s.substring(1));
-                     } while(!e.commit());
-                } catch(Exception x) {} if(done) return;""" % p for p in bookmarks.split(",") if not p==jPackage))+br"""
-                do {
-                   SharedPreferences sp=getSharedPreferences("ssb_local_annotator",0);
-                   p2=","+sp.getString("prefs", ",");
-                   s=p2.replaceFirst(Pattern.quote(","+p+","), ",");
-                   if(s.equals(p2)) break;
-                e = sp.edit();
-                e.putString("prefs",s.substring(1));
-                } while(!e.commit());
-            }
-            @JavascriptInterface public String getBMs() {
-                String s="";"""+B("".join(r"""
-                try { s = createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==jPackage))+br"""
-                return s+getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
-            }""" # and even if not bookmarks:
-android_src += b"\n}\n" + b"try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this,\"Cannot load annotator data!\",Toast.LENGTH_LONG).show(); String m=e.getMessage(); if(m!=null) Toast.makeText(this,m,Toast.LENGTH_LONG).show(); }" # TODO: should we keep a static synchronized annotator instance, in case some version of Android gives us multiple Activity instances and we start taking up more RAM than necessary?
-android_src += br"""
-        browser.addJavascriptInterface(new A(this),"ssb_local_annotator"); // hope no conflict with web JS
+        browser.addJavascriptInterface(new AnnotatorBridge(this),"ssb_local_annotator"); // hope no conflict with web JS
+        try { annotator=new %%JPACKAGE%%.Annotator(getApplicationContext()); } catch(Exception e) { Toast.makeText(this,"Cannot load annotator data!",Toast.LENGTH_LONG).show(); String m=e.getMessage(); if(m!=null) Toast.makeText(this,m,Toast.LENGTH_LONG).show(); } // TODO: should we keep a static synchronized annotator instance, in case some version of Android gives us multiple Activity instances and we start taking up more RAM than necessary?
         final MainActivity act = this;
-        browser.setWebViewClient(new WebViewClient() {
-                @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! Carrier redirect? Old phone?",Toast.LENGTH_LONG).show(); if(AndroidSDK<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
-                @TargetApi(4) public boolean shouldOverrideUrlLoading(WebView view,String url) {
-                    if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) {
-                        // Let the default browser download this file, but prefer not to let EPUB-reader apps intercept the URL: we want it _downloaded_ so we can annotate it, but some users might get confused, so give preference to Chrome or Kindle Silk, starting the Chooser only if neither is installed
-                        Intent i=new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url));
-                        if(AndroidSDK < 4) startActivity(i); // no way to specify package preference
-                        else { i.setPackage("com.android.chrome"); try { startActivity(i); } catch (ActivityNotFoundException e1) { i.setPackage("com.amazon.cloud9"); try { startActivity(i); } catch (ActivityNotFoundException e2) { i.setPackage(null); startActivity(i); } } }
-                        return true;
-                    } else {
-                        needJsCommon=3; return false;
-                    }
-                }"""
-if epub: android_src += br"""
-                WebResourceResponse makeWRR(ZipInputStream zin,ZipEntry ze) throws IOException {
-                    // assumes zin is in position to read content of ze and we've decided to serve it
-                    int bufSize=(int)ze.getSize();
-                    if(bufSize==-1) bufSize=20480;
-                    ByteArrayOutputStream f=new ByteArrayOutputStream(bufSize);
-                    byte[] buf=new byte[bufSize];
-                    int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
-                    String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
-                    if(mimeType==null || mimeType.equals("application/xhtml+xml")) mimeType="text/html"; // needed for annogen style modifications
-                    if(mimeType.equals("text/html")) {
-                    ZipEntry ze2; while ((ze2 = zin.getNextEntry()) != null) if(ze2.getName().contains("htm") && !ze2.getName().contains("toc.xhtml")) break;
-                    return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceAll("<[iI][mM][gG] ","<img loading=lazy ").replaceFirst("</[bB][oO][dD][yY]>","<p><script>"+(ze.getName().contains("toc.xhtml")?"":"document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+(ze2!=null ? ze2.getName() : "")+"\">'""")+br""");")+"var v=function(e,i){if(i<e.length){e[i].removeAttribute('loading');if(e[i].complete)window.setTimeout(function(){v(e,i+1)},100);else e[i].onload=function(){v(e,i+1)}}};v(document.getElementsByTagName('img'),0)</script>"+(ze.getName().contains("toc.xhtml")?"":"Next</a>")+"</body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
-                    } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
-                }
-                final String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
-                String cachedURL=null;
-                WebResourceResponse cachedWRR=null;
-                WebResourceResponse maybeRedir(ZipInputStream zin,ZipEntry ze,String requestedPart) throws IOException {
-                    // If requestedPart is changed, ensure browser is in correct directory for images etc
-                    WebResourceResponse r=makeWRR(zin,ze);
-                    String actualPart = ze.getName();
-                    int d=actualPart.lastIndexOf("/");
-                    if(d<=0) { if(requestedPart==null || requestedPart.lastIndexOf("/")<=0) return r; }
-                    else if(requestedPart!=null && requestedPart.lastIndexOf("/")==d && requestedPart.substring(0,d).equals(actualPart.substring(0,d))) return r;
-                    cachedWRR=r; cachedURL=epubPrefix+actualPart;
-                    return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading redirect... <script>window.location='"+cachedURL+"'</script>").getBytes()));
-                }
-                @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
-                    loadingEpub = url.startsWith(epubPrefix); // TODO: what if an epub includes off-site prerequisites? (should we be blocking that?) : setting loadingEpub false would suppress the lrm marks (could make them unconditional but more overhead; could make loadingEpub 'stay on' for rest of session)
-                    if (!loadingEpub) return null;
-                    String part=null;
-                    if(url.contains("#")) url=url.substring(0,url.indexOf("#"));
-                    if(url.length() > epubPrefix.length()) {
-                        try { part=URLDecoder.decode(url.substring(epubPrefix.length()),"utf-8"); } catch(UnsupportedEncodingException e) {part=url.substring(epubPrefix.length());}
-                    }
-                    if(url.equals(cachedURL)) return cachedWRR;
-                    SharedPreferences sp=getPreferences(0);
-                    String epubUrl=sp.getString("epub","");
-                    if(epubUrl.length()==0) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("epubUrl setting not found").getBytes()));
-                    Uri epubUri=Uri.parse(epubUrl);
-                    ZipInputStream zin = null;
-                    try {
-                        zin = new ZipInputStream(getContentResolver().openInputStream(epubUri));
-                    } catch (FileNotFoundException e) {
-                        return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Unable to open "+epubUrl+"<p>"+e.toString()+"<p>Could this be a permissions problem?").getBytes()));
-                    } catch (SecurityException e) {
-                        return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Insufficient permissions to open "+epubUrl+"<p>"+e.toString()).getBytes()));
-                    }
-                    ZipEntry ze;
-                    try {
-                        ByteArrayOutputStream f=null;
-                        if(part==null) {
-                            f=new ByteArrayOutputStream();
-                            String fName; try { fName=URLDecoder.decode(epubUrl,"utf-8"); } catch(UnsupportedEncodingException e) {fName=epubUrl;}
-                            int slash=fName.lastIndexOf("/"); if(slash>-1) fName=fName.substring(slash+1);
-                            f.write(("<h2>"+fName+"</h2>Until I write a <em>real</em> table-of-contents handler, you have to make do with <em>this</em>:").getBytes());
-                        }
-                        boolean foundHTML = false;
-                        while ((ze = zin.getNextEntry()) != null) {
-                            if (part==null) {
-                                if(ze.getName().contains("toc.xhtml")) return maybeRedir(zin,ze,part); // (not all EPUBs call it this; there may or may not even be one in the first file in content.opf ref'd in META-INF/container.xml)
-                                if(ze.getName().contains("htm")) { foundHTML = true; f.write(("<p><a href=\""+epubPrefix+ze.getName()+"\">"+ze.getName()+"</a>").getBytes()); }
-                            } else if (ze.getName().equalsIgnoreCase(part)) {
-                                return makeWRR(zin,ze);
-                            }
-                        }
-                        if(part==null) { if(!foundHTML) f.write(("<p>Error: No HTML files were found in this EPUB").getBytes()); return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(f.toByteArray())); }
-                        else return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("No zip entry for "+part+" in "+epubUrl).getBytes()));
-                    } catch (IOException e) {
-                        return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
-                    } finally { try { zin.close(); } catch(IOException e) {} }
-                }"""
-if android_print: android_print_script = br"""if(ssb_local_annotator.canPrint())document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+br"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')"""
-else: android_print_script = b""
-if epub and android_print: android_src = android_src.replace(b"Next</a>",b"Next</a><script>"+android_print_script+b"</script>")
-if not android_template: android_src += br"""
-                float scale = 0; boolean scaling = false;
-                public void onScaleChanged(final WebView view,float from,final float to) {
-                    if (AndroidSDK < 19 || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
-                    scaling=view.postDelayed(new Runnable() { public void run() {
-                        view.evaluateJavascript("document.body.style.width=((window.visualViewport!=undefined?window.visualViewport.width:window.innerWidth)-getComputedStyle(document.body).marginLeft.replace(/px/,'')*1-getComputedStyle(document.body).marginRight.replace(/px/,'')*1)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null); // window.outerWidth will still be excessive on 4.4; not sure there's much we can do about that
-                        scale=to; scaling=false;
-                    } }, 100);
-                }"""
-android_src += br"""
-                public void onPageFinished(WebView view,String url) {
-                    if(AndroidSDK < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.  Also handles displaying the forward button when needed (4.4+ uses different logic for this in onKeyDown, because API19+ reduces frequency of scans when same length, due to it being only a backup to MutationObserver)
-                    browser.loadUrl("javascript:"+js_common+"function AnnotMonitor() { AnnotIfLenChanged();if(!document.doneFwd && ssb_local_annotator.canGoForward()){var e=document.getElementById('annogenFwdBtn');if(e){e.style.display='inline';document.doneFwd=1}}window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
-                    else browser.evaluateJavascript(js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var j;if(mut.length==1)for(j=0;j<mut[0].addedNodes.length;j++){var n=mut[0].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href)||m.nodeName=='BUTTON';ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}else window.setTimeout(AnnotIfLenChanged,500)}).observe(document.body,{childList:true,subtree:true})",null); // run only if 1 set of changed nodes, otherwise can run too long (especially if iterating on own changes) so use a setTimeout (or wait for runTimerLoop fallback, but that might be on a 5sec wait).  The setTimeout needs to be AnnotIfLenChanged not just annotScan, because multiple ones might get batched up and tie up the browser, especially on Android 10 (not so bad on Android 13).
-                } });"""
+        browser.setWebViewClient(new CustomWebViewClient(this));"""
 if android_template: android_src += br"""
         if(AndroidSDK >= 3 && AndroidSDK < 14 || AndroidSDK >= 19) { /* (we have our own zoom functionality on API 14+ which works better on 19+) */
             browser.getSettings().setBuiltInZoomControls(true);
@@ -2353,6 +1873,9 @@ else: android_src += br"""
         final int size=Math.round(16*fs); // from device accessibility settings (might be squared if OS does it too, but that's OK because the settings don't give enough of a range)
         browser.getSettings().setDefaultFontSize(size);
         browser.getSettings().setDefaultFixedFontSize(size);"""
+if android_print: android_print_script = br"""if(ssb_local_annotator.canPrint())document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+br"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')"""
+else: android_print_script = b""
+if epub and android_print: android_src = android_src.replace(b"Next</a>",b"Next</a><script>"+android_print_script+b"</script>")
 android_src += br"""
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         runTimerLoop();
@@ -2426,21 +1949,7 @@ if tts_js: android_src += br"""
             if (ttsList != "") return ttsList;
             if(AndroidSDK < 21) return "Android 5+ required for multilingual TTS";
             if(eiList==null) {
-                tts = new TextToSpeech(context,new TextToSpeech.OnInitListener(){
-                        public void onInit(int status) {
-                            if(tts == null) {
-                                ttsList += "race-condition fail";
-                                return;
-                            }
-                            if (status != 0) {
-                                ttsList += "init fail";
-                                return;
-                            }
-                            eiList = tts.getEngines();
-                            try { tts.shutdown(); } catch(Exception e) {} tts = null;
-                            TTSTest(1,voices_to_set);
-                        }
-                    });
+                tts = new TextToSpeech(context,new TTSInitListener(this,voices_to_set));
                 return "Fetching engine list";
             }
             ttsList="TTS voice list:\n";
@@ -2449,31 +1958,7 @@ if tts_js: android_src += br"""
         for(TextToSpeech.EngineInfo ei : eiList) {
             if (++i < batchNo) continue;
             found = true;
-            tts2 = new TextToSpeech(context,new TextToSpeech.OnInitListener(){
-                    public void onInit(int status) {
-                        if (tts2 == null) {
-                            ttsList += "(engine race-condition fail)";
-                            return;
-                        }
-                        if (status != 0) {
-                            ttsList += "(engine init fail)";
-                            return;
-                        }
-                        boolean do_shutdown = true;
-                        java.util.Set<Voice> voices; try { voices=tts2.getVoices(); } catch(Exception e) { voices=null; } if(voices==null /* (either by exception or otherwise, e.g. on somebody's Android 11 getVoices() simply returned null) */) { ttsList += "(getVoices fail)"; return; }
-                        for(Voice v: voices) {
-                            ttsList += v.getName()+"(lang="+v.getLocale().getLanguage()+" variant="+v.getLocale().getVariant()+" quality="+String.valueOf(v.getQuality())+" connection="+(v.isNetworkConnectionRequired()?"t":"f")+" latency="+String.valueOf(v.getLatency())+")\n";
-                            int dx=voices_to_set.indexOf(","+v.getName()+",");
-                            if (dx>-1 && (found_dx==-1 || dx < found_dx) && tts2.setVoice(v)==TextToSpeech.SUCCESS) {
-                                if(tts_keep!=null && do_shutdown) try { tts_keep.shutdown(); } catch(Exception e) {} // != tts2
-                                tts_keep = tts2; do_shutdown=false;
-                                found_dx = dx;
-                            }
-                        }
-                        if (do_shutdown) try { tts2.shutdown(); } catch(Exception e) {}
-                        TTSTest(batchNo+1,voices_to_set);
-                    }
-                },ei.name);
+            tts2 = new TextToSpeech(context,new TTSInitListener2(this,voices_to_set,batchNo),ei.name);
             break; // we have to wait for 1st tts2 to be processed before starting next, hence batchNo
         }
         if(!found) {
@@ -2488,20 +1973,7 @@ android_src += br"""
     void runTimerLoop() {
         if(AndroidSDK >= 19) { // on Android 4.4+ we can do evaluateJavascript while page is still loading (useful for slow-network days) - but setTimeout won't usually work so we need an Android OS timer
             final Handler theTimer = new Handler(Looper.getMainLooper());
-            theTimer.postDelayed(new Runnable() {
-                @Override public void run() {
-                    final Runnable r = this;
-                    runOnUiThread(new Runnable() { @Override public void run() {
-                      browser.evaluateJavascript(((needJsCommon>0)?js_common:"")+"AnnotIfLenChanged()",new android.webkit.ValueCallback<String>() {
-                        @Override
-                        public void onReceiveValue(String s) {
-                            theTimer.postDelayed(r,(s!=null && s.contains("sameLen"))?5000:1000); // s.equals("\"sameLen\"", is this true in all versions of the API?)
-                        }
-                      });
-                      if(needJsCommon>0) --needJsCommon;
-                    } });
-                }
-            },0);
+            theTimer.postDelayed(new Timer1(this,theTimer),0);
         }
     }
     boolean nextBackHides = false, _isFocused = true;
@@ -2522,19 +1994,7 @@ android_src += br"""
                 if(AndroidSDK<19) return true; // before Android 4.4 we can't evaluateJavascript, and unclear if we can loadUrl javascript: when we don't have onPageFinished on back, but AnnotMonitor runs at a higher frequency so we let that do it instead of this
                 needJsCommon=3;
                 final Handler theTimer=new Handler(Looper.getMainLooper());
-                theTimer.postDelayed(new Runnable() {
-                  int tried=0;
-                  @Override public void run() {
-                    if(++tried==9) return;
-                    runOnUiThread(new Runnable() {
-                    @Override public void run() {
-                        if(browser.getUrl().equals(fwdUrl)) {
-                            // not yet finished going back
-                            theTimer.postDelayed(this,500);
-                        } else browser.evaluateJavascript("function annogenMakeFwd(){var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'; else window.setTimeout(annogenMakeFwd,1000)}annogenMakeFwd()",null);
-                    }});
-                  }
-                },500);
+                theTimer.postDelayed(new FwdMaker(this,fwdUrl,theTimer),500);
                 return true;
             }
         } return super.onKeyDown(keyCode, event);
@@ -2557,14 +2017,679 @@ android_src += br"""
 if(isFinishing() && AndroidSDK<23 && browser!=null) browser.clearCache(true); super.onDestroy(); } // (Chromium bug 245549 needed this workaround to stop taking up too much 'data' (not counted as cache) on old phones; it MIGHT be OK in API 22, or even API 20 with updates, but let's set the threshold at 23 just to be sure.  This works only if the user exits via Back button, not via swipe in Activity Manager: no way to catch that.)
     @SuppressWarnings("deprecation") // we use Build.VERSION.SDK only if we're on an Android so old that SDK_INT is not available:
     int AndroidSDK = (android.os.Build.VERSION.RELEASE.startsWith("1.") ? Integer.valueOf(Build.VERSION.SDK) : Build.VERSION.SDK_INT);
+    String copiedText="";
+    @SuppressWarnings("deprecation")
+    @TargetApi(11) public void copy(String copiedText,boolean toast) {
+        this.copiedText = copiedText;
+        if(AndroidSDK < Build.VERSION_CODES.HONEYCOMB)
+            ((android.text.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setText(copiedText);
+        else ((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText(copiedText,copiedText));
+        if(toast && AndroidSDK<33) Toast.makeText(this,"Copied \""+copiedText+"\"",Toast.LENGTH_LONG).show();
+    }
     WebView browser;"""
-if epub: android_src += b" boolean loadingEpub = false;"
-android_src += b"}\n"
+if android_print: android_src += b"\n    boolean printing_in_progress = false;"
+if android_template: android_src += b"\n    final int[] zoomPercents = new int[] {"+B(','.join(str(x) for x in (list(reversed([int((0.9**x)*100) for x in range(5)][1:]))+[int((1.1**x)*100) for x in range(15)])))+b"};"
+if epub: android_src += b"\n    boolean loadingEpub = false;"
+if known_characters: android_src += b"""
+    String knownChars = "";"""
+android_src += br"""
+    float fontScale;
+// Classes that used to be inner classes, refactored to this level to work around d8 bugs on JDK 21:
+static class CustomWebViewClient extends WebViewClient {
+    public CustomWebViewClient(MainActivity act) { this.act = act; }
+    MainActivity act;
+    @TargetApi(8) @Override public void onReceivedSslError(WebView view, android.webkit.SslErrorHandler handler, android.net.http.SslError error) { Toast.makeText(act,"Cannot check encryption! Carrier redirect? Old phone?",Toast.LENGTH_LONG).show(); if(act.AndroidSDK<0) handler.cancel(); else handler.proceed(); } // must include both cancel() and proceed() for Play Store, although Toast warning should be enough in our context
+    @TargetApi(24) public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return shouldOverrideUrlLoading(view,request.getUrl().toString()); }
+    @TargetApi(4) @SuppressWarnings("deprecation") public boolean shouldOverrideUrlLoading(WebView view,String url) {
+        if(url.endsWith(".apk") || url.endsWith(".pdf") || url.endsWith(".epub") || url.endsWith(".mp3") || url.endsWith(".zip")) {
+            // Let the default browser download this file, but prefer not to let EPUB-reader apps intercept the URL: we want it _downloaded_ so we can annotate it, but some users might get confused, so give preference to Chrome or Kindle Silk, starting the Chooser only if neither is installed
+            Intent i=new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url));
+            if(act.AndroidSDK < 4) act.startActivity(i); // no way to specify package preference
+           else { i.setPackage("com.android.chrome"); try { act.startActivity(i); } catch (ActivityNotFoundException e1) { i.setPackage("com.amazon.cloud9"); try { act.startActivity(i); } catch (ActivityNotFoundException e2) { i.setPackage(null); act.startActivity(i); } } }
+            return true;
+        } else {
+            act.needJsCommon=3; return false;
+        }
+    }"""
+if epub: android_src += br"""
+    WebResourceResponse makeWRR(ZipInputStream zin,ZipEntry ze) throws IOException {
+        // assumes zin is in position to read content of ze and we've decided to serve it
+        int bufSize=(int)ze.getSize();
+        if(bufSize==-1) bufSize=20480;
+        ByteArrayOutputStream f=new ByteArrayOutputStream(bufSize);
+        byte[] buf=new byte[bufSize];
+        int r; while ((r=zin.read(buf))!=-1) f.write(buf,0,r);
+        String mimeType=android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(android.webkit.MimeTypeMap.getFileExtensionFromUrl(ze.getName()));
+        if(mimeType==null || mimeType.equals("application/xhtml+xml")) mimeType="text/html"; // needed for annogen style modifications
+        if(mimeType.equals("text/html")) {
+        ZipEntry ze2; while ((ze2 = zin.getNextEntry()) != null) if(ze2.getName().contains("htm") && !ze2.getName().contains("toc.xhtml")) break;
+        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceAll("<[iI][mM][gG] ","<img loading=lazy ").replaceFirst("</[bB][oO][dD][yY]>","<p><script>"+(ze.getName().contains("toc.xhtml")?"":"document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+(ze2!=null ? ze2.getName() : "")+"\">'""")+br""");")+"var v=function(e,i){if(i<e.length){e[i].removeAttribute('loading');if(e[i].complete)window.setTimeout(function(){v(e,i+1)},100);else e[i].onload=function(){v(e,i+1)}}};v(document.getElementsByTagName('img'),0)</script>"+(ze.getName().contains("toc.xhtml")?"":"Next</a>")+"</body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+        } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
+    }
+    final String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
+    String cachedURL=null;
+    WebResourceResponse cachedWRR=null;
+    WebResourceResponse maybeRedir(ZipInputStream zin,ZipEntry ze,String requestedPart) throws IOException {
+        // If requestedPart is changed, ensure browser is in correct directory for images etc
+        WebResourceResponse r=makeWRR(zin,ze);
+        String actualPart = ze.getName();
+        int d=actualPart.lastIndexOf("/");
+        if(d<=0) { if(requestedPart==null || requestedPart.lastIndexOf("/")<=0) return r; }
+        else if(requestedPart!=null && requestedPart.lastIndexOf("/")==d && requestedPart.substring(0,d).equals(actualPart.substring(0,d))) return r;
+        cachedWRR=r; cachedURL=epubPrefix+actualPart;
+        return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Loading redirect... <script>window.location='"+cachedURL+"'</script>").getBytes()));
+    }
+    @SuppressWarnings("deprecation")
+    @TargetApi(11) public WebResourceResponse shouldInterceptRequest (WebView view, String url) {
+        act.loadingEpub = url.startsWith(epubPrefix); // TODO: what if an epub includes off-site prerequisites? (should we be blocking that?) : setting loadingEpub false would suppress the lrm marks (could make them unconditional but more overhead; could make loadingEpub 'stay on' for rest of session)
+        if (!act.loadingEpub) return null;
+        String part=null;
+        if(url.contains("#")) url=url.substring(0,url.indexOf("#"));
+        if(url.length() > epubPrefix.length()) {
+            try { part=URLDecoder.decode(url.substring(epubPrefix.length()),"utf-8"); } catch(UnsupportedEncodingException e) {part=url.substring(epubPrefix.length());}
+        }
+        if(url.equals(cachedURL)) return cachedWRR;
+        SharedPreferences sp=act.getPreferences(0);
+        String epubUrl=sp.getString("epub","");
+        if(epubUrl.length()==0) return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("epubUrl setting not found").getBytes()));
+        Uri epubUri=Uri.parse(epubUrl);
+        ZipInputStream zin = null;
+        try {
+            zin = new ZipInputStream(act.getContentResolver().openInputStream(epubUri));
+        } catch (FileNotFoundException e) {
+            return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Unable to open "+epubUrl+"<p>"+e.toString()+"<p>Could this be a permissions problem?").getBytes()));
+        } catch (SecurityException e) {
+            return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("Insufficient permissions to open "+epubUrl+"<p>"+e.toString()).getBytes()));
+        }
+        ZipEntry ze;
+        try {
+            ByteArrayOutputStream f=null;
+            if(part==null) {
+                f=new ByteArrayOutputStream();
+                String fName; try { fName=URLDecoder.decode(epubUrl,"utf-8"); } catch(UnsupportedEncodingException e) {fName=epubUrl;}
+                int slash=fName.lastIndexOf("/"); if(slash>-1) fName=fName.substring(slash+1);
+                f.write(("<h2>"+fName+"</h2>Until I write a <em>real</em> table-of-contents handler, you have to make do with <em>this</em>:").getBytes());
+            }
+            boolean foundHTML = false;
+            while ((ze = zin.getNextEntry()) != null) {
+                if (part==null) {
+                    if(ze.getName().contains("toc.xhtml")) return maybeRedir(zin,ze,part); // (not all EPUBs call it this; there may or may not even be one in the first file in content.opf ref'd in META-INF/container.xml)
+                    if(ze.getName().contains("htm")) { foundHTML = true; f.write(("<p><a href=\""+epubPrefix+ze.getName()+"\">"+ze.getName()+"</a>").getBytes()); }
+                } else if (ze.getName().equalsIgnoreCase(part)) {
+                    return makeWRR(zin,ze);
+                }
+            }
+            if(part==null) { if(!foundHTML) f.write(("<p>Error: No HTML files were found in this EPUB").getBytes()); return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(f.toByteArray())); }
+            else return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream(("No zip entry for "+part+" in "+epubUrl).getBytes()));
+        } catch (IOException e) {
+            return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
+        } finally { try { zin.close(); } catch(IOException e) {} }
+    }"""
+if not android_template: android_src += br"""
+    float scale = 0; boolean scaling = false;
+    public void onScaleChanged(final WebView view,float from,final float to) {
+        if (AndroidSDK < 19 || !view.isShown() || scaling || Math.abs(scale-to)<0.01) return;
+        scaling=view.postDelayed(new ScaleAdjuster(this,view), 100);
+    }"""
+android_src += br"""
+    public void onPageFinished(WebView view,String url) {
+        if(act.AndroidSDK < 19) // Pre-Android 4.4, so below runTimer() alternative won't work.  This version has to wait for the page to load entirely (including all images) before annotating.  Also handles displaying the forward button when needed (4.4+ uses different logic for this in onKeyDown, because API19+ reduces frequency of scans when same length, due to it being only a backup to MutationObserver)
+        act.browser.loadUrl("javascript:"+act.js_common+"function AnnotMonitor() { AnnotIfLenChanged();if(!document.doneFwd && ssb_local_annotator.canGoForward()){var e=document.getElementById('annogenFwdBtn');if(e){e.style.display='inline';document.doneFwd=1}}window.setTimeout(AnnotMonitor,1000)} AnnotMonitor()");
+        else act.browser.evaluateJavascript(act.js_common+"AnnotIfLenChanged(); var m=window.MutationObserver;if(m)new m(function(mut){var j;if(mut.length==1)for(j=0;j<mut[0].addedNodes.length;j++){var n=mut[0].addedNodes[j],inLink=0,m=n,ok=1;while(ok&&m&&m!=document.body){inLink=inLink||(m.nodeName=='A'&&!!m.href)||m.nodeName=='BUTTON';ok=m.className!='_adjust0';m=m.parentNode}if(ok)annotWalk(n,document,inLink,false)}else window.setTimeout(AnnotIfLenChanged,500)}).observe(document.body,{childList:true,subtree:true})",null); // run only if 1 set of changed nodes, otherwise can run too long (especially if iterating on own changes) so use a setTimeout (or wait for runTimerLoop fallback, but that might be on a 5sec wait).  The setTimeout needs to be AnnotIfLenChanged not just annotScan, because multiple ones might get batched up and tie up the browser, especially on Android 10 (not so bad on Android 13).
+    }
+}
+@TargetApi(1)
+static class AnnotatorBridge {
+    public AnnotatorBridge(MainActivity act) {
+        this.act = act;"""
+if sharp_multi or known_characters or android_template: android_src += br"""
+        SharedPreferences sp=act.getSharedPreferences("ssb_local_annotator",0);"""
+if sharp_multi: android_src += br"""
+        annotNo = Integer.valueOf(sp.getString("annotNo", "0")); setSharpMultiPattern();"""
+if known_characters: android_src += br"""
+        act.knownChars = sp.getString("knownChars", ""); setKnownCharsPattern();"""
+if android_template: android_src += br"""
+        if(canCustomZoom()) setZoomLevel(Integer.valueOf(sp.getString("zoom", "4")));
+        setIncludeAll(sp.getString("includeAll", "f").equals("t"));"""
+android_src += br"""
+    }
+    MainActivity act;"""
+if existing_ruby_shortcut_yarowsky: android_src += br"""
+    @JavascriptInterface public void setYShortcut(boolean v) { if(act.annotator!=null) act.annotator.shortcut_nearTest=v; }"""
+if sharp_multi: android_src += br""" int annotNo;
+    @JavascriptInterface public void setAnnotNo(int no) { annotNo = no;
+        android.content.SharedPreferences.Editor e;
+        do {
+        e = act.getSharedPreferences("ssb_local_annotator",0).edit();
+        e.putString("annotNo",String.valueOf(annotNo));
+        } while(!e.commit()); setSharpMultiPattern();
+    }
+    void setSharpMultiPattern() {
+        smPat=Pattern.compile("<rt>"+new String(new char["""+annotMap()+br"""]).replace("\0","[^#]*#")+"([^#]*?)(#.*?)?</rt>"); // don't need to deal with <rt class=known> here, as we're working before that's applied
+    }
+    Pattern smPat=Pattern.compile("<rt>([^#]*?)(#.*?)?</rt>");
+    @JavascriptInterface public int getAnnotNo() { return annotNo; }"""
+if known_characters: android_src += br"""
+    @JavascriptInterface public String getKnownCharacters() { return act.knownChars; }
+    @JavascriptInterface public void setKnownCharacters(String known) {
+        act.knownChars = known;
+        android.content.SharedPreferences.Editor e;
+        do {
+        e = act.getSharedPreferences("ssb_local_annotator",0).edit();
+        e.putString("knownChars",known);
+        } while(!e.commit());
+        setKnownCharsPattern();
+    }
+    Pattern kcPat;
+    void setKnownCharsPattern() {
+        if (act.knownChars.isEmpty()) kcPat=null;
+        else kcPat=Pattern.compile("(<rb>["+act.knownChars+"]+</rb><rt)(>.*?</rt>)");
+    }
+"""
+if android_template: android_src += br"""
+    int zoomLevel; boolean includeAllSetting;
+    @JavascriptInterface public int getZoomLevel() { return zoomLevel; }
+    @JavascriptInterface public int getZoomPercent() { return act.zoomPercents[zoomLevel]; }
+    @JavascriptInterface public int getRealZoomPercent() { return Math.round(act.zoomPercents[zoomLevel]*act.fontScale); }
+    @JavascriptInterface public int getMaxZoomLevel() { return act.zoomPercents.length-1; }
+    @JavascriptInterface @TargetApi(14) public void setZoomLevel(final int level) {
+        act.runOnUiThread(new ZoomSetter(act,level));
+        android.content.SharedPreferences.Editor e;
+        do { e = act.getSharedPreferences("ssb_local_annotator",0).edit();
+             e.putString("zoom",String.valueOf(level));
+        } while(!e.commit());
+        zoomLevel = level;
+    }
+    @JavascriptInterface public boolean getIncludeAll() { return includeAllSetting; }
+    @JavascriptInterface public void setIncludeAll(boolean i) {
+        android.content.SharedPreferences.Editor e;
+        do { e = act.getSharedPreferences("ssb_local_annotator",0).edit();
+             e.putString("includeAll",i?"t":"f");
+        } while(!e.commit());
+        includeAllSetting = i;
+    }"""
+android_src += br"""
+    @JavascriptInterface public String annotate(String t) throws DataFormatException { if(act.annotator==null) return t; String r=act.annotator.annotate(t);"""
+if sharp_multi: android_src += br"""
+        Matcher m = smPat.matcher(r);
+        StringBuffer sb=new StringBuffer();
+        while(m.find()) m.appendReplacement(sb, "<rt>"+m.group(1)+"</rt>");
+        m.appendTail(sb); r=sb.toString();"""+B(annotation_postprocess)
+if known_characters: android_src += br"""
+        if(kcPat!=null) {
+            Matcher k = kcPat.matcher(r);
+            StringBuffer s2=new StringBuffer();
+            while(k.find()) k.appendReplacement(s2, k.group(1)+" class=known"+k.group(2));
+            k.appendTail(s2); r=s2.toString();
+        }"""
+if epub: android_src += br"""if(act.loadingEpub && r.contains("<ruby")) r=(r.startsWith("<ruby")?"<span></span>":"")+"\u200e"+r;""" # &lrm; needed due to &rlm; in the back-navigation links of some footnotes etc; empty span is to help annotWalk space-repair.  Fix in v0.6899: use Unicode rather than &lrm; as the latter is not recognised as "valid XML" by Android 10, leading to innerHTML assignment throwing an exception, which in previous versions went uncaught and led to unexplained disappearance of text instead of annotation, usually at 1 chunk per second due to runTimerLoop.  (This issue was not manifest on Android 9 and below.)
+android_src += br"""return r; }
+    @JavascriptInterface public void alert(String text,String annot,String gloss) {
+        act.runOnUiThread(new DialogTask(text,annot,gloss,act));
+    }
+    @JavascriptInterface public String getClip() {
+        String r=act.readClipboard(); if(r.equals(act.copiedText)) return ""; else return r;
+    }
+    @JavascriptInterface public boolean isFocused() {
+        return act._isFocused;
+    }"""
+if android_template: android_src += br"""
+    @JavascriptInterface public boolean canCustomZoom() {
+        return act.AndroidSDK >= 14;
+    }"""
+if android_print: android_src += br"""
+    @JavascriptInterface public String canPrint() {
+        if(act.AndroidSDK >= 24) return "\ud83d\udda8";
+        else if(act.AndroidSDK >= 19) return "<span style=color:black;background:white;padding:0.3ex>P</span>";
+        else return "";
+    }
+    @JavascriptInterface public boolean printNeedsCssHack() {
+        return act.AndroidSDK >= 30; // known good on 29, known bad on 31 (as of 2022-06, at least on Samsung phones; fault not reproduced on Pixel 2 simulated in AVD, with or without updates, but not sure if we can read the device manufacturer from here)
+    }
+    @JavascriptInterface public void print() {
+        act.runOnUiThread(new PrintRunnable(act));
+    }"""
+if tts_js: android_src += br"""
+    @JavascriptInterface public boolean TTS(String s) { return act.doTTS(s); }
+    @JavascriptInterface public boolean TTSIsSet() { return act.tts_keep!=null; }
+    @JavascriptInterface public String TTSInfo(String voices_to_set) {
+        // Optionally init a voice; return voice list.
+        // You might need to call this twice, with
+        // a delay to let it initialise, to get
+        // the list.  Call with "" just to list.
+        // 
+        // List is likely to be useful in Google's
+        // version of Android, but might not be so
+        // useful in AOSP (Huawei etc): not tested
+        // on their non-Google devices.
+        // 
+        // Must init a voice before TTSIsSet()==true and TTS() works.
+        // (Will be checked for in clipboard.html; you can also check in extra-js)
+        // voices_to_set: comma-separated in order of preference (TODO: what if the 'better' one doesn't work due to network or firewall issues?) or "" to find none
+        // 
+        // Limitation: only one voice may be selected by TTSInfo; subsequent calls just return in-progress or cached list (if changing this, beware of race conditions in the async init)
+        // Known bug: after a device is upgraded from Android 11 to Android 12, the first time this app is launched it might select the wrong voice (and e.g. get a UK English voice to read out Google's Pinyin conversion of hanzi), could not reproduce this a second time, suspect race condition with the upgrade scripts finishing off
+        // 
+        return act.TTSTest(1,","+voices_to_set+",");
+    }"""
+if android_template: android_src += br"""
+    @TargetApi(17)
+    @SuppressWarnings("deprecation")
+    @JavascriptInterface public boolean isDevMode() {
+        return ((act.AndroidSDK==16)?android.provider.Settings.Secure.getInt(act.getApplicationContext().getContentResolver(),android.provider.Settings.Secure.DEVELOPMENT_SETTINGS_ENABLED,0):((act.AndroidSDK>=17)?android.provider.Settings.Secure.getInt(act.getApplicationContext().getContentResolver(),android.provider.Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,0):0)) != 0;
+    }
+    boolean devCSS = false;
+    @JavascriptInterface public void setDevCSS() {
+        devCSS = true;
+    }
+    @JavascriptInterface public boolean getDevCSS() {
+        return devCSS;
+    }"""
+android_src += br"""
+    @JavascriptInterface public void bringToFront() {
+        if(act.AndroidSDK >= 3) {
+            act.startService(new Intent(act, BringToFront.class));
+            act.nextBackHides = true;
+        }
+    }
+    @JavascriptInterface public boolean canGoForward() { return act.browser.canGoForward(); }
+    @JavascriptInterface public String getSentText() { return act.sentText; }
+    @JavascriptInterface public String getLanguage() { return java.util.Locale.getDefault().getLanguage(); } /* ssb_local_annotator.getLanguage() returns "en", "fr", "de", "es", "it", "ja", "ko" etc */"""
+if android_upload_playstore: android_src += br"""
+    @SuppressWarnings("deprecation")
+    @JavascriptInterface public void openPlayStore() {
+        /* ssb_local_annotator.openPlayStore() opens the Google "Play Store" page
+           for the app (if you've deployed it there), for use in encouraging
+           users to update to a more recent annotator etc (please don't use it
+           to ask for ratings: that is very annoying).  Limited to only the
+           current app just in case a site being browsed tries to hijack it. */
+        String id=act.getApplicationContext().getPackageName();
+        Intent i=new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("market://details?id="+id));
+        for(android.content.pm.ResolveInfo playApp: act.getApplicationContext().getPackageManager().queryIntentActivities(i,0)) {
+            if (playApp.activityInfo.applicationInfo.packageName.equals("com.android.vending")) {
+                i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                i.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                i.setComponent(new android.content.ComponentName(playApp.activityInfo.applicationInfo.packageName,playApp.activityInfo.name));
+                act.getApplicationContext().startActivity(i);
+                return;
+            }
+        }
+        act.getApplicationContext().startActivity(new Intent(Intent.ACTION_VIEW,android.net.Uri.parse("https://play.google.com/store/apps/details?id="+id))); // fallback
+    }"""
+android_src += br"""
+    @JavascriptInterface public void copy(String copiedText,boolean toast) { act.copy(copiedText,toast); }"""
+if android_audio: android_src += br"""
+    @JavascriptInterface public void sendToAudio(final String s) {
+        act.runOnUiThread(new AudioTask(s));
+    }"""
+if epub: android_src += br"""
+    @JavascriptInterface public void getEPUB() { Intent i = new Intent(Intent.ACTION_GET_CONTENT); i.setType("*/*"); /* application/epub+zip leaves all files unselectable on Android 4.4 */ try { act.startActivityForResult(i, 8778); } catch (ActivityNotFoundException e) { Toast.makeText(act,"Please install a file manager",Toast.LENGTH_LONG).show(); } }"""
+if bookmarks: android_src += br"""
+    @SuppressLint("DefaultLocale")
+    @JavascriptInterface public void addBM(String p) {
+        android.content.SharedPreferences.Editor e;
+        do {
+           SharedPreferences sp=act.getSharedPreferences("ssb_local_annotator",0);
+           String s=sp.getString("prefs", ",");
+           if((","+s).contains(","+p+",")) { // we have to give it a number
+               int count=1; String p2; while(true) {
+                   p2=String.format("%s (%d)", p, ++count);
+                   if(!(","+s).contains(","+p2+",")) break;
+               } p=p2;
+           }
+           s += p+",";
+           e = sp.edit();
+           e.putString("prefs",s);
+        } while(!e.commit());
+        Toast.makeText(act, "Added bookmark", Toast.LENGTH_LONG).show();
+    }
+    @JavascriptInterface public void deleteBM(String p) {
+        android.content.SharedPreferences.Editor e; boolean done=false; String s,p2;"""+B("".join(r"""
+        try {
+            do {
+                SharedPreferences sp=act.createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0);
+                p2=","+sp.getString("prefs", ",");
+                s=p2.replaceFirst(Pattern.quote(","+p+","), ",");
+                if(s.equals(p2)) break;
+                e = sp.edit(); done=true;
+                e.putString("prefs",s.substring(1));
+             } while(!e.commit());
+        } catch(Exception x) {} if(done) return;""" % p for p in bookmarks.split(",") if not p==jPackage))+br"""
+        do {
+           SharedPreferences sp=act.getSharedPreferences("ssb_local_annotator",0);
+           p2=","+sp.getString("prefs", ",");
+           s=p2.replaceFirst(Pattern.quote(","+p+","), ",");
+           if(s.equals(p2)) break;
+        e = sp.edit();
+        e.putString("prefs",s.substring(1));
+        } while(!e.commit());
+    }
+    @JavascriptInterface public String getBMs() {
+        String s="";"""+B("".join(r"""
+        try { s = act.createPackageContext("%s", 0).getSharedPreferences("ssb_local_annotator",0).getString("prefs", "")+","+s; } catch(Exception e) {}""" % p for p in bookmarks.split(",") if not p==jPackage))+br"""
+        return s+act.getSharedPreferences("ssb_local_annotator",0).getString("prefs", "");
+    }"""
+android_src += b"\n}\n" # ends AnnotatorBridge
+if android_audio: android_src += br"""
+static class AudioTask implements Runnable {
+    public AudioTask(String s) { this.s = s; }
+    String s;
+    @Override public void run() {
+        try { act.browser.loadUrl("javascript:var src='"""+B(android_audio)+br""""+java.net.URLEncoder.encode(s,"utf-8")+"';if(!window.audioElement || window.audioElement.getAttribute('src')!=src){window.audioElement=document.createElement('audio');window.audioElement.setAttribute('src',src)}window.audioElement.play()"); }
+        catch(java.io.UnsupportedEncodingException e) {} Toast.makeText(act, "Sent \""+s+"\" to audio server",Toast.LENGTH_LONG).show(); } };
+"""
+if tts_js: android_src += br"""
+@TargetApi(21)
+static class TTSInitListener implements TextToSpeech.OnInitListener {
+    MainActivity act; String voices_to_set;
+    public TTSInitListener(MainActivity act,String voices_to_set) { this.act = act; this.voices_to_set = voices_to_set; }
+    public void onInit(int status) {
+        if(act.tts == null) {
+            act.ttsList += "race-condition fail";
+            return;
+        }
+        if (status != 0) {
+            act.ttsList += "init fail";
+            return;
+        }
+        act.eiList = act.tts.getEngines();
+        try { act.tts.shutdown(); } catch(Exception e) {} act.tts = null;
+        act.TTSTest(1,voices_to_set);
+    }
+}
+@TargetApi(21)
+static class TTSInitListener2 implements TextToSpeech.OnInitListener {
+    MainActivity act; String voices_to_set; int batchNo;
+    public TTSInitListener2(MainActivity act,String voices_to_set,int batchNo) { this.act = act; this.voices_to_set = voices_to_set; this.batchNo = batchNo; }
+    public void onInit(int status) {
+        if (act.tts2 == null) {
+            act.ttsList += "(engine race-condition fail)";
+            return;
+        }
+        if (status != 0) {
+            act.ttsList += "(engine init fail)";
+            return;
+        }
+        boolean do_shutdown = true;
+        java.util.Set<Voice> voices; try { voices=act.tts2.getVoices(); } catch(Exception e) { voices=null; } if(voices==null /* (either by exception or otherwise, e.g. on somebody's Android 11 getVoices() simply returned null) */) { act.ttsList += "(getVoices fail)"; return; }
+        for(Voice v: voices) {
+            act.ttsList += v.getName()+"(lang="+v.getLocale().getLanguage()+" variant="+v.getLocale().getVariant()+" quality="+String.valueOf(v.getQuality())+" connection="+(v.isNetworkConnectionRequired()?"t":"f")+" latency="+String.valueOf(v.getLatency())+")\n";
+            int dx=voices_to_set.indexOf(","+v.getName()+",");
+            if (dx>-1 && (act.found_dx==-1 || dx < act.found_dx) && act.tts2.setVoice(v)==TextToSpeech.SUCCESS) {
+                if(act.tts_keep!=null && do_shutdown) try { act.tts_keep.shutdown(); } catch(Exception e) {} // != tts2
+                act.tts_keep = act.tts2; do_shutdown=false;
+                act.found_dx = dx;
+            }
+        }
+        if (do_shutdown) try { act.tts2.shutdown(); } catch(Exception e) {}
+        act.TTSTest(batchNo+1,voices_to_set);
+    }
+}
+"""
+android_src += br"""
+static class DialogTask implements Runnable {
+    String tt,aa,gg; MainActivity act;
+    DialogTask(String t,String a,String g,MainActivity act) { tt=t; aa=a; gg=g; this.act=act; }
+    @Override public void run() {
+        android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);
+        if(tt.length()>0) d.setTitle(tt+aa);"""
+if pleco_hanping:
+  if android_audio: maxDicts,xtraItems=0,2
+  else: maxDicts,xtraItems=1,1
+  android_src += br"""
+        if(tt.length()>0 && act.dictionaries>%d) {
+            int nItems=act.dictionaries+%d; if(gg.length()==0) --nItems;
+            String[] items=new String[nItems]; int i=0;
+            if(gg.length()>0) items[i++]=gg;
+            if(act.hanpingVersion[0]!=0) items[i++]="\u25b6CantoDict";
+            if(act.hanpingVersion[1]!=0) items[i++]="\u25b6Hanping Pro";
+            if(act.hanpingVersion[2]!=0) items[i++]="\u25b6Hanping Lite";
+            if(act.gotPleco) items[i++]="\u25b6Pleco";""" % (maxDicts,xtraItems)
+  if android_audio: android_src += br"""
+            items[i++]="\ud83d\udd0aAudio";
+  """
+  android_src += br"""
+            // TODO: (if gloss exists) to prevent popup disappearing if items[0] is tapped, use d.setAdapter instead of d.setItems?  items must then implement android.widget.ListAdapter with: boolean isEnabled(int position) { return position!=0; } boolean areAllItemsEnabled() { return false; } int getCount(); Object getItem(int position); long getItemId(int position) { return position; } int getItemViewType(int position) { return -1; } boolean hasStableIds() { return true; } boolean isEmpty() { return false; } void registerDataSetObserver(android.database.DataSetObserver observer) {} void unregisterDataSetObserver(android.database.DataSetObserver observer) {}  but still need to implement android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) (init convertView or get a new one) and int getViewTypeCount()
+            d.setItems(items,new MultiLookupListener(act,tt,aa,gg));
+        } else"""
+android_src += br"""
+        if(gg.length()>0) d.setMessage(gg);
+        d.setNegativeButton("Copy",new CopyListener(act,tt,aa,gg));"""
+if pleco_hanping:
+  if android_audio: android_src += br"""
+        if(act.dictionaries==0 && tt.length()>0) d.setNeutralButton("Audio", new SendToAudio(act,tt,aa,gg));"""
+  else: android_src += br"""
+        if(act.dictionaries==1) { /* for consistency with old versions, have a 'middle button' if there's only one recognised dictionary app installed */
+        if(tt.length()==0) { /* Pleco or Hanping button not added if empty title i.e. error/info box */ }
+        else if(act.gotPleco) d.setNeutralButton("Pleco", new PlecoLookupListener(act,tt,aa,gg)); else d.setNeutralButton("Hanping", new HanpingLookupListener(act,tt,aa,gg)); }"""
+if glossfile: android_src += br"""
+        if (tt.length()>0) {
+        // TODO: 3-line persist to pop-ups (re-scan the DOM)?
+        // TODO: 3-line persist to other pages? (might be counterproductive to encouraging people not to rely on it)
+        d.setPositiveButton("1/2/3L", // not 1L/2L/3L: on some zoomed-in Android 13 phones it wraps and leaves the "3L" occluded
+new LinesListener(act));
+        } else"""
+android_src += br"""
+        d.setPositiveButton("OK", null); // or can just click outside the dialog to clear. (TODO: would be nice if it could pop up somewhere near the word that was touched)
+        try { d.create().show(); }
+        catch(Exception e) {
+            Toast.makeText(act, "Unable to create popup box",Toast.LENGTH_LONG).show(); // some reports of WindowManager$BadTokenException crash, maybe users are popping up too many boxes at a time?? catching like this for now
+        }
+    }
+}
+static class Timer1 implements Runnable {
+    public Timer1(MainActivity act,Handler t) { this.act = act; theTimer = t; }
+    Handler theTimer; MainActivity act;
+    @Override public void run() {
+       act.runOnUiThread(new Timer2(this,act,theTimer));
+    }
+}
+static class Timer2 implements Runnable {
+    public Timer2(Runnable r,MainActivity act,Handler t) { this.act = act; theTimer = t; this.r = r; }
+    Handler theTimer; MainActivity act; Runnable r;
+    @Override public void run() {
+        act.browser.evaluateJavascript(((act.needJsCommon>0)?act.js_common:"")+"AnnotIfLenChanged()",new JsResultHandler(theTimer,r));
+        if(act.needJsCommon>0) --act.needJsCommon;
+    }
+}
+static class JsResultHandler implements android.webkit.ValueCallback { // changed from ValueCallback<String> to work around d8 bug on JDK 21, we'll cast
+    public JsResultHandler(Handler t,Runnable r) { theTimer = t; this.r=r; }
+    Handler theTimer; Runnable r;
+    @Override
+    public void onReceiveValue(Object s) {
+      theTimer.postDelayed(r,(s!=null && ((String)s).contains("sameLen"))?5000:1000); // s.equals("\"sameLen\"", is this true in all versions of the API?)
+    }
+}
+static class FwdMaker implements Runnable {
+    int tried=0;
+    public FwdMaker(MainActivity act,String fwdUrl,Handler theTimer) { this.act = act; this.fwdUrl = fwdUrl; this.theTimer = theTimer; }
+    MainActivity act; String fwdUrl; Handler theTimer;
+    @Override public void run() {
+        if(++tried==9) return;
+        act.runOnUiThread(new FwdMaker2(act,fwdUrl,theTimer));
+    }
+}
+static class FwdMaker2 implements Runnable {
+    public FwdMaker2(MainActivity act,String fwdUrl,Handler theTimer) { this.act = act; this.fwdUrl = fwdUrl; this.theTimer = theTimer; }
+    MainActivity act; String fwdUrl; Handler theTimer;
+    @Override public void run() {
+        if(act.browser.getUrl().equals(fwdUrl)) {
+            // not yet finished going back
+            theTimer.postDelayed(this,500);
+        } else act.browser.evaluateJavascript("function annogenMakeFwd(){var e=document.getElementById('annogenFwdBtn'); if(e) e.style.display='inline'; else window.setTimeout(annogenMakeFwd,1000)}annogenMakeFwd()",null);
+    }
+}"""
+if android_template: android_src += br"""
+static class ZoomSetter implements Runnable {
+    public ZoomSetter(MainActivity act,int level) { this.act = act; this.level = level; }
+    MainActivity act; int level;
+    @Override public void run() {
+        act.browser.getSettings().setTextZoom(Math.round(act.zoomPercents[level]*act.fontScale));
+    }
+}
+"""
+else: android_src += br"""
+static class ScaleAdjuster implements Runnable {
+    public ScaleAdjuster(MainActivity act,final WebView view) { this.act = act; this.view = view; }
+    MainActivity act; final WebView view;
+    public void run() {
+        view.evaluateJavascript("document.body.style.width=((window.visualViewport!=undefined?window.visualViewport.width:window.innerWidth)-getComputedStyle(document.body).marginLeft.replace(/px/,'')*1-getComputedStyle(document.body).marginRight.replace(/px/,'')*1)+'px';window.setTimeout(function(){document.body.scrollLeft=0},400)",null); // window.outerWidth will still be excessive on 4.4; not sure there's much we can do about that
+        act.scale=to; act.scaling=false;
+    }
+}
+"""
+if android_print: android_src += br"""
+static class PrintRunnable implements Runnable {
+    public PrintRunnable(MainActivity act) { this.act = act; }
+    MainActivity act;
+    @TargetApi(19)
+    @SuppressWarnings("deprecation")
+    @Override public void run() {
+        if(act.printing_in_progress) return;
+        act.printing_in_progress = true;
+        try { ((PrintManager) act.getSystemService(android.content.Context.PRINT_SERVICE)).print("annotated",new CustomPrintDocumentAdapter(act,(act.AndroidSDK >= 21) ? (PrintDocumentAdapter)(WebView.class.getMethod("createPrintDocumentAdapter",new Class[] { String.class }).invoke(act.browser,"Annotated document")) : act.browser.createPrintDocumentAdapter()),new PrintAttributes.Builder().build()); } catch (NoSuchMethodException e) {} catch (IllegalAccessException e) {} catch (InvocationTargetException e) {} // (createPrintDocumentAdapter w/out string deprecated in API 21; using introspection so this still compiles with API 19 SDKs e.g. old Eclipse)
+    }
+}
+@SuppressWarnings("deprecation")
+static class CustomPrintDocumentAdapter extends PrintDocumentAdapter {
+    public CustomPrintDocumentAdapter(MainActivity act,PrintDocumentAdapter delegate) { this.act = act; this.delegate = delegate; } MainActivity act; PrintDocumentAdapter delegate;
+    @Override @SuppressLint("WrongCall") public void onLayout(PrintAttributes a, PrintAttributes b, CancellationSignal c, LayoutResultCallback d, Bundle e) { delegate.onLayout(a, b, c, d, e); }
+    @Override public void onWrite(PageRange[] a, ParcelFileDescriptor b, CancellationSignal c, WriteResultCallback d) { try { delegate.onWrite(a,b,c,d); } catch(IllegalStateException e){Toast.makeText(act, "Print glitch. Press Back and try again.",Toast.LENGTH_LONG).show();} }
+    @Override public void onStart() { act.browser.setVisibility(android.view.View.INVISIBLE); delegate.onStart(); }
+    @Override public void onFinish() { delegate.onFinish(); act.browser.setVisibility(android.view.View.VISIBLE); act.printing_in_progress=false; }
+}
+"""
+if glossfile:
+  android_src += br"""
+static class LinesListener implements android.content.DialogInterface.OnClickListener {
+    public LinesListener(MainActivity act) { this.act = act; } MainActivity act;
+    public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new LinesRunner(act));}
+}
+static class LinesRunner implements Runnable {
+    public LinesRunner(MainActivity act) { this.act = act; }
+    MainActivity act;
+    @Override public void run() {
+        android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(act);"""
+  if known_characters: # TODO: might want a way of getting this choice if known_characters and not glossfile, probably by providing some alternative to the 1/2/3L button in this case
+    android_src += br"""
+        if(!act.knownChars.isEmpty()) {
+            String[] items=new String[2];
+            items[0]=new String("Show all"); items[1]=new String("Hide known");
+            d.setItems(items,new ShowHideListener(act));
+        } else"""
+  android_src += br"""
+        d.setTitle("Choose a format:");
+        d.setPositiveButton("1 line",new OneLineListener(act));
+        d.setNeutralButton("2 lines",new TwoLineListener(act));
+        d.setNegativeButton("3 lines",new ThreeLineListener(act));
+        try { d.create().show(); } catch(Exception e) { Toast.makeText(act, "Unable to create popup box",Toast.LENGTH_LONG).show(); }
+    }
+}
+static class OneLineListener implements android.content.DialogInterface.OnClickListener {
+    public OneLineListener(MainActivity act) { this.act = act; } MainActivity act;
+    public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new LoadUrlRunner(act,
+"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l2)l2.parentNode.removeChild(l2);if(!l1){var e=document.createElement('span');e.setAttribute('id','ssb_1Line');e.innerHTML='<style>rt{display:none!important}</style>';document.body.insertBefore(e,document.body.firstChild.nextSibling)}"
+)); } }
+static class TwoLineListener implements android.content.DialogInterface.OnClickListener {
+    public TwoLineListener(MainActivity act) { this.act = act; } MainActivity act;
+    public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new LoadUrlRunner(act,
+"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(!l2){var e=document.createElement('span');e.setAttribute('id','ssb_2Line');e.innerHTML='<style>rt:not(:last-of-type){display:none!important}</style>';document.body.insertBefore(e,document.body.firstChild.nextSibling)}"
+)); } }
+static class ThreeLineListener implements android.content.DialogInterface.OnClickListener {
+    public ThreeLineListener(MainActivity act) { this.act = act; } MainActivity act;
+    public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new LoadUrlRunner(act,
+"javascript:var l1=document.getElementById('ssb_1Line'),l2=document.getElementById('ssb_2Line');if(l1)l1.parentNode.removeChild(l1);if(l2)l2.parentNode.removeChild(l2);var ad0=document.getElementsByClassName('_adjust0');for(i=0;i<ad0.length;i++){ad0[i].innerHTML=ad0[i].innerHTML.replace(/<ruby[^>]*title=\"([^\"]*)\"[^>]*><rb>(.*?)<[/]rb><rt(.*?)>(.*?)<[/]rt><[/]ruby>/g,function(m,title,rb,known,rt){return '<ruby title=\"'+title+'\"><rp>'+rb+'</rp><rp>'+rt+'</rp><rt'+known+'>'+title.split(' || ')"""+(b".map(function(m){return m.replace(/"+B(gloss_simplify).replace(b'\\',br'\\').replace(b'"',br'\"')+b"/g,'')})" if gloss_simplify else b"")+br""".join(' ')+'</rt><rt'+known+'>'+rt+'</rt><rb>'+rb+'</rb></ruby>'});if(!ad0[i].inLink){var a=ad0[i].getElementsByTagName('ruby'),j;for(j=0;j < a.length; j++)a[j].addEventListener('click',annotPopAll)}} ad0=document.body.innerHTML;ssb_local_annotator.alert('','','3-line definitions tend to be incomplete!')"
+/* Above rp elements are to make firstChild etc work in
+   dialogue.  Don't do whole document.body.innerHTML, or
+   scripts like document.write may execute a second time,
+   but DO read innerHTML afterwards to work around bug in
+   Chrome 33, otherwise whole document replaced by last
+   ad0 found.  Also need the alert box, or document.write
+   scripts in the page run twice.  (This 'tend to be
+   incomplete' message seems as good as any.  NB the
+   glosses are being trimmed.)  onclick= is removed in the
+   postprocessing loop due to sites that put unsafe-inline
+   in their Content-Security-Policy headers. */
+)); } }
+static class LoadUrlRunner implements Runnable {
+    public LoadUrlRunner(MainActivity act,String url) { this.act = act; this.url = url; }
+    MainActivity act; String url;
+    @Override public void run() {
+        act.browser.loadUrl(url);
+    }
+}
+static class ShowHideListener implements android.content.DialogInterface.OnClickListener {
+    public ShowHideListener(MainActivity act) { this.act = act; } MainActivity act;
+    public void onClick(android.content.DialogInterface dialog,int hideOrNot) {
+        if(hideOrNot==0) act.runOnUiThread(new LoadUrlRunner(act,
+"javascript:var h=document.getElementById('ssb_hide0');if(h)h.parentNode.removeChild(h)"
+)); else act.runOnUiThread(new LoadUrlRunner(act,
+"javascript:var h=document.getElementById('ssb_hide0');if(!h){h=document.createElement('span');h.setAttribute('id','ssb_hide0');h.innerHTML='<style>rt.known{display:none!important}</style>';document.body.insertBefore(h,document.body.firstChild.nextSibling)}"));
+    }
+}
+"""
+if pleco_hanping:
+  android_src += br"""
+static class PlecoLookupListener implements android.content.DialogInterface.OnClickListener {
+    public PlecoLookupListener(MainActivity act,String tt,String aa,String gg) { this.act = act; this.tt = tt; this.aa = aa; this.gg = gg; }
+    String tt,aa,gg; MainActivity act;
+    public void onClick(android.content.DialogInterface dialog,int id) {
+        Intent i = new Intent(Intent.ACTION_MAIN);
+        i.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity"));
+        i.addCategory(Intent.CATEGORY_LAUNCHER);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        i.putExtra("launch_section", "dictSearch");
+        i.putExtra("replacesearchtext", tt+aa);
+        try { act.startActivity(i); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Pleco uninstalled?",Toast.LENGTH_LONG).show(); }
+    }
+}
+static class HanpingLookupListener implements android.content.DialogInterface.OnClickListener {
+    public HanpingLookupListener(MainActivity act,String tt,String aa,String gg) { this.act = act; this.tt = tt; this.aa = aa; this.gg = gg; }
+    String tt,aa,gg; MainActivity act;
+    @TargetApi(11)
+    public void onClick(android.content.DialogInterface dialog,int id) {
+        int v; for(v=0; act.hanpingVersion[v]==0; v++);
+        Intent i = new Intent(Intent.ACTION_VIEW);
+        i.setData(new android.net.Uri.Builder().scheme(act.hanpingVersion[v]<906030000?"dictroid":"hanping").appendEncodedPath((act.hanpingPackage[v].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build());
+        i.setPackage(act.hanpingPackage[v]);
+        i.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { act.startActivity(i); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Hanping uninstalled?",Toast.LENGTH_LONG).show(); }
+    }
+}
+static class MultiLookupListener implements android.content.DialogInterface.OnClickListener { // TODO: partially-duplicate code with PlecoLookupListener and HanpingLookupListener
+    public MultiLookupListener(MainActivity act,String tt,String aa,String gg) { this.act = act; this.tt = tt; this.aa = aa; this.gg = gg; }
+    String tt,aa,gg; MainActivity act;
+    @TargetApi(11) public void onClick(android.content.DialogInterface dialog,int id) {
+        int test=0,i;
+        if(gg.length()==0) --test;
+        for(i=0; i<3; i++) if(act.hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(act.hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((act.hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build()); h.setPackage(act.hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); try { act.startActivity(h); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Hanping uninstalled?",Toast.LENGTH_LONG).show(); } }
+        if(act.gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt+aa); try { act.startActivity(p); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Pleco uninstalled?",Toast.LENGTH_LONG).show(); } }"""
+  if android_audio: android_src += br"""
+        if(++test==id) { act.runOnUiThread(new AudioTask(tt)); act.runOnUiThread(new DialogTask(tt,aa,gg,act)); }"""
+  android_src += br"""
+    }
+}"""
+if pleco_hanping and android_audio: android_src += br"""
+static class SendToAudio implements android.content.DialogInterface.OnClickListener {
+    public SendToAudio(MainActivity act,String tt,String aa,String gg) { this.act = act; this.tt = tt; this.aa = aa; this.gg = gg; }
+    String tt,aa,gg; MainActivity act;
+    public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new AudioTask(tt)); act.runOnUiThread(new DialogTask(tt,aa,gg,act));}
+}
+"""
+android_src += br"""
+static class CopyListener implements android.content.DialogInterface.OnClickListener {
+    public CopyListener(MainActivity act,String tt,String aa,String gg) { this.act = act; this.tt = tt; this.aa = aa; this.gg = gg; }
+    String tt,aa,gg; MainActivity act;
+    public void onClick(android.content.DialogInterface dialog,int id) { act.copy(tt+aa+" "+gg,false); }
+}
+} // MainActivity
+"""
 android_bringToFront=br"""package %%JPACKAGE%%;
 import android.annotation.TargetApi;
 import android.content.Intent;
 import android.os.Build;
-@TargetApi(3)
+@TargetApi(3) @SuppressWarnings("deprecation")
 public class BringToFront extends android.app.IntentService {
     public BringToFront() { super(""); }
     public BringToFront(String name) { super(name); }
@@ -5479,10 +5604,7 @@ if android:
      os.environ["BUILD_TOOLS"] = newest("build-tools")
      java_version = int(re.sub("[.].*","",getoutput("javac --version").split()[1]))
      if java_version <= 11: javac = "javac"
-     elif java_version <= 17: javac = "javac -source 1.8 -target 1.8" # Debian 12 "Bookworm"
-     else:
-       javac="/usr/lib/jvm/java-11-openjdk-amd64/bin/javac"
-       if not os.path.exists(javac): errExit("javac seems too new for Android's d8, try apt install openjdk-11-jdk (set JAVA_HOME or use update-java-alternatives if necessary)") # this can happen on Ubuntu 24.04 which has 21 (22.04 has 11); the above -source and -target don't fix it for d8 on 21
+     else: javac = "javac -source 1.8 -target 1.8"
      cmd_or_exit("\"$BUILD_TOOLS\"/aapt package -0 '' -v -f -I \"$PLATFORM\"/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/"+dirName+".ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
      cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && "+javac+" -Xlint:deprecation -classpath \"$PLATFORM\"/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      if os.path.exists(os.environ["BUILD_TOOLS"]+"/dx"): # older SDK
