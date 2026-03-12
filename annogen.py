@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.42 (c) 2012-26 Silas S. Brown"
+"Annotator Generator v3.421 (c) 2012-26 Silas S. Brown"
 
 # See https://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -2321,7 +2321,7 @@ android_src += br"""
     @JavascriptInterface public void copy(String copiedText,boolean toast) { act.copy(copiedText,toast); }"""
 if android_audio: android_src += br"""
     @JavascriptInterface public void sendToAudio(final String s) {
-        act.runOnUiThread(new AudioTask(s));
+        act.runOnUiThread(new AudioTask(s,act));
     }"""
 if epub: android_src += br"""
     @JavascriptInterface public void getEPUB() { Intent i = new Intent(Intent.ACTION_GET_CONTENT); i.setType("*/*"); /* application/epub+zip leaves all files unselectable on Android 4.4 */ try { act.startActivityForResult(i, 8778); } catch (ActivityNotFoundException e) { Toast.makeText(act,"Please install a file manager",Toast.LENGTH_LONG).show(); } }"""
@@ -2373,8 +2373,8 @@ if bookmarks: android_src += br"""
 android_src += b"\n}\n" # ends AnnotatorBridge
 if android_audio: android_src += br"""
 static class AudioTask implements Runnable {
-    public AudioTask(String s) { this.s = s; }
-    String s;
+    public AudioTask(String s,MainActivity act) { this.s = s; this.act = act; }
+    String s; MainActivity act;
     @Override public void run() {
         try { act.browser.loadUrl("javascript:var src='"""+B(android_audio)+br""""+java.net.URLEncoder.encode(s,"utf-8")+"';if(!window.audioElement || window.audioElement.getAttribute('src')!=src){window.audioElement=document.createElement('audio');window.audioElement.setAttribute('src',src)}window.audioElement.play()"); }
         catch(java.io.UnsupportedEncodingException e) {} Toast.makeText(act, "Sent \""+s+"\" to audio server",Toast.LENGTH_LONG).show(); } };
@@ -2488,6 +2488,7 @@ static class Timer1 implements Runnable {
 static class Timer2 implements Runnable {
     public Timer2(Runnable r,MainActivity act,Handler t) { this.act = act; theTimer = t; this.r = r; }
     Handler theTimer; MainActivity act; Runnable r;
+    @SuppressWarnings({"unchecked","rawtypes"})
     @Override public void run() {
         act.browser.evaluateJavascript(((act.needJsCommon>0)?act.js_common:"")+"AnnotIfLenChanged()",new JsResultHandler(theTimer,r));
         if(act.needJsCommon>0) --act.needJsCommon;
@@ -2666,7 +2667,7 @@ static class MultiLookupListener implements android.content.DialogInterface.OnCl
         for(i=0; i<3; i++) if(act.hanpingVersion[i]!=0 && ++test==id) { Intent h = new Intent(Intent.ACTION_VIEW); h.setData(new android.net.Uri.Builder().scheme(act.hanpingVersion[i]<906030000?"dictroid":"hanping").appendEncodedPath((act.hanpingPackage[i].indexOf("canto")!=-1)?"yue":"cmn").appendEncodedPath("word").appendPath(tt).build()); h.setPackage(act.hanpingPackage[i]); h.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK); try { act.startActivity(h); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Hanping uninstalled?",Toast.LENGTH_LONG).show(); } }
         if(act.gotPleco && ++test==id) { Intent p = new Intent(Intent.ACTION_MAIN); p.setComponent(new android.content.ComponentName("com.pleco.chinesesystem","com.pleco.chinesesystem.PlecoDroidMainActivity")); p.addCategory(Intent.CATEGORY_LAUNCHER); p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP); p.putExtra("launch_section", "dictSearch"); p.putExtra("replacesearchtext", tt+aa); try { act.startActivity(p); } catch (ActivityNotFoundException e) { Toast.makeText(act, "Failed. Pleco uninstalled?",Toast.LENGTH_LONG).show(); } }"""
   if android_audio: android_src += br"""
-        if(++test==id) { act.runOnUiThread(new AudioTask(tt)); act.runOnUiThread(new DialogTask(tt,aa,gg,act)); }"""
+        if(++test==id) { act.runOnUiThread(new AudioTask(tt,act)); act.runOnUiThread(new DialogTask(tt,aa,gg,act)); }"""
   android_src += br"""
     }
 }"""
@@ -2674,7 +2675,7 @@ if pleco_hanping and android_audio: android_src += br"""
 static class SendToAudio implements android.content.DialogInterface.OnClickListener {
     public SendToAudio(MainActivity act,String tt,String aa,String gg) { this.act = act; this.tt = tt; this.aa = aa; this.gg = gg; }
     String tt,aa,gg; MainActivity act;
-    public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new AudioTask(tt)); act.runOnUiThread(new DialogTask(tt,aa,gg,act));}
+    public void onClick(android.content.DialogInterface dialog,int id) { act.runOnUiThread(new AudioTask(tt,act)); act.runOnUiThread(new DialogTask(tt,aa,gg,act));}
 }
 """
 android_src += br"""
@@ -5570,7 +5571,7 @@ if not compile_only:
     for k,v in iteritems(post_normalise):
       if not unichr(v) in cSets: cSets[unichr(v)]=unichr(v)
       cSets[unichr(v)] += unichr(k)
-    openfile(freq_count,'w').write((u"\n".join(cSets.get(c,c) for _,c in list(reversed(sorted((n,c) for c,n in iteritems(counts))))[:1000])+u"\n").encode('utf-8')) # TODO: customise the 1000 (maybe greater increment after 1000)
+    openfile(freq_count,'w').write((u"\n".join(u"".join(sorted(cSets.get(c,c))) for _,c in list(reversed(sorted((n,c) for c,n in iteritems(counts))))[:1000])+u"\n").encode('utf-8')) # TODO: customise the 1000 (maybe greater increment after 1000)
     sys.stderr.write(" done\n")
   setup_parallelism() # re-copy globals to cores
   try: rulesAndConds = analyse()
@@ -5606,7 +5607,7 @@ if android:
      if java_version <= 11: javac = "javac"
      else: javac = "javac -source 1.8 -target 1.8"
      cmd_or_exit("\"$BUILD_TOOLS\"/aapt package -0 '' -v -f -I \"$PLATFORM\"/android.jar -M AndroidManifest.xml -A assets -S res -m -J gen -F bin/"+dirName+".ap_") # (the -0 '' (no compression) is required if targetSdkVersion=30 or above, and shouldn't make much size difference on earlier versions as annotate.dat is itself compressed)
-     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && "+javac+" -Xlint:deprecation -classpath \"$PLATFORM\"/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
+     cmd_or_exit("find src/"+jRest+" -type f -name '*.java' > argfile && "+javac+" -Xlint:deprecation -Xlint:unchecked -classpath \"$PLATFORM\"/android.jar -sourcepath 'src;gen' -d bin gen/"+jRest+"/R.java @argfile && rm argfile") # as *.java likely too long (-type f needed though, in case any *.java files are locked for editing in emacs)
      if os.path.exists(os.environ["BUILD_TOOLS"]+"/dx"): # older SDK
       a = " -JXmx4g --force-jumbo" # -J option must go first
       if "min-sdk-version" in getoutput("\"$BUILD_TOOLS\"/dx --help"):
