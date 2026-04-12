@@ -681,7 +681,7 @@ You can turn it into a CGI script via `import wsgiref.handlers ; wsgiref.handler
 
 in `.htaccess` (and ensure `AllowOverride All` is set in the config files) to send all requests to the CGI, which should then import adjuster from outside the webspace (e.g. by adding to `sys.path` first), but it’s not necessary to send other requests to the CGI if you set submitPath to the CGI’s path plus `?` and want only the 'enter your own text’ functionality.
 
-Options for Annotator Generator v3.421
+Options for Annotator Generator v3.422
 ======================================
 
 `-h`, `--help`
@@ -1021,7 +1021,7 @@ Options for Annotator Generator v3.421
  : Cancels any earlier `--yarowsky-half-thorough` option in Makefile variables etc
 
 `--yarowsky-debug=`
- : Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default 1). Occasionally these might be due to typos in the corpus, so it might be worth a check.
+ : Report the details of seed-collocation false positives if there are a large number of matches and a small number of false positives, default 1000:1 (setting a single number N is equivalent to 1000:N, where N=0 omits reporting, otherwise use two numbers with a : separator). Occasionally these mismatches might be due to typos in the corpus, so it might be worth a check.
 
 `--allow-exceptions=`
  : Filename (or URL) of any known exeptions for `--yarowsky-debug` checks (default allow-exceptions.txt)

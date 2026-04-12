@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.421 (c) 2012-26 Silas S. Brown"
+"Annotator Generator v3.422 (c) 2012-26 Silas S. Brown"
 
 # See https://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -333,8 +333,8 @@ parser.add_option("--yarowsky-half-thorough",
                   action="store_true",default=False,
                   help="Like --yarowsky-thorough but check only what collocations occur within the proposed new rule (not around it), less likely to overfit")
 cancelOpt("yarowsky-half-thorough")
-parser.add_option("--yarowsky-debug",default=1,
-                  help="Report the details of seed-collocation false positives if there are a large number of matches and at most this number of false positives (default %default). Occasionally these might be due to typos in the corpus, so it might be worth a check.")
+parser.add_option("--yarowsky-debug",
+                  help="Report the details of seed-collocation false positives if there are a large number of matches and a small number of false positives, default 1000:1 (setting a single number N is equivalent to 1000:N, where N=0 omits reporting, otherwise use two numbers with a : separator). Occasionally these mismatches might be due to typos in the corpus, so it might be worth a check.")
 parser.add_option("--allow-exceptions",default="allow-exceptions.txt",help="Filename (or URL) of any known exeptions for --yarowsky-debug checks (default %default)")
 parser.add_option("--normalise-debug",default=1,
                   help="When --capitalisation is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default %default) for investigation of possible typos in the corpus")
@@ -404,8 +404,11 @@ if "PyPy" in sys.version: warn("with annogen, PyPy is likely to run 60% slower t
 if ybytes: ybytes=int(ybytes)
 if ybytes_max: ybytes_max=int(ybytes_max)
 else: ybytes_max = ybytes
-if yarowsky_debug: yarowsky_debug=int(yarowsky_debug)
-else: yarowsky_debug = 0
+if yarowsky_debug:
+  yarowsky_debug=[int(x) for x in yarowsky_debug.split(':')]
+  if len(yarowsky_debug)==1: yarowsky_debug=(1000,yarowsky_debug[0])
+  else: yarowsky_debug=tuple(reversed(sorted(yarowsky_debug)))
+else: yarowsky_debug=(1000,1)
 if normalise_debug: normalise_debug=int(normalise_debug)
 else: normalise_debug = 0
 ybytes_step = int(ybytes_step)
@@ -4544,7 +4547,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     may_take_time = canBackground and len(okStarts) > 1000
     if may_take_time:
       getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),"backgrounding" if run_in_background else "could take some time")).encode(terminal_charset,'replace'))
-      if len(badStarts) <= yarowsky_debug: typo_report("yarowsky-debug.txt",allow_exceptions,withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
+    if canBackground and len(okStarts) >= yarowsky_debug[0] and len(badStarts) <= yarowsky_debug[1]: typo_report("yarowsky-debug.txt",allow_exceptions,withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
     if run_in_background:
       job = executor.submit(yarowsky_indicators_wrapped,withAnnot_unistr) # recalculate the above on the other CPU in preference to passing, as memory might not be shared
       yield "backgrounded" ; yield job
@@ -4728,7 +4731,7 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
 def badInfo(badStarts,nonAnnot,for_tty=True):
   ret = u"%d false positive" % len(badStarts)
   if not len(badStarts)==1: ret += "s"
-  if len(badStarts) > yarowsky_debug: return ret
+  if len(badStarts) > yarowsky_debug[1]: return ret
   for wordStart in badStarts:
    wordEnd = wordStart + len(nonAnnot)
    contextStart,contextEnd=max(0,wordStart-5),wordEnd+5

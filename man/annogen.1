@@ -1,6 +1,6 @@
 .\" generated with Ronn-NG/v0.9.1
 .\" http://github.com/apjanke/ronn-ng/tree/0.9.1
-.TH "ANNOGEN" "1" "March 2026" "Silas S. Brown"
+.TH "ANNOGEN" "1" "April 2026" "Silas S. Brown"
 Annotator Generator is an examples\-driven generator of fast text annotators\. "Annotate" in this context means to add pronunciation or other information to each word, and/or to split text into words in a language that does not use spaces\.
 .IP "\[ci]" 4
 You supply a corpus of pre\-annotated texts for Annotator Generator to work out the rules and exceptions
@@ -355,7 +355,7 @@ Like \fB\-\-yarowsky\-thorough\fR but check only what collocations occur within 
 Cancels any earlier \fB\-\-yarowsky\-half\-thorough\fR option in Makefile variables etc
 .TP
 \fB\-\-yarowsky\-debug=\fR
-Report the details of seed\-collocation false positives if there are a large number of matches and at most this number of false positives (default 1)\. Occasionally these might be due to typos in the corpus, so it might be worth a check\.
+Report the details of seed\-collocation false positives if there are a large number of matches and a small number of false positives, default 1000:1 (setting a single number N is equivalent to 1000:N, where N=0 omits reporting, otherwise use two numbers with a : separator)\. Occasionally these mismatches might be due to typos in the corpus, so it might be worth a check\.
 .TP
 \fB\-\-allow\-exceptions=\fR
 Filename (or URL) of any known exeptions for \fB\-\-yarowsky\-debug\fR checks (default allow\-exceptions\.txt)
