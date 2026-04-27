@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.422 (c) 2012-26 Silas S. Brown"
+"Annotator Generator v3.423 (c) 2012-26 Silas S. Brown"
 
 # See https://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -60,7 +60,7 @@ else: exe=""
 #  =========== INPUT OPTIONS ==============
 
 parser.add_option("--infile",
-                  help="Filename of a text file (or a compressed .gz, .bz2 or .xz file or URL) to read the input examples from. If this is not specified, standard input is used.")
+                  help="Filename of a text file (or a compressed .gz, .bz2, .xz or .bz3 file or URL) to read the input examples from. If this is not specified, standard input is used.")
 
 parser.add_option("--incode",default="utf-8",
                   help="Character encoding of the input file (default %default)")
@@ -122,7 +122,7 @@ parser.add_option("--post-normalise",
                   help="Filename or URL of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single-character normalisation on the Unicode BMP.  This can reduce the size of the annotator.  It is applied in post-processing (does not affect rules generation itself).  For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed-script words should they occur.  If any word in the examples has a different annotation when normalised than not, the normalised version takes precedence.")
 
 parser.add_option("--glossfile",
-                  help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
+                  help="Filename of an optional text file (or compressed .gz, .bz2, .xz or .bz3 file or URL) to read auxiliary \"gloss\" information.  Each line of this should be of the form: word (tab) annotation (tab) gloss.  Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries).  When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied).  The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word.  The entries in glossfile do NOT affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc.")
 parser.add_option("-C", "--gloss-closure",
                   help="If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also, using the Unihan variants file (or URL) specified by this option")
 cancelOpt("gloss-closure")
@@ -133,10 +133,10 @@ parser.add_option("-M","--glossmiss-omit",
 cancelOpt("glossmiss-omit")
 
 parser.add_option("--words-omit",
-                  help="File (or compressed .gz, .bz2 or .xz file or URL) containing words (one per line, without markup) to omit from the annotator.  Use this to make an annotator smaller if for example if you're working from a rules file that contains long lists of place names you don't need this particular annotator to recognise but you still want to keep them as rules for other annotators, but be careful because any word on such a list gets omitted even if it also has other meanings (some place names are also normal words).")
+                  help="File (or compressed .gz, .bz2, .xz or .bz3 file or URL) containing words (one per line, without markup) to omit from the annotator.  Use this to make an annotator smaller if for example if you're working from a rules file that contains long lists of place names you don't need this particular annotator to recognise but you still want to keep them as rules for other annotators, but be careful because any word on such a list gets omitted even if it also has other meanings (some place names are also normal words).")
 
 parser.add_option("--manualrules",
-                  help="Filename of an optional text file (or compressed .gz, .bz2 or .xz file or URL) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
+                  help="Filename of an optional text file (or compressed .gz, .bz2, .xz or .bz3 file or URL) to read extra, manually-written rules.  Each line of this should be a marked-up phrase (in the input format) which is to be unconditionally added as a rule.  Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part-way through processing a different rule); try checking messages from --diagnose-manual.") # (or if there's a longer automatic match)
 
 #  =========== OUTPUT OPTIONS ==============
 
@@ -147,7 +147,7 @@ parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compi
 parser.add_option("--outcode",default="utf-8",
                   help="Character encoding to use in the generated parser (default %default, must be ASCII-compatible i.e. not utf-16)")
 
-parser.add_option("--rulesFile",help="Filename of a JSON file to hold the accumulated rules. Adding .gz, .bz2 or .xz for compression is acceptable. If this is set then either --write-rules or --read-rules must be specified.")
+parser.add_option("--rulesFile",help="Filename of a JSON file to hold the accumulated rules. Adding .gz, .bz2, .xz or .bz3 for compression is acceptable. If this is set then either --write-rules or --read-rules must be specified.")
 
 parser.add_option("--write-rules",
                   action="store_true",default=False,
@@ -334,7 +334,7 @@ parser.add_option("--yarowsky-half-thorough",
                   help="Like --yarowsky-thorough but check only what collocations occur within the proposed new rule (not around it), less likely to overfit")
 cancelOpt("yarowsky-half-thorough")
 parser.add_option("--yarowsky-debug",
-                  help="Report the details of seed-collocation false positives if there are a large number of matches and a small number of false positives, default 1000:1 (setting a single number N is equivalent to 1000:N, where N=0 omits reporting, otherwise use two numbers with a : separator). Occasionally these mismatches might be due to typos in the corpus, so it might be worth a check.")
+                  help="Report the details of seed-collocation false positives if there are a large number of matches and a small number of false positives, optionally with a lesser large number of matches when the false positive doesn't cut across word boundaries.  Default 1000:1:750 (setting a single number N is equivalent to 1000:N:750, where N=0 omits reporting; setting X:N is equivalent to X:N:X). Occasionally these mismatches might be due to typos in the corpus, so it might be worth a check.")
 parser.add_option("--allow-exceptions",default="allow-exceptions.txt",help="Filename (or URL) of any known exeptions for --yarowsky-debug checks (default %default)")
 parser.add_option("--normalise-debug",default=1,
                   help="When --capitalisation is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default %default) for investigation of possible typos in the corpus")
@@ -342,7 +342,7 @@ parser.add_option("--allow-caps-exceptions",default="allow-caps-exceptions.txt",
 parser.add_option("--debug-dir",default=".",
                   help="Directory in which to write reports of possible typos etc (defaults to current directory)")
 parser.add_option("--normalise-cache",
-                  help="Optional file to use to cache the result of normalisation. Adding .gz, .bz2 or .xz for compression is acceptable.")
+                  help="Optional file to use to cache the result of normalisation. Adding .gz, .bz2, .xz or .bz3 for compression is acceptable.")
 
 parser.add_option("-1","--single-words",
                   action="store_true",default=False,
@@ -364,7 +364,7 @@ parser.add_option("-q","--diagnose-quick",
                   help="Ignore all phrases that do not contain the word specified by the --diagnose option, for getting a faster (but possibly less accurate) diagnostic.  The generated annotator is not likely to be useful when this option is present.")
 cancelOpt("diagnose-quick")
 
-parser.add_option("--priority-list",help="Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2 or .xz file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.")
+parser.add_option("--priority-list",help="Instead of generating an annotator, use the input examples to generate a list of (non-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed .gz, .bz2, .xz or .bz3 file).  If the file provided already exists, it will be updated, thus you can amend an existing usage-frequency list or similar (although the final numbers are priorities and might no longer match usage-frequency exactly).  The purpose of this option is to help if you have an existing word-priority-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word-priority data.")
 
 parser.add_option("-t","--time-estimate",
                   action="store_true",default=False,
@@ -405,10 +405,10 @@ if ybytes: ybytes=int(ybytes)
 if ybytes_max: ybytes_max=int(ybytes_max)
 else: ybytes_max = ybytes
 if yarowsky_debug:
-  yarowsky_debug=[int(x) for x in yarowsky_debug.split(':')]
-  if len(yarowsky_debug)==1: yarowsky_debug=(1000,yarowsky_debug[0])
-  else: yarowsky_debug=tuple(reversed(sorted(yarowsky_debug)))
-else: yarowsky_debug=(1000,1)
+  yarowsky_debug=tuple(reversed(sorted([int(x) for x in yarowsky_debug.split(':')])))
+  if len(yarowsky_debug)==1: yarowsky_debug=(1000,750,yarowsky_debug[0])
+  elif len(yarowsky_debug)==2: yarowsky_debug=(yarowsky_debug[0],yarowsky_debug[0],yarowsky_debug[1])
+else: yarowsky_debug=(1000,750,1)
 if normalise_debug: normalise_debug=int(normalise_debug)
 else: normalise_debug = 0
 ybytes_step = int(ybytes_step)
@@ -465,6 +465,9 @@ def openfile(fname,mode='r'):
     else: fileobj = open(fname,mode)
     if fname.endswith(".gz"):
         import gzip ; return gzip.GzipFile(fileobj=fileobj,mode=mode)
+    elif fname.endswith(".bz3"):
+        import bz3 # pip install bzip3
+        return bz3.BZ3File(fileobj,mode)
     elif fname.endswith(".xz"):
         import lzma # 'pip install lzma' or 'apt-get install python2.7-lzma' may be required for .xz files in Python 2; Python 3.3+ is standard
         return lzma.LZMAFile(fileobj,mode)
@@ -4547,7 +4550,7 @@ def yarowsky_indicators(withAnnot_unistr,canBackground):
     may_take_time = canBackground and len(okStarts) > 1000
     if may_take_time:
       getBuf(sys.stderr).write((u"\nLarge collocation check (%s has %d matches + %s), %s....  \n" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot),"backgrounding" if run_in_background else "could take some time")).encode(terminal_charset,'replace'))
-    if canBackground and len(okStarts) >= yarowsky_debug[0] and len(badStarts) <= yarowsky_debug[1]: typo_report("yarowsky-debug.txt",allow_exceptions,withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
+    if canBackground and len(badStarts) <= yarowsky_debug[2] and (len(okStarts) >= yarowsky_debug[0] or len(okStarts) >= yarowsky_debug[1] and all(w in m2c_map and w+len(nonAnnot) in m2c_map for w in badStarts)): typo_report("yarowsky-debug.txt",allow_exceptions,withAnnot_unistr,(u"%s has %d matches + %s" % (withAnnot_unistr,len(okStarts),badInfo(badStarts,nonAnnot,False))))
     if run_in_background:
       job = executor.submit(yarowsky_indicators_wrapped,withAnnot_unistr) # recalculate the above on the other CPU in preference to passing, as memory might not be shared
       yield "backgrounded" ; yield job
@@ -4731,7 +4734,7 @@ def tryNBytes(nbytes,nonAnnot,badStarts,okStarts,withAnnot_unistr,force_negate,t
 def badInfo(badStarts,nonAnnot,for_tty=True):
   ret = u"%d false positive" % len(badStarts)
   if not len(badStarts)==1: ret += "s"
-  if len(badStarts) > yarowsky_debug[1]: return ret
+  if len(badStarts) > yarowsky_debug[2]: return ret
   for wordStart in badStarts:
    wordEnd = wordStart + len(nonAnnot)
    contextStart,contextEnd=max(0,wordStart-5),wordEnd+5

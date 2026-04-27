@@ -22,7 +22,7 @@ Generated annotators can act as filters for Web Adjuster; options are also provi
 show this help message and exit
 .TP
 \fB\-\-infile=\fR
-Filename of a text file (or a compressed \.gz, \.bz2 or \.xz file or URL) to read the input examples from\. If this is not specified, standard input is used\.
+Filename of a text file (or a compressed \.gz, \.bz2, \.xz or \.bz3 file or URL) to read the input examples from\. If this is not specified, standard input is used\.
 .TP
 \fB\-\-incode=\fR
 Character encoding of the input file (default utf\-8)
@@ -76,7 +76,7 @@ Minimum length of word (in Unicode characters) to apply suffix normalisation
 Filename or URL of an optional Python module defining a dictionary called 'table' mapping integers to integers for arbitrary single\-character normalisation on the Unicode BMP\. This can reduce the size of the annotator\. It is applied in post\-processing (does not affect rules generation itself)\. For example this can be used to merge the recognition of Full, Simplified and Variant forms of the same Chinese character in cases where this can be done without ambiguity, if it is acceptable for the generated annotator to recognise mixed\-script words should they occur\. If any word in the examples has a different annotation when normalised than not, the normalised version takes precedence\.
 .TP
 \fB\-\-glossfile=\fR
-Filename of an optional text file (or compressed \.gz, \.bz2 or \.xz file or URL) to read auxiliary "gloss" information\. Each line of this should be of the form: word (tab) annotation (tab) gloss\. Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries)\. When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied)\. The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word\. The entries in glossfile do \fBnot\fR affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc\.
+Filename of an optional text file (or compressed \.gz, \.bz2, \.xz or \.bz3 file or URL) to read auxiliary "gloss" information\. Each line of this should be of the form: word (tab) annotation (tab) gloss\. Extra tabs in the gloss will be converted to newlines (useful if you want to quote multiple dictionaries)\. When the compiled annotator generates ruby markup, it will add the gloss string as a popup title whenever that word is used with that annotation (before any reannotator option is applied)\. The annotation field may be left blank to indicate that the gloss will appear for all other annotations of that word\. The entries in glossfile do \fBnot\fR affect the annotation process itself, so it's not necessary to completely debug glossfile's word segmentation etc\.
 .TP
 \fB\-C\fR, \fB\-\-gloss\-closure=\fR
 If any Chinese, Japanese or Korean word is missing from glossfile, search its closure of variant characters also, using the Unihan variants file (or URL) specified by this option
@@ -91,10 +91,10 @@ Omit rules containing any word not mentioned in glossfile\. Might be useful if y
 Cancels any earlier \fB\-\-glossmiss\-omit\fR option in Makefile variables etc
 .TP
 \fB\-\-words\-omit=\fR
-File (or compressed \.gz, \.bz2 or \.xz file or URL) containing words (one per line, without markup) to omit from the annotator\. Use this to make an annotator smaller if for example if you're working from a rules file that contains long lists of place names you don't need this particular annotator to recognise but you still want to keep them as rules for other annotators, but be careful because any word on such a list gets omitted even if it also has other meanings (some place names are also normal words)\.
+File (or compressed \.gz, \.bz2, \.xz or \.bz3 file or URL) containing words (one per line, without markup) to omit from the annotator\. Use this to make an annotator smaller if for example if you're working from a rules file that contains long lists of place names you don't need this particular annotator to recognise but you still want to keep them as rules for other annotators, but be careful because any word on such a list gets omitted even if it also has other meanings (some place names are also normal words)\.
 .TP
 \fB\-\-manualrules=\fR
-Filename of an optional text file (or compressed \.gz, \.bz2 or \.xz file or URL) to read extra, manually\-written rules\. Each line of this should be a marked\-up phrase (in the input format) which is to be unconditionally added as a rule\. Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part\-way through processing a different rule); try checking messages from \fB\-\-diagnose\-manual\fR\.
+Filename of an optional text file (or compressed \.gz, \.bz2, \.xz or \.bz3 file or URL) to read extra, manually\-written rules\. Each line of this should be a marked\-up phrase (in the input format) which is to be unconditionally added as a rule\. Use this sparingly, because these rules are not taken into account when generating the others and they will be applied regardless of context (although a manual rule might fail to activate if the annotator is part\-way through processing a different rule); try checking messages from \fB\-\-diagnose\-manual\fR\.
 .TP
 \fB\-\-c\-filename=\fR
 Where to write the C, C#, Python, Javascript, Go or Dart program\. Defaults to standard output, or annotator\.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky\-like indicators are not used, so it's best not to use a server home directory where you might have limited quota)\.
@@ -106,7 +106,7 @@ The C compiler to run if generating C and standard output is not connected to a 
 Character encoding to use in the generated parser (default utf\-8, must be ASCII\-compatible i\.e\. not utf\-16)
 .TP
 \fB\-\-rulesFile=\fR
-Filename of a JSON file to hold the accumulated rules\. Adding \.gz, \.bz2 or \.xz for compression is acceptable\. If this is set then either \fB\-\-write\-rules\fR or \fB\-\-read\-rules\fR must be specified\.
+Filename of a JSON file to hold the accumulated rules\. Adding \.gz, \.bz2, \.xz or \.bz3 for compression is acceptable\. If this is set then either \fB\-\-write\-rules\fR or \fB\-\-read\-rules\fR must be specified\.
 .TP
 \fB\-\-write\-rules\fR
 Write rulesFile instead of generating a parser\. You will then need to rerun with \fB\-\-read\-rules\fR later\.
@@ -355,7 +355,7 @@ Like \fB\-\-yarowsky\-thorough\fR but check only what collocations occur within 
 Cancels any earlier \fB\-\-yarowsky\-half\-thorough\fR option in Makefile variables etc
 .TP
 \fB\-\-yarowsky\-debug=\fR
-Report the details of seed\-collocation false positives if there are a large number of matches and a small number of false positives, default 1000:1 (setting a single number N is equivalent to 1000:N, where N=0 omits reporting, otherwise use two numbers with a : separator)\. Occasionally these mismatches might be due to typos in the corpus, so it might be worth a check\.
+Report the details of seed\-collocation false positives if there are a large number of matches and a small number of false positives, optionally with a lesser large number of matches when the false positive doesn't cut across word boundaries\. Default 1000:1:750 (setting a single number N is equivalent to 1000:N:750, where N=0 omits reporting; setting X:N is equivalent to X:N:X)\. Occasionally these mismatches might be due to typos in the corpus, so it might be worth a check\.
 .TP
 \fB\-\-allow\-exceptions=\fR
 Filename (or URL) of any known exeptions for \fB\-\-yarowsky\-debug\fR checks (default allow\-exceptions\.txt)
@@ -370,7 +370,7 @@ Filename (or URL) of any known exeptions for \fB\-\-normalise\-debug\fR checks (
 Directory in which to write reports of possible typos etc (defaults to current directory)
 .TP
 \fB\-\-normalise\-cache=\fR
-Optional file to use to cache the result of normalisation\. Adding \.gz, \.bz2 or \.xz for compression is acceptable\.
+Optional file to use to cache the result of normalisation\. Adding \.gz, \.bz2, \.xz or \.bz3 for compression is acceptable\.
 .TP
 \fB\-1\fR, \fB\-\-single\-words\fR
 Do not generate any rule longer than 1 word, although it can still have Yarowsky seed collocations if \-y is set\. This speeds up the search, but at the expense of thoroughness\. You might want to use this in conjuction with \-y to make a parser quickly\.
@@ -403,7 +403,7 @@ Ignore all phrases that do not contain the word specified by the \fB\-\-diagnose
 Cancels any earlier \fB\-\-diagnose\-quick\fR option in Makefile variables etc
 .TP
 \fB\-\-priority\-list=\fR
-Instead of generating an annotator, use the input examples to generate a list of (non\-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed \.gz, \.bz2 or \.xz file)\. If the file provided already exists, it will be updated, thus you can amend an existing usage\-frequency list or similar (although the final numbers are priorities and might no longer match usage\-frequency exactly)\. The purpose of this option is to help if you have an existing word\-priority\-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky\-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word\-priority data\.
+Instead of generating an annotator, use the input examples to generate a list of (non\-annotated) words with priority numbers, a higher number meaning the word should have greater preferential treatment in ambiguities, and write it to this file (or compressed \.gz, \.bz2, \.xz or \.bz3 file)\. If the file provided already exists, it will be updated, thus you can amend an existing usage\-frequency list or similar (although the final numbers are priorities and might no longer match usage\-frequency exactly)\. The purpose of this option is to help if you have an existing word\-priority\-based text segmenter and wish to update its data from the examples; this approach might not be as good as the Yarowsky\-like one (especially when the same word has multiple readings to choose from), but when there are integration issues with existing code you might at least be able to improve its word\-priority data\.
 .TP
 \fB\-t\fR, \fB\-\-time\-estimate\fR
 Estimate time to completion\. The code to do this is unreliable and is prone to underestimate\. If you turn it on, its estimate is displayed at the end of the status line as days, hours or minutes\.
