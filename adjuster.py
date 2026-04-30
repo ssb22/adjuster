@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.247 (c) 2012-25 Silas S. Brown"
+"Web Adjuster v3.248 (c) 2012-26 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -142,6 +142,7 @@ else: # normal run: go ahead with Tornado import
         collections.MutableMapping = collections.abc.MutableMapping
         import asyncio # for wsgi mode:
         from tornado.platform.asyncio import AnyThreadEventLoopPolicy
+        warnings.simplefilter("ignore",DeprecationWarning) # Python3.14
         asyncio.set_event_loop_policy(AnyThreadEventLoopPolicy())
     except: pass # probably wrong Python version, patch not needed
     import tornado
@@ -1433,7 +1434,7 @@ def run_lsof():
         # lsof 4.81 has -sTCP:LISTEN but lsof 4.78 does not.  However, not including -sTCP:LISTEN can cause lsof to make unnecessary hostname queries for established connections.  So fall back only if have to.
         out = getoutput("lsof -iTCP:"+str(options.port)+" -Ts 2>/dev/null") # lsof -Ts ensures will say LISTEN on the pid that's listening
         lines = filter(lambda x:"LISTEN" in x,out.split("\n")[1:])
-    elif not out.strip() and not getoutput("which lsof 2>/dev/null"): return False
+    elif not out.strip() and not shutil.which("lsof"): return False
     else: lines = out.split("\n")[1:]
     pids = set()
     for line in lines:
@@ -1445,7 +1446,7 @@ def run_lsof():
             break
     return pids
 def run_netstat():
-    if not 'linux' in sys.platform or not getoutput("which netstat 2>/dev/null"): return False
+    if not 'linux' in sys.platform or not shutil.which("netstat"): return False
     pids = set()
     for l in getoutput("netstat -tnlp").split("\n"):
         if ':'+str(options.port)+' ' in l:
@@ -2204,6 +2205,13 @@ class WebdriverWrapper:
             except: pass
         else: tmp = self.tempDirToDelete = None
         self.theWebDriver = get_new_webdriver(*args)
+        try: from selenium.webdriver.common.by import By
+        except ImportError: By = None
+        if By: # patch in old methods to Selenium 4.3+
+            self.theWebDriver.find_element_by_xpath = lambda a: self.theWebDriver.find_element(By.XPATH, a)
+            self.theWebDriver.find_element_by_id = lambda a: self.theWebDriver.find_element(By.ID, a)
+            self.theWebDriver.find_element_by_link_text = lambda a: self.theWebDriver.find_element(By.LINK_TEXT, a)
+            self.theWebDriver.find_elements_by_tag_name = lambda a: self.theWebDriver.find_elements(By.TAG_NAME, a)
         if tmp: os.environ["TMPDIR"] = tmp
         elif options.js_multiprocess: del os.environ["TMPDIR"]
     def getTmp(self,*args): return self.tempDirToDelete
@@ -2672,10 +2680,12 @@ def get_new_Firefox(index,renewing,headless):
     if js_size: cmdL += ("-width",str(js_size[0]),"-height",str(js_size[1]))
     cmdL += ("about:blank",) # not Firefox start page
     binary.add_command_line_options(*cmdL) # cannot call this more than once
-    if caps and proxyToUse: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps,proxy=proxyToUse)
-    elif caps: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps)
-    elif proxyToUse: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,proxy=proxyToUse)
-    else: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary)
+    from selenium.webdriver.firefox.service import Service
+    service = Service(executable_path=shutil.which("geckodriver")) # explicit path needed on Ubuntu 24.04 (not on 22.04)
+    if caps and proxyToUse: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps,proxy=proxyToUse,service=service)
+    elif caps: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,capabilities=caps,service=service)
+    elif proxyToUse: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,proxy=proxyToUse,service=service)
+    else: p = wd_instantiateLoop(webdriver.Firefox,index,renewing,firefox_profile=profile,firefox_binary=binary,service=service)
     try: p.set_page_load_timeout(options.js_timeout1)
     except: logging.info("Couldn't set Firefox page load timeout")
     return p
@@ -2704,7 +2714,7 @@ def wd_instantiateLoop(wdClass,index,renewing,**kw):
     if not renewing: time.sleep(min(2*(index % js_per_core),int(options.js_timeout2 / 2))) # try not to start them all at once at the beginning (may reduce chance of failure)
     while True:
         try:
-            if wdClass==webdriver.Chrome: p = wdClass(getoutput("which chromedriver 2>/dev/null"),**kw) # some versions need to be told explicitly where chromedriver is, rather than looking in PATH themselves, in order to get "wrong version" errors etc (otherwise errors ignored, Selenium looks for a different chromedriver and gives a slightly confusing error about 'none found' rather than the error you should have seen about 'wrong version')
+            if wdClass==webdriver.Chrome: p = wdClass(shutil.which("chromedriver"),**kw) # some versions need to be told explicitly where chromedriver is, rather than looking in PATH themselves, in order to get "wrong version" errors etc (otherwise errors ignored, Selenium looks for a different chromedriver and gives a slightly confusing error about 'none found' rather than the error you should have seen about 'wrong version')
             else: p = wdClass(**kw)
             if not p.capabilities: raise Exception("Didn't seem to get a p.capabilities")
             elif 'browserVersion' in p.capabilities:

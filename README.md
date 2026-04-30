@@ -107,7 +107,7 @@ Other notes in this repository
 * [Is the PH Corpus really public domain?](notes/ph-corpus.md)
 * [Loophole in Microsoft YaHei font license?](notes/yahei.md)
 
-Options for Web Adjuster v3.247
+Options for Web Adjuster v3.248
 ============
 
 General options
