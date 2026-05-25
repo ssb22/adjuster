@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.423 (c) 2012-26 Silas S. Brown"
+"Annotator Generator v3.424 (c) 2012-26 Silas S. Brown"
 
 # See https://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -115,7 +115,7 @@ parser.add_option("--keep-whitespace",
 parser.add_option("--suffix",
                   help="Comma-separated list of annotations that can be considered optional suffixes for normalisation") # e.g. use --suffix=r if you have Mandarin Pinyin with inconsistent -r additions
 parser.add_option("--suffix-minlen",
-                  default=1,
+                  default=1,type="int",
                   help="Minimum length of word (in Unicode characters) to apply suffix normalisation")
 
 parser.add_option("--post-normalise",
@@ -140,7 +140,7 @@ parser.add_option("--manualrules",
 
 #  =========== OUTPUT OPTIONS ==============
 
-parser.add_option("--c-filename",default="",help="Where to write the C, C#, Python, Javascript, Go or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota).") # because the main program might not be running on the launch node
+parser.add_option("--c-filename",default="",help="Where to write a C, Python, Javascript or Dart program. Defaults to standard output, or annotator.c in the system temporary directory if standard output seems to be the terminal (the program might be large, especially if Yarowsky-like indicators are not used, so it's best not to use a server home directory where you might have limited quota).") # because the main program might not be running on the launch node
 
 parser.add_option("--c-compiler",default="cc -o annotator"+exe,help="The C compiler to run if generating C and standard output is not connected to a pipe. The default is to use the \"cc\" command which usually redirects to your \"normal\" compiler. You can add options (remembering to enclose this whole parameter in quotes if it contains spaces), but if the C program is large then adding optimisation options may make the compile take a LONG time. If standard output is connected to a pipe, then this option is ignored because the C code will simply be written to the pipe. You can also set this option to an empty string to skip compilation. Default: %default")
 
@@ -211,6 +211,7 @@ parser.add_option("--android-print",
 cancelOpt("android-print")
 parser.add_option("--known-characters",help="When generating an Android browser, include an option to leave the most frequent characters unannotated as 'known'.  This option should be set to the filename or URL of a UTF-8 file of characters separated by newlines, assumed to be most frequent first, with characters on the same line being variants of each other (see --freq-count for one way to generate it). Words consisting entirely of characters found in the first N lines of this file (where N is settable by the user) will be unannotated until tapped on.")
 parser.add_option("--freq-count",help="Name of a file to write that is suitable for the known-characters option, taken from the input examples (which should be representative of typical use).  Any post-normalise table provided will be used to determine which characters are equivalent.")
+parser.add_option("--freq-count-size",default=1000,type="int",help="Number of entries to write to the freq-count file if specified")
 parser.add_option("--android-audio",help="When generating an Android browser, include an option to convert the selection to audio using this URL as a prefix, e.g. https://example.org/speak.cgi?text= (use for languages not likely to be supported by the device itself). Optionally follow the URL with a space (quote carefully) and a maximum number of words to read in each user request. Setting a limit is recommended, or somebody somewhere will likely try 'Select All' on a whole book or something and create load problems. You should set a limit server-side too of course.") # do need https if we're Android 5+ and will be viewing HTTPS pages, or Chrome will block (OK if using EPUB-etc or http-only pages)
 parser.add_option("--extra-js",help="Extra Javascript to inject into sites to fix things in the Android browser app. The snippet will be run before each scan for new text to annotate. You may also specify a file to read: --extra-js=@file.js or --extra-js=@file1.js,file2.js (or URLs; do not use // comments in these files, only /* ... */ because newlines will be replaced), and you can create variants of the files by adding search-replace strings: --extra-js=@file1.js:search:replace,file2.js")
 parser.add_option("--tts-js",action="store_true",default=False,help="Make Android 5+ multilingual Text-To-Speech functions available to extra-js scripts (see TTSInfo code for details)")
@@ -303,15 +304,15 @@ parser.add_option("-o", "--allow-overlaps",
                   help="Normally, the analyser avoids generating rules that could overlap with each other in a way that would leave the program not knowing which one to apply.  If a short rule would cause overlaps, the analyser will prefer to generate a longer rule that uses more context, and if even the entire phrase cannot be made into a rule without causing overlaps then the analyser will give up on trying to cover that phrase.  This option allows the analyser to generate rules that could overlap, as long as none of the overlaps would cause actual problems in the example phrases. Thus more of the examples can be covered, at the expense of a higher risk of ambiguity problems when applying the rules to other texts.  See also the -y option.")
 cancelOpt("allow-overlaps")
 
-parser.add_option("-y","--ybytes",default=0,
+parser.add_option("-y","--ybytes",default=0,type="int",
                   help="Look for candidate Yarowsky seed-collocations within this number of bytes of the end of a word.  If this is set then overlaps and rule conflicts will be allowed when seed collocations can be used to distinguish between them, and the analysis is likely to be faster.  Markup examples that are completely separate (e.g. sentences from different sources) must have at least this number of (non-whitespace) bytes between them.")
-parser.add_option("--ybytes-max",default=0,
+parser.add_option("--ybytes-max",default=0,type="int",
                   help="Extend the Yarowsky seed-collocation search to check over larger ranges up to this maximum.  If this is set then several ranges will be checked in an attempt to determine the best one for each word, but see also ymax-threshold and ymax-limitwords.")
-parser.add_option("--ymax-threshold",default=1,
+parser.add_option("--ymax-threshold",default=1,type="int",
                   help="Limits the length of word that receives the narrower-range Yarowsky search when ybytes-max is in use. For words longer than this, the search will go directly to ybytes-max. This is for languages where the likelihood of a word's annotation being influenced by its immediate neighbours more than its distant collocations increases for shorter words, and less is to be gained by comparing different ranges when processing longer words. Setting this to 0 means no limit, i.e. the full range will be explored on ALL Yarowsky checks.") # TODO: see TODO below re temporary recommendation of --ymax-threshold=0
 parser.add_option("--ymax-limitwords",
                   help="Comma-separated list of words (without annotation markup) for which the ybytes expansion loop should run at most two iterations.  This may be useful to reduce compile times for very common ambiguous words that depend only on their immediate neighbours.  Annogen may suggest words for this option if it finds they take inordinate time to process.") # two iterations rather than one increases the rate of correctly handling things like 'yi/bu sandhi before duoyinzi' in Chinese, where the next TWO characters matter because the sandhi tone depends on how the duoyinzi resolves (which is often determined by the 3rd character, although this shortcut may not catch some rare cases where it's determined by one further on)
-parser.add_option("--ybytes-step",default=3,
+parser.add_option("--ybytes-step",default=3,type="int",
                   help="The increment value for the loop between ybytes and ybytes-max")
 parser.add_option("-k","--warn-yarowsky",
                   action="store_true",default=False,
@@ -336,7 +337,7 @@ cancelOpt("yarowsky-half-thorough")
 parser.add_option("--yarowsky-debug",
                   help="Report the details of seed-collocation false positives if there are a large number of matches and a small number of false positives, optionally with a lesser large number of matches when the false positive doesn't cut across word boundaries.  Default 1000:1:750 (setting a single number N is equivalent to 1000:N:750, where N=0 omits reporting; setting X:N is equivalent to X:N:X). Occasionally these mismatches might be due to typos in the corpus, so it might be worth a check.")
 parser.add_option("--allow-exceptions",default="allow-exceptions.txt",help="Filename (or URL) of any known exeptions for --yarowsky-debug checks (default %default)")
-parser.add_option("--normalise-debug",default=1,
+parser.add_option("--normalise-debug",default=1,type="int",
                   help="When --capitalisation is not in effect. report words that are usually capitalised but that have at most this number of lower-case exceptions (default %default) for investigation of possible typos in the corpus")
 parser.add_option("--allow-caps-exceptions",default="allow-caps-exceptions.txt",help="Filename (or URL) of any known exeptions for --normalise-debug checks (default %default)")
 parser.add_option("--debug-dir",default=".",
@@ -348,7 +349,7 @@ parser.add_option("-1","--single-words",
                   action="store_true",default=False,
                   help="Do not generate any rule longer than 1 word, although it can still have Yarowsky seed collocations if -y is set. This speeds up the search, but at the expense of thoroughness. You might want to use this in conjuction with -y to make a parser quickly.")
 cancelOpt("single-words")
-parser.add_option("--max-words",default=0,
+parser.add_option("--max-words",default=0,type="int",
                   help="Limits the number of words in a rule.  0 means no limit.  --single-words is equivalent to --max-words=1.  If you need to limit the search time, and are using -y, it should suffice to use --single-words for a quick annotator or --max-words=5 for a more thorough one (or try 3 if --yarowsky-half-thorough is in use).")  # (There was a bug in annogen versions before 0.58 that caused --max-words to additionally limit how far away from the start of its phrase a rule-example must be placed; this has now been fixed.  There was also a bug that resulted in too many extra rules being tested over already-catered-for phrases; as this has now been fixed, the additional benefit of a --max-words limit is now reduced, but you might want to put one in anyway.  That second bug also had the effect of the coverage % being far too low in the progress stats.)
 parser.add_option("--multiword-end-avoid",
                   help="Comma-separated list of words (without annotation markup) that should be avoided at the end of a multiword rule (e.g. sandhi likely to depend on the following word)")
@@ -401,18 +402,12 @@ def warn(msg):
   sys.stderr.write("Warning: "+msg+"\n")
 if "PyPy" in sys.version: warn("with annogen, PyPy is likely to run 60% slower than python") # (not to mention concurrent.futures being less likely to be available)
 
-if ybytes: ybytes=int(ybytes)
-if ybytes_max: ybytes_max=int(ybytes_max)
-else: ybytes_max = ybytes
+if not ybytes_max: ybytes_max = ybytes
 if yarowsky_debug:
   yarowsky_debug=tuple(reversed(sorted([int(x) for x in yarowsky_debug.split(':')])))
   if len(yarowsky_debug)==1: yarowsky_debug=(1000,750,yarowsky_debug[0])
   elif len(yarowsky_debug)==2: yarowsky_debug=(yarowsky_debug[0],yarowsky_debug[0],yarowsky_debug[1])
 else: yarowsky_debug=(1000,750,1)
-if normalise_debug: normalise_debug=int(normalise_debug)
-else: normalise_debug = 0
-ybytes_step = int(ybytes_step)
-ymax_threshold = int(ymax_threshold)
 def errExit(msg):
   try:
     if not outfile==getBuf(sys.stdout):
@@ -630,11 +625,8 @@ if multiword_end_avoid: multiword_end_avoid = set(T(multiword_end_avoid).split('
 if status_prefix: status_prefix += ": "
 else: status_prefix = ""
 if diagnose: diagnose=T(diagnose)
-diagnose_limit = int(diagnose_limit)
-max_words = int(max_words)
 if single_words: max_words = 1
 if read_rules and diagnose_manual: errExit("--diagnose-manual is not compatible with --read-rules")
-suffix_minlen=int(suffix_minlen)
 
 if compress:
   squashStrings = set() ; squashReplacements = []
@@ -1765,7 +1757,9 @@ if known_characters:
   L = [i for i in [re.sub(br'\s+',b'',l) for l in openfile(known_characters).readlines()] if i]
   knownCharsGroups = [] ; s = 0
   while s < len(L):
-    if s>=800: inc=100
+    if s>=1500: inc=500
+    elif s>=1000: inc=250
+    elif s>=800: inc=100
     elif s>=300: inc=50
     elif s>=100: inc=20
     else: inc=10
@@ -5577,7 +5571,7 @@ if not compile_only:
     for k,v in iteritems(post_normalise):
       if not unichr(v) in cSets: cSets[unichr(v)]=unichr(v)
       cSets[unichr(v)] += unichr(k)
-    openfile(freq_count,'w').write((u"\n".join(u"".join(sorted(cSets.get(c,c))) for _,c in list(reversed(sorted((n,c) for c,n in iteritems(counts))))[:1000])+u"\n").encode('utf-8')) # TODO: customise the 1000 (maybe greater increment after 1000)
+    openfile(freq_count,'w').write((u"\n".join(u"".join(sorted(cSets.get(c,c))) for _,c in list(reversed(sorted((n,c) for c,n in iteritems(counts))))[:freq_count_size])+u"\n").encode('utf-8'))
     sys.stderr.write(" done\n")
   setup_parallelism() # re-copy globals to cores
   try: rulesAndConds = analyse()
