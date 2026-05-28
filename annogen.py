@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.424 (c) 2012-26 Silas S. Brown"
+"Annotator Generator v3.425 (c) 2012-26 Silas S. Brown"
 
 # See https://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1756,13 +1756,9 @@ modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+
 if known_characters:
   L = [i for i in [re.sub(br'\s+',b'',l) for l in openfile(known_characters).readlines()] if i]
   knownCharsGroups = [] ; s = 0
+  def knownCharsInc(s): return 500 if s>=1500 else 250 if s>=1000 else 100 if s>=800 else 50 if s>=300 else 20 if s>=100 else 10
   while s < len(L):
-    if s>=1500: inc=500
-    elif s>=1000: inc=250
-    elif s>=800: inc=100
-    elif s>=300: inc=50
-    elif s>=100: inc=20
-    else: inc=10
+    inc = knownCharsInc(s)
     if s+inc > len(L): warn("UI code currently assumes known_characters line count will be a round number, but it isn't.  Last option will be too high.") # TODO handle this properly?
     knownCharsGroups.append(b"".join(L[s:s+inc])) ; s += inc
   knownCharsGroupsArray = b'['+b','.join(b"'"+i+b"'" for i in knownCharsGroups)+b']'
@@ -3673,10 +3669,7 @@ else: rangeEnd = 0
 if known_characters:
   extension_config += b'<select id="kc"><option>Annotate all</option>' ; s = 0
   for _ in knownCharsGroups:
-    if s>=800: s+=100
-    elif s>=300: s+=50
-    elif s>=100: s+=20
-    else: s+=10
+    s+=knownCharsInc(s)
     extension_config += b'<option>Leave %d known</option>' % (s,)
   extension_config += b"</select>"
 extension_config += b'<div id="cr"></div><button id="c">Clipboard</button><script src="config.js"></script></body></html>'
