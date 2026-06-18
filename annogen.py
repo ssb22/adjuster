@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.425 (c) 2012-26 Silas S. Brown"
+"Annotator Generator v3.426 (c) 2012-26 Silas S. Brown"
 
 # See https://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1756,7 +1756,7 @@ modeNames=["""+b",".join((b'"'+B(x)+b'"') for x in annotation_names.split(','))+
 if known_characters:
   L = [i for i in [re.sub(br'\s+',b'',l) for l in openfile(known_characters).readlines()] if i]
   knownCharsGroups = [] ; s = 0
-  def knownCharsInc(s): return 500 if s>=1500 else 250 if s>=1000 else 100 if s>=800 else 50 if s>=300 else 20 if s>=100 else 10
+  def knownCharsInc(s): return 500 if s>=1500 else 250 if s>=1000 else 100 if s>=800 else 50 if s>=300 else 20 if s>=100 else 10 # if changing this, don't forget the N+=(N... Javascript also
   while s < len(L):
     inc = knownCharsInc(s)
     if s+inc > len(L): warn("UI code currently assumes known_characters line count will be a round number, but it isn't.  Last option will be too high.") # TODO handle this properly?
@@ -1765,7 +1765,7 @@ if known_characters:
   android_url_box += br"""
 var hFreq="""+knownCharsGroupsArray+br""",known=ssb_local_annotator.getKnownCharacters();
 document.write('<select style="margin-top: 0.5ex" onchange="ssb_local_annotator.setKnownCharacters(hFreq.slice(0,this.selectedIndex<0?0:this.selectedIndex).join('+"''"+'));location.reload()"><option'+(known==""?' selected':'')+'>Annotate all</option>');
-for(var dx=0,N=10,k='';dx<"""+B(str(len(knownCharsGroups)))+br""";dx++,N+=(N>=800?100:N>=300?50:N>=100?20:10)) document.write('<option'+(known==(k+=hFreq[dx])?' selected':'')+'>Leave '+N+' known</option>');
+for(var dx=0,N=10,k='';dx<"""+B(str(len(knownCharsGroups)))+br""";dx++,N+=(N>=1500?500:N>=1000?250:N>=800?100:N>=300?50:N>=100?20:10)) document.write('<option'+(known==(k+=hFreq[dx])?' selected':'')+'>Leave '+N+' known</option>');
 document.write('</select> ');""" # TODO: could add a 'custom' option that's selected if none of the others are, but will need some way of editing it (and might need to nicely handle the case of 'frequency table corrected during an app upgrade')
 android_url_box += br"""
 document.write('<button style="margin-top: 0.5ex;background:#ededed;color:inherit;padding-left:0px;padding-right:0.2ex" onclick="ssb_local_annotator.setIncludeAll(!ssb_local_annotator.getIncludeAll());location.reload();return false"><input type=checkbox'+(ssb_local_annotator.getIncludeAll()?' checked':'')+'>Include """
