@@ -6,7 +6,12 @@
 # annotate the current screen using "annotator" (in PATH)
 # and pipes the result through "termlayout" (in PATH).
 
-# Silas S. Brown 2014, 2015, 2019, 2022 - public domain - no warranty
+# (c) Silas S. Brown 2014, 2015, 2019, 2022.  License: Apache 2
+# (I did say "public domain no warranty" but apparently
+# some corporate offices don't trust that.  Apache 2 lets
+# them know I don't have a silly patent up my sleeve that
+# I'd try to enforce, so their policy might accept it more
+# easily if you need to use this at work.)
 
 if [ "$TMUX" ]; then
   # tmux is not already running
