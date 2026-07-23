@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.427 (c) 2012-26 Silas S. Brown"
+"Annotator Generator v3.428 (c) 2012-26 Silas S. Brown"
 
 # See https://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1219,6 +1219,7 @@ jsAddRubyCss += b"}rt{"
 if android_template: jsAddRubyCss += b"-webkit-user-select:'+(ssb_local_annotator.getIncludeAll()?'text':'none')+' !important;" # because some users want to copy entire phrases to other tools where inline annotation gets in the way, but other users want the annotations (and copying one word at a time via the popup box is slow).  This (plus our JS fix) narrows things down only if Copy is in use, not extended popup options e.g. Translate.
 jsAddRubyCss += b"display:table-header-group !important;font-size:100% !important;line-height:1.1 !important;font-family: "+b", ".join(annotation_font)+b" !important;}"
 jsAddRubyCss += b"rt:not(:last-of-type){font-style:italic;opacity:0.5;color:purple}" # for 3line mode (assumes rt/rb and rt/rt/rb)
+jsAddRubyCss += b"p{content-visibility:auto}" # helps Chrome~150+ WebViews avoid rendering all paragraphs in long documents until scrolled into view
 jsAddRubyCss += b"rp{display:none!important}"+B(extra_css).replace(b"'",br"\'")+b"'"
 if epub: jsAddRubyCss += br"""+((location.href.slice(0,12)=='http://epub/')?'ol{list-style-type:disc!important}li{display:list-item!important}nav[*|type="page-list"] ol li,nav[epub\\:type="page-list"] ol li{display:inline!important;margin-right:1ex}':'')""" # LI style needed to avoid completely blank toc.xhtml files that style-out the LI elements and expect the viewer to add them to menus etc instead (which hasn't been implemented here); OL style needed to avoid confusion with 2 sets of numbers (e.g. <ol><li>preface<li>1. Chapter One</ol> would get 1.preface 2.1.Chapter One unless turn off the OL numbers)
 if android_print: jsAddRubyCss += b"+' @media print { .ssb_local_annotator_noprint, #ssb_local_annotator_bookmarks { visibility: hidden !important; }'+(ssb_local_annotator.printNeedsCssHack()?' rt { font-family: sans-serif !important; }':'')+' }'"
@@ -1698,7 +1699,7 @@ if pleco_hanping or tts_js:
 <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>"""
   android_manifest+=b"\n</queries>"
 android_manifest += br"""
-<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="35" />
+<uses-sdk android:minSdkVersion="1" android:targetSdkVersion="36" />
 <supports-screens android:largeScreens="true" android:xlargeScreens="true" />
 <application android:icon="@drawable/ic_launcher" android:label="@string/app_name" android:theme="@style/AppTheme" android:networkSecurityConfig="@xml/network_security_config" >
 <service android:name=".BringToFront" android:exported="false"/>
@@ -1807,7 +1808,7 @@ import java.util.zip.*;
 public class MainActivity extends Activity {
     %%JPACKAGE%%.Annotator annotator;
     @SuppressLint("SetJavaScriptEnabled")
-    @TargetApi(19) // 19 for setWebContentsDebuggingEnabled; 7 for setAppCachePath; 3 for setBuiltInZoomControls (but only API 1 is required)
+    @TargetApi(30)
     @SuppressWarnings("deprecation") // for conditional SDK below
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -1839,6 +1840,8 @@ if pleco_hanping: android_src += br"""
 android_src += br"""
         if(AndroidSDK >= 7 && AndroidSDK < 33) { try { WebSettings.class.getMethod("setAppCachePath",new Class[] { String.class }).invoke(browser.getSettings(),getApplicationContext().getCacheDir().getAbsolutePath()); WebSettings.class.getMethod("setAppCacheEnabled",new Class[] { Boolean.class }).invoke(browser.getSettings(),true); } catch (NoSuchMethodException e) {} catch (IllegalAccessException e) {} catch (InvocationTargetException e) {} } // not to be confused with the normal browser cache (call methods dynamically because platform 33 can't compile this)
         if(AndroidSDK<=19 && savedInstanceState==null) browser.clearCache(true); // (Android 4.4 has Chrome 33 which has Issue 333804 XMLHttpRequest not revalidating, which breaks some sites, so clear cache when we 'cold start' on 4.4 or below.  We're now clearing cache anyway in onDestroy on Android 5 or below due to Chromium bug 245549, but do it here as well in case onDestroy wasn't called last time e.g. swipe-closed in Activity Manager)
+        if(AndroidSDK>=21) browser.setOnApplyWindowInsetsListener(new OAWIL(this));
+        if(AndroidSDK>=36) new Android16BackHandler(this).register(); // but no Predictive Back if WebView struggles with it (implementing it just for app-exit is hardly worth the code)
         browser.getSettings().setJavaScriptEnabled(true);
         browser.getSettings().setDomStorageEnabled(true);
         browser.getSettings().setDatabaseEnabled(true); if(AndroidSDK<19) browser.getSettings().setDatabasePath("/data/data/"+getApplicationContext().getPackageName()+"/databases/");
@@ -1993,6 +1996,7 @@ android_src += br"""
                 theTimer.postDelayed(new FwdMaker(this,fwdUrl,theTimer),500);
                 return true;
             }
+            if(AndroidSDK>=36) { finish(); return true; } // called from BackCall's onBackInvoked
         } return super.onKeyDown(keyCode, event);
     }
     @SuppressWarnings("deprecation") // using getText so works on API 1 (TODO consider adding a version check and the more-modern alternative android.content.ClipData c=((android.content.ClipboardManager)getSystemService(android.content.Context.CLIPBOARD_SERVICE)).getPrimaryClip(); if (c != null && c.getItemCount()>0) return c.getItemAt(0).coerceToText(this).toString(); return ""; )
@@ -2031,6 +2035,34 @@ if known_characters: android_src += b"""
 android_src += br"""
     float fontScale;
 // Classes that used to be inner classes, refactored to this level to work around d8 bugs on JDK 21:
+static class Android16BackHandler { // (Android 16 can temporarily opt out with android:enableOnBackInvokedCallback=false in <application or <activity of android_manifest but we might as well implement for when they remove the opt-out)
+    public Android16BackHandler(MainActivity act) { this.act = act; }
+    MainActivity act;
+    @TargetApi(36) public void register() {
+        final android.window.OnBackInvokedDispatcher dispatcher = act.getOnBackInvokedDispatcher();
+        if (dispatcher != null) dispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,new BackCall(act));
+    }
+}
+@TargetApi(30) static class OAWIL implements android.view.View.OnApplyWindowInsetsListener {
+    public OAWIL(MainActivity act) { this.act = act; }
+    MainActivity act;
+    @Override public android.view.WindowInsets onApplyWindowInsets(android.view.View v, android.view.WindowInsets insets) {
+        int bottom = act.AndroidSDK>=30
+            ? insets.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom
+            : insets.getSystemWindowInsetBottom();
+        android.view.ViewGroup.MarginLayoutParams lp =
+            (android.view.ViewGroup.MarginLayoutParams) v.getLayoutParams();
+        if (lp.bottomMargin != bottom) { lp.bottomMargin = bottom; v.setLayoutParams(lp); }
+        return insets;
+    }
+}
+@TargetApi(36) static class BackCall implements android.window.OnBackInvokedCallback {
+    public BackCall(MainActivity act) { this.act = act; }
+    MainActivity act;
+    @Override public void onBackInvoked() {
+        act.onKeyDown(KeyEvent.KEYCODE_BACK, null);
+    }
+}
 static class CustomWebViewClient extends WebViewClient {
     public CustomWebViewClient(MainActivity act) { this.act = act; }
     MainActivity act;
