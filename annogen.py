@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.428 (c) 2012-26 Silas S. Brown"
+"Annotator Generator v3.429 (c) 2012-26 Silas S. Brown"
 
 # See https://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -1874,7 +1874,6 @@ else: android_src += br"""
         browser.getSettings().setDefaultFixedFontSize(size);"""
 if android_print: android_print_script = br"""if(ssb_local_annotator.canPrint())document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; display: block !important; position: fixed !important; font-size: 20px !important; left: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\"javascript:ssb_local_annotator.print()\">'""")+br"""+ssb_local_annotator.canPrint().replace('0.3ex','0.3ex;display:inline-block')+'</a>')"""
 else: android_print_script = b""
-if epub and android_print: android_src = android_src.replace(b"Next</a>",b"Next</a><script>"+android_print_script+b"</script>")
 android_src += br"""
         browser.getSettings().setDefaultTextEncodingName("utf-8");
         runTimerLoop();
@@ -2091,7 +2090,7 @@ if epub: android_src += br"""
         if(mimeType==null || mimeType.equals("application/xhtml+xml")) mimeType="text/html"; // needed for annogen style modifications
         if(mimeType.equals("text/html")) {
         ZipEntry ze2; while ((ze2 = zin.getNextEntry()) != null) if(ze2.getName().contains("htm") && !ze2.getName().contains("toc.xhtml")) break;
-        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceAll("<[iI][mM][gG] ","<img loading=lazy ").replaceFirst("</[bB][oO][dD][yY]>","<p><script>"+(ze.getName().contains("toc.xhtml")?"":"document.write("""+sort20px(br"""'<a class=ssb_local_annotator_noprint style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+(ze2!=null ? ze2.getName() : "")+"\">'""")+br""");")+"var v=function(e,i){if(i<e.length){e[i].removeAttribute('loading');if(e[i].complete)window.setTimeout(function(){v(e,i+1)},100);else e[i].onload=function(){v(e,i+1)}}};v(document.getElementsByTagName('img'),0)</script>"+(ze.getName().contains("toc.xhtml")?"":"Next</a>")+"</body>").getBytes())); // TODO: will f.toString() work if f is utf-16 ?
+        return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toString().replaceAll("<[iI][mM][gG] ","<img loading=lazy ").replaceFirst("</[bB][oO][dD][yY]>","<div class=ssb_local_annotator_noprint><script>"+(ze.getName().contains("toc.xhtml")?"":"document.write("""+sort20px(br"""'<a style=\"border: #1010AF solid !important; background: #1010AF !important; color: white !important; display: block !important; position: fixed !important; font-size: 20px !important; right: 0px; bottom: 0px;z-index:2147483647; -moz-opacity: 0.8 !important; opacity: 0.8 !important;\" href=\""+epubPrefix+(ze2!=null ? ze2.getName() : "")+"\">'""")+br""");")+"var v=function(e,i){if(i<e.length){e[i].removeAttribute('loading');if(e[i].complete)window.setTimeout(function(){v(e,i+1)},100);else e[i].onload=function(){v(e,i+1)}}};v(document.getElementsByTagName('img'),0)</script>"+(ze.getName().contains("toc.xhtml")?"":"Next</a>")+"</div></body>").getBytes()));
         } else return new WebResourceResponse(mimeType,"utf-8",new ByteArrayInputStream(f.toByteArray()));
     }
     final String epubPrefix = "http://epub/"; // also in handleIntent, and in annogen.py should_suppress_toolset
@@ -2153,6 +2152,7 @@ if epub: android_src += br"""
             return new WebResourceResponse("text/html","utf-8",new ByteArrayInputStream("IOException".getBytes()));
         } finally { try { zin.close(); } catch(IOException e) {} }
     }"""
+if epub and android_print: android_src = android_src.replace(b"Next</a>",b"Next</a><script>"+android_print_script+b"</script>") # designed to be in a "..."
 if not android_template: android_src += br"""
     float scale = 0; boolean scaling = false;
     public void onScaleChanged(final WebView view,float from,final float to) {
