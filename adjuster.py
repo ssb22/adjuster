@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.248 (c) 2012-26 Silas S. Brown"
+"Web Adjuster v3.249 (c) 2012-26 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -2872,7 +2872,7 @@ rmClientHeaders = ['Connection','Proxy-Connection','Accept-Charset','Accept-Enco
 # and handles responses.  Sorry it's got a bit big :-(
 # --------------------------------------------------
 
-the_supported_methods = ("GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "CONNECT")
+the_supported_methods = ("GET", "HEAD", "POST", "PUT", "QUERY", "DELETE", "PATCH", "OPTIONS", "CONNECT")
 # Don't support PROPFIND (from WebDAV) unless be careful about how to handle image requests with it
 # TODO: image requests with OPTIONS ?
 
@@ -3018,6 +3018,8 @@ class RequestForwarder(RequestHandler):
     def post(self, *args, **kwargs):    return self.doReq()
     @asynchronous
     def put(self, *args, **kwargs):     return self.doReq()
+    @asynchronous
+    def query(self, *args, **kwargs):   return self.doReq()
     @asynchronous
     def delete(self, *args, **kwargs):  return self.doReq()
     @asynchronous
