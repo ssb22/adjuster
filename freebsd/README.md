@@ -22,3 +22,6 @@ discussion on [issue 289199](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=2
 
 Update to version 3.248 [committed](https://cgit.freebsd.org/ports/commit/?id=c24038f730de1df71e39b94fefd3476b433d6666),
 duscussion on [issue 294940](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=294940)
+
+Update to version 3.249 [committed](https://cgit.freebsd.org/ports/commit/?id=a2ba42cb3a8cafce2439a5ce726217deeed6e447),
+duscussion on [issue 298094](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=298094)
