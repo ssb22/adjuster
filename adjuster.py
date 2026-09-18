@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.249 (c) 2012-26 Silas S. Brown"
+"Web Adjuster v3.25 (c) 2012-26 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -240,9 +240,10 @@ define("uavia",default=True,help="Whether or not to add to the User-Agent HTTP h
 define("robots",default=False,help="Whether or not to pass on requests for /robots.txt.  If this is False then all robots will be asked not to crawl the site; if True then the original site's robots settings will be mirrored.  The default of False is recommended.")
 # TODO: do something about badly-behaved robots ignoring robots.txt? (they're usually operated by email harvesters etc, and start crawling the web via the proxy if anyone "deep links" to a page through it, see comments in request_no_external_referer)
 define("just_me",default=False,help="Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.  If an ident server is not available, an attempt is made to authenticate connections via Linux netstat and /proc.")
-define("one_request_only",default=False,help="Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy): run with --one_request_only and forward the request to its port.  You may also wish to set --seconds if using this.")
+define("one_request_only",default=False,help="Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy), or have a version of Python incompatible with WSGI-supporting Tornado versions.  Run with --one_request_only and forward the request to its port.  You may also wish to set --seconds, --stdio and/or --cgi if using this.")
 define("seconds",default=0,help="The maximum number of seconds for which to run the server (0 for unlimited).  If a time limit is set, the server will shut itself down after the specified length of time.")
 define("stdio",default=False,help="Forward standard input and output to our open port, in addition to being open to normal TCP connections.  This might be useful in conjuction with --one-request-only and --port=-1.")
+define("cgi",default=False,help="Handle a CGI environment when --stdio is set")
 
 define("upstream_proxy",help="address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.")
 # The upstream_proxy option requires pycurl (will refuse to start if not present). Does not set X-Real-Ip because Via should be enough for upstream proxies. The ":port"-only option rewrites URLs in requests but NOT ones referred to in documents: we assume the proxy can cope with that.
@@ -799,7 +800,7 @@ def parse_command_line(final):
         rest = tornado.options.parse_command_line()
     else:
         rest=tornado.options.parse_command_line(final=final)
-    if rest: errExit("Unrecognised command-line argument '%s'" % rest[0]) # maybe they missed a '--' at the start of an option: don't want result to be ignored without anyone noticing
+    if rest and not options.cgi: errExit("Unrecognised command-line argument '%s'" % rest[0]) # maybe they missed a '--' at the start of an option: don't want result to be ignored without anyone noticing
   except tornado.options.Error as e: optErr(e.message)
 def optErr(m):
     if "PhantomJS" in m: m += " (try --js_interpreter=PhantomJS instead?)" # old option was --PhantomJS
@@ -1687,10 +1688,11 @@ def openPortsEtc():
 def setup_stdio():
     # Handle option for request on standard input
     # (when used in one-off mode)
-    global StdinPass,StdinPending
-    StdinPass,StdinPending = None,[]
+    global StdinPass,StdinPending,FirstLine
+    StdinPass,StdinPending,FirstLine = None,[],True
     def doStdin(fd,events):
-        l=os.read(fd,1024) # read 1 line or 1024 bytes (TODO: double-check this can never block)
+        if fd==None: l=B(os.environ.get('REQUEST_METHOD','GET')+" "+os.environ.get('REQUEST_URI','/')+" HTTP/1.0"+"".join("\r\n"+key[5:].replace('_','-').title()+": "+val for key,val in os.environ.items() if key.startswith("HTTP_"))+"".join("\r\n"+key.replace('_','-').title()+": "+val for key,val in os.environ.items() if key in ['CONTENT_TYPE','CONTENT_LENGTH'] and val)+"\r\n\r\n")
+        else: l=os.read(fd,1024) # read 1 line or 1024 bytes (TODO: double-check this can never block)
         if not l: # EOF (but don't close stdout yet)
             IOLoopInstance().remove_handler(sys.stdin.fileno())
             return
@@ -1702,9 +1704,14 @@ def setup_stdio():
             StdinPass = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0))
             def ClearPending(): del StdinPending[:]
             def WriteOut(s):
+                global FirstLine
+                if options.cgi and FirstLine: # assumes HTTP/1.x response line not split across buffer size
+                    s=re.sub(b"^HTTP/[^ ]+",b"Status:",s,1)
+                    FirstLine = False
                 try: sys.stdout.buffer.write(s)
                 except: sys.stdout.write(s)
             doCallback(None,StdinPass.connect,lambda *args:(StdinPass.write(B('').join(StdinPending)),ClearPending(),readUntilClose(StdinPass,lambda last:(WriteOut(last),sys.stdout.close()),WriteOut)),(options.address, port_randomise.get(options.port,options.port)))
+    if options.cgi: doStdin(None,0)
     IOLoopInstance().add_handler(sys.stdin.fileno(), doStdin, IOLoop.READ)
 
 #@file: up-down.py
@@ -4198,11 +4205,11 @@ document.forms[0].i.focus()
                 self.myfinish()
             self.inProgress() # if appropriate
             if do_pdftotext:
-                if options.pdfepubkeep: runFilter(self,("pdftotext -enc UTF-8 -nopgbrk \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"pdftotext",out+err)), False)
-                elif self.canWriteBody(): runFilter(self,("pdftotext -enc UTF-8 -nopgbrk \"%s\" -" % f.name),"",(lambda out,err:(unlink(f.name),self.write(remove_blanks_add_utf8_BOM(out)),self.myfinish())), False) # (pipe o/p from pdftotext directly, no temp outfile needed)
+                if options.pdfepubkeep: runFilter(self,("pdftotext -enc UTF-8 -nopgbrk \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"pdftotext",out+err)))
+                elif self.canWriteBody(): runFilter(self,("pdftotext -enc UTF-8 -nopgbrk \"%s\" -" % f.name),"",(lambda out,err:(unlink(f.name),self.write(remove_blanks_add_utf8_BOM(out)),self.myfinish()))) # (pipe o/p from pdftotext directly, no temp outfile needed)
                 else: self.myfinish()
-            elif self.isKindle(): runFilter(self,("ebook-convert \"%s\" \"%s.mobi\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)), False)
-            else: runFilter(self,("ebook-convert \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)), False)
+            elif self.isKindle(): runFilter(self,("ebook-convert \"%s\" \"%s.mobi\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)))
+            else: runFilter(self,("ebook-convert \"%s\" \"%s.txt\"" % (f.name,f.name)),"",(lambda out,err:txtCallback(self,f.name,"ebook-convert",out+err)))
             return
         if do_domain_process and not isProxyRequest: body = domain_process(body,cookie_host,https=B(self.urlToFetch).startswith(B("https"))) # first, so filters to run and scripts to add can mention new domains without these being redirected back
         # Must also do things like 'delete' BEFORE the filters, especially if lxml is in use and might change the code so the delete patterns aren't recognised.  But do JS process BEFORE delete, as might want to pick up on something that was there originally.  (Must do it AFTER domain process though.)
@@ -4273,7 +4280,7 @@ document.forms[0].i.focus()
             else: htmlFunc = None
             runFilterOnText(self,htmlFilter,find_HTML_in_JSON(body,htmlFunc),callback,True,prefix=line1)
         elif do_mp3 and options.bitrate:
-            runFilter(self,"lame --quiet --mp3input -m m --abr %d - -o -" % options.bitrate,body,callback,False) # -m m = mono (TODO: optional?)
+            runFilter(self,"lame --quiet --mp3input -m m --abr %d - -o -" % options.bitrate,body,callback) # -m m = mono (TODO: optional?)
         else: callback(body,"")
     def getHtmlFilter(self,filterNo=None):
         return findFilter(self,filterNo)
@@ -4866,7 +4873,7 @@ def android_ios_instructions(pType,reqHost,ua,filterNo):
 # Text processing etc: handle running arbitrary filters
 # --------------------------------------------------
 
-def runFilter(req,cmd,text,callback,textmode=True):
+def runFilter(req,cmd,text,callback):
 
     # (Note: replaced by sync_runFilter when in WSGI mode)
 
@@ -4891,7 +4898,7 @@ def runFilter(req,cmd,text,callback,textmode=True):
         return httpfetch(req,cmd,method="POST",body=text,callback=lambda r:(curlFinished(),callback(B(r.body),"")))
     def subprocess_thread():
         helper_threads.append('filter-subprocess')
-        sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=textmode) # TODO: check shell=True won't throw error on Windows
+        sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE) # TODO: check shell=True won't throw error on Windows
         out,err = sp.communicate(text)
         if not out: out=B("")
         if not err: err="" # TODO: else logging.debug ? (some stderr might be harmless; don't want to fill normal logs)
@@ -4899,7 +4906,7 @@ def runFilter(req,cmd,text,callback,textmode=True):
         helper_threads.remove('filter-subprocess')
     threading.Thread(target=subprocess_thread,args=()).start()
 
-def sync_runFilter(req,cmd,text,callback,textmode=True):
+def sync_runFilter(req,cmd,text,callback):
     text = B(text)
     if not cmd: return B(callback(text,""))
     if type(cmd)==type("") and cmd.startswith("*"):
@@ -4908,7 +4915,7 @@ def sync_runFilter(req,cmd,text,callback,textmode=True):
     elif re.match("https?://",cmd):
         return httpfetch(req,cmd,method="POST",body=text,callback=lambda r:callback(B(r.body),""))
     else:
-        sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,universal_newlines=textmode) # TODO: check shell=True won't throw error on Windows
+        sp=subprocess.Popen(cmd,shell=True,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE) # TODO: check shell=True won't throw error on Windows
         out,err = sp.communicate(text)
         if not out: out=B("")
         if not err: err="" # TODO: else logging.debug ? (some stderr might be harmless; don't want to fill normal logs)

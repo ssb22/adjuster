@@ -107,7 +107,7 @@ Other notes in this repository
 * [Is the PH Corpus really public domain?](notes/ph-corpus.md)
 * [Loophole in Microsoft YaHei font license?](notes/yahei.md)
 
-Options for Web Adjuster v3.249
+Options for Web Adjuster v3.25
 ============
 
 General options
@@ -165,13 +165,16 @@ Network listening and security settings
 : Listen on localhost only, and check incoming connections with an ident server (which must be running on port 113) to ensure they are coming from the same user.  This is for experimental setups on shared Unix machines; might be useful in conjuction with --real_proxy.  If an ident server is not available, an attempt is made to authenticate connections via Linux netstat and /proc.
 
 `--one-request-only`  (default False)
-: Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy): run with --one_request_only and forward the request to its port.  You may also wish to set --seconds if using this.
+: Shut down after handling one request.  This is for use in inefficient CGI-like environments where you cannot leave a server running permanently, but still want to start one for something that's unsupported in WSGI mode (e.g. js_reproxy), or have a version of Python incompatible with WSGI-supporting Tornado versions.  Run with --one_request_only and forward the request to its port.  You may also wish to set --seconds, --stdio and/or --cgi if using this.
 
 `--seconds`  (default 0)
 : The maximum number of seconds for which to run the server (0 for unlimited).  If a time limit is set, the server will shut itself down after the specified length of time.
 
 `--stdio`  (default False)
 : Forward standard input and output to our open port, in addition to being open to normal TCP connections.  This might be useful in conjuction with --one-request-only and --port=-1.
+
+`--cgi`  (default False)
+: Handle a CGI environment when --stdio is set
 
 `--upstream-proxy` 
 : address:port of a proxy to send our requests through. This can be used to adapt existing proxy-only mediators to domain rewriting, or for a caching proxy. Not used for ip_query_url options or fasterServer. If address is left blank (just :port) then localhost is assumed and https URLs will be rewritten into http with altered domains; you'll then need to set the upstream proxy to send its requests back through the adjuster (which will listen on localhost:port+1 for this purpose) to undo that rewrite. This can be used to make an existing HTTP-only proxy process HTTPS pages.
@@ -655,7 +658,7 @@ Web Adjuster is best run as a standalone server (see above) or behind a proxy li
 on a Standard second-generation runtime (under Solutions / All products / Serverless / App Engine / Create Application):
 1. Make an `app.yaml` file like:
 
-    runtime: python312
+    runtime: python311
     automatic_scaling:
       max_instances: 1
       min_instances: 0
@@ -671,9 +674,9 @@ on a Standard second-generation runtime (under Solutions / All products / Server
 Options that call external programs are unlikely to work in AppEngine Standard but you can use htmlFilter with Python functions (see above; if you have large modules not always used then you might want to import these on demand).
 
 ## Werkzeug, cherrypy etc
-If using Werkzeug, cherrypy.wsgiserver, or similar, do `werkzeug.serving.run_simple(`IP, port`, myApp, threaded=True)` or `cherrypy.wsgiserver.CherryPyWSGIServer((`IP, port`), myApp).start()` or whatever.  You will need Tornado 5.1.1 or below (Tornado 6 doesn’t support this) and it has to be installed properly rather than simply placing its `tornado` subdirectory into the current directory, unless it’s Tornado 2.4.1 on Python 2.6 or 2.7.
+If using Werkzeug, cherrypy.wsgiserver, or similar, do `werkzeug.serving.run_simple(`IP, port`, myApp, threaded=True)` or `cherrypy.wsgiserver.CherryPyWSGIServer((`IP, port`), myApp).start()` or whatever.  You will need Python 3.11 or below running Tornado 5.1.1 or below, since Tornado 6 on Python 3.12+ doesn’t support this. ​It has to be installed properly rather than simply placing its `tornado` subdirectory into the current directory, unless it’s Tornado 2.4.1 on Python 2.6 or 2.7.
 ## CGI
-You can turn it into a CGI script via `import wsgiref.handlers ; wsgiref.handlers.CGIHandler().run(myApp)` but that will need a separate process for each concurrent request. ​Again you will need Tornado 5.1.1 or below (Tornado 6 doesn’t support this), and it has to be installed properly rather than simply placing its tornado subdirectory into the current directory, unless it’s Tornado 2.4.1 on Python 2.6 or 2.7. If using Apache, put
+This will need a separate process for each concurrent request. ​On older setups (before Python&nbsp;3.12, before Tornade&nbsp;6) you can turn it into a CGI script via `import wsgiref.handlers ; wsgiref.handlers.CGIHandler().run(myApp)` or with newer setups set the options `just_me`, `one_request_only`, `stdio` and `cgi`, set `port` to `-1` and call `main` instead of `make_WSGI_application`. If using Apache, put
 
     ErrorDocument 404 /wrapper.cgi
     Options -Indexes
