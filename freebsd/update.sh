@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -ex
 
 # Generate diff to submit to FreeBSD.
 # Run this on a machine that's set up to "ssh freebsd"
@@ -44,6 +44,7 @@ if [ "$(uname -s)" = "FreeBSD" ] ; then
     cd /usr/ports/www/adjuster/
     rm -rf work distinfo
     make makesum
+    rm -rf work
     portlint -A
     make deinstall || true
     make install
