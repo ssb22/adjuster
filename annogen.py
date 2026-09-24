@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # (compatible with both Python 2.7 and Python 3)
 
-"Annotator Generator v3.429 (c) 2012-26 Silas S. Brown"
+"Annotator Generator v3.43 (c) 2012-26 Silas S. Brown"
 
 # See https://ssb22.user.srcf.net/adjuster/annogen.html
 
@@ -742,7 +742,7 @@ _annotateRL.argtypes = [c_char_p"""
     r = _annotateRL(txt"""
     if sharp_multi: c_preamble += b",aType"
     c_preamble += br""")
-    _afree() ; return r"""
+    _afree() ; return r.replace('&','&amp;').replace('<','&lt;')"""
   c_preamble += b"\ndef annotate(txt"
   if sharp_multi: c_preamble += b",aType=0"
   c_preamble += br""",aMode=1):
@@ -1175,24 +1175,23 @@ else: c_start += b"' '"
 c_start += br"""); needSpace=0; }
 }""" + decompress_func + br"""
 
-static void c(int numBytes) {
-  /* copyBytes, needSpace unchanged */
-  for(;numBytes;numBytes--)
-    OutWriteByte(NEXT_COPY_BYTE);
+static void cp(int numBytes) {
+  for(;numBytes;numBytes--) {
+    unsigned char C=(NEXT_COPY_BYTE);
+    switch(C) { case '<': OutWriteStr("&lt;");  break;
+                case '&': OutWriteStr("&amp;"); break;
+                default:  OutWriteByte(C); }
+  }
 }
 static void o(int numBytes,const char *annot) {
   s();""" + c_switch1 + br"""
-    OutWriteStr("<ruby><rb>");
-    for(;numBytes;numBytes--)
-      OutWriteByte(NEXT_COPY_BYTE);
+    OutWriteStr("<ruby><rb>"); cp(numBytes);
     OutWriteStr("</rb><rt>"); OutWriteDecompressP(annot);
     OutWriteStr("</rt></ruby>"); """+c_switch2+br""" }
 static void o2(int numBytes,const char *annot,const char *title) {"""+c_switch3+br"""
     s();
     OutWriteStr("<ruby title=\""); OutWriteDecompress(title);
-    OutWriteStr("\"><rb>");
-    for(;numBytes;numBytes--)
-      OutWriteByte(NEXT_COPY_BYTE);
+    OutWriteStr("\"><rb>"); cp(numBytes);
     OutWriteStr("</rb><rt>"); OutWriteDecompressP(annot);
     OutWriteStr("</rt></ruby>"); """+c_switch4+b"}"
 
@@ -1205,7 +1204,13 @@ if zlib: c_end += b"  if(!data) init();\n"
 c_end += br"""  while(!FINISHED) {
     POSTYPE oldPos=THEPOS;
     topLevelMatch();
-    if (oldPos==THEPOS) { needSpace=0; OutWriteByte(NEXTBYTE); COPY_BYTE_SKIP; }
+    if (oldPos==THEPOS) { needSpace=0;
+        """+c_switch3+br"""unsigned char C=(NEXTBYTE);
+        switch(C) { case '<': OutWriteStr("&lt;");  break;
+                case '&': OutWriteStr("&amp;"); break;
+                default:  OutWriteByte(C); }
+        """+(b"} else " if c_switch3 else b"")+br"""
+        OutWriteByte(NEXTBYTE); COPY_BYTE_SKIP; }
   }
 }"""
 
@@ -2825,7 +2830,7 @@ public boolean n(byte[] bytes) {
   }
   return false;
 }
-public void o(byte c) { outBuf.write(c); }
+public void o(byte c) { if(c=='<') o("&lt;"); else if(c=='&') o("&amp;"); else outBuf.write(c); }
 public void o(byte[] a) { outBuf.write(a,0,a.length); }
 public void o(String s) { o(s2b(s)); }
 public void s() {
@@ -3428,7 +3433,7 @@ function s() {
   if (needSpace) output.push(" ");
   else needSpace=1; // for after the word we're about to write (if no intervening bytes cause needSpace=0)
 }
-
+function htmlEsc(i) { return i.replace(/&/g,"&amp;").replace(/</g,"&lt;") }
 function readData() {
     var sPos = new Array(), c;
     while(1) {
@@ -3469,14 +3474,13 @@ js_start += br""" else switch(c) {
             case 70: if(needSpace) { output.push(' '); needSpace=0; } break;
             case 71: case 74: {
               var numBytes = (data.charCodeAt(dPtr++)-34)&0xFF;
-              var base = input.slice(copyP, copyP + numBytes);
-              output.push(base);
+              output.push(htmlEsc(input.slice(copyP, copyP + numBytes)));
               copyP += numBytes;
               if(c==74) return; break; }
             case 72: case 75: {
               var numBytes = (data.charCodeAt(dPtr++)-34)&0xFF;
               var annot = readRefStr();
-              var base = input.slice(copyP, copyP + numBytes); copyP += numBytes;
+              var base = htmlEsc(input.slice(copyP, copyP + numBytes)); copyP += numBytes;
               s();"""
 if glossfile: js_start += br"""
               switch (numLines) {
@@ -3507,7 +3511,7 @@ if glossfile: js_start += br"""
               var numBytes = (data.charCodeAt(dPtr++)-34)&0xFF;
               var annot = readRefStr();
               var title = readRefStr();
-              var base = input.slice(copyP, copyP + numBytes); copyP += numBytes;
+              var base = htmlEsc(input.slice(copyP, copyP + numBytes)); copyP += numBytes;
               s();
               switch (numLines) {
                 case 1:
@@ -3563,7 +3567,7 @@ js_start += br"""
 while(p < inputLength) {
 var oldPos=p;
 dPtr=1;readData();
-if (oldPos==p) { needSpace=0; output.push(input.charAt(p++)); copyP++; }
+if (oldPos==p) { needSpace=0; output.push(htmlEsc(input.charAt(p++))); copyP++; }
 }
 output=decodeURIComponent(escape(output.join("")));"""
 if known_characters: js_start += br"""
@@ -3578,7 +3582,7 @@ js_start += br"""; // from UTF-8 back to Unicode
 if post_normalise: js_start += b',\nnChars:(Object.fromEntries?Object.fromEntries:function(e){o={};Object.keys(e).forEach(function(k){[k,v]=e[k];o[k]=v});return o})(function(){var t="'+js_escapeRawBytes(u''.join(unichr(c) for c in post_normalise.values()))+b'".split("");return "'+js_escapeRawBytes(u''.join(unichr(c) for c in post_normalise.keys()))+b'".split("").map(function(e,i){return [e,t[i]]})}())'
 if known_characters: js_start += b",\nhFreq: "+knownCharsGroupsArray
 if not browser_extension: js_start += b",\n" # data: ... \n goes here (browser_extension reads it from annotate-dat.txt instead)
-if post_normalise: js_start = js_start.replace(b"input.slice(copyP",b"origInBytes.slice(copyP").replace(b"push(input.charAt",b"push(origInBytes.charAt")
+if post_normalise: js_start = js_start.replace(b"input.slice(copyP",b"origInBytes.slice(copyP").replace(b"push(htmlEsc(input.charAt",b"push(htmlEsc(origInBytes.charAt")
 js_end = br"""};
 function annotate(input"""
 if sharp_multi: js_end += b",aType"
@@ -3757,6 +3761,7 @@ dart_src += br"""
   int addrLen=data.codeUnitAt(0),dPtr;
   bool needSpace; StringBuffer output;
   int p, copyP; List<int> inBytes; int inputLength;
+  String htmlEsc(String s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;');
   String annotate(String input"""
 if sharp_multi: dart_src += br""",[int aType=0]"""
 dart_src += br""") {
@@ -3767,7 +3772,7 @@ dart_src += br""") {
     while(p < inputLength) {
       int oldPos=p;
       dPtr=1;_readData();
-      if (oldPos==p) { needSpace=false; output.write(String.fromCharCode(inBytes[p++])); copyP++; }
+      if (oldPos==p) { needSpace=false; output.write(htmlEsc(String.fromCharCode(inBytes[p++]))); copyP++; }
     }
     return Utf8Decoder().convert(output.toString().codeUnits)"""
 if sharp_multi: dart_src += br""".replaceAllMapped(new RegExp("(</r[bt]><r[bt]>)"+"[^#]*#"*"""+annotMap("aType",True)+br"""+"(.*?)(#.*?)?</r"),(Match m)=>"${m[1]}${m[2]}</r")"""
@@ -3816,12 +3821,12 @@ dart_src += br"""
         case 70: if(needSpace) { output.write(" "); needSpace=false; } break;
         case 71: case 74: {
           int numBytes = data.codeUnitAt(dPtr++);
-  output.write(String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)));
+  output.write(htmlEsc(String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes))));
   copyP += numBytes; if(c==74) return; break; }
         case 72: case 75: {
           int numBytes = data.codeUnitAt(dPtr++);
           String annot = _readRefStr();
-          String base = String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)); copyP += numBytes;
+          String base = htmlEsc(String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes))); copyP += numBytes;
           _s();
           switch (numLines) {
             case 1:
@@ -3847,7 +3852,7 @@ dart_src += br"""
           int numBytes = data.codeUnitAt(dPtr++);
           String annot = _readRefStr();
           String title = _readRefStr();
-          String base = String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes)); copyP += numBytes;
+          String base = htmlEsc(String.fromCharCodes(inBytes.sublist(copyP,copyP+numBytes))); copyP += numBytes;
           _s();
           switch (numLines) {
             case 1:
@@ -3944,9 +3949,12 @@ class Annotator:
     self.dPtr = 1 ; self.readData()
     if oldPos == self.p:
       self.needSpace=0
-      self.output.append(inStr[self.p:self.p+1])
+      self.output.append(self.h(inStr[self.p:self.p+1]))
       self.p += 1 ; self.copyP += 1
   return b"".join(self.output)
+ def h(self,s):
+  if self.startA.startswith(b"<"): return s.replace(b'&',b'&amp;').replace(b'<',b'&lt;')
+  else: return s
  def readAddr(self):
   addr = 0
   for i in range(self.addrLen):
@@ -3989,7 +3997,7 @@ class Annotator:
     elif d==71 or d==74:
       numBytes = ord(data[self.dPtr:self.dPtr+1])
       self.dPtr += 1
-      out.append(self.inStr[self.copyP:self.copyP+numBytes])
+      out.append(self.h(self.inStr[self.copyP:self.copyP+numBytes]))
       self.copyP += numBytes
       if d==74: return
     elif d==72 or d==75:
@@ -3999,7 +4007,7 @@ class Annotator:
       self.s()
       if self.startA:
         out.append(self.startA)
-        out.append(self.inStr[self.copyP:self.copyP+numBytes])
+        out.append(self.h(self.inStr[self.copyP:self.copyP+numBytes]))
       self.copyP += numBytes
       out.append(self.midA) ; out.append(annot)
       out.append(self.endA)
@@ -4012,11 +4020,11 @@ class Annotator:
       self.s()
       if self.startA==b"{": # omit title in braces mode
         out.append(self.startA)
-        out.append(self.inStr[self.copyP:self.copyP+numBytes])
+        out.append(self.h(self.inStr[self.copyP:self.copyP+numBytes]))
       elif self.startA:
         out.append(b"<ruby title=\"");out.append(title)
         out.append(b"\"><rb>");
-        out.append(self.inStr[self.copyP:self.copyP+numBytes])
+        out.append(self.h(self.inStr[self.copyP:self.copyP+numBytes]))
       self.copyP += numBytes
       out.append(self.midA) ; out.append(annot)
       out.append(self.endA)
@@ -4100,9 +4108,7 @@ static void readData() {
       dPtr = readAddr(); break; }
     case 70: s0(); break;
     case 71: case 74: /* copyBytes */ {
-      int numBytes=*dPtr++;
-      for(;numBytes;numBytes--)
-        OutWriteByte(NEXT_COPY_BYTE);
+      cp(*dPtr++);
       if(c==74) return; else break; }
     case 72: case 75: /* o */ {
       int numBytes=*dPtr++;

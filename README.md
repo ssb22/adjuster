@@ -684,8 +684,8 @@ This will need a separate process for each concurrent request. ​On older set
 
 in `.htaccess` (and ensure `AllowOverride All` is set in the config files) to send all requests to the CGI, which should then import adjuster from outside the webspace (e.g. by adding to `sys.path` first), but it’s not necessary to send other requests to the CGI if you set submitPath to the CGI’s path plus `?` and want only the 'enter your own text’ functionality.
 
-Options for Annotator Generator v3.429
-======================================
+Options for Annotator Generator v3.43
+=====================================
 
 `-h`, `--help`
  : show this help message and exit
