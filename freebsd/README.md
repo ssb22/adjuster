@@ -25,3 +25,8 @@ duscussion on [issue 294940](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=2
 
 Update to version 3.249 [committed](https://cgit.freebsd.org/ports/commit/?id=a2ba42cb3a8cafce2439a5ce726217deeed6e447),
 duscussion on [issue 298094](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=298094)
+(also [pushed to 2026Q3](https://cgit.freebsd.org/ports/commit/?id=7a2116677d2ccac2b405bf5a140a8e769bf548a9) to catch the security update below)
+
+Update to version 3.25 aka 3.250 with annogen 3.43 [committed](https://cgit.freebsd.org/ports/commit/?id=a205e4a71a0739d64baddf2b65e9334eba6d59e2)
+(also [to 2026Q3](https://cgit.freebsd.org/ports/commit/?id=18359cd460da5a7ce405b6d95df48e0ff9542952) as it's security-related),
+discussion on [issue 298818](https://bugs.freebsd.org/bugzilla/show_bug.cgi?id=298818)

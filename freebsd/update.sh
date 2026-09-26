@@ -38,7 +38,9 @@ if [ "$(uname -s)" = "FreeBSD" ] ; then
     pkg info portlint || pkg install -y portlint
     grep DEVELOPER=yes /etc/make.conf 2>/dev/null || echo 'DEVELOPER=yes' >> /etc/make.conf
     if ! [ -f /usr/ports/Mk/bsd.port.mk ] ; then mkdir -p /usr/ports; git clone --depth 1 https://github.com/freebsd/freebsd-ports /usr/ports/.; fi # use the mirror to save upstream bandwidth: we're not going to push from here
-    mkdir -p /usr/ports/www/adjuster/
+    OldV=$(grep -m1 '^DISTVERSION=' /usr/ports/www/adjuster/Makefile | cut -wf2)
+    NewV=$(grep -m1 '^DISTVERSION=' Makefile | cut -wf2)
+    [ "$(pkg version -t "$NewV" "$OldV")" != "<" ] || { set +x;echo;echo "ERROR: FreeBSD will interpret DISTVERSION $NewV as being before old version $OldV, try git tag v$(echo $NewV|sed -e 's/-.*//')0 and git push --tags?"; exit 1; }
     cp Makefile pkg-descr /usr/ports/www/adjuster/
     OldDir=$(pwd)
     cd /usr/ports/www/adjuster/
@@ -51,17 +53,18 @@ if [ "$(uname -s)" = "FreeBSD" ] ; then
     rm -rf work
     git add *
     git commit * -m "www/adjuster '"$(grep -m 1 '^"Web' $OldDir/../adjuster.py|cut -d ' ' -f3)
-    cd /usr/ports
-    git format-patch --stdout -1 > $OldDir/adjuster.mbox
+    git -C /usr/ports format-patch --stdout -1 > $OldDir/adjuster.mbox
 else
     # assume we can ssh to the FreeBSD box as root
     ssh freebsd "pkg info portlint || pkg install -y portlint"
     ssh freebsd "grep DEVELOPER=yes /etc/make.conf 2>/dev/null || echo 'DEVELOPER=yes' >> /etc/make.conf"
     ssh freebsd "if ! [ -e .gitconfig ]; then git config --global user.name 'Silas S. Brown'; git config --global user.email ssb22$(echo @)cam.ac.uk ; git config --global pull.rebase false ; fi"
-ssh freebsd mkdir -p /usr/ports/www/adjuster/
+OldV=$(ssh freebsd "grep -m1 '^DISTVERSION=' /usr/ports/www/adjuster/Makefile | cut -wf2")
+NewV=$(grep -m1 '^DISTVERSION=' Makefile | sed -e $'s/.*\t//') # no cut -w on MacOS 10.7
+[ "$(ssh freebsd pkg version -t "$NewV" "$OldV")" != "<" ] || { set +x;echo;echo "ERROR: FreeBSD will interpret DISTVERSION $NewV as being before old version $OldV, try git tag v$(echo $NewV|sed -e 's/-.*//')0 and git push --tags?"; exit 1; }
 scp Makefile pkg-descr freebsd:/usr/ports/www/adjuster/
-ssh freebsd 'cd /usr/ports/www/adjuster/ && rm -rf work distinfo && make makesum && portlint -A && (make deinstall || true) && make install && rm -rf work && git add * && git commit * -m "www/adjuster '"$(grep -m 1 '^"Web' ../adjuster.py|cut -d ' ' -f3)"'"'
-ssh freebsd 'cd /usr/ports && git format-patch --stdout -1' > adjuster.mbox
+ssh freebsd 'cd /usr/ports/www/adjuster/ && rm -rf work distinfo && make makesum && rm -rf work && portlint -A && (make deinstall || true) && make install && rm -rf work && git add * && git commit * -m "www/adjuster '"$(grep -m 1 '^"Web' ../adjuster.py|cut -d ' ' -f3)"'"'
+ssh freebsd git -C /usr/ports format-patch --stdout -1 > adjuster.mbox
 fi
 echo "adjuster.mbox to https://bugs.freebsd.org/bugzilla/enter_bug.cgi (as attachment with Content Type set to Patch: use Choose File not copy-paste)"
-echo "If the diff is wrong and we need to re-run update.sh after a change, first do: ssh freebsd 'cd /usr/ports;git reset --hard HEAD~1'"
+echo "If the diff is wrong and we need to re-run update.sh after a change, first do: ssh freebsd git -C /usr/ports reset --hard HEAD~1"
