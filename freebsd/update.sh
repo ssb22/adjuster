@@ -27,8 +27,8 @@ export Tags=$(
          git fetch --unshallow >/dev/null &&
          git describe --tags
     ) | sed -e s/v//)
-echo "DISTVERSION=		$(echo "$Tags"|sed -e 's/-[^-]*$//')" >> m
-if echo "$Tags"|grep '\-' >/dev/null; then echo "DISTVERSIONSUFFIX=	$(echo "$Tags"|sed -e 's/.*\(-[^-]*\)$/\1/')" >> m; fi # else we're at a version point without extra commits
+echo "DISTVERSION=		$(echo "$Tags"|sed -e 's/-.*//')" >> m
+if echo "$Tags"|grep '\-' >/dev/null; then echo "DISTVERSIONSUFFIX=	$(echo "$Tags"|sed -e 's/.*-/-/')" >> m; fi # else we're at a version point without extra commits
 grep -v ^DIST < Makefile | grep -v ^PORTNAME >> m
 mv m Makefile
 
@@ -40,7 +40,7 @@ if [ "$(uname -s)" = "FreeBSD" ] ; then
     if ! [ -f /usr/ports/Mk/bsd.port.mk ] ; then mkdir -p /usr/ports; git clone --depth 1 https://github.com/freebsd/freebsd-ports /usr/ports/.; fi # use the mirror to save upstream bandwidth: we're not going to push from here
     OldV=$(grep -m1 '^DISTVERSION=' /usr/ports/www/adjuster/Makefile | cut -wf2)
     NewV=$(grep -m1 '^DISTVERSION=' Makefile | cut -wf2)
-    [ "$(pkg version -t "$NewV" "$OldV")" != "<" ] || { set +x;echo;echo "ERROR: FreeBSD will interpret DISTVERSION $NewV as being before old version $OldV, try git tag v$(echo $NewV|sed -e 's/-.*//')0 and git push --tags?"; exit 1; }
+    [ "$(pkg version -t "$NewV" "$OldV")" != "<" ] || { set +x;echo;echo "ERROR: FreeBSD will interpret DISTVERSION $NewV as being before old version $OldV, try git tag v${NewV}0 and git push --tags?"; exit 1; }
     cp Makefile pkg-descr /usr/ports/www/adjuster/
     OldDir=$(pwd)
     cd /usr/ports/www/adjuster/
