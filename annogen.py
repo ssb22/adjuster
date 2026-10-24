@@ -742,7 +742,7 @@ _annotateRL.argtypes = [c_char_p"""
     r = _annotateRL(txt"""
     if sharp_multi: c_preamble += b",aType"
     c_preamble += br""")
-    _afree() ; return r.replace('&','&amp;').replace('<','&lt;')"""
+    _afree() ; return r.replace(b'&',b'&amp;').replace(b'<',b'&lt;')"""
   c_preamble += b"\ndef annotate(txt"
   if sharp_multi: c_preamble += b",aType=0"
   c_preamble += br""",aMode=1):
