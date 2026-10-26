@@ -2,7 +2,7 @@
 # (can be run in either Python 2 or Python 3;
 # has been tested with Tornado versions 2 through 6)
 
-"Web Adjuster v3.25 (c) 2012-26 Silas S. Brown"
+"Web Adjuster v3.251 (c) 2012-26 Silas S. Brown"
 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -158,7 +158,7 @@ else: # normal run: go ahead with Tornado import
             func(*args,**kwargs)
         def readUntilClose(s,onLast,onChunk):
             try: s.read_until_close(onLast,onChunk)
-            except: onLast("")
+            except: onLast(b"")
     except ImportError: # Tornado 6 requires us to write coroutines instead (finish() always called), so let's emulate the old behaviour
         def doCallback(req,func,callback,*args,**kwargs):
             theFuture = func(*args,**kwargs)
@@ -174,16 +174,16 @@ else: # normal run: go ahead with Tornado import
         def readUntilClose(s,onLast,onChunk):
             def getResult(f):
                 try: r = f.result()
-                except:
+                except: # usually tornado.iostream.StreamClosedError
                     if debug_connections: print ("readUntilClose getResult exception: calling onLast")
-                    onLast("") ; return
+                    onLast(b"") ; return
                 try: onChunk(r)
                 except: logging.error("readUntilClose onChunk unhandled exception")
                 readUntilClose(s,onLast,onChunk)
             try: s.read_bytes(10240,True).add_done_callback(getResult)
             except tornado.iostream.StreamClosedError: # some Tornado versions can throw to here if was already closed at start ?
                 if debug_connections: print ("readUntilClose was immediately closed: calling onLast")
-                onLast("") ; return
+                onLast(b"") ; return
         from tornado import gen
         def asynchronous(func):
             @gen.coroutine
@@ -1206,6 +1206,7 @@ class BrowserLogger:
     self.lastIp = self.lastMethodStuff = None
   def __call__(self,req):
     if req.request.remote_ip in options.ipNoLog: return
+    elif options.cgi and options.stdio: return
     try: ch = req.cookie_host()
     except: ch = None # shouldn't happen
     req=req.request
@@ -1691,8 +1692,8 @@ def setup_stdio():
     global StdinPass,StdinPending,FirstLine
     StdinPass,StdinPending,FirstLine = None,[],True
     def doStdin(fd,events):
-        if fd==None: l=B(os.environ.get('REQUEST_METHOD','GET')+" "+os.environ.get('REQUEST_URI','/')+" HTTP/1.0"+"".join("\r\n"+key[5:].replace('_','-').title()+": "+val for key,val in os.environ.items() if key.startswith("HTTP_"))+"".join("\r\n"+key.replace('_','-').title()+": "+val for key,val in os.environ.items() if key in ['CONTENT_TYPE','CONTENT_LENGTH'] and val)+"\r\n\r\n")
-        else: l=os.read(fd,1024) # read 1 line or 1024 bytes (TODO: double-check this can never block)
+        if fd==None: l=B(os.environ.get('REQUEST_METHOD','GET')+" "+os.environ.get('REQUEST_URI','/')+" "+("HTTP/1.1" if os.environ.get("SERVER_PROTOCOL",None)=="HTTP/1.1" else "HTTP/1.0")+"".join("\r\n"+key[5:].replace('_','-').title()+": "+val for key,val in os.environ.items() if key.startswith("HTTP_") and not key in ["HTTP_CONNECTION","HTTP_ACCEPT_ENCODING"])+"".join("\r\n"+key.replace('_','-').title()+": "+val for key,val in os.environ.items() if key in ['CONTENT_TYPE','CONTENT_LENGTH'] and val)+"\r\nConnection: close\r\n\r\n")
+        else: l=os.read(fd,1024) # read 1 line or 1024 bytes (shouldn't block because called only when fd avail)
         if not l: # EOF (but don't close stdout yet)
             IOLoopInstance().remove_handler(sys.stdin.fileno())
             return
@@ -1705,12 +1706,14 @@ def setup_stdio():
             def ClearPending(): del StdinPending[:]
             def WriteOut(s):
                 global FirstLine
-                if options.cgi and FirstLine: # assumes HTTP/1.x response line not split across buffer size
-                    s=re.sub(b"^HTTP/[^ ]+",b"Status:",s,1)
-                    FirstLine = False
+                if options.cgi and FirstLine:
+                    s=(b"" if FirstLine==True else FirstLine)+s;s2=re.sub(b"^HTTP/[^ ]+",b"Status:",s,1)
+                    if s==s2: # maybe buffer split before status sent
+                        FirstLine=s ; return
+                    s,FirstLine = s2,False
                 try: sys.stdout.buffer.write(s)
-                except: sys.stdout.write(s)
-            doCallback(None,StdinPass.connect,lambda *args:(StdinPass.write(B('').join(StdinPending)),ClearPending(),readUntilClose(StdinPass,lambda last:(WriteOut(last),sys.stdout.close()),WriteOut)),(options.address, port_randomise.get(options.port,options.port)))
+                except AttributeError: sys.stdout.write(s)
+            doCallback(None,StdinPass.connect,lambda *args:(StdinPass.write(B('').join(StdinPending)),ClearPending(),readUntilClose(StdinPass,lambda last:(WriteOut(last),sys.stdout.flush(),(sys.exit if options.cgi else lambda *x:0)()),WriteOut)),(options.address, port_randomise.get(options.port,options.port)))
     if options.cgi: doStdin(None,0)
     IOLoopInstance().add_handler(sys.stdin.fileno(), doStdin, IOLoop.READ)
 
@@ -1720,6 +1723,7 @@ def setup_stdio():
 # --------------------------------------------------
 
 def banner(delayed=False):
+    if options.cgi and options.stdio: return # don't want it in Apache error.log
     ret = [twoline_program_name]
     if options.port:
         if options.port==-1:
@@ -1772,6 +1776,7 @@ def announceShutdown0():
     if options.background:
         logging.info("Server shutdown")
         if options.pidfile: unlink(options.pidfile)
+    elif options.cgi and options.stdio: pass
     else: sys.stderr.write("Adjuster shutdown\n")
 
 def main():
@@ -2883,6 +2888,8 @@ the_supported_methods = ("GET", "HEAD", "POST", "PUT", "QUERY", "DELETE", "PATCH
 # Don't support PROPFIND (from WebDAV) unless be careful about how to handle image requests with it
 # TODO: image requests with OPTIONS ?
 
+def b64decode(s): return base64.b64decode(B(s)+(b"="*(-len(s)%4)))
+
 class RequestForwarder(RequestHandler):
     
     def get_error_html(self,status,**kwargs): return htmlhead("Web Adjuster error")+options.errorHTML+"</body></html>" # Tornado 2.0
@@ -3526,7 +3533,7 @@ document.write('<a href="javascript:location.reload(true)">refreshing this page<
                 elif txt[0]=='u': return self.serve_backend_post(filterNo)
                 elif txt[0] in 'iap':
                     return self.doResponse2(android_ios_instructions(txt[0],self.request.host,self.request.headers.get("User-Agent",""),filterNo),"noFilterOptions",False) # on Android and iOS, 'def bookmarklet' gives instruction_url#javascript:bookmarklet_code, so serve instructions here
-            txt = zlib.decompressobj().decompress(base64.b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
+            txt = zlib.decompressobj().decompress(b64decode(txt),16834) # limit to 16k to avoid zip bombs (limit is also in the compress below)
             self.request.uri = "%s (input not logged, len=%d)" % (options.submitPath,len(txt))
         else: txt = self.request.arguments.get("i",None)
         if not txt:
@@ -5203,6 +5210,7 @@ def stopServer(reason=None):
             # logging from signal handler is not safe, so we
             # defer it until this inner function is called
             if options.background: logging.info(reason)
+            elif options.cgi and options.stdio: pass
             else: sys.stderr.write(reason+"\n")
         IOLoopInstance().stop()
     if reason.startswith("SIG") and hasattr(IOLoopInstance(),"add_callback_from_signal"): IOLoopInstance().add_callback_from_signal(stop)
@@ -6125,7 +6133,7 @@ def imgDecode(code):
     if len(code)==1: return code
     elif len(code) <= 3: return unichr(int(code,16))
     elif code.startswith("_"): return unichr(int(code[1:],16)) # (see TODO above)
-    else: return base64.b64decode(code).decode('utf-8','replace')
+    else: return b64decode(code).decode('utf-8','replace')
 
 #@file: ping.py
 # --------------------------------------------------
